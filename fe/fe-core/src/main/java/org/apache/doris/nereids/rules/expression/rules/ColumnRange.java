@@ -138,4 +138,12 @@ public class ColumnRange {
     public static ColumnRange range(Literal lower, BoundType lowerType, Literal upper, BoundType upperType) {
         return new ColumnRange(ColumnBound.range(lower, lowerType, upper, upperType));
     }
+
+    public ColumnRange withLowerBound(Literal lower) {
+        return this.intersect(atLeast(lower));
+    }
+
+    public ColumnRange withUpperBound(Literal upper) {
+        return this.intersect(atMost(upper));
+    }
 }

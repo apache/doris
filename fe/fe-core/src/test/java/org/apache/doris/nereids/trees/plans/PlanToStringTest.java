@@ -84,15 +84,14 @@ public class PlanToStringTest {
         Assertions.assertTrue(
                 plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
                         + "indexName=<index_not_selected>, "
-                        + "selectedIndexId=-1, preAgg=ON \\)"));
+                        + "selectedIndexId=-1, preAgg=UNSET \\)"));
     }
 
     @Test
     public void testLogicalProject(@Mocked Plan child) {
         LogicalProject<Plan> plan = new LogicalProject<>(ImmutableList.of(
                 new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList())), child);
-
-        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+], excepts=\\[] \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalProject\\[\\d+\\] \\( distinct=false, projects=\\[a#\\d+] \\)"));
     }
 
     @Test

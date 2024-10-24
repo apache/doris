@@ -18,16 +18,14 @@ import org.apache.commons.lang3.StringUtils
 // under the License.
 
 suite("one_level_nestedtypes_with_s3data") {
-    sql """set enable_nereids_planner=false"""
-    sql """ set enable_fallback_to_original_planner=true;"""
-    // this test case aim to test one-level nested type with s3 data
-
-
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
+    sql """ set enable_nereids_timeout=false; """
+    sql """ set max_scan_key_num = 48 """
+    sql """ set max_pushdown_conditions_per_column=1024 """
 
     def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
 //    def dataFilePath = "/mnt/disk1/wangqiannan/export/ol"
@@ -56,7 +54,10 @@ suite("one_level_nestedtypes_with_s3data") {
         }
     }
 
-    def be_id = 10139
+    List<List<Object>> backends =  sql """ show backends """
+    assertTrue(backends.size() > 0)
+    def be_id = backends[0][0]
+
     def load_from_tvf = {table_name, uri_file, format ->
         if (format == "csv") {
             order_qt_sql_tvf """select * from local(
@@ -85,8 +86,6 @@ suite("one_level_nestedtypes_with_s3data") {
             "column_separator"="|",
             "format" = "${format}"); """
         }
-        // where to filter different format data
-        qt_select_doris """ select * from ${table_name} where k1 IS NOT NULL order by k1 limit 10; """
     }
     def load_from_s3 = {table_name, uri_file, format ->
         if (format == "csv") {
@@ -95,6 +94,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.access_key"= "${ak}",
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
+                    "provider" = "${getS3Provider()}",
                     "column_separator"="|",
                     "read_json_by_line"="true") order by c1 limit 10; """
 
@@ -105,6 +105,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
                     "column_separator"="|",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true"); """
         } else {
             order_qt_sql_s3 """select * from s3(
@@ -112,6 +113,7 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.access_key"= "${ak}",
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true") order by k1 limit 10; """
 
             sql """
@@ -120,10 +122,9 @@ suite("one_level_nestedtypes_with_s3data") {
                     "s3.access_key"= "${ak}",
                     "s3.secret_key" = "${sk}",
                     "format" = "${format}",
+                    "provider" = "${getS3Provider()}",
                     "read_json_by_line"="true"); """
         }
-        // where to filter different format data
-        qt_select_doris """ select * from ${table_name} where k1 IS NOT NULL order by k1 limit 10; """
     }
 
     // step1. create table

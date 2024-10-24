@@ -58,6 +58,9 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                          std::is_same_v<Request, GetTabletRequest>) {
         VLOG_DEBUG << "begin " << func_name << " from " << ctrl->remote_side()
                    << " request=" << req->ShortDebugString();
+    } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
+                  << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
     } else {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
                   << " request=" << req->ShortDebugString();
@@ -109,6 +112,7 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     case TxnErrorCode::TXN_CONFLICT:
         return MetaServiceCode::KV_TXN_CONFLICT;
     case TxnErrorCode::TXN_TOO_OLD:
+        return MetaServiceCode::KV_TXN_TOO_OLD;
     case TxnErrorCode::TXN_RETRYABLE_NOT_COMMITTED:
         if (config::enable_txn_store_retry) {
             if constexpr (category == ErrCategory::READ) {
@@ -123,9 +127,6 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     case TxnErrorCode::TXN_TIMEOUT:
     case TxnErrorCode::TXN_INVALID_ARGUMENT:
     case TxnErrorCode::TXN_UNIDENTIFIED_ERROR:
-    case TxnErrorCode::TXN_KEY_TOO_LARGE:
-    case TxnErrorCode::TXN_VALUE_TOO_LARGE:
-    case TxnErrorCode::TXN_BYTES_TOO_LARGE:
         if constexpr (category == ErrCategory::READ) {
             return MetaServiceCode::KV_TXN_GET_ERR;
         } else if constexpr (category == ErrCategory::CREATE) {
@@ -133,6 +134,11 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         } else {
             return MetaServiceCode::KV_TXN_COMMIT_ERR;
         }
+        [[fallthrough]];
+    case TxnErrorCode::TXN_KEY_TOO_LARGE:
+    case TxnErrorCode::TXN_VALUE_TOO_LARGE:
+    case TxnErrorCode::TXN_BYTES_TOO_LARGE:
+        return MetaServiceCode::INVALID_ARGUMENT;
     default:
         return MetaServiceCode::UNDEFINED_ERR;
     }

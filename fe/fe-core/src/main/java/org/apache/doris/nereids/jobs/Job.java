@@ -34,16 +34,14 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableSet;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Abstract class for all job using for analyze and optimize query plan in Nereids.
@@ -57,7 +55,7 @@ public abstract class Job implements TracerSupplier {
     protected JobType type;
     protected JobContext context;
     protected boolean once;
-    protected final Set<Integer> disableRules;
+    protected final BitSet disableRules;
 
     protected Map<CTEId, Statistics> cteIdToStats;
 
@@ -129,8 +127,7 @@ public abstract class Job implements TracerSupplier {
                 groupExpression.getOwnerGroup(), groupExpression, groupExpression.getPlan()));
     }
 
-    public static Set<Integer> getDisableRules(JobContext context) {
-        return context.getCascadesContext().getAndCacheSessionVariable(
-                SessionVariable.DISABLE_NEREIDS_RULES, ImmutableSet.of(), SessionVariable::getDisableNereidsRules);
+    public static BitSet getDisableRules(JobContext context) {
+        return context.getCascadesContext().getAndCacheDisableRules();
     }
 }

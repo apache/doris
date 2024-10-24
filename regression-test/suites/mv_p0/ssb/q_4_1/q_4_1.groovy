@@ -18,9 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("mv_ssb_q_4_1") {
-
-    sql """set enable_nereids_planner=false"""
-
     sql """ DROP TABLE IF EXISTS lineorder_flat; """
 
     sql """
@@ -66,14 +63,6 @@ suite ("mv_ssb_q_4_1") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`LO_ORDERDATE`, `LO_ORDERKEY`)
         COMMENT "OLAP"
-        PARTITION BY RANGE(`LO_ORDERDATE`)
-        (PARTITION p1992 VALUES [("-2147483648"), ("19930101")),
-        PARTITION p1993 VALUES [("19930101"), ("19940101")),
-        PARTITION p1994 VALUES [("19940101"), ("19950101")),
-        PARTITION p1995 VALUES [("19950101"), ("19960101")),
-        PARTITION p1996 VALUES [("19960101"), ("19970101")),
-        PARTITION p1997 VALUES [("19970101"), ("19980101")),
-        PARTITION p1998 VALUES [("19980101"), ("19990101")))
         DISTRIBUTED BY HASH(`LO_ORDERKEY`) BUCKETS 48
         PROPERTIES (
         "replication_num" = "1",
@@ -101,8 +90,9 @@ suite ("mv_ssb_q_4_1") {
 
     qt_select_star "select * from lineorder_flat order by 1, 2, P_MFGR;"
 
-    explain {
-        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+    sql """analyze table lineorder_flat with sync;"""
+
+    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
                 SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
                 FROM lineorder_flat
@@ -111,9 +101,7 @@ suite ("mv_ssb_q_4_1") {
                 AND S_REGION = 'AMERICA'
                 AND P_MFGR IN ('MFGR#1', 'MFGR#2')
                 GROUP BY YEAR, C_NATION
-                ORDER BY YEAR ASC, C_NATION ASC;""")
-        contains "(lineorder_q_4_1)"
-    }
+                ORDER BY YEAR ASC, C_NATION ASC;""", "lineorder_q_4_1")
     qt_select_mv """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
                 SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
@@ -124,7 +112,7 @@ suite ("mv_ssb_q_4_1") {
                 AND P_MFGR IN ('MFGR#1', 'MFGR#2')
                 GROUP BY YEAR, C_NATION
                 ORDER BY YEAR ASC, C_NATION ASC;"""
-
+    
     sql""" drop materialized view lineorder_q_4_1 on lineorder_flat; """
 
     qt_select """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,

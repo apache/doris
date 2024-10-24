@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeMetaVersion;
-import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
@@ -123,18 +122,6 @@ public class TablePattern implements Writable, GsonPostProcessable {
         if ((!tbl.equals("*") && (db.equals("*") || ctl.equals("*")))
                 || (!db.equals("*") && ctl.equals("*"))) {
             throw new AnalysisException("Do not support format: " + toString());
-        }
-
-        if (!ctl.equals("*")) {
-            FeNameFormat.checkCatalogName(ctl);
-        }
-
-        if (!db.equals("*")) {
-            FeNameFormat.checkDbName(db);
-        }
-
-        if (!tbl.equals("*")) {
-            FeNameFormat.checkTableName(tbl);
         }
         isAnalyzed = true;
     }

@@ -45,7 +45,7 @@ import java.util.Optional;
  * e.g.
  * ALTER TABLE stats_test.example_tbl SET STATS ('row_count'='6001215');
  */
-public class AlterTableStatsStmt extends DdlStmt {
+public class AlterTableStatsStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET =
             new ImmutableSet.Builder<StatsType>()
@@ -97,8 +97,9 @@ public class AlterTableStatsStmt extends DdlStmt {
 
     @Override
     public void checkPriv() throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.ALTER)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                        tableName.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());

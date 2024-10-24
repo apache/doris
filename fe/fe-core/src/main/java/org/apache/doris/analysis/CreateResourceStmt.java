@@ -33,7 +33,7 @@ import java.util.Map;
 
 // CREATE [EXTERNAL] RESOURCE resource_name
 // PROPERTIES (key1 = value1, ...)
-public class CreateResourceStmt extends DdlStmt {
+public class CreateResourceStmt extends DdlStmt implements NotFallbackInParser {
     private static final String TYPE = "type";
 
     private final boolean isExternal;
@@ -67,22 +67,7 @@ public class CreateResourceStmt extends DdlStmt {
         return resourceType;
     }
 
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-
-        // check auth
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
-        }
-
-        // check name
-        FeNameFormat.checkResourceName(resourceName, ResourceTypeEnum.GENERAL);
-
-        // check type in properties
-        if (properties == null || properties.isEmpty()) {
-            throw new AnalysisException("Resource properties can't be null");
-        }
+    public void analyzeResourceType() throws UserException {
         String type = properties.get(TYPE);
         if (type == null) {
             throw new AnalysisException("Resource type can't be null");
@@ -101,6 +86,26 @@ public class CreateResourceStmt extends DdlStmt {
     }
 
     @Override
+    public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
+
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+        }
+
+        // check name
+        FeNameFormat.checkResourceName(resourceName, ResourceTypeEnum.GENERAL);
+
+        // check type in properties
+        if (properties == null || properties.isEmpty()) {
+            throw new AnalysisException("Resource properties can't be null");
+        }
+
+        analyzeResourceType();
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE ");
@@ -115,5 +120,10 @@ public class CreateResourceStmt extends DdlStmt {
     @Override
     public boolean needAuditEncryption() {
         return true;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

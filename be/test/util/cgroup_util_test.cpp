@@ -23,23 +23,56 @@
 
 #include <fstream>
 
+#include "common/cgroup_memory_ctl.h"
 #include "gtest/gtest_pred_impl.h"
+#include "testutil/test_util.h"
+#include "util/cgroup_util.h"
 
 namespace doris {
 
 class CGroupUtilTest : public ::testing::Test {
 protected:
     CGroupUtilTest() {}
-    virtual ~CGroupUtilTest() {}
+    ~CGroupUtilTest() override = default;
 };
+
+TEST_F(CGroupUtilTest, ReadMetrics) {
+    std::string dir_path = GetCurrentRunningDir();
+    std::string memory_limit_in_bytes_path(dir_path);
+    memory_limit_in_bytes_path += "/util/test_data/memory.limit_in_bytes";
+    int64_t value;
+    auto st = CGroupUtil::read_int_line_from_cgroup_file(memory_limit_in_bytes_path, &value);
+    EXPECT_TRUE(st.ok());
+    EXPECT_EQ(6291456000, value);
+
+    std::string memory_stat_path(dir_path);
+    memory_stat_path += "/util/test_data/memory.stat";
+    std::unordered_map<std::string, int64_t> metrics_map;
+    CGroupUtil::read_int_metric_from_cgroup_file(memory_stat_path, metrics_map);
+    EXPECT_EQ(5443584, metrics_map["inactive_file"]);
+    EXPECT_EQ(0, metrics_map["rss"]);
+
+    std::string error_memory_limit_in_bytes_path(dir_path);
+    error_memory_limit_in_bytes_path += "/util/test_data/Zzz/memory.limit_in_bytes";
+    int64_t error_value;
+    auto st2 = CGroupUtil::read_int_line_from_cgroup_file(error_memory_limit_in_bytes_path,
+                                                          &error_value);
+    EXPECT_FALSE(st2.ok());
+
+    std::string error_memory_stat_path(dir_path);
+    error_memory_stat_path += "/util/test_data/Zzz/memory.stat";
+    std::unordered_map<std::string, int64_t> error_metrics_map;
+    CGroupUtil::read_int_metric_from_cgroup_file(error_memory_stat_path, error_metrics_map);
+    EXPECT_TRUE(error_metrics_map.empty());
+}
+
 TEST_F(CGroupUtilTest, memlimit) {
-    int64_t bytes;
-    float cpu_counts;
-    CGroupUtil cgroup_util;
-    LOG(INFO) << cgroup_util.debug_string();
-    Status status1 = cgroup_util.find_cgroup_mem_limit(&bytes);
-    Status status2 = cgroup_util.find_cgroup_cpu_limit(&cpu_counts);
-    if (cgroup_util.enable()) {
+    LOG(INFO) << CGroupMemoryCtl::debug_string();
+    int64_t mem_limit;
+    int64_t mem_usage;
+    auto status1 = CGroupMemoryCtl::find_cgroup_mem_limit(&mem_limit);
+    auto status2 = CGroupMemoryCtl::find_cgroup_mem_usage(&mem_usage);
+    if (CGroupUtil::cgroupsv1_enable() || CGroupUtil::cgroupsv2_enable()) {
         std::ifstream file("/proc/self/cgroup");
         if (file.peek() == std::ifstream::traits_type::eof()) {
             EXPECT_FALSE(status1.ok());

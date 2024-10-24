@@ -34,7 +34,7 @@ import java.util.Set;
  * syntax:
  *     CANCEL LOAD [FROM db] WHERE load_label (= "xxx" | LIKE "xxx")
  **/
-public class CancelLoadStmt extends DdlStmt {
+public class CancelLoadStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final Set<String> SUPPORT_COLUMNS = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
 
@@ -171,6 +171,11 @@ public class CancelLoadStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CANCEL;
     }
 
 }

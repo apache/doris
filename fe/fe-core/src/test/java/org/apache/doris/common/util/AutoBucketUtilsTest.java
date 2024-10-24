@@ -18,6 +18,7 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.persist.EditLog;
@@ -63,7 +64,7 @@ public class AutoBucketUtilsTest {
     private static void createClusterWithBackends(int beNum, int diskNum, long diskCapacity) throws Exception {
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, beNum);
         // must set disk info, or the tablet scheduler won't work
-        backends = Env.getCurrentSystemInfo().getAllBackends();
+        backends = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList();
         for (Backend be : backends) {
             setDiskInfos(diskNum, diskCapacity, be);
         }
@@ -101,7 +102,7 @@ public class AutoBucketUtilsTest {
     }
 
     private void expectations(Env env, EditLog editLog, SystemInfoService systemInfoService,
-            ImmutableMap<Long, Backend> backends) {
+            ImmutableMap<Long, Backend> backends) throws AnalysisException {
         new Expectations() {
             {
                 Env.getServingEnv();
@@ -112,7 +113,7 @@ public class AutoBucketUtilsTest {
                 minTimes = 0;
                 result = systemInfoService;
 
-                systemInfoService.getAllBackendsMap();
+                systemInfoService.getAllBackendsByAllCluster();
                 minTimes = 0;
                 result = backends;
 

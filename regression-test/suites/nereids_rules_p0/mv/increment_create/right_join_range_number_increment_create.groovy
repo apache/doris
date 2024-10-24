@@ -21,7 +21,6 @@ suite("right_join_range_number_increment_create") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_materialized_view_rewrite=false"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists orders_right_3
@@ -95,7 +94,7 @@ suite("right_join_range_number_increment_create") {
     (3, 1, 'o', 99.5, 'a', null, 1, 'yy', '2023-10-22'),
     (1, 3, 'k', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
     (2, 1, 'k', 109.2, 'c','d',2, null, '2023-10-18'),
-    (3, 2, 'o', 99.5, 'a', 'b', 1, 'yy', 'null'),
+    (3, 2, 'o', 99.5, 'a', 'b', 1, 'yy', null),
     (4, 5, 'o', 99.5, 'a', 'b', 1, 'yy', '2023-10-19'); 
     """
 
@@ -106,7 +105,7 @@ suite("right_join_range_number_increment_create") {
     (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
     (1, 2, 3, null, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
     (2, 3, 2, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-18'),
-    (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', 'null'),
+    (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', null),
     (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
     """
 
@@ -133,7 +132,7 @@ suite("right_join_range_number_increment_create") {
         """
     }
     def refresh_mv = {
-        sql """refresh MATERIALIZED VIEW ${mv_name}"""
+        sql """refresh MATERIALIZED VIEW ${mv_name} AUTO"""
     }
     def delete_mv = {
         sql """DROP MATERIALIZED VIEW ${mv_name};"""
@@ -246,6 +245,27 @@ suite("right_join_range_number_increment_create") {
         on lineitem_right_3.l_orderkey = orders_right_3.o_orderkey 
         group by l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey"""
 
+    def mv_sql_13 = """select l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey, 
+        count(t.O_ORDERDATE) over (partition by lineitem_right_3.L_SHIPDATE order by lineitem_right_3.L_ORDERKEY) as window_count 
+        from lineitem_right_3 
+        right join (select O_ORDERDATE, o_orderkey, count(O_ORDERDATE) over (partition by O_ORDERDATE order by o_orderkey) from orders_right_3 group by O_ORDERDATE, o_orderkey) as t
+        on lineitem_right_3.l_orderkey = t.o_orderkey 
+        group by l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey"""
+
+    def mv_sql_14 = """select l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey, 
+        count(t.O_ORDERDATE) over (partition by lineitem_right_3.l_orderkey order by lineitem_right_3.l_orderkey) as window_count
+        from lineitem_right_3
+        right join (select O_ORDERDATE, o_orderkey, count(O_ORDERDATE) over (partition by O_ORDERDATE order by o_orderkey) from orders_right_3 group by O_ORDERDATE, o_orderkey) as t
+        on lineitem_right_3.l_orderkey = t.o_orderkey
+        group by l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey"""
+
+    def mv_sql_15 = """select l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey, 
+        count(t.O_ORDERDATE) over (order by lineitem_right_3.l_orderkey) as window_count 
+        from lineitem_right_3 
+        right join (select O_ORDERDATE, o_orderkey, count(O_ORDERDATE) over (partition by O_ORDERDATE order by o_orderkey) from orders_right_3 group by O_ORDERDATE, o_orderkey) as t 
+        on lineitem_right_3.l_orderkey = t.o_orderkey 
+        group by l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey"""
+
     // window func + right col
     def mv_sql_10 = """select l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey, 
         count(orders_right_3.O_ORDERDATE) over (partition by orders_right_3.O_ORDERDATE order by lineitem_right_3.L_ORDERKEY) as window_count 
@@ -267,6 +287,27 @@ suite("right_join_range_number_increment_create") {
         right join orders_right_3 
         on lineitem_right_3.l_orderkey = orders_right_3.o_orderkey 
         group by l_shipdate, l_orderkey, O_ORDERDATE, o_orderkey"""
+
+    def mv_sql_16 = """select l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey, 
+        count(t.O_ORDERDATE) over (partition by t.O_ORDERDATE order by lineitem_right_3.L_ORDERKEY) as window_count 
+        from lineitem_right_3 
+        right join (select O_ORDERDATE, o_orderkey, count(O_ORDERDATE) over (partition by O_ORDERDATE order by o_orderkey) from orders_right_3 group by O_ORDERDATE, o_orderkey) as t 
+        on lineitem_right_3.l_orderkey = t.o_orderkey 
+        group by l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey"""
+
+    def mv_sql_17 = """select l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey, 
+        count(t.O_ORDERDATE) over (partition by t.o_orderkey order by lineitem_right_3.l_orderkey) as window_count
+        from lineitem_right_3
+        right join (select O_ORDERDATE, o_orderkey, count(O_ORDERDATE) over (partition by O_ORDERDATE order by o_orderkey) from orders_right_3 group by O_ORDERDATE, o_orderkey) as t
+        on lineitem_right_3.l_orderkey = t.o_orderkey
+        group by l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey"""
+
+    def mv_sql_18 = """select l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey, 
+        count(t.O_ORDERDATE) over (order by lineitem_right_3.l_orderkey) as window_count 
+        from lineitem_right_3 
+        right join (select O_ORDERDATE, o_orderkey, count(O_ORDERDATE) over (partition by O_ORDERDATE order by o_orderkey) from orders_right_3 group by O_ORDERDATE, o_orderkey) as t 
+        on lineitem_right_3.l_orderkey = t.o_orderkey 
+        group by l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey"""
 
     def compare_res = { def stmt ->
         def origin_res = sql stmt
@@ -318,57 +359,64 @@ suite("right_join_range_number_increment_create") {
         }
     }
 
-    def sql_all_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
+    def sql_all_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
+                        mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     def sql_increment_list = []
-    def sql_complete_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_11]
+    def sql_complete_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_11, mv_sql_17]
 
     // change left table data
     // create mv base on left table with partition col
-    def sql_error_list = [mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_12]
+    def sql_error_list = [mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_12, mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_18]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col, primary_tb_change, is_complete_change)
 
     // create mv base on left table with no partition col
-    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
+    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
+                      mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_not_part_col, primary_tb_change, is_complete_change)
 
     // create mv base on right table with partition col
-    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
+    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
+                      mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     sql_increment_list = []
     sql_complete_list = []
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col_right, primary_tb_change, is_complete_change_right)
 
     // create mv base on right table with no partition col
-    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
+    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
+                      mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_not_part_col_right, primary_tb_change, is_complete_change)
 
     // change right table data
     // create mv base on left table with partition col
-    sql_error_list = [mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_12]
-    sql_increment_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_11]
+    sql_error_list = [mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_12, mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_18]
+    sql_increment_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_11, mv_sql_17]
     sql_complete_list = []
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col, slave_tb_change, is_complete_change)
 
     // create mv base on left table with no partition col
-    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
+    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
+                      mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     sql_increment_list = []
     sql_complete_list = []
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_not_part_col, slave_tb_change, is_complete_change)
 
     // create mv base on right table with partition col
-    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
+    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
+                      mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     sql_increment_list = []
     sql_complete_list = []
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col_right, slave_tb_change, is_complete_change)
 
     // create mv base on right table with no partition col
-    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12]
+    sql_error_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_11, mv_sql_12,
+                      mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_17, mv_sql_18]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_not_part_col_right, slave_tb_change, is_complete_change)
 

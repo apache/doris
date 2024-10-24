@@ -36,7 +36,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class ShowReplicaStatusStmt extends ShowStmt {
+public class ShowReplicaStatusStmt extends ShowStmt implements NotFallbackInParser {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("TabletId").add("ReplicaId").add("BackendId").add("Version").add("LastFailedVersion")
             .add("LastSuccessVersion").add("CommittedVersion").add("SchemaHash").add("VersionNum")

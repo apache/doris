@@ -36,7 +36,7 @@ public:
     Status finalize();
 
     Status append_blocks(const PBlockArray& blocks);
-    Status append_header(uint32_t version, std::string col_ids);
+    Status append_header(std::string col_ids);
 
     std::string file_name() { return _file_name; };
 

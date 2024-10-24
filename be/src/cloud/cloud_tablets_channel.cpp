@@ -59,15 +59,20 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
     _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
 
     std::unordered_set<int64_t> partition_ids;
-    for (auto& [tablet_id, _] : tablet_to_rowidxs) {
-        auto tablet_writer_it = _tablet_writers.find(tablet_id);
-        if (tablet_writer_it == _tablet_writers.end()) {
-            return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+    {
+        // add_batch may concurrency with inc_open but not under _lock.
+        // so need to protect it with _tablet_writers_lock.
+        std::lock_guard<SpinLock> l(_tablet_writers_lock);
+        for (auto& [tablet_id, _] : tablet_to_rowidxs) {
+            auto tablet_writer_it = _tablet_writers.find(tablet_id);
+            if (tablet_writer_it == _tablet_writers.end()) {
+                return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
+            }
+            partition_ids.insert(tablet_writer_it->second->partition_id());
         }
-        partition_ids.insert(tablet_writer_it->second->partition_id());
-    }
-    if (!partition_ids.empty()) {
-        RETURN_IF_ERROR(_init_writers_by_partition_ids(partition_ids));
+        if (!partition_ids.empty()) {
+            RETURN_IF_ERROR(_init_writers_by_partition_ids(partition_ids));
+        }
     }
 
     return _write_block_data(request, cur_seq, tablet_to_rowidxs, response);
@@ -103,8 +108,6 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         return _close_status;
     }
 
-    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
-              << ", backend id: " << req.backend_id();
     for (auto pid : req.partition_ids()) {
         _partition_ids.emplace(pid);
     }
@@ -112,6 +115,10 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     _closed_senders.Set(sender_id, true);
     _num_remaining_senders--;
     *finished = (_num_remaining_senders == 0);
+
+    LOG(INFO) << "close tablets channel: " << _key << ", sender id: " << sender_id
+              << ", backend id: " << req.backend_id()
+              << " remaining sender: " << _num_remaining_senders;
 
     if (!*finished) {
         return Status::OK();
@@ -122,7 +129,7 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
     _state = kFinished;
 
     // All senders are closed
-    // 1. close all delta writers
+    // 1. close all delta writers. under _lock.
     std::vector<CloudDeltaWriter*> writers_to_commit;
     writers_to_commit.reserve(_tablet_writers.size());
     bool success = true;

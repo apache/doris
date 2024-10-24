@@ -42,7 +42,11 @@ public abstract class StringRegexPredicate extends ScalarFunction
     );
 
     protected StringRegexPredicate(String name, List<Expression> children) {
-        super(name, children);
+        this(name, children, false);
+    }
+
+    protected StringRegexPredicate(String name, List<Expression> children, boolean inferred) {
+        super(name, children, inferred);
     }
 
     @Override

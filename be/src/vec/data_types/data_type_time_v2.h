@@ -81,8 +81,16 @@ public:
         }
     }
     bool equals(const IDataType& rhs) const override;
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
+        DataTypeNumberBase<UInt32>::template to_string_batch_impl<DataTypeDateV2>(column,
+                                                                                  column_to);
+    }
+
+    size_t number_length() const;
+    void push_number(ColumnString::Chars& chars, const UInt32& num) const;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    std::string to_string(UInt32 int_val) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
     MutableColumnPtr create_column() const override;
@@ -106,7 +114,7 @@ public:
 
     DataTypeDateTimeV2(UInt32 scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > 6)) {
-            LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
     }
 
@@ -124,7 +132,15 @@ public:
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
+    void to_string_batch(const IColumn& column, ColumnString& column_to) const final {
+        DataTypeNumberBase<UInt64>::template to_string_batch_impl<DataTypeDateTimeV2>(column,
+                                                                                      column_to);
+    }
+
+    size_t number_length() const;
+    void push_number(ColumnString::Chars& chars, const UInt64& num) const;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
+    std::string to_string(UInt64 int_val) const;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<DataTypeDateTimeV2SerDe>(_scale, nesting_level);

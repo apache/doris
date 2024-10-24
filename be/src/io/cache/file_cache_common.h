@@ -31,7 +31,6 @@ inline static constexpr size_t DEFAULT_DISPOSABLE_PERCENT = 10;
 inline static constexpr size_t DEFAULT_INDEX_PERCENT = 5;
 
 using uint128_t = vectorized::UInt128;
-using UInt128Hash = vectorized::UInt128Hash;
 
 enum class FileCacheType {
     INDEX,
@@ -50,14 +49,28 @@ struct UInt128Wrapper {
     bool operator==(const UInt128Wrapper& other) const { return value_ == other.value_; }
 };
 
+class BlockFileCache;
+struct FileBlocksHolder;
+using FileBlocksHolderPtr = std::unique_ptr<FileBlocksHolder>;
+
+struct FileCacheAllocatorBuilder {
+    bool _is_cold_data;
+    uint64_t _expiration_time;
+    UInt128Wrapper _cache_hash;
+    BlockFileCache* _cache; // Only one ref, the lifetime is owned by FileCache
+    FileBlocksHolderPtr allocate_cache_holder(size_t offset, size_t size) const;
+};
+
 struct KeyHash {
-    std::size_t operator()(const UInt128Wrapper& w) const { return UInt128Hash()(w.value_); }
+    std::size_t operator()(const UInt128Wrapper& w) const {
+        return util_hash::HashLen16(w.value_.low(), w.value_.high());
+    }
 };
 
 using AccessKeyAndOffset = std::pair<UInt128Wrapper, size_t>;
 struct KeyAndOffsetHash {
     std::size_t operator()(const AccessKeyAndOffset& key) const {
-        return UInt128Hash()(key.first.value_) ^ std::hash<uint64_t>()(key.second);
+        return KeyHash()(key.first) ^ std::hash<uint64_t>()(key.second);
     }
 };
 
@@ -82,12 +95,17 @@ struct FileCacheSettings {
     size_t query_queue_elements {0};
     size_t max_file_block_size {0};
     size_t max_query_cache_size {0};
+    std::string storage;
+
+    // to string
+    std::string to_string() const;
 };
 
 FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cache_size,
                                           size_t normal_percent = DEFAULT_NORMAL_PERCENT,
                                           size_t disposable_percent = DEFAULT_DISPOSABLE_PERCENT,
-                                          size_t index_percent = DEFAULT_INDEX_PERCENT);
+                                          size_t index_percent = DEFAULT_INDEX_PERCENT,
+                                          const std::string& storage = "disk");
 
 struct CacheContext {
     CacheContext(const IOContext* io_context) {

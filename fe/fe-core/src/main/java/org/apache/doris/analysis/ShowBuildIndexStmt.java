@@ -45,7 +45,7 @@ import java.util.List;
 // syntax:
 //      SHOW BUILD INDEX [FROM db] [WHERE <condition>]
 //          [ORDER BY [DESC|ASC] [NULLS LAST |  NULLS FIRST]]] [ LIMIT 1, 100]
-public class ShowBuildIndexStmt extends ShowStmt {
+public class ShowBuildIndexStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowBuildIndexStmt.class);
 
     private String dbName;

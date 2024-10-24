@@ -18,7 +18,7 @@
 suite("test_restore_mix_exists_and_new_table", "backup_restore") {
     String dbName = "restore_mix_exists_and_new_table"
     String suiteName = "test_restore_mix_exists_and_new_table"
-    String repoName = "${suiteName}_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String snapshotName = "${suiteName}_snapshot"
     String tableNamePrefix = "${suiteName}_tables"
 
@@ -60,9 +60,7 @@ suite("test_restore_mix_exists_and_new_table", "backup_restore") {
         ON (${tables.join(",")})
     """
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
 
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
@@ -83,9 +81,7 @@ suite("test_restore_mix_exists_and_new_table", "backup_restore") {
         )
     """
 
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
 
     for (def tableName in tables) {
         result = sql "SELECT * FROM ${dbName}.${tableName}"

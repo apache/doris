@@ -16,6 +16,8 @@
 // under the License.
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
 
 suite ("test_dup_rollup_schema_change") {
     def getMVJobState = { tableName ->
@@ -27,18 +29,13 @@ suite ("test_dup_rollup_schema_change") {
          return jobStateResult[0][9]
     }
     def waitForMVJob =  (tbName, timeout) -> {
-        while (timeout--){
+       Awaitility.await().atMost(timeout, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
             String result = getMVJobState(tbName)
             if (result == "FINISHED") {
-                sleep(3000)
-                break
-            } else {
-                sleep(100)
-                if (timeout < 1){
-                    assertEquals(1,2)
-                }
+                return true;
             }
-        }
+            return false;
+        });
     }
 
     def tableName = "schema_change_dup_rollup_regression_test"
@@ -49,21 +46,6 @@ suite ("test_dup_rollup_schema_change") {
         def backendId_to_backendHttpPort = [:]
         getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
-        backend_id = backendId_to_backendIP.keySet()[0]
-        def (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        
-        logger.info("Show config: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def configList = parseJson(out.trim())
-        assert configList instanceof List
-
-        boolean disableAutoCompaction = true
-        for (Object ele in (List) configList) {
-            assert ele instanceof List<String>
-            if (((List<String>) ele)[0] == "disable_auto_compaction") {
-                disableAutoCompaction = Boolean.parseBoolean(((List<String>) ele)[2])
-            }
-        }
         sql """ DROP TABLE IF EXISTS ${tableName} """
 
         sql """
@@ -197,9 +179,7 @@ suite ("test_dup_rollup_schema_change") {
 
         // wait for all compactions done
         for (String[] tablet in tablets) {
-                boolean running = true
-                do {
-                    Thread.sleep(100)
+           Awaitility.await().untilAsserted(() -> {
                     String tablet_id = tablet[0]
                     backend_id = tablet[2]
                     (code, out, err) = be_get_compaction_status(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
@@ -207,8 +187,8 @@ suite ("test_dup_rollup_schema_change") {
                     assertEquals(code, 0)
                     def compactionStatus = parseJson(out.trim())
                     assertEquals("success", compactionStatus.status.toLowerCase())
-                    running = compactionStatus.run_status
-                } while (running)
+                    return compactionStatus.run_status;
+                });
         }
 
         qt_sc """ select count(*) from ${tableName} """

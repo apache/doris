@@ -48,6 +48,12 @@ add_cloud_be() {
         return
     fi
 
+    # Check if SQL_MODE_NODE_MGR is set to 1
+    if [ "$SQL_MODE_NODE_MGR" -eq 1 ]; then
+        health_log "SQL_MODE_NODE_MGR is set to 1, skipping cluster creation"
+        return
+    fi
+
     cluster_file_name="${DORIS_HOME}/conf/CLUSTER_NAME"
     cluster_name=$(cat $cluster_file_name)
     if [ -z $cluster_name ]; then
@@ -146,7 +152,9 @@ add_be_to_cluster() {
     fi
 
     if [ "${IS_CLOUD}" == "1" ]; then
-        add_cloud_be
+        if [ "${REG_BE_TO_MS}" == "1" ]; then
+            add_cloud_be
+        fi
     else
         add_local_be
     fi
@@ -165,7 +173,7 @@ main() {
     add_be_to_cluster
 
     health_log "run start_be.sh"
-    bash $DORIS_HOME/bin/start_be.sh --daemon
+    bash $DORIS_HOME/bin/start_be.sh --daemon | tee -a $DORIS_HOME/log/be.out
 
     wait_process
 }

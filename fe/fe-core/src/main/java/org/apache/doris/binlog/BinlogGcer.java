@@ -58,7 +58,7 @@ public class BinlogGcer extends MasterDaemon {
         try {
             List<BinlogTombstone> tombstones = Env.getCurrentEnv().getBinlogManager().gc();
             if (tombstones != null && !tombstones.isEmpty()) {
-                LOG.info("tomebstones size: {}", tombstones.size());
+                LOG.info("tombstones size: {}", tombstones.size());
             } else {
                 LOG.info("no gc binlog");
                 return;
@@ -158,7 +158,7 @@ public class BinlogGcer extends MasterDaemon {
                     for (Tablet tablet : tablets) {
                         List<Replica> replicas = tablet.getReplicas();
                         for (Replica replica : replicas) {
-                            long beId = replica.getBackendId();
+                            long beId = replica.getBackendIdWithoutException();
                             long signature = -1;
                             BinlogGcTask binlogGcTask = null;
                             if (beBinlogGcTaskMap.containsKey(beId)) {

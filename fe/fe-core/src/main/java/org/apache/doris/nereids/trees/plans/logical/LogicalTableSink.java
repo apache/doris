@@ -17,11 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.util.Utils;
 
 import java.util.List;
 import java.util.Optional;
@@ -30,14 +33,18 @@ import java.util.Optional;
  * Logical table sink for all table type sink
  */
 public abstract class LogicalTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE> {
-    public LogicalTableSink(PlanType type,
-            List<NamedExpression> outputExprs, CHILD_TYPE child) {
-        super(type, outputExprs, child);
-    }
+    protected final List<Column> cols;
 
     public LogicalTableSink(PlanType type, List<NamedExpression> outputExprs,
             Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+            Optional<LogicalProperties> logicalProperties, List<Column> cols, CHILD_TYPE child) {
         super(type, outputExprs, groupExpression, logicalProperties, child);
+        this.cols = Utils.copyRequiredList(cols);
+    }
+
+    public abstract TableIf getTargetTable();
+
+    public List<Column> getCols() {
+        return cols;
     }
 }

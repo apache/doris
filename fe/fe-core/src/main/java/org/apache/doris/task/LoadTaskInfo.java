@@ -25,8 +25,10 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 
@@ -107,7 +109,15 @@ public interface LoadTaskInfo {
 
     List<String> getHiddenColumns();
 
-    boolean isPartialUpdate();
+    boolean isFixedPartialUpdate();
+
+    default TUniqueKeyUpdateMode getUniqueKeyUpdateMode() {
+        return TUniqueKeyUpdateMode.UPSERT;
+    }
+
+    default boolean isFlexiblePartialUpdate() {
+        return false;
+    }
 
     default boolean getTrimDoubleQuotes() {
         return false;
@@ -126,11 +136,13 @@ public interface LoadTaskInfo {
     }
 
     default int getStreamPerNode() {
-        return 20;
+        return 2;
     }
 
     class ImportColumnDescs {
+        @SerializedName("des")
         public List<ImportColumnDesc> descs = Lists.newArrayList();
+        @SerializedName("icdr")
         public boolean isColumnDescsRewrited = false;
 
         public List<String> getFileColNames() {

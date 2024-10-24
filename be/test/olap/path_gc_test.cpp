@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <gen_cpp/Types_types.h>
 #include <gtest/gtest.h>
 
 #include <random>
@@ -45,7 +44,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
     ASSERT_TRUE(st.ok()) << st;
 
     StorageEngine engine({});
-    DataDir data_dir(engine, dir_path, -1, TStorageMedium::HDD);
+    DataDir data_dir(engine, dir_path);
     st = data_dir._init_meta();
     ASSERT_TRUE(st.ok()) << st;
 
@@ -82,23 +81,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
         ASSERT_TRUE(st.ok()) << st;
     }
 
-    // Test path scan
-    auto paths = data_dir._perform_path_scan();
-    ASSERT_EQ(paths.size(), 20);
-
     // Test tablet gc
-    config::path_gc_check_step = 0;
-    data_dir._perform_path_gc_by_tablet(paths);
-    ASSERT_EQ(paths.size(), 10);
-    std::vector<std::string_view> expected_paths;
-    for (auto&& tablet : active_tablets) {
-        expected_paths.emplace_back(tablet->tablet_path());
-    }
-    std::sort(expected_paths.begin(), expected_paths.end());
-    std::sort(paths.begin(), paths.end());
-    for (size_t i = 0; i < paths.size(); ++i) {
-        EXPECT_EQ(paths[i], expected_paths[i]);
-    }
 
     // Prepare rowsets
     auto rng = std::default_random_engine {static_cast<uint32_t>(::time(nullptr))};
@@ -109,8 +92,8 @@ TEST(PathGcTest, GcTabletAndRowset) {
         rowset_meta->set_tablet_id(tablet->tablet_id());
         rowset_meta->set_tablet_uid(tablet->tablet_uid());
         rowset_meta->set_rowset_id(engine.next_rowset_id());
-        return std::make_shared<BetaRowset>(tablet->tablet_schema(), tablet->tablet_path(),
-                                            std::move(rowset_meta));
+        return std::make_shared<BetaRowset>(tablet->tablet_schema(), std::move(rowset_meta),
+                                            tablet->tablet_path());
     };
     // tablet_id -> filenames
     std::unordered_map<int64_t, std::vector<std::string>> expected_rowset_files;
@@ -118,25 +101,25 @@ TEST(PathGcTest, GcTabletAndRowset) {
         auto& filenames = expected_rowset_files[rs.rowset_meta()->tablet_id()];
         std::unique_ptr<io::FileWriter> writer;
         auto filename = fmt::format("{}_{}.dat", rs.rowset_id().to_string(), 0);
-        RETURN_IF_ERROR(fs->create_file(rs._rowset_dir + '/' + filename, &writer));
+        RETURN_IF_ERROR(fs->create_file(rs.tablet_path() + '/' + filename, &writer));
         if (!is_garbage) {
             filenames.push_back(std::move(filename));
         }
         RETURN_IF_ERROR(writer->close());
         filename = fmt::format("{}_{}_{}.idx", rs.rowset_id().to_string(), 0, 987);
-        RETURN_IF_ERROR(fs->create_file(rs._rowset_dir + '/' + filename, &writer));
+        RETURN_IF_ERROR(fs->create_file(rs.tablet_path() + '/' + filename, &writer));
         if (!is_garbage) {
             filenames.push_back(std::move(filename));
         }
         RETURN_IF_ERROR(writer->close());
         filename = fmt::format("{}_{}.dat", rs.rowset_id().to_string(), 1);
-        RETURN_IF_ERROR(fs->create_file(rs._rowset_dir + '/' + filename, &writer));
+        RETURN_IF_ERROR(fs->create_file(rs.tablet_path() + '/' + filename, &writer));
         if (!is_garbage) {
             filenames.push_back(std::move(filename));
         }
         RETURN_IF_ERROR(writer->close());
         filename = fmt::format("{}_{}_{}.idx", rs.rowset_id().to_string(), 1, 987);
-        RETURN_IF_ERROR(fs->create_file(rs._rowset_dir + '/' + filename, &writer));
+        RETURN_IF_ERROR(fs->create_file(rs.tablet_path() + '/' + filename, &writer));
         if (!is_garbage) {
             filenames.push_back(std::move(filename));
         }
@@ -186,7 +169,7 @@ TEST(PathGcTest, GcTabletAndRowset) {
     }
 
     // Test rowset gc
-    data_dir._perform_path_gc_by_rowset(paths);
+    data_dir.perform_path_gc();
     for (auto&& t : active_tablets) {
         std::vector<io::FileInfo> files;
         bool exists;

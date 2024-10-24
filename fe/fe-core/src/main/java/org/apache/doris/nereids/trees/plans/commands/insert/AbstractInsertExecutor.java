@@ -20,8 +20,11 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -35,6 +38,7 @@ import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.task.LoadEtlTask;
 import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TStatusCode;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -46,7 +50,9 @@ import java.util.Optional;
  * The derived class should implement the abstract method for certain type of target table
  */
 public abstract class AbstractInsertExecutor {
+    protected static final long INVALID_TXN_ID = -1L;
     private static final Logger LOG = LogManager.getLogger(AbstractInsertExecutor.class);
+
     protected long jobId;
     protected final ConnectContext ctx;
     protected final Coordinator coordinator;
@@ -59,18 +65,21 @@ public abstract class AbstractInsertExecutor {
 
     protected String errMsg = "";
     protected Optional<InsertCommandContext> insertCtx;
+    protected final boolean emptyInsert;
+    protected long txnId = INVALID_TXN_ID;
 
     /**
      * Constructor
      */
     public AbstractInsertExecutor(ConnectContext ctx, TableIf table, String labelName, NereidsPlanner planner,
-            Optional<InsertCommandContext> insertCtx) {
+            Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         this.ctx = ctx;
         this.coordinator = EnvFactory.getInstance().createCoordinator(ctx, null, planner, ctx.getStatsErrorEstimator());
         this.labelName = labelName;
         this.table = table;
         this.database = table.getDatabase();
         this.insertCtx = insertCtx;
+        this.emptyInsert = emptyInsert;
     }
 
     public Coordinator getCoordinator() {
@@ -89,6 +98,10 @@ public abstract class AbstractInsertExecutor {
         return labelName;
     }
 
+    public long getTxnId() {
+        return txnId;
+    }
+
     /**
      * begin transaction if necessary
      */
@@ -102,7 +115,7 @@ public abstract class AbstractInsertExecutor {
     /**
      * Do something before exec
      */
-    protected abstract void beforeExec();
+    protected abstract void beforeExec() throws UserException;
 
     /**
      * Do something after exec finished
@@ -121,11 +134,13 @@ public abstract class AbstractInsertExecutor {
 
     protected final void execImpl(StmtExecutor executor, long jobId) throws Exception {
         String queryId = DebugUtil.printId(ctx.queryId());
+        this.jobId = jobId;
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
         executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);
+        executor.updateProfile(false);
         coordinator.exec();
         int execTimeout = ctx.getExecTimeout();
         if (LOG.isDebugEnabled()) {
@@ -133,7 +148,7 @@ public abstract class AbstractInsertExecutor {
         }
         boolean notTimeout = coordinator.join(execTimeout);
         if (!coordinator.isDone()) {
-            coordinator.cancel();
+            coordinator.cancel(new Status(TStatusCode.CANCELLED, "insert timeout"));
             if (notTimeout) {
                 errMsg = coordinator.getExecStatus().getErrorMsg();
                 ErrorReport.reportDdlException("there exists unhealthy backend. "
@@ -159,36 +174,48 @@ public abstract class AbstractInsertExecutor {
         }
     }
 
-    private boolean checkStrictMode() {
+    private void checkStrictModeAndFilterRatio() throws Exception {
         // if in strict mode, insert will fail if there are filtered rows
         if (ctx.getSessionVariable().getEnableInsertStrict()) {
             if (filteredRows > 0) {
-                ctx.getState().setError(ErrorCode.ERR_FAILED_WHEN_INSERT,
-                        "Insert has filtered data in strict mode, tracking_url=" + coordinator.getTrackingUrl());
-                return false;
+                ErrorReport.reportDdlException("Insert has filtered data in strict mode",
+                        ErrorCode.ERR_FAILED_WHEN_INSERT);
+            }
+        } else {
+            if (filteredRows > ctx.getSessionVariable().getInsertMaxFilterRatio() * (filteredRows + loadedRows)) {
+                ErrorReport.reportDdlException("Insert has too many filtered data %d/%d insert_max_filter_ratio is %f",
+                        ErrorCode.ERR_FAILED_WHEN_INSERT, filteredRows, filteredRows + loadedRows,
+                        ctx.getSessionVariable().getInsertMaxFilterRatio());
             }
         }
-        return true;
     }
 
     /**
      * execute insert txn for insert into select command.
      */
-    public void executeSingleInsert(StmtExecutor executor, long jobId) {
+    public void executeSingleInsert(StmtExecutor executor, long jobId) throws Exception {
         beforeExec();
         try {
+            executor.updateProfile(false);
             execImpl(executor, jobId);
-            if (!checkStrictMode()) {
-                return;
-            }
+            checkStrictModeAndFilterRatio();
             onComplete();
         } catch (Throwable t) {
             onFail(t);
+            // retry insert into from select when meet E-230 in cloud
+            if (Config.isCloudMode() && t.getMessage().contains(FeConstants.CLOUD_RETRY_E230)) {
+                throw t;
+            }
             return;
         } finally {
+            coordinator.close();
             executor.updateProfile(true);
             QeProcessorImpl.INSTANCE.unregisterQuery(ctx.queryId());
         }
         afterExec(executor);
+    }
+
+    public boolean isEmptyInsert() {
+        return emptyInsert;
     }
 }

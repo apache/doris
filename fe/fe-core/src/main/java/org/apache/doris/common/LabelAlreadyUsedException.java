@@ -30,11 +30,16 @@ public class LabelAlreadyUsedException extends DdlException {
     private String jobStatus;
 
     public LabelAlreadyUsedException(String label) {
-        super("Label [" + label + "] has already been used.");
+        this(label, true);
+    }
+
+    public LabelAlreadyUsedException(String msg, boolean isLabel) {
+        super(isLabel ? "Label [" + msg + "] has already been used." : msg);
     }
 
     public LabelAlreadyUsedException(TransactionState txn) {
-        super("Label [" + txn.getLabel() + "] has already been used, relate to txn [" + txn.getTransactionId() + "]");
+        super("Label [" + txn.getLabel() + "] has already been used, relate to txn [" + txn.getTransactionId()
+                + "], status [" + txn.getTransactionStatus() + "].");
         switch (txn.getTransactionStatus()) {
             case UNKNOWN:
             case PREPARE:

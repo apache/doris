@@ -59,7 +59,7 @@ import java.util.Optional;
  * Note: partition stats injection is mainly convenient for test cost estimation,
  * and can be removed after the related functions are completed.
  */
-public class AlterColumnStatsStmt extends DdlStmt {
+public class AlterColumnStatsStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
             .add(StatsType.ROW_COUNT)
@@ -134,6 +134,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
             throw new AnalysisException(optional.get() + " is invalid statistics");
         }
 
+        if (!properties.containsKey(StatsType.ROW_COUNT.getValue())) {
+            throw new AnalysisException("Set column stats must set row_count. e.g. 'row_count'='5'");
+        }
+
         // get statsTypeToValue
         properties.forEach((key, value) -> {
             StatsType statsType = StatsType.fromString(key);
@@ -143,8 +147,9 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
     @Override
     public void checkPriv() throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.ALTER)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                        tableName.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableName.getDb() + ": " + tableName.getTbl());
@@ -217,5 +222,10 @@ public class AlterColumnStatsStmt extends DdlStmt {
 
     public String getValue(StatsType statsType) {
         return statsTypeToValue.get(statsType);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

@@ -17,16 +17,17 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.spi.Split;
+import org.apache.doris.thrift.TFileType;
 
 import lombok.Data;
-import org.apache.hadoop.fs.Path;
 
 import java.util.List;
 
 @Data
 public class FileSplit implements Split {
-    public Path path;
+    public LocationPath path;
     public long start;
     // length of this split, in bytes
     public long length;
@@ -43,25 +44,28 @@ public class FileSplit implements Split {
     public List<String> partitionValues;
 
     public List<String> alternativeHosts;
+    // the location type for BE, eg: HDFS, LOCAL, S3
+    protected TFileType locationType;
 
-    public FileSplit(Path path, long start, long length, long fileLength,
+    public FileSplit(LocationPath path, long start, long length, long fileLength,
             long modificationTime, String[] hosts, List<String> partitionValues) {
         this.path = path;
         this.start = start;
         this.length = length;
         this.fileLength = fileLength;
-        this.modificationTime = modificationTime;
+        // BE requires modification time to be non-negative.
+        this.modificationTime = modificationTime < 0 ? 0 : modificationTime;
         this.hosts = hosts == null ? new String[0] : hosts;
         this.partitionValues = partitionValues;
-    }
-
-    public FileSplit(Path path, long start, long length, long fileLength,
-            String[] hosts, List<String> partitionValues) {
-        this(path, start, length, fileLength, 0, hosts, partitionValues);
+        this.locationType = path.isBindBroker() ?  TFileType.FILE_BROKER : path.getTFileTypeForBE();
     }
 
     public String[] getHosts() {
         return hosts;
+    }
+
+    public TFileType getLocationType() {
+        return locationType;
     }
 
     @Override
@@ -79,7 +83,8 @@ public class FileSplit implements Split {
         public static final FileSplitCreator DEFAULT = new FileSplitCreator();
 
         @Override
-        public Split create(Path path, long start, long length, long fileLength, long modificationTime, String[] hosts,
+        public Split create(LocationPath path, long start, long length, long fileLength,
+                long modificationTime, String[] hosts,
                 List<String> partitionValues) {
             return new FileSplit(path, start, length, fileLength, modificationTime, hosts, partitionValues);
         }

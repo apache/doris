@@ -26,13 +26,17 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.scheduler.exception.JobException;
@@ -97,9 +101,22 @@ public class ExportMgr {
         try {
             if (dbTolabelToExportJobId.containsKey(job.getDbId())
                     && dbTolabelToExportJobId.get(job.getDbId()).containsKey(job.getLabel())) {
-                throw new LabelAlreadyUsedException(job.getLabel());
+                Long oldJobId = dbTolabelToExportJobId.get(job.getDbId()).get(job.getLabel());
+                ExportJob oldJob = exportIdToJob.get(oldJobId);
+                if (oldJob != null && oldJob.getState() != ExportJobState.CANCELLED) {
+                    throw new LabelAlreadyUsedException(job.getLabel());
+                }
             }
             unprotectAddJob(job);
+            // delete existing files
+            if (Config.enable_delete_existing_files && Boolean.parseBoolean(job.getDeleteExistingFiles())) {
+                if (job.getBrokerDesc() == null) {
+                    throw new AnalysisException("Local file system does not support delete existing files");
+                }
+                String fullPath = job.getExportPath();
+                BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
+                        job.getBrokerDesc());
+            }
             job.getTaskExecutors().forEach(executor -> {
                 Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
                 job.getTaskIdToExecutor().put(taskId, executor);
@@ -122,6 +139,9 @@ public class ExportMgr {
         if (matchExportJobs.isEmpty()) {
             throw new DdlException("All export job(s) are at final state (CANCELLED/FINISHED)");
         }
+
+        // check auth
+        checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, stmt.getDbName(), matchExportJobs);
         try {
             for (ExportJob exportJob : matchExportJobs) {
                 // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
@@ -130,6 +150,29 @@ public class ExportMgr {
             }
         } catch (JobException e) {
             throw new AnalysisException(e.getMessage());
+        }
+    }
+
+    public void checkCancelExportJobAuth(String ctlName, String dbName, List<ExportJob> jobs) throws AnalysisException {
+        if (jobs.size() > 1) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), ctlName, dbName,
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DB_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), dbName);
+            }
+        } else {
+            TableName tableName = jobs.get(0).getTableName();
+            if (tableName == null) {
+                return;
+            }
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkTblPriv(ConnectContext.get(), ctlName, dbName,
+                            tableName.getTbl(),
+                            PrivPredicate.SELECT)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_ACCESS_DENIED_ERROR,
+                        PrivPredicate.SELECT.getPrivs().toString(), tableName.getTbl());
+            }
         }
     }
 
@@ -311,11 +354,11 @@ public class ExportMgr {
                 return false;
             }
             if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                    db.getFullName(), PrivPredicate.SHOW)) {
+                    InternalCatalog.INTERNAL_CATALOG_NAME, db.getFullName(), PrivPredicate.SHOW)) {
                 return false;
             }
         } else {
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getCtl(),
                     tableName.getDb(), tableName.getTbl(),
                     PrivPredicate.SHOW)) {
                 return false;
@@ -355,6 +398,7 @@ public class ExportMgr {
         infoMap.put("tablet_num", job.getTabletsNum());
         infoMap.put("max_file_size", job.getMaxFileSize());
         infoMap.put("delete_existing_files", job.getDeleteExistingFiles());
+        infoMap.put("parallelism", job.getParallelism());
         infoMap.put("data_consistency", job.getDataConsistency());
         jobInfo.add(new Gson().toJson(infoMap));
         // path
@@ -394,7 +438,7 @@ public class ExportMgr {
                 ExportJob job = entry.getValue();
                 if ((currentTimeMs - job.getCreateTimeMs()) / 1000 > Config.history_job_keep_max_second
                         && (job.getState() == ExportJobState.CANCELLED
-                            || job.getState() == ExportJobState.FINISHED)) {
+                        || job.getState() == ExportJobState.FINISHED)) {
                     iter.remove();
                     Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
                     if (labelJobs != null) {
@@ -453,9 +497,10 @@ public class ExportMgr {
         readLock();
         try {
             for (ExportJob job : exportIdToJob.values()) {
-                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
-                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(job.getDbId()).getFullName(),
-                        PrivPredicate.LOAD)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                Env.getCurrentEnv().getCatalogMgr().getDbNullable(job.getDbId()).getFullName(),
+                                PrivPredicate.LOAD)) {
                     continue;
                 }
 

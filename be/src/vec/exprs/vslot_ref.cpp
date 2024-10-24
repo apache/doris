@@ -38,7 +38,11 @@ class VExprContext;
 namespace doris::vectorized {
 
 VSlotRef::VSlotRef(const doris::TExprNode& node)
-        : VExpr(node), _slot_id(node.slot_ref.slot_id), _column_id(-1), _column_name(nullptr) {}
+        : VExpr(node),
+          _slot_id(node.slot_ref.slot_id),
+          _column_id(-1),
+          _column_name(nullptr),
+          _column_label(node.label) {}
 
 VSlotRef::VSlotRef(const SlotDescriptor* desc)
         : VExpr(desc->type(), true, desc->is_nullable()),
@@ -99,9 +103,30 @@ Status VSlotRef::execute(VExprContext* context, Block* block, int* result_column
 const std::string& VSlotRef::expr_name() const {
     return *_column_name;
 }
+std::string VSlotRef::expr_label() {
+    return _column_label;
+}
+
 std::string VSlotRef::debug_string() const {
     std::stringstream out;
     out << "SlotRef(slot_id=" << _slot_id << VExpr::debug_string() << ")";
     return out.str();
 }
+
+bool VSlotRef::equals(const VExpr& other) {
+    if (!VExpr::equals(other)) {
+        return false;
+    }
+    const auto* other_ptr = dynamic_cast<const VSlotRef*>(&other);
+    if (!other_ptr) {
+        return false;
+    }
+    if (this->_slot_id != other_ptr->_slot_id || this->_column_id != other_ptr->_column_id ||
+        this->_column_name != other_ptr->_column_name ||
+        this->_column_label != other_ptr->_column_label) {
+        return false;
+    }
+    return true;
+}
+
 } // namespace doris::vectorized

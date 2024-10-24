@@ -71,10 +71,15 @@ suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "hive_test_partitions"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "${hivePrefix}_test_partitions"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -86,7 +91,16 @@ suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_
 
             q01()
 
-            sql """drop catalog if exists ${catalog_name}"""
+            sql """set num_partitions_in_batch_mode=1"""
+            explain {
+                sql ("select * from partition_table")
+                verbose (true)
+
+                contains "(approximate)inputSplitNum=60"
+            }
+            sql """unset variable num_partitions_in_batch_mode"""
+
+            // sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
     }

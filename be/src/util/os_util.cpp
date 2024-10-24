@@ -83,13 +83,13 @@ Status parse_stat(const std::string& buffer, std::string* name, ThreadStats* sta
 
     int64_t tmp;
     if (safe_strto64(splits[kUserTicks], &tmp)) {
-        stats->user_ns = tmp * (1e9 / kTicksPerSec);
+        stats->user_ns = int64_t(tmp * (1e9 / kTicksPerSec));
     }
     if (safe_strto64(splits[kKernelTicks], &tmp)) {
-        stats->kernel_ns = tmp * (1e9 / kTicksPerSec);
+        stats->kernel_ns = int64_t(tmp * (1e9 / kTicksPerSec));
     }
     if (safe_strto64(splits[kIoWait], &tmp)) {
-        stats->iowait_ns = tmp * (1e9 / kTicksPerSec);
+        stats->iowait_ns = int64_t(tmp * (1e9 / kTicksPerSec));
     }
     if (name != nullptr) {
         *name = extracted_name;

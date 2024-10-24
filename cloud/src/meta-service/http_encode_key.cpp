@@ -19,6 +19,7 @@
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 
+#include <bit>
 #include <iomanip>
 #include <sstream>
 #include <string>
@@ -28,12 +29,14 @@
 #include <utility>
 #include <vector>
 
-#include "common/sync_point.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
+#include "meta-service/codec.h"
 #include "meta-service/doris_txn.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_http.h"
 #include "meta-service/meta_service_schema.h"
+#include "meta-service/meta_service_tablet_stats.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 
@@ -130,8 +133,52 @@ static std::string parse_tablet_schema(const ValueBuf& buf) {
     return proto_to_json(pb);
 }
 
+static std::string parse_tablet_stats(const ValueBuf& buf) {
+    if (buf.iters.empty()) {
+        return "stats_kvs not found\n";
+    }
+
+    std::vector<std::pair<std::string, std::string>> stats_kvs;
+    stats_kvs.reserve(5);
+    for (auto& i : buf.iters) {
+        while (i->has_next()) {
+            auto [k, v] = i->next();
+            stats_kvs.emplace_back(std::string {k.data(), k.size()},
+                                   std::string {v.data(), v.size()});
+        }
+    }
+
+    if (stats_kvs.empty()) {
+        return "stats_kvs not found\n";
+    }
+
+    TabletStatsPB stats;
+    auto [k, v] = stats_kvs[0];
+    stats.ParseFromArray(v.data(), v.size());
+
+    std::string json;
+    json += "aggregated_stats: " + proto_to_json(stats) + "\n";
+
+    // Parse split tablet stats
+    TabletStats detached_stats;
+    int ret = get_detached_tablet_stats(stats_kvs, detached_stats);
+    if (ret != 0) {
+        json += "failed to get detached_stats, ret=" + std::to_string(ret) + "\n";
+        return json;
+    }
+    TabletStatsPB detached_stats_pb;
+    merge_tablet_stats(detached_stats_pb, detached_stats); // convert to pb
+    json += "detached_stats: " + proto_to_json(detached_stats_pb) + "\n";
+
+    merge_tablet_stats(stats, detached_stats);
+
+    json += "merged_stats: " + proto_to_json(stats) + "\n";
+    return json;
+}
+
 // See keys.h to get all types of key, e.g: MetaRowsetKeyInfo
-// key_type -> {{param1, param2 ...}, encoding_func, value_parsing_func}
+// key_type -> {{param1, param2 ...}, key_encoding_func, value_parsing_func}
+// where params are the input for key_encoding_func
 // clang-format off
 static std::unordered_map<std::string_view,
                           std::tuple<std::vector<std::string_view>, std::function<std::string(param_type&)>, std::function<std::string(const ValueBuf&)>>> param_set {
@@ -140,7 +187,8 @@ static std::unordered_map<std::string_view,
     {"TxnInfoKey",                 {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_info_key(KeyInfoSetter<TxnInfoKeyInfo>{p}.get()); }                                       , parse<TxnInfoPB>}}               ,
     {"TxnIndexKey",                {{"instance_id", "txn_id"},                                       [](param_type& p) { return txn_index_key(KeyInfoSetter<TxnIndexKeyInfo>{p}.get()); }                                     , parse<TxnIndexPB>}}              ,
     {"TxnRunningKey",              {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return txn_running_key(KeyInfoSetter<TxnRunningKeyInfo>{p}.get()); }                                 , parse<TxnRunningPB>}}            ,
-    {"VersionKey",                 {{"instance_id", "db_id", "tbl_id", "partition_id"},              [](param_type& p) { return version_key(KeyInfoSetter<VersionKeyInfo>{p}.get()); }                                        , parse<VersionPB>}}               ,
+    {"PartitionVersionKey",        {{"instance_id", "db_id", "tbl_id", "partition_id"},              [](param_type& p) { return partition_version_key(KeyInfoSetter<PartitionVersionKeyInfo>{p}.get()); }                     , parse<VersionPB>}}               ,
+    {"TableVersionKey",            {{"instance_id", "db_id", "tbl_id"},                              [](param_type& p) { return table_version_key(KeyInfoSetter<TableVersionKeyInfo>{p}.get()); }                             , parse<VersionPB>}}               ,
     {"MetaRowsetKey",              {{"instance_id", "tablet_id", "version"},                         [](param_type& p) { return meta_rowset_key(KeyInfoSetter<MetaRowsetKeyInfo>{p}.get()); }                                 , parse<doris::RowsetMetaCloudPB>}}     ,
     {"MetaRowsetTmpKey",           {{"instance_id", "txn_id", "tablet_id"},                          [](param_type& p) { return meta_rowset_tmp_key(KeyInfoSetter<MetaRowsetTmpKeyInfo>{p}.get()); }                          , parse<doris::RowsetMetaCloudPB>}}     ,
     {"MetaTabletKey",              {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return meta_tablet_key(KeyInfoSetter<MetaTabletKeyInfo>{p}.get()); }                                 , parse<doris::TabletMetaCloudPB>}}     ,
@@ -149,7 +197,7 @@ static std::unordered_map<std::string_view,
     {"RecyclePartKey",             {{"instance_id", "part_id"},                                      [](param_type& p) { return recycle_partition_key(KeyInfoSetter<RecyclePartKeyInfo>{p}.get()); }                          , parse<RecyclePartitionPB>}}      ,
     {"RecycleRowsetKey",           {{"instance_id", "tablet_id", "rowset_id"},                       [](param_type& p) { return recycle_rowset_key(KeyInfoSetter<RecycleRowsetKeyInfo>{p}.get()); }                           , parse<RecycleRowsetPB>}}         ,
     {"RecycleTxnKey",              {{"instance_id", "db_id", "txn_id"},                              [](param_type& p) { return recycle_txn_key(KeyInfoSetter<RecycleTxnKeyInfo>{p}.get()); }                                 , parse<RecycleTxnPB>}}            ,
-    {"StatsTabletKey",             {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return stats_tablet_key(KeyInfoSetter<StatsTabletKeyInfo>{p}.get()); }                               , parse<TabletStatsPB>}}           ,
+    {"StatsTabletKey",             {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return stats_tablet_key(KeyInfoSetter<StatsTabletKeyInfo>{p}.get()); }                               , parse_tablet_stats}}           ,
     {"JobTabletKey",               {{"instance_id", "table_id", "index_id", "part_id", "tablet_id"}, [](param_type& p) { return job_tablet_key(KeyInfoSetter<JobTabletKeyInfo>{p}.get()); }                                   , parse<TabletJobInfoPB>}}         ,
     {"CopyJobKey",                 {{"instance_id", "stage_id", "table_id", "copy_id", "group_id"},  [](param_type& p) { return copy_job_key(KeyInfoSetter<CopyJobKeyInfo>{p}.get()); }                                       , parse<CopyJobPB>}}               ,
     {"CopyFileKey",                {{"instance_id", "stage_id", "table_id", "obj_key", "obj_etag"},  [](param_type& p) { return copy_file_key(KeyInfoSetter<CopyFileKeyInfo>{p}.get()); }                                     , parse<CopyFilePB>}}              ,
@@ -163,7 +211,7 @@ static std::unordered_map<std::string_view,
     {"MetaServiceRegistryKey",     {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_registry_key(); }                                                         , parse<ServiceRegistryPB>}}       ,
     {"MetaServiceArnInfoKey",      {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_arn_info_key(); }                                                         , parse<RamUserPB>}}               ,
     {"MetaServiceEncryptionKey",   {std::vector<std::string_view> {},                                [](param_type& p) { return system_meta_service_encryption_key_info_key(); }                                              , parse<EncryptionKeyInfoPB>}}     ,
-};
+    {"StorageVaultKey",           {{"instance_id", "vault_id"},                              [](param_type& p) { return storage_vault_key(KeyInfoSetter<StorageVaultKeyInfo>{p}.get()); }                    , parse<StorageVaultPB>}}   ,};
 // clang-format on
 
 static MetaServiceResponseStatus encode_key(const brpc::URI& uri, std::string& key) {
@@ -208,8 +256,33 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
         return http_json_reply(MetaServiceCode::KV_TXN_CREATE_ERR,
                                fmt::format("failed to create txn, err={}", err));
     }
+
+    std::string_view key_type = http_query(uri, "key_type");
+    auto it = param_set.find(key_type);
+    if (it == param_set.end()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("key_type not supported: {}",
+                                           (key_type.empty() ? "(empty)" : key_type)));
+    }
+
     ValueBuf value;
-    err = cloud::get(txn.get(), key, &value, true);
+    if (key_type == "StatsTabletKey") {
+        // FIXME(plat1ko): hard code
+        std::string begin_key {key};
+        std::string end_key = key + "\xff";
+        std::unique_ptr<RangeGetIterator> it;
+        bool more = false;
+        do {
+            err = txn->get(begin_key, end_key, &it, true);
+            if (err != TxnErrorCode::TXN_OK) break;
+            begin_key = it->next_begin_key();
+            more = it->more();
+            value.iters.push_back(std::move(it));
+        } while (more);
+    } else {
+        err = cloud::get(txn.get(), key, &value, true);
+    }
+
     if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
         // FIXME: Key not found err
         return http_json_reply(MetaServiceCode::KV_TXN_GET_ERR,
@@ -218,13 +291,6 @@ HttpResponse process_http_get_value(TxnKv* txn_kv, const brpc::URI& uri) {
     if (err != TxnErrorCode::TXN_OK) {
         return http_json_reply(MetaServiceCode::KV_TXN_GET_ERR,
                                fmt::format("failed to get kv, key={}", hex(key)));
-    }
-    std::string_view key_type = http_query(uri, "key_type");
-    auto it = param_set.find(key_type);
-    if (it == param_set.end()) {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                               fmt::format("key_type not supported: {}",
-                                           (key_type.empty() ? "(empty)" : key_type)));
     }
     auto readable_value = std::get<2>(it->second)(value);
     if (readable_value.empty()) [[unlikely]] {

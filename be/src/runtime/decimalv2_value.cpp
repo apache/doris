@@ -24,6 +24,7 @@
 #include <iostream>
 #include <utility>
 
+#include "util/frame_of_reference_coding.h"
 #include "util/string_parser.hpp"
 
 namespace doris {
@@ -58,9 +59,9 @@ static int clz128(unsigned __int128 v) {
     if (v == 0) return sizeof(__int128);
     unsigned __int128 shifted = v >> 64;
     if (shifted != 0) {
-        return __builtin_clzll(shifted);
+        return leading_zeroes(shifted);
     } else {
-        return __builtin_clzll(v) + 64;
+        return leading_zeroes(v) + 64;
     }
 }
 
@@ -328,7 +329,7 @@ static double sqrt_fractional(int128_t sqrt_int, int128_t remainder) {
 
 const int128_t DecimalV2Value::SQRT_MOLECULAR_MAGNIFICATION = get_scale_base(PRECISION / 2);
 const int128_t DecimalV2Value::SQRT_DENOMINATOR =
-        std::sqrt(ONE_BILLION) * get_scale_base(PRECISION / 2 - SCALE);
+        int128_t(std::sqrt(ONE_BILLION) * get_scale_base(PRECISION / 2 - SCALE));
 
 DecimalV2Value DecimalV2Value::sqrt(const DecimalV2Value& v) {
     int128_t x = v.value();

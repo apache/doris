@@ -23,6 +23,7 @@
 
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
+#include "util/ref_count_closure.h"
 
 namespace doris {
 
@@ -68,6 +69,9 @@ public:
 //  std::unique_ptr<AutoReleaseClosure> a(b);
 //  brpc_call(a.release());
 
+template <typename T>
+concept HasStatus = requires(T* response) { response->status(); };
+
 template <typename Request, typename Callback>
 class AutoReleaseClosure : public google::protobuf::Closure {
     using Weak = typename std::shared_ptr<Callback>::weak_type;
@@ -91,6 +95,11 @@ public:
         if (auto tmp = callback_.lock()) {
             tmp->call();
         }
+        if (cntl_->Failed()) {
+            _process_if_rpc_failed();
+        } else {
+            _process_status<ResponseType>(response_.get());
+        }
     }
 
     // controller has to be the same lifecycle with the closure, because brpc may use
@@ -102,7 +111,28 @@ public:
     std::shared_ptr<Request> request_;
     std::shared_ptr<ResponseType> response_;
 
+protected:
+    virtual void _process_if_rpc_failed() {
+        LOG(WARNING) << "RPC meet failed: " << cntl_->ErrorText();
+    }
+
+    virtual void _process_if_meet_error_status(const Status& status) {
+        // no need to log END_OF_FILE, reduce the unlessful log
+        if (!status.is<ErrorCode::END_OF_FILE>()) {
+            LOG(WARNING) << "RPC meet error status: " << status;
+        }
+    }
+
 private:
+    template <typename Response>
+    void _process_status(Response* response) {}
+
+    template <HasStatus Response>
+    void _process_status(Response* response) {
+        if (Status status = Status::create(response->status()); !status.ok()) {
+            _process_if_meet_error_status(status);
+        }
+    }
     // Use a weak ptr to keep the callback, so that the callback can be deleted if the main
     // thread is freed.
     Weak callback_;

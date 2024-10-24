@@ -116,6 +116,8 @@ public:
 
     static std::string print_json_value(const rapidjson::Value& value);
 
+    static bool is_root_path(const std::vector<JsonPath>& json_path);
+
 private:
     static rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths,
                                          rapidjson::Value* document,

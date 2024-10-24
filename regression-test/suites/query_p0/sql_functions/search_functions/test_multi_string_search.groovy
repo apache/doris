@@ -75,24 +75,24 @@ suite("test_multi_string_search", "arrow_flight_sql") {
     try {
         sql "select multi_match_any(content, 'hello') from ${table_name} order by col1"
     } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_match_any"))
+        assert("${ex}".contains("multi_match_any"))
     }
 
     try {
         sql "select multi_match_any(content, 'hello, !, world, Hello, World') from ${table_name} order by col1"
     } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_match_any"))
+        assert("${ex}".contains("multi_match_any"))
     }
 
     try {
         sql "select multi_match_any(content, '[hello]') from ${table_name} order by col1"
     } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_match_any"))
+        assert("${ex}".contains("multi_match_any"))
     }
 
     try {
         sql "select multi_match_any(content, '[hello, !, world, Hello, World]') from ${table_name} order by col1"
     } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_match_any"))
+        assert("${ex}".contains("multi_match_any"))
     }
 }

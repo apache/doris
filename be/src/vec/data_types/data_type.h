@@ -33,6 +33,8 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "runtime/define_primitive_type.h"
+#include "vec/columns/column_const.h"
+#include "vec/columns/column_string.h"
 #include "vec/common/cow.h"
 #include "vec/core/types.h"
 #include "vec/data_types/serde/data_type_serde.h"
@@ -57,7 +59,7 @@ using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
 constexpr auto SERIALIZED_MEM_SIZE_LIMIT = 256;
 inline size_t upper_int32(size_t size) {
-    return (3 + size) / 4.0;
+    return size_t((3 + size) / 4.0);
 }
 
 /** Properties of data type.
@@ -86,6 +88,8 @@ public:
 
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const;
     virtual std::string to_string(const IColumn& column, size_t row_num) const;
+
+    virtual void to_string_batch(const IColumn& column, ColumnString& column_to) const;
     // only for compound type now.
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 
@@ -111,11 +115,6 @@ public:
     virtual Field get_default() const = 0;
 
     virtual Field get_field(const TExprNode& node) const = 0;
-
-    /** Directly insert default value into a column. Default implementation use method IColumn::insert_default.
-      * This should be overridden if data type default value differs from column default value (example: Enum data types).
-      */
-    virtual void insert_default_into(IColumn& column) const;
 
     /// Checks that two instances belong to the same type
     virtual bool equals(const IDataType& rhs) const = 0;
@@ -213,7 +212,7 @@ public:
     virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                                       int be_exec_version) const = 0;
     virtual char* serialize(const IColumn& column, char* buf, int be_exec_version) const = 0;
-    virtual const char* deserialize(const char* buf, IColumn* column,
+    virtual const char* deserialize(const char* buf, MutableColumnPtr* column,
                                     int be_exec_version) const = 0;
 
     virtual void to_pb_column_meta(PColumnMeta* col_meta) const;
@@ -412,5 +411,14 @@ inline bool is_complex_type(const DataTypePtr& data_type) {
     return which.is_array() || which.is_map() || which.is_struct();
 }
 
+inline bool is_variant_type(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_variant_type();
+}
+
+// write const_flag and row_num to buf, and return real_need_copy_num
+char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
+                                       size_t* real_need_copy_num);
+const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
+                                               size_t* real_have_saved_num);
 } // namespace vectorized
 } // namespace doris

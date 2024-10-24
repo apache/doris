@@ -18,7 +18,7 @@
 #pragma once
 
 #include <brpc/stream.h>
-#include <gen_cpp/internal_service.pb.h>
+#include <gen_cpp/olap_common.pb.h>
 
 #include <queue>
 
@@ -33,24 +33,33 @@ struct RowsetId;
 struct SegmentStatistics;
 
 namespace io {
-class StreamSinkFileWriter : public FileWriter {
+struct FileCacheAllocatorBuilder;
+class StreamSinkFileWriter final : public FileWriter {
 public:
-    StreamSinkFileWriter(std::vector<std::shared_ptr<LoadStreamStub>>& streams)
-            : _streams(streams) {}
+    StreamSinkFileWriter(std::vector<std::shared_ptr<LoadStreamStub>> streams)
+            : _streams(std::move(streams)) {}
 
     void init(PUniqueId load_id, int64_t partition_id, int64_t index_id, int64_t tablet_id,
-              int32_t segment_id);
+              int32_t segment_id, FileType file_type = FileType::SEGMENT_FILE);
 
     Status appendv(const Slice* data, size_t data_cnt) override;
 
-    Status finalize() override;
+    size_t bytes_appended() const override { return _bytes_appended; }
 
-    Status close() override;
+    State state() const override { return _state; }
+
+    // FIXME(plat1ko): Maybe it's an inappropriate abstraction?
+    const Path& path() const override {
+        static Path dummy;
+        return dummy;
+    }
+
+    FileCacheAllocatorBuilder* cache_builder() const override { return nullptr; }
+
+    Status close(bool non_block = false) override;
 
 private:
-    template <bool eos>
-    Status _flush();
-
+    Status _finalize();
     std::vector<std::shared_ptr<LoadStreamStub>> _streams;
 
     PUniqueId _load_id;
@@ -58,6 +67,9 @@ private:
     int64_t _index_id;
     int64_t _tablet_id;
     int32_t _segment_id;
+    size_t _bytes_appended = 0;
+    State _state {State::OPENED};
+    FileType _file_type {FileType::SEGMENT_FILE};
 };
 
 } // namespace io

@@ -20,7 +20,9 @@
 suite("query29") {
 
     sql 'set enable_nereids_planner=true'
+    sql 'set enable_nereids_distribute_planner=false'
     sql 'set enable_fallback_to_original_planner=false'
+    sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
 
     sql 'set topn_opt_limit_threshold = 1024'
     def ckBench = """SELECT REGEXP_REPLACE(Referer, '^https?://(?:www\\.)?([^/]+)/.*\$', '\\\\1') AS k, AVG(length(Referer)) AS l, COUNT(*) AS c, MIN(Referer) FROM hits WHERE Referer <> '' GROUP BY k HAVING COUNT(*) > 100000 ORDER BY l DESC LIMIT 25"""

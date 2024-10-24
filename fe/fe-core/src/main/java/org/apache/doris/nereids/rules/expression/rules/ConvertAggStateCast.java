@@ -17,8 +17,9 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.StateCombinator;
@@ -30,51 +31,49 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
+
 /**
  * Follow legacy planner cast agg_state combinator's children if we need cast it to another agg_state type when insert
  */
-public class ConvertAggStateCast extends AbstractExpressionRewriteRule {
+public class ConvertAggStateCast implements ExpressionPatternRuleFactory {
 
     public static ConvertAggStateCast INSTANCE = new ConvertAggStateCast();
 
     @Override
-    public Expression visitCast(Cast cast, ExpressionRewriteContext context) {
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesType(Cast.class).then(ConvertAggStateCast::convert)
+        );
+    }
+
+    private static Expression convert(Cast cast) {
         Expression child = cast.child();
         DataType originalType = child.getDataType();
         DataType targetType = cast.getDataType();
-        if (originalType instanceof AggStateType
-                && targetType instanceof AggStateType
-                && child instanceof StateCombinator) {
-            AggStateType original = (AggStateType) originalType;
-            AggStateType target = (AggStateType) targetType;
-            if (original.getSubTypes().size() != target.getSubTypes().size()) {
-                return processCastChild(cast, context);
+        if (originalType instanceof AggStateType && targetType instanceof AggStateType) {
+            // TODO remve it after we refactor mv rewriter to avoid generate Alias in expression
+            while (child instanceof Alias) {
+                child = ((Alias) child).child();
             }
-            if (!original.getFunctionName().equalsIgnoreCase(target.getFunctionName())) {
-                return processCastChild(cast, context);
-            }
-            ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(child.arity());
-            for (int i = 0; i < child.arity(); i++) {
-                Expression newChild = TypeCoercionUtils.castIfNotSameType(child.child(i), target.getSubTypes().get(i));
-                if (newChild.nullable() != target.getSubTypeNullables().get(i)) {
-                    if (newChild.nullable()) {
-                        newChild = new NonNullable(newChild);
-                    } else {
-                        newChild = new Nullable(newChild);
+            if (child instanceof StateCombinator) {
+                AggStateType target = (AggStateType) targetType;
+                ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(child.arity());
+                for (int i = 0; i < child.arity(); i++) {
+                    Expression newChild = TypeCoercionUtils.castIfNotSameTypeStrict(
+                            child.child(i), target.getSubTypes().get(i));
+                    if (newChild.nullable() != target.getSubTypeNullables().get(i)) {
+                        if (newChild.nullable()) {
+                            newChild = new NonNullable(newChild);
+                        } else {
+                            newChild = new Nullable(newChild);
+                        }
                     }
+                    newChildren.add(newChild);
                 }
-                newChildren.add(newChild);
+                child = child.withChildren(newChildren.build());
+                return cast.withChildren(ImmutableList.of(child));
             }
-            child = child.withChildren(newChildren.build());
-            return processCastChild(cast.withChildren(ImmutableList.of(child)), context);
-        }
-        return processCastChild(cast, context);
-    }
-
-    private Expression processCastChild(Cast cast, ExpressionRewriteContext context) {
-        Expression child = visit(cast.child(), context);
-        if (child != cast.child()) {
-            cast = cast.withChildren(ImmutableList.of(child));
         }
         return cast;
     }

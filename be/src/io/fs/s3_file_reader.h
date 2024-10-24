@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include <atomic>
 #include <memory>
 #include <string>
@@ -31,12 +29,19 @@
 #include "util/slice.h"
 
 namespace doris {
+class RuntimeProfile;
+
 namespace io {
 struct IOContext;
 
 class S3FileReader final : public FileReader {
 public:
-    S3FileReader(size_t file_size, std::string key, std::shared_ptr<S3FileSystem> fs);
+    static Result<FileReaderSPtr> create(std::shared_ptr<const ObjClientHolder> client,
+                                         std::string bucket, std::string key, int64_t file_size,
+                                         RuntimeProfile* profile);
+
+    S3FileReader(std::shared_ptr<const ObjClientHolder> client, std::string bucket, std::string key,
+                 size_t file_size, RuntimeProfile* profile);
 
     ~S3FileReader() override;
 
@@ -48,21 +53,30 @@ public:
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
 
-    FileSystemSPtr fs() const override { return _fs; }
-
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* io_ctx) override;
 
+    void _collect_profile_before_close() override;
+
 private:
+    struct S3Statistics {
+        int64_t total_get_request_counter = 0;
+        int64_t too_many_request_err_counter = 0;
+        int64_t too_many_request_sleep_time_ms = 0;
+        int64_t total_bytes_read = 0;
+    };
     Path _path;
     size_t _file_size;
 
     std::string _bucket;
     std::string _key;
-    std::shared_ptr<S3FileSystem> _fs;
+    std::shared_ptr<const ObjClientHolder> _client;
 
     std::atomic<bool> _closed = false;
+
+    RuntimeProfile* _profile = nullptr;
+    S3Statistics _s3_stats;
 };
 
 } // namespace io

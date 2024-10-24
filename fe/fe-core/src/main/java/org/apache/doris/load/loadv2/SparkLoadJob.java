@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
@@ -44,9 +45,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -61,6 +64,7 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.sparkdpp.DppResult;
 import org.apache.doris.sparkdpp.EtlJobConfig;
@@ -98,7 +102,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -120,20 +123,26 @@ public class SparkLoadJob extends BulkLoadJob {
 
     // --- members below need persist ---
     // create from resourceDesc when job created
+    @SerializedName(value = "sr")
     private SparkResource sparkResource;
     // members below updated when job state changed to etl
+    @SerializedName(value = "est")
     private long etlStartTimestamp = -1;
     // for spark yarn
+    @SerializedName(value = "appid")
     private String appId = "";
     // spark job outputPath
+    @SerializedName(value = "etlop")
     private String etlOutputPath = "";
     // members below updated when job state changed to loading
     // { tableId.partitionId.indexId.bucket.schemaHash -> (etlFilePath, etlFileSize) }
+    @SerializedName(value = "tm2fi")
     private Map<String, Pair<String, Long>> tabletMetaToFileInfo = Maps.newHashMap();
 
     // --- members below not persist ---
     private ResourceDesc resourceDesc;
     // for spark standalone
+    @SerializedName(value = "slah")
     private SparkLoadAppHandle sparkLoadAppHandle = new SparkLoadAppHandle();
     // for straggler wait long time to commit transaction
     private long quorumFinishTimestamp = -1;
@@ -198,7 +207,9 @@ public class SparkLoadJob extends BulkLoadJob {
             QuotaExceedException, MetaNotFoundException {
         transactionId = Env.getCurrentGlobalTransactionMgr()
                 .beginTransaction(dbId, Lists.newArrayList(fileGroupAggInfo.getAllTableIds()), label, null,
-                        new TxnCoordinator(TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                        new TxnCoordinator(TxnSourceType.FE, 0,
+                                FrontendOptions.getLocalHostAddress(),
+                                ExecuteEnv.getInstance().getStartupTime()),
                         LoadJobSourceType.FRONTEND, id, getTimeout());
     }
 
@@ -451,6 +462,7 @@ public class SparkLoadJob extends BulkLoadJob {
                 for (TableIf table : tableList) {
                     Set<Long> partitionIds = tableToLoadPartitions.get(table.getId());
                     OlapTable olapTable = (OlapTable) table;
+                    String vaultId = olapTable.getStorageVaultId();
                     for (long partitionId : partitionIds) {
                         Partition partition = olapTable.getPartition(partitionId);
                         if (partition == null) {
@@ -466,10 +478,12 @@ public class SparkLoadJob extends BulkLoadJob {
                         List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.ALL);
                         for (MaterializedIndex index : indexes) {
                             long indexId = index.getId();
-                            int schemaHash = indexToSchemaHash.get(indexId);
+                            MaterializedIndexMeta indexMeta = olapTable.getIndexMetaByIndexId(indexId);
+                            int schemaVersion = indexMeta.getSchemaVersion();
+                            int schemaHash = indexMeta.getSchemaHash();
 
                             List<TColumn> columnsDesc = new ArrayList<TColumn>();
-                            for (Column column : olapTable.getSchemaByIndexId(indexId)) {
+                            for (Column column : indexMeta.getSchema(true)) {
                                 TColumn tColumn = column.toThrift();
                                 tColumn.setColumnName(tColumn.getColumnName().toLowerCase(Locale.ROOT));
                                 columnsDesc.add(tColumn);
@@ -526,7 +540,8 @@ public class SparkLoadJob extends BulkLoadJob {
                                         PushTask pushTask = new PushTask(backendId, dbId, olapTable.getId(),
                                                 partitionId, indexId, tabletId, replicaId, schemaHash, 0, id,
                                                 TPushType.LOAD_V2, TPriority.NORMAL, transactionId, taskSignature,
-                                                tBrokerScanRange, params.tDescriptorTable, columnsDesc);
+                                                tBrokerScanRange, params.tDescriptorTable, columnsDesc,
+                                                vaultId, schemaVersion);
                                         if (AgentTaskQueue.addTask(pushTask)) {
                                             batchTask.addTask(pushTask);
                                             if (!tabletToSentReplicaPushTask.containsKey(tabletId)) {
@@ -643,21 +658,50 @@ public class SparkLoadJob extends BulkLoadJob {
     }
 
     private void tryCommitJob() throws UserException {
-        LOG.info(new LogBuilder(LogKey.LOAD_JOB, id).add("txn_id", transactionId)
-                .add("msg", "Load job try to commit txn").build());
-        Database db = getDb();
-        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
-                Lists.newArrayList(tableToLoadPartitions.keySet()));
-        MetaLockUtils.writeLockTablesOrMetaException(tableList);
-        try {
-            Env.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, tableList, transactionId, commitInfos,
-                    new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
-                                              finishTimestamp, state, failMsg));
-        } catch (TabletQuorumFailedException e) {
-            // retry in next loop
-        } finally {
-            MetaLockUtils.writeUnlockTables(tableList);
+        int retryTimes = 0;
+        while (true) {
+            Database db = getDb();
+            List<Table> tableList = db.getTablesOnIdOrderOrThrowException(
+                    Lists.newArrayList(tableToLoadPartitions.keySet()));
+            if (Config.isCloudMode()) {
+                MetaLockUtils.commitLockTables(tableList);
+            } else {
+                MetaLockUtils.writeLockTablesOrMetaException(tableList);
+            }
+            try {
+                LOG.info(new LogBuilder(LogKey.LOAD_JOB, id).add("txn_id", transactionId)
+                        .add("msg", "Load job try to commit txn").build());
+                Env.getCurrentGlobalTransactionMgr().commitTransaction(
+                        dbId, tableList, transactionId, commitInfos,
+                        new LoadJobFinalOperation(id, loadingStatus, progress, loadStartTimestamp,
+                                finishTimestamp, state, failMsg));
+                return;
+            } catch (TabletQuorumFailedException e) {
+                // retry in next loop
+                return;
+            } catch (UserException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("txn_id", transactionId)
+                        .add("database_id", dbId)
+                        .add("retry_times", retryTimes)
+                        .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
+                        .build(), e);
+                if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                    retryTimes++;
+                    if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
+                        LOG.warn("cancelJob {} because up to max retry time, exception {}", id, e);
+                        throw e;
+                    }
+                } else {
+                    throw e;
+                }
+            } finally {
+                if (Config.isCloudMode()) {
+                    MetaLockUtils.commitUnlockTables(tableList);
+                } else {
+                    MetaLockUtils.writeUnlockTables(tableList);
+                }
+            }
         }
     }
 
@@ -771,22 +815,6 @@ public class SparkLoadJob extends BulkLoadJob {
                     file.delete();
                 }
             }
-        }
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        sparkResource.write(out);
-        sparkLoadAppHandle.write(out);
-        out.writeLong(etlStartTimestamp);
-        Text.writeString(out, appId);
-        Text.writeString(out, etlOutputPath);
-        out.writeInt(tabletMetaToFileInfo.size());
-        for (Map.Entry<String, Pair<String, Long>> entry : tabletMetaToFileInfo.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue().first);
-            out.writeLong(entry.getValue().second);
         }
     }
 

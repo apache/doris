@@ -72,16 +72,40 @@ public class DecimalV3Literal extends FractionalLiteral {
         return value.doubleValue();
     }
 
+    /**
+     * get ceiling of a decimal v3 literal
+     * @param newScale scale we want to cast to
+     * @return new decimal v3 literal with new scalar
+     */
     public DecimalV3Literal roundCeiling(int newScale) {
-        return new DecimalV3Literal(DecimalV3Type
-                .createDecimalV3Type(((DecimalV3Type) dataType).getPrecision(), newScale),
-                value.setScale(newScale, RoundingMode.CEILING));
+        if (newScale >= this.getValue().scale()) {
+            return this;
+        }
+        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.CEILING));
     }
 
+    /**
+     * get floor of a decimal v3 literal
+     * @param newScale scale we want to cast to
+     * @return new decimal v3 literal with new scalar
+     */
     public DecimalV3Literal roundFloor(int newScale) {
-        return new DecimalV3Literal(DecimalV3Type
-                .createDecimalV3Type(((DecimalV3Type) dataType).getPrecision(), newScale),
-                value.setScale(newScale, RoundingMode.FLOOR));
+        if (newScale >= this.getValue().scale()) {
+            return this;
+        }
+        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.FLOOR));
+    }
+
+    /**
+     * get round of a decimal v3 literal
+     * @param newScale scale we want to cast to
+     * @return new decimal v3 literal with new scalar
+     */
+    public DecimalV3Literal round(int newScale) {
+        if (newScale >= this.getValue().scale()) {
+            return this;
+        }
+        return new DecimalV3Literal(value.setScale(newScale, RoundingMode.HALF_UP));
     }
 
     /**
@@ -105,5 +129,30 @@ public class DecimalV3Literal extends FractionalLiteral {
                     String.format("Invalid precision and scale - expect (%d, %d), but (%d, %d)",
                             precision, scale, realPrecision, realScale));
         }
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        if (!super.equals(o)) {
+            return false;
+        }
+        DecimalV3Literal literal = (DecimalV3Literal) o;
+        return Objects.equals(dataType, literal.dataType);
+    }
+
+    @Override
+    public String toSql() {
+        return value.toPlainString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
     }
 }

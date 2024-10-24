@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -42,11 +43,19 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
 
     // Concrete BoundFunction's constructor
     private final Constructor<BoundFunction> builderMethod;
+    private final Class<? extends BoundFunction> functionClass;
 
-    public BuiltinFunctionBuilder(Constructor<BoundFunction> builderMethod) {
+    public BuiltinFunctionBuilder(
+            Class<? extends BoundFunction> functionClass, Constructor<BoundFunction> builderMethod) {
+        this.functionClass = Objects.requireNonNull(functionClass, "functionClass can not be null");
         this.builderMethod = Objects.requireNonNull(builderMethod, "builderMethod can not be null");
         this.arity = builderMethod.getParameterCount();
         this.isVariableLength = arity > 0 && builderMethod.getParameterTypes()[arity - 1].isArray();
+    }
+
+    @Override
+    public Class<? extends BoundFunction> functionClass() {
+        return functionClass;
     }
 
     @Override
@@ -78,12 +87,12 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
     }
 
     @Override
-    public BoundFunction build(String name, List<? extends Object> arguments) {
+    public Pair<BoundFunction, BoundFunction> build(String name, List<? extends Object> arguments) {
         try {
             if (isVariableLength) {
-                return builderMethod.newInstance(toVariableLengthArguments(arguments));
+                return Pair.ofSame(builderMethod.newInstance(toVariableLengthArguments(arguments)));
             } else {
-                return builderMethod.newInstance(arguments.toArray());
+                return Pair.ofSame(builderMethod.newInstance(arguments.toArray()));
             }
         } catch (Throwable t) {
             String argString = arguments.stream()
@@ -133,7 +142,8 @@ public class BuiltinFunctionBuilder extends FunctionBuilder {
                         + functionClass.getSimpleName());
         return Arrays.stream(functionClass.getConstructors())
                 .filter(constructor -> Modifier.isPublic(constructor.getModifiers()))
-                .map(constructor -> new BuiltinFunctionBuilder((Constructor<BoundFunction>) constructor))
+                .map(constructor -> new BuiltinFunctionBuilder(functionClass, (Constructor<BoundFunction>) constructor))
                 .collect(ImmutableList.toImmutableList());
     }
+
 }

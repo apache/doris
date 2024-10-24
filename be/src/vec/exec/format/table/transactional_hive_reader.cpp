@@ -84,24 +84,14 @@ Status TransactionalHiveReader::get_next_block(Block* block, size_t* read_rows, 
     return res;
 }
 
-Status TransactionalHiveReader::set_fill_columns(
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
-}
-
-bool TransactionalHiveReader::fill_all_columns() const {
-    return _file_format_reader->fill_all_columns();
-};
-
 Status TransactionalHiveReader::get_columns(
         std::unordered_map<std::string, TypeDescriptor>* name_to_type,
         std::unordered_set<std::string>* missing_cols) {
     return _file_format_reader->get_columns(name_to_type, missing_cols);
 }
 
-Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range) {
+Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
+                                                 io::IOContext* io_ctx) {
     std::string data_file_path = _range.path;
     // the path in _range is remove the namenode prefix,
     // and the file_path in delete file is full path, so we should add it back.
@@ -146,7 +136,7 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range) {
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-        static_cast<void>(delete_reader.set_fill_columns(partition_columns, missing_columns));
+        RETURN_IF_ERROR(delete_reader.set_fill_columns(partition_columns, missing_columns));
 
         bool eof = false;
         while (!eof) {

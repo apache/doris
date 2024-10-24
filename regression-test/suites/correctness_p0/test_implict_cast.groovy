@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_implict_cast") {
+suite("test_implicit_cast") {
     sql """
         drop table if exists cast_test_table;
     """
@@ -89,7 +89,6 @@ suite("test_implict_cast") {
             "replication_allocation" = "tag.location.default: 1"
             ); """
 
-    sql """set enable_nereids_planner=false;"""
     sql """SELECT  a5 AS account_id
                 ,a4 AS a4
                 ,CASE WHEN a7 = 'MC' THEN a8*0.034

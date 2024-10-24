@@ -138,12 +138,12 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
 
     // catalog_id
     {
-        int64_t srcs[table_num];
+        std::vector<int64_t> srcs(table_num);
         if (_db_result.__isset.catalog_ids) {
             int64_t id = _db_result.catalog_ids[_db_index - 1];
             for (int i = 0; i < table_num; ++i) {
                 srcs[i] = id;
-                datas[i] = srcs + i;
+                datas[i] = srcs.data() + i;
             }
             RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
         } else {
@@ -167,12 +167,12 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
 
     // database_id
     {
-        int64_t srcs[table_num];
+        std::vector<int64_t> srcs(table_num);
         if (_db_result.__isset.db_ids) {
             int64_t id = _db_result.db_ids[_db_index - 1];
             for (int i = 0; i < table_num; ++i) {
                 srcs[i] = id;
-                datas[i] = srcs + i;
+                datas[i] = srcs.data() + i;
             }
             RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
         } else {
@@ -195,11 +195,11 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
     }
     //  table_id
     {
-        int64_t srcs[table_num];
+        std::vector<int64_t> srcs(table_num);
         for (int i = 0; i < table_num; ++i) {
             if (_table_result.tables[i].__isset.id) {
                 srcs[i] = _table_result.tables[i].id;
-                datas[i] = srcs + i;
+                datas[i] = srcs.data() + i;
             } else {
                 datas[i] = nullptr;
             }
@@ -209,12 +209,12 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
 
     //table_name
     {
-        StringRef strs[table_num];
+        std::vector<StringRef> strs(table_num);
         for (int i = 0; i < table_num; ++i) {
             if (_table_result.tables[i].__isset.name) {
                 const std::string* src = &_table_result.tables[i].name;
                 strs[i] = StringRef(src->c_str(), src->size());
-                datas[i] = strs + i;
+                datas[i] = strs.data() + i;
             } else {
                 datas[i] = nullptr;
             }
@@ -225,7 +225,7 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
     return Status::OK();
 }
 
-Status SchemaMetadataNameIdsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaMetadataNameIdsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

@@ -55,7 +55,7 @@ template <typename Type>
 const ColumnConst* check_and_get_column_const(const IColumn* column) {
     if (!column || !is_column_const(*column)) return {};
 
-    const ColumnConst* res = assert_cast<const ColumnConst*>(column);
+    const ColumnConst* res = assert_cast<const ColumnConst*, TypeCheckOnRelease::DISABLE>(column);
 
     if (!check_column<Type>(&res->get_data_column())) return {};
 

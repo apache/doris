@@ -19,7 +19,6 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.clone.BackendLoadStatistic;
 import org.apache.doris.clone.BackendLoadStatistic.Classification;
 import org.apache.doris.clone.LoadStatisticForTag;
@@ -44,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ForkJoinPool;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -51,6 +51,8 @@ import java.util.stream.Stream;
  * show proc "/diagnose/cluster_balance";
  */
 public class DiagnoseClusterBalanceProcDir extends SubProcDir {
+
+    private ForkJoinPool taskPool = new ForkJoinPool();
 
     @Override
     public List<DiagnoseItem> getDiagnoseResult() {
@@ -89,12 +91,14 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
         tabletHealth.status = DiagnoseStatus.OK;
 
         Env env = Env.getCurrentEnv();
-        List<DBTabletStatistic> statistics = env.getInternalCatalog().getDbIds().parallelStream()
-                // skip information_schema database
-                .flatMap(id -> Stream.of(id == 0 ? null : env.getInternalCatalog().getDbNullable(id)))
-                .filter(Objects::nonNull).map(DBTabletStatistic::new)
-                // sort by dbName
-                .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList());
+        List<DBTabletStatistic> statistics = taskPool.submit(() ->
+                env.getInternalCatalog().getDbIds().parallelStream()
+                    // skip information_schema database
+                    .flatMap(id -> Stream.of(id == 0 ? null : env.getInternalCatalog().getDbNullable(id)))
+                    .filter(Objects::nonNull).map(DBTabletStatistic::new)
+                    // sort by dbName
+                    .sorted(Comparator.comparing(db -> db.db.getFullName())).collect(Collectors.toList())
+        ).join();
 
         DBTabletStatistic total = statistics.stream().reduce(new DBTabletStatistic(), DBTabletStatistic::reduce);
         if (total.tabletNum != total.healthyNum) {
@@ -135,10 +139,9 @@ public class DiagnoseClusterBalanceProcDir extends SubProcDir {
                 .collect(Collectors.toList());
         boolean isPartitionBal = Config.tablet_rebalancer_type.equalsIgnoreCase("partition");
         if (isPartitionBal) {
-            TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
             baseBalance.name = "Partition Balance";
             List<Integer> tabletNums = availableBeIds.stream()
-                    .map(beId -> invertedIndex.getTabletNumByBackendId(beId))
+                    .map(beId -> infoService.getTabletNumByBackendId(beId))
                     .collect(Collectors.toList());
             int minTabletNum = tabletNums.stream().mapToInt(v -> v).min().orElse(0);
             int maxTabletNum = tabletNums.stream().mapToInt(v -> v).max().orElse(0);

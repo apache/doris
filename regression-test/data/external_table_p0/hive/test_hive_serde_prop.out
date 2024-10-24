@@ -3,3 +3,79 @@
 a	1.1
 b	2.2
 
+-- !2 --
+1	abc
+2	def
+
+-- !3 --
+1	abc
+2	def
+
+-- !4 --
+1	abc
+2	def
+
+-- !5 --
+1	abc
+2	def
+
+-- !6 --
+1	abc
+2	def
+
+-- !7 --
+1	abc
+2	def
+
+-- !8 --
+1	null
+2	|||
+3	aaa
+4	"null"
+
+-- !9 --
+1	null
+2	|||
+3	aaa
+4	"null"
+
+-- !1 --
+a	1.1
+b	2.2
+
+-- !2 --
+1	abc
+2	def
+
+-- !3 --
+1	abc
+2	def
+
+-- !4 --
+1	abc
+2	def
+
+-- !5 --
+1	abc
+2	def
+
+-- !6 --
+1	abc
+2	def
+
+-- !7 --
+1	abc
+2	def
+
+-- !8 --
+1	null
+2	|||
+3	aaa
+4	"null"
+
+-- !9 --
+1	null
+2	|||
+3	aaa
+4	"null"
+

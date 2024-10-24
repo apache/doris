@@ -27,11 +27,8 @@ import java.io.DataInput;
 import java.io.IOException;
 
 public class ResourcePrivEntry extends PrivEntry {
-    protected static final String ANY_RESOURCE = "*";
-
     protected PatternMatcher resourcePattern;
     protected String origResource;
-    protected boolean isAnyResource;
 
     protected ResourcePrivEntry() {
     }
@@ -41,19 +38,15 @@ public class ResourcePrivEntry extends PrivEntry {
         super(privSet);
         this.resourcePattern = resourcePattern;
         this.origResource = origResource;
-        if (origResource.equals(ANY_RESOURCE)) {
-            isAnyResource = true;
-        }
     }
 
     public static ResourcePrivEntry create(String resourceName, PrivBitSet privs)
             throws AnalysisException, PatternMatcherException {
         PatternMatcher resourcePattern = PatternMatcher.createMysqlPattern(
-                resourceName.equals(ANY_RESOURCE) ? "%" : resourceName,
+                resourceName,
                 CaseSensibility.RESOURCE.getCaseSensibility());
-        if (privs.containsNodePriv() || privs.containsDbTablePriv()) {
-            throw new AnalysisException("Resource privilege can not contains node or db table privileges: " + privs);
-        }
+
+        Privilege.checkIncorrectPrivilege(Privilege.notBelongToResourcePrivileges, privs.toPrivilegeList());
         return new ResourcePrivEntry(resourcePattern,
                 resourceName, privs);
     }
@@ -112,6 +105,5 @@ public class ResourcePrivEntry extends PrivEntry {
         } catch (PatternMatcherException e) {
             throw new IOException(e);
         }
-        isAnyResource = origResource.equals(ANY_RESOURCE);
     }
 }

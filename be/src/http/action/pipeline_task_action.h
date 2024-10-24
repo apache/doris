@@ -18,16 +18,35 @@
 #pragma once
 
 #include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 namespace doris {
-
+class ExecEnv;
 class HttpRequest;
 
-class PipelineTaskAction : public HttpHandler {
+class PipelineTaskAction : public HttpHandlerWithAuth {
 public:
-    PipelineTaskAction() = default;
+    PipelineTaskAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
 
     ~PipelineTaskAction() override = default;
+
+    void handle(HttpRequest* req) override;
+};
+
+class LongPipelineTaskAction : public HttpHandlerWithAuth {
+public:
+    LongPipelineTaskAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
+
+    ~LongPipelineTaskAction() override = default;
+
+    void handle(HttpRequest* req) override;
+};
+
+class QueryPipelineTaskAction : public HttpHandlerWithAuth {
+public:
+    QueryPipelineTaskAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
+
+    ~QueryPipelineTaskAction() override = default;
 
     void handle(HttpRequest* req) override;
 };

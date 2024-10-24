@@ -21,16 +21,20 @@ import org.apache.doris.analysis.CreateFileStmt;
 import org.apache.doris.analysis.DropFileStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.binary.Hex;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.logging.log4j.LogManager;
@@ -49,7 +53,6 @@ import java.net.URL;
 import java.net.URLConnection;
 import java.nio.file.Paths;
 import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
@@ -61,13 +64,21 @@ public class SmallFileMgr implements Writable {
     public static final Logger LOG = LogManager.getLogger(SmallFileMgr.class);
 
     public static class SmallFile implements Writable {
+        @SerializedName("dbid")
         public long dbId;
+        @SerializedName("log")
         public String catalog;
+        @SerializedName("n")
         public String name;
+        @SerializedName("id")
         public long id;
+        @SerializedName("ctn")
         public String content;
+        @SerializedName("s")
         public long size;
+        @SerializedName("md5")
         public String md5;
+        @SerializedName("isC")
         public boolean isContent;
 
         private SmallFile() {
@@ -87,9 +98,13 @@ public class SmallFileMgr implements Writable {
         }
 
         public static SmallFile read(DataInput in) throws IOException {
-            SmallFile smallFile = new SmallFile();
-            smallFile.readFields(in);
-            return smallFile;
+            if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
+                SmallFile smallFile = new SmallFile();
+                smallFile.readFields(in);
+                return smallFile;
+            } else {
+                return GsonUtils.GSON.fromJson(Text.readString(in), SmallFile.class);
+            }
         }
 
         public byte[] getContentBytes() {
@@ -101,14 +116,7 @@ public class SmallFileMgr implements Writable {
 
         @Override
         public void write(DataOutput out) throws IOException {
-            out.writeLong(dbId);
-            Text.writeString(out, catalog);
-            Text.writeString(out, name);
-            out.writeLong(id);
-            Text.writeString(out, content);
-            out.writeLong(size);
-            Text.writeString(out, md5);
-            out.writeBoolean(isContent);
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
         }
 
         public void readFields(DataInput in) throws IOException {
@@ -289,6 +297,7 @@ public class SmallFileMgr implements Writable {
     private SmallFile downloadAndCheck(long dbId, String catalog, String fileName,
             String downloadUrl, String md5sum, boolean saveContent) throws DdlException {
         try {
+            SecurityChecker.getInstance().startSSRFChecking(downloadUrl);
             URL url = new URL(downloadUrl);
             // get file length
             URLConnection urlConnection = url.openConnection();
@@ -366,13 +375,15 @@ public class SmallFileMgr implements Writable {
                         checksum, false /* not content */);
             }
             return smallFile;
-        } catch (IOException | NoSuchAlgorithmException e) {
+        } catch (Exception e) {
             LOG.warn("failed to get file from url: {}", downloadUrl, e);
             String errorMsg = e.getMessage();
             if (e instanceof FileNotFoundException) {
                 errorMsg = "File not found";
             }
             throw new DdlException("Failed to get file from url: " + downloadUrl + ". Error: " + errorMsg);
+        } finally {
+            SecurityChecker.getInstance().stopSSRFChecking();
         }
     }
 

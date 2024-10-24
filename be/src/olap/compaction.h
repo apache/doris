@@ -67,6 +67,10 @@ public:
 protected:
     Status merge_input_rowsets();
 
+    Status do_inverted_index_compaction();
+
+    void construct_index_compaction_columns(RowsetWriterContext& ctx);
+
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 
     Status check_correctness();
@@ -76,6 +80,8 @@ protected:
     void init_profile(const std::string& label);
 
     void _load_segment_to_cache();
+
+    int64_t merge_way_num();
 
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
@@ -102,7 +108,7 @@ protected:
     Version _output_version;
 
     int64_t _newest_write_timestamp {-1};
-    RowIdConversion _rowid_conversion;
+    std::unique_ptr<RowIdConversion> _rowid_conversion = nullptr;
     TabletSchemaSPtr _cur_tablet_schema;
 
     std::unique_ptr<RuntimeProfile> _profile;
@@ -145,13 +151,10 @@ private:
 
     void build_basic_info();
 
-    void construct_skip_inverted_index(RowsetWriterContext& ctx);
-
+    // Return true if do ordered data compaction successfully
     bool handle_ordered_data_compaction();
 
     Status do_compact_ordered_rowsets();
-
-    Status do_inverted_index_compaction();
 
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
 
@@ -170,14 +173,14 @@ public:
 protected:
     CloudTablet* cloud_tablet() { return static_cast<CloudTablet*>(_tablet.get()); }
 
+    virtual void garbage_collection();
+
     CloudStorageEngine& _engine;
 
     int64_t _expiration = 0;
 
 private:
     Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
-
-    virtual void garbage_collection() {};
 
     Status execute_compact_impl(int64_t permits);
 

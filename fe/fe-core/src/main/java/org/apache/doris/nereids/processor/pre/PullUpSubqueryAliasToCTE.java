@@ -59,7 +59,7 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
     public Plan visitLogicalSubQueryAlias(LogicalSubQueryAlias<? extends Plan> alias,
                                           StatementContext context) {
         if (alias.child() instanceof LogicalSelectHint
-                && ((LogicalSelectHint) alias.child()).isIncludeLeading()) {
+                && ((LogicalSelectHint) alias.child()).isIncludeHint("Leading")) {
             aliasQueries.add((LogicalSubQueryAlias<Plan>) alias);
             List<String> tableName = new ArrayList<>();
             tableName.add(alias.getAlias());
@@ -79,6 +79,15 @@ public class PullUpSubqueryAliasToCTE extends PlanPreprocessor {
                 subQueryAlias = new LogicalSubQueryAlias<>(subQueryAlias.getAlias(), newSubQueryAlias);
             }
         }
-        return visitChildren(this, logicalCTE, context);
+        Plan cte = visitChildren(this, logicalCTE, context);
+        if (!aliasQueries.isEmpty()) {
+            LogicalCTE newLogicalCTE = (LogicalCTE) cte;
+            List<LogicalSubQueryAlias<Plan>> subQueryAliasesOfCte = new ArrayList<>();
+            subQueryAliasesOfCte.addAll(logicalCTE.getAliasQueries());
+            subQueryAliasesOfCte.addAll(aliasQueries);
+            aliasQueries = new ArrayList<>();
+            return new LogicalCTE<>(subQueryAliasesOfCte, (LogicalPlan) newLogicalCTE.child());
+        }
+        return cte;
     }
 }

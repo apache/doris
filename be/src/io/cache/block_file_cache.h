@@ -20,7 +20,9 @@
 #include <bvar/bvar.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <thread>
 
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -38,6 +40,7 @@ class FSFileCacheStorage;
 // The current strategies are lru and ttl.
 class BlockFileCache {
     friend class FSFileCacheStorage;
+    friend class MemFileCacheStorage;
     friend class FileBlock;
     friend struct FileBlocksHolder;
 
@@ -84,14 +87,27 @@ public:
          * it is guaranteed that these file blocks are not removed from cache.
          */
     FileBlocksHolder get_or_set(const UInt128Wrapper& hash, size_t offset, size_t size,
-                                const CacheContext& context);
+                                CacheContext& context);
 
-    void clear_file_cache_async();
-    // use for test
-    Status clear_file_cache_directly();
+    /**
+     * Clear all cached data for this cache instance async
+     *
+     * @returns summary message
+     */
+    std::string clear_file_cache_async();
+    std::string clear_file_cache_directly();
 
-    /// For debug.
+    /**
+     * Reset the cache capacity. If the new_capacity is smaller than _capacity, the redundant data will be remove async.
+     *
+     * @returns summary message
+     */
+    std::string reset_capacity(size_t new_capacity);
+
+    std::map<size_t, FileBlockSPtr> get_blocks_by_key(const UInt128Wrapper& hash);
+    /// For debug and UT
     std::string dump_structure(const UInt128Wrapper& hash);
+    std::string dump_single_cache_type(const UInt128Wrapper& hash, size_t offset);
 
     [[nodiscard]] size_t get_used_cache_size(FileCacheType type) const;
 
@@ -116,7 +132,7 @@ public:
     [[nodiscard]] std::vector<std::tuple<size_t, size_t, FileCacheType, uint64_t>>
     get_hot_blocks_meta(const UInt128Wrapper& hash) const;
 
-    [[nodiscard]] bool get_lazy_open_success() const { return _lazy_open_done; }
+    [[nodiscard]] bool get_async_open_success() const { return _async_open_done; }
 
     BlockFileCache& operator=(const BlockFileCache&) = delete;
     BlockFileCache(const BlockFileCache&) = delete;
@@ -124,6 +140,10 @@ public:
     // try to reserve the new space for the new block if the cache is full
     bool try_reserve(const UInt128Wrapper& hash, const CacheContext& context, size_t offset,
                      size_t size, std::lock_guard<std::mutex>& cache_lock);
+
+    void update_ttl_atime(const UInt128Wrapper& hash);
+
+    std::map<std::string, double> get_stats();
 
     class LRUQueue {
     public:
@@ -281,7 +301,7 @@ private:
         /// Pointer to file block is always hold by the cache itself.
         /// Apart from pointer in cache, it can be hold by cache users, when they call
         /// getorSet(), but cache users always hold it via FileBlocksHolder.
-        bool releasable() const { return file_block.unique(); }
+        bool releasable() const { return file_block.use_count() == 1; }
 
         size_t size() const { return file_block->_block_range.size(); }
 
@@ -322,7 +342,7 @@ private:
                              const CacheContext& context, size_t offset, size_t size,
                              std::lock_guard<std::mutex>& cache_lock);
 
-    bool try_reserve_for_lazy_load(size_t size, std::lock_guard<std::mutex>& cache_lock);
+    bool try_reserve_during_async_load(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     std::vector<FileCacheType> get_other_cache_type(FileCacheType cur_cache_type);
 
@@ -333,12 +353,17 @@ private:
 
     bool try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
+    bool try_reserve_for_ttl_without_lru(size_t size, std::lock_guard<std::mutex>& cache_lock);
+
     FileBlocks split_range_into_cells(const UInt128Wrapper& hash, const CacheContext& context,
                                       size_t offset, size_t size, FileBlock::State state,
                                       std::lock_guard<std::mutex>& cache_lock);
 
     std::string dump_structure_unlocked(const UInt128Wrapper& hash,
                                         std::lock_guard<std::mutex>& cache_lock);
+
+    std::string dump_single_cache_type_unlocked(const UInt128Wrapper& hash, size_t offset,
+                                                std::lock_guard<std::mutex>& cache_lock);
 
     void fill_holes_with_empty_file_blocks(FileBlocks& file_blocks, const UInt128Wrapper& hash,
                                            const CacheContext& context,
@@ -348,7 +373,7 @@ private:
     size_t get_used_cache_size_unlocked(FileCacheType type,
                                         std::lock_guard<std::mutex>& cache_lock) const;
 
-    void check_disk_resource_limit(const std::string& path);
+    void check_disk_resource_limit();
 
     size_t get_available_cache_size_unlocked(FileCacheType type,
                                              std::lock_guard<std::mutex>& cache_lock) const;
@@ -365,6 +390,24 @@ private:
 
     void recycle_deleted_blocks();
 
+    bool try_reserve_from_other_queue_by_hot_interval(std::vector<FileCacheType> other_cache_types,
+                                                      size_t size, int64_t cur_time,
+                                                      std::lock_guard<std::mutex>& cache_lock);
+
+    bool try_reserve_from_other_queue_by_size(std::vector<FileCacheType> other_cache_types,
+                                              size_t size, std::lock_guard<std::mutex>& cache_lock);
+
+    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
+                     bool is_ttl = false) const;
+
+    void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
+
+    void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
+                                                std::lock_guard<std::mutex>&);
+
+    void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
+                               size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
+                               std::lock_guard<std::mutex>& cache_lock, bool is_ttl);
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
@@ -377,7 +420,7 @@ private:
     std::mutex _close_mtx;
     std::condition_variable _close_cv;
     std::thread _cache_background_thread;
-    std::atomic_bool _lazy_open_done {false};
+    std::atomic_bool _async_open_done {false};
     bool _async_clear_file_cache {false};
     // disk space or inode is less than the specified value
     bool _disk_resource_limit_mode {false};
@@ -389,6 +432,7 @@ private:
     CachedFiles _files;
     QueryFileCacheContextMap _query_map;
     size_t _cur_cache_size = 0;
+    size_t _cur_ttl_size = 0;
     std::multimap<uint64_t, UInt128Wrapper> _time_to_key;
     std::unordered_map<UInt128Wrapper, uint64_t, KeyHash> _key_to_time;
     // The three queues are level queue.
@@ -400,19 +444,34 @@ private:
     LRUQueue _index_queue;
     LRUQueue _normal_queue;
     LRUQueue _disposable_queue;
+    LRUQueue _ttl_queue;
 
     // metrics
-    size_t _num_read_blocks = 0;
-    size_t _num_hit_blocks = 0;
-    size_t _num_removed_blocks = 0;
     std::shared_ptr<bvar::Status<size_t>> _cur_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_metrics;
+    std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_normal_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_index_queue_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_element_count_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
+    std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
+
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_5m;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_1h;
+    std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_1h;
+
+    std::shared_ptr<bvar::Adder<size_t>> _num_read_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _num_hit_blocks;
+    std::shared_ptr<bvar::Adder<size_t>> _num_removed_blocks;
+
+    std::shared_ptr<bvar::Status<double>> _hit_ratio;
+    std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
+    std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
 };
 
 } // namespace doris::io

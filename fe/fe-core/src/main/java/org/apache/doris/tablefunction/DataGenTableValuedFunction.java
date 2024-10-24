@@ -18,7 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.planner.DataGenScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -27,7 +27,7 @@ import org.apache.doris.thrift.TDataGenFunctionName;
 import java.util.List;
 
 public abstract class DataGenTableValuedFunction extends TableValuedFunctionIf {
-    public abstract List<TableValuedFunctionTask> getTasks() throws AnalysisException;
+    public abstract List<TableValuedFunctionTask> getTasks() throws UserException;
 
     public abstract TDataGenFunctionName getDataGenFunctionName();
 

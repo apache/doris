@@ -18,8 +18,13 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
@@ -31,7 +36,7 @@ import java.util.List;
  * syntax:
  * SHOW TABLETS BELONG tablet_ids
  */
-public class ShowTabletsBelongStmt extends ShowStmt {
+public class ShowTabletsBelongStmt extends ShowStmt implements NotFallbackInParser {
     private List<Long> tabletIds;
 
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -54,6 +59,11 @@ public class ShowTabletsBelongStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
+                    PrivPredicate.ADMIN.getPrivs().toString());
+        }
         if (tabletIds == null || tabletIds.isEmpty()) {
             throw new UserException("Please supply at least one tablet id");
         }

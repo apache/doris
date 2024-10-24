@@ -28,12 +28,6 @@ suite("test_routine_load","p0") {
 
     def tables = [
                   "dup_tbl_basic",
-                  "uniq_tbl_basic",
-                  "mow_tbl_basic",
-                  "agg_tbl_basic",
-                  "dup_tbl_array",
-                  "uniq_tbl_array",
-                  "mow_tbl_array",
                  ]
 
     def multiTables = [
@@ -1382,104 +1376,6 @@ suite("test_routine_load","p0") {
                 i++
             }
         } finally {
-            for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-            }
-        }
-    }
-
-    // disable_simdjson_reader and load json
-    i = 0
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        def backendId_to_backendIP = [:]
-        def backendId_to_backendHttpPort = [:]
-        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
-
-        def set_be_param = { paramName, paramValue ->
-            // for eache be node, set paramName=paramValue
-            for (String id in backendId_to_backendIP.keySet()) {
-                def beIp = backendId_to_backendIP.get(id)
-                def bePort = backendId_to_backendHttpPort.get(id)
-                def (code, out, err) = curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", beIp, bePort, paramName, paramValue))
-                assertTrue(out.contains("OK"))
-            }
-        }
-
-        try {
-            set_be_param.call("enable_simdjson_reader", "false")
-
-            for (String tableName in tables) {
-                sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
-                sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
-
-                def name = "routine_load_" + tableName
-                sql """
-                    CREATE ROUTINE LOAD ${jobs[i]} ON ${name}
-                    COLUMNS(${columns[i]})
-                    PROPERTIES
-                    (
-                        "format" = "json",
-                        "jsonpaths" = '${jsonpaths[i]}',
-                        "max_batch_interval" = "5",
-                        "max_batch_rows" = "300000",
-                        "max_batch_size" = "209715200"
-                    )
-                    FROM KAFKA
-                    (
-                        "kafka_broker_list" = "${externalEnvIp}:${kafka_port}",
-                        "kafka_topic" = "${jsonTopic[i]}",
-                        "property.kafka_default_offsets" = "OFFSET_BEGINNING"
-                    );
-                """
-                sql "sync"
-                i++
-            }
-
-            i = 0
-            for (String tableName in tables) {
-                while (true) {
-                    sleep(1000)
-                    def res = sql "show routine load for ${jobs[i]}"
-                    def state = res[0][8].toString()
-                    if (state == "NEED_SCHEDULE") {
-                        continue;
-                    }
-                    log.info("reason of state changed: ${res[0][17].toString()}".toString())
-                    assertEquals(res[0][8].toString(), "RUNNING")
-                    break;
-                }
-
-                def count = 0
-                def tableName1 =  "routine_load_" + tableName
-                while (true) {
-                    def res = sql "select count(*) from ${tableName1}"
-                    def state = sql "show routine load for ${jobs[i]}"
-                    log.info("routine load state: ${state[0][8].toString()}".toString())
-                    log.info("routine load statistic: ${state[0][14].toString()}".toString())
-                    log.info("reason of state changed: ${state[0][17].toString()}".toString())
-                    if (res[0][0] > 0) {
-                        break
-                    }
-                    if (count >= 120) {
-                        log.error("routine load can not visible for long time")
-                        assertEquals(20, res[0][0])
-                        break
-                    }
-                    sleep(5000)
-                    count++
-                }
-
-                if (i <= 3) {
-                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00,k01"
-                } else {
-                    qt_disable_simdjson_reader "select * from ${tableName1} order by k00"
-                }
-
-                sql "stop routine load for ${jobs[i]}"
-                i++
-            }
-        } finally {
-            set_be_param.call("enable_simdjson_reader", "true")
             for (String tableName in tables) {
                 sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
             }

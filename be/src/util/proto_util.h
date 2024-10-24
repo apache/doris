@@ -40,10 +40,9 @@ constexpr size_t MIN_HTTP_BRPC_SIZE = (1ULL << 31);
 template <typename Params, typename Closure>
 Status request_embed_attachment_contain_blockv2(Params* brpc_request,
                                                 std::unique_ptr<Closure>& closure) {
-    auto block = brpc_request->block();
-    Status st = request_embed_attachmentv2(brpc_request, block.column_values(), closure);
-    block.set_column_values("");
-    return st;
+    std::string column_values = std::move(*brpc_request->mutable_block()->mutable_column_values());
+    brpc_request->mutable_block()->mutable_column_values()->clear();
+    return request_embed_attachmentv2(brpc_request, column_values, closure);
 }
 
 inline bool enable_http_send_block(const PTransmitDataParams& request) {
@@ -72,11 +71,26 @@ Status transmit_block_httpv2(ExecEnv* exec_env, std::unique_ptr<Closure> closure
                              TNetworkAddress brpc_dest_addr) {
     RETURN_IF_ERROR(request_embed_attachment_contain_blockv2(closure->request_.get(), closure));
 
+    std::string host = brpc_dest_addr.hostname;
+    auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+    if (dns_cache == nullptr) {
+        LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+    } else if (!is_valid_ip(brpc_dest_addr.hostname)) {
+        Status status = dns_cache->get(brpc_dest_addr.hostname, &host);
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to get ip from host " << brpc_dest_addr.hostname << ": "
+                         << status.to_string();
+            return Status::InternalError("failed to get ip from host {}", brpc_dest_addr.hostname);
+        }
+    }
     //format an ipv6 address
     std::string brpc_url = get_brpc_http_url(brpc_dest_addr.hostname, brpc_dest_addr.port);
 
     std::shared_ptr<PBackendService_Stub> brpc_http_stub =
             exec_env->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url, "http");
+    if (brpc_http_stub == nullptr) {
+        return Status::InternalError("failed to open brpc http client to {}", brpc_url);
+    }
     closure->cntl_->http_request().uri() =
             brpc_url + "/PInternalServiceImpl/transmit_block_by_http";
     closure->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);
@@ -95,7 +109,9 @@ Status request_embed_attachmentv2(Params* brpc_request, const std::string& data,
 
     // step1: serialize brpc_request to string, and append to attachment.
     std::string req_str;
-    brpc_request->SerializeToString(&req_str);
+    if (!brpc_request->SerializeToString(&req_str)) {
+        return Status::InternalError("failed to serialize the request");
+    }
     int64_t req_str_size = req_str.size();
     attachment.append(&req_str_size, sizeof(req_str_size));
     attachment.append(req_str);

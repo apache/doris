@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.ColWithComment;
+
 /**
  * column def for mv
  */
@@ -38,5 +40,9 @@ public class SimpleColumnDefinition {
 
     public String getComment() {
         return comment;
+    }
+
+    public ColWithComment translateToColWithComment() {
+        return new ColWithComment(name, comment);
     }
 }

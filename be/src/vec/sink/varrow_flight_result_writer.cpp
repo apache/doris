@@ -41,6 +41,7 @@ Status VArrowFlightResultWriter::init(RuntimeState* state) {
         return Status::InternalError("sinker is NULL pointer.");
     }
     _is_dry_run = state->query_options().dry_run_query;
+    _timezone_obj = state->timezone_obj();
     return Status::OK();
 }
 
@@ -52,7 +53,7 @@ void VArrowFlightResultWriter::_init_profile() {
     _bytes_sent_counter = ADD_COUNTER(_parent_profile, "BytesSent", TUnit::BYTES);
 }
 
-Status VArrowFlightResultWriter::write(Block& input_block) {
+Status VArrowFlightResultWriter::write(RuntimeState* state, Block& input_block) {
     SCOPED_TIMER(_append_row_batch_timer);
     Status status = Status::OK();
     if (UNLIKELY(input_block.rows() == 0)) {
@@ -73,13 +74,13 @@ Status VArrowFlightResultWriter::write(Block& input_block) {
     {
         SCOPED_TIMER(_convert_tuple_timer);
         RETURN_IF_ERROR(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
-                                               &result));
+                                               &result, _timezone_obj));
     }
     {
         SCOPED_TIMER(_result_send_timer);
         // If this is a dry run task, no need to send data block
         if (!_is_dry_run) {
-            status = _sinker->add_arrow_batch(result);
+            status = _sinker->add_arrow_batch(state, result);
         }
         if (status.ok()) {
             _written_rows += num_rows;
@@ -91,10 +92,6 @@ Status VArrowFlightResultWriter::write(Block& input_block) {
         }
     }
     return status;
-}
-
-bool VArrowFlightResultWriter::can_sink() {
-    return _sinker->can_sink();
 }
 
 Status VArrowFlightResultWriter::close(Status st) {

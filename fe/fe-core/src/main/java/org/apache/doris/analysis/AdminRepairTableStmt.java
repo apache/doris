@@ -30,7 +30,7 @@ import com.google.common.collect.Lists;
 
 import java.util.List;
 
-public class AdminRepairTableStmt extends DdlStmt {
+public class AdminRepairTableStmt extends DdlStmt implements NotFallbackInParser {
 
     private TableRef tblRef;
     private List<String> partitions = Lists.newArrayList();

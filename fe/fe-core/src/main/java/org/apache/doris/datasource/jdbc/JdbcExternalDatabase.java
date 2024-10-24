@@ -35,7 +35,7 @@ public class JdbcExternalDatabase extends ExternalDatabase<JdbcExternalTable> {
     }
 
     @Override
-    protected JdbcExternalTable newExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
+    protected JdbcExternalTable buildTableForInit(String tableName, long tblId, ExternalCatalog catalog) {
         return new JdbcExternalTable(tblId, tableName, name, (JdbcExternalCatalog) extCatalog);
     }
 

@@ -65,6 +65,14 @@ suite("test_pushdown_explain") {
         sql("select count(cast(lo_orderkey as bigint)) from test_lineorder;")
         contains "pushAggOp=COUNT"
     }
+    explain {
+        sql("select 66 from test_lineorder;")
+        contains "pushAggOp=COUNT"
+    }
+    explain {
+        sql("select lo_orderkey from test_lineorder;")
+        contains "pushAggOp=NONE"
+    }
 
     sql "DROP TABLE IF EXISTS table_unique0"
     sql """ 
@@ -76,6 +84,7 @@ suite("test_pushdown_explain") {
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES (
+        "enable_mow_light_delete" = "false",
         "replication_allocation" = "tag.location.default: 1",
         "disable_auto_compaction" = "true"
         );
@@ -117,6 +126,7 @@ suite("test_pushdown_explain") {
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES (
+        "enable_mow_light_delete" = "false",
         "replication_allocation" = "tag.location.default: 1",
         "disable_auto_compaction" = "true"
         );
@@ -204,6 +214,7 @@ suite("test_pushdown_explain") {
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
         "disable_auto_compaction" = "true",
+        "enable_mow_light_delete" = "false",
         "enable_unique_key_merge_on_write" = "false"
         );
     """

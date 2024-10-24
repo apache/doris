@@ -33,11 +33,17 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.collect.ImmutableList;
 
-public class ShowClusterStmt extends ShowStmt {
-    public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("cluster").add("is_current").add("users").build();
+public class ShowClusterStmt extends ShowStmt implements NotFallbackInParser {
+    public static final ImmutableList<String> CLUSTER_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("cluster").add("is_current").add("users").add("backend_num").build();
 
-    public ShowClusterStmt() {
+    public static final ImmutableList<String> COMPUTE_GROUP_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add("Name").add("IsCurrent").add("Users").add("BackendNum").build();
+
+    boolean isComputeGroup = true;
+
+    public ShowClusterStmt(boolean isComputeGroup) {
+        this.isComputeGroup = isComputeGroup;
     }
 
     @Override
@@ -45,7 +51,11 @@ public class ShowClusterStmt extends ShowStmt {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
 
         ImmutableList<String> titleNames = null;
-        titleNames = TITLE_NAMES;
+        if (isComputeGroup) {
+            titleNames = COMPUTE_GROUP_TITLE_NAMES;
+        } else {
+            titleNames = CLUSTER_TITLE_NAMES;
+        }
 
         for (String title : titleNames) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(128)));

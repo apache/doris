@@ -18,26 +18,8 @@
 #pragma once
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vassert_num_rows_node.h"
 
-namespace doris {
-
-namespace pipeline {
-
-class AssertNumRowsOperatorBuilder final : public OperatorBuilder<vectorized::VAssertNumRowsNode> {
-public:
-    AssertNumRowsOperatorBuilder(int32_t id, ExecNode* node)
-            : OperatorBuilder(id, "AssertNumRowsOperator", node) {}
-
-    OperatorPtr build_operator() override;
-};
-
-class AssertNumRowsOperator final : public StreamingOperator<vectorized::VAssertNumRowsNode> {
-public:
-    AssertNumRowsOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
-            : StreamingOperator(operator_builder, node) {}
-};
+namespace doris::pipeline {
 
 class AssertNumRowsLocalState final : public PipelineXLocalState<FakeSharedState> {
 public:
@@ -46,6 +28,9 @@ public:
     AssertNumRowsLocalState(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<FakeSharedState>(state, parent) {}
     ~AssertNumRowsLocalState() = default;
+
+private:
+    friend class AssertNumRowsOperatorX;
 };
 
 class AssertNumRowsOperatorX final : public StreamingOperatorX<AssertNumRowsLocalState> {
@@ -70,5 +55,4 @@ private:
     bool _should_convert_output_to_nullable;
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

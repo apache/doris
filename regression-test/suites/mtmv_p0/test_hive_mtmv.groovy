@@ -17,10 +17,15 @@
 
 suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        logger.info("diable Hive test.")
+        return;
+    }
+
+    for (String hivePrefix : ["hive2", "hive3"]) {
         try {
-            String hms_port = context.config.otherConfigs.get("hms_port")
-            String catalog_name = "hive_test_mtmv"
+            String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
+            String catalog_name = "${hivePrefix}_test_mtmv"
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
             sql """drop catalog if exists ${catalog_name}"""
@@ -32,6 +37,16 @@ suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive")
             def mvName = "test_hive_mtmv"
             def dbName = "regression_test_mtmv_p0"
             sql """drop materialized view if exists ${mvName};"""
+
+             test {
+                sql """CREATE MATERIALIZED VIEW ${catalog_name}.`default`.${mvName}
+                           BUILD DEFERRED REFRESH AUTO ON MANUAL
+                           DISTRIBUTED BY RANDOM BUCKETS 2
+                           PROPERTIES ('replication_num' = '1')
+                           AS
+                           SELECT * FROM ${catalog_name}.`default`.mtmv_base1;"""
+                exception "internal"
+            }
 
             sql """
                 CREATE MATERIALIZED VIEW ${mvName}
@@ -56,14 +71,6 @@ suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive")
             waitingMTMVTaskFinished(jobName)
             order_qt_refresh_one_partition "SELECT * FROM ${mvName} order by id"
 
-            //refresh other partitions
-            // current, for hive, auto refresh will not change data
-            sql """
-                    REFRESH MATERIALIZED VIEW ${mvName}
-                """
-            waitingMTMVTaskFinished(jobName)
-            order_qt_refresh_other_partition "SELECT * FROM ${mvName} order by id"
-
             //refresh complete
             sql """
                     REFRESH MATERIALIZED VIEW ${mvName} complete
@@ -71,8 +78,24 @@ suite("test_hive_mtmv", "p0,external,hive,external_docker,external_docker_hive")
             waitingMTMVTaskFinished(jobName)
             order_qt_refresh_complete "SELECT * FROM ${mvName} order by id"
 
-            sql """drop materialized view if exists ${mvName};"""
+            order_qt_is_sync_before_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+           // rebuild catalog, should not Affects MTMV
+            sql """drop catalog if exists ${catalog_name}"""
+            sql """create catalog if not exists ${catalog_name} properties (
+                "type"="hms",
+                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}'
+            );"""
 
+            order_qt_is_sync_after_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+
+            // should refresh normal after catalog rebuild
+            sql """
+                    REFRESH MATERIALIZED VIEW ${mvName} complete
+                """
+            waitingMTMVTaskFinished(jobName)
+            order_qt_refresh_complete_rebuild "SELECT * FROM ${mvName} order by id"
+
+            sql """drop materialized view if exists ${mvName};"""
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }

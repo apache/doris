@@ -17,11 +17,16 @@
 
 package org.apache.doris.analysis;
 
-public class KillAnalysisJobStmt extends DdlStmt {
+public class KillAnalysisJobStmt extends DdlStmt implements NotFallbackInParser {
 
     public final long jobId;
 
     public KillAnalysisJobStmt(long jobId) {
         this.jobId = jobId;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.KILL;
     }
 }

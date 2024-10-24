@@ -42,7 +42,6 @@ public class FlightSqlJDBC {
             conn = DriverManager.getConnection(DB_URL, USER, PASS);
             stmt = conn.createStatement();
 
-            stmt.executeQuery("set dry_run_query=true");
             stmt.executeQuery("use information_schema;");
             String sql = "show tables;";
 

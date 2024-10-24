@@ -47,6 +47,7 @@ public class FileFormatConstants {
     public static final String PROP_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     public static final String PROP_SKIP_LINES = "skip_lines";
     public static final String PROP_CSV_SCHEMA = "csv_schema";
+    public static final String PROP_COMPRESS = "compress";
     public static final String PROP_COMPRESS_TYPE = "compress_type";
     public static final String PROP_PATH_PARTITION_KEYS = "path_partition_keys";
 

@@ -19,6 +19,7 @@
 
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
@@ -231,7 +232,7 @@ void DataDir::health_check() {
     // check disk
     if (_is_used) {
         Status res = _read_and_write_test_file();
-        if (!res) {
+        if (!res && res.is<IO_ERROR>()) {
             LOG(WARNING) << "store read/write test file occur IO Error. path=" << _path
                          << ", err: " << res;
             _engine.add_broken_path(_path);
@@ -312,7 +313,7 @@ std::string DataDir::get_root_path_from_schema_hash_path_in_trash(
 
 Status DataDir::_check_incompatible_old_format_tablet() {
     auto check_incompatible_old_func = [](int64_t tablet_id, int32_t schema_hash,
-                                          const std::string& value) -> bool {
+                                          std::string_view value) -> bool {
         // if strict check incompatible old format, then log fatal
         if (config::storage_strict_check_incompatible_old_format) {
             LOG(FATAL)
@@ -355,7 +356,7 @@ Status DataDir::load() {
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
     LOG(INFO) << "begin loading rowset from meta";
     auto load_rowset_func = [&dir_rowset_metas, this](TabletUid tablet_uid, RowsetId rowset_id,
-                                                      const std::string& meta_str) -> bool {
+                                                      std::string_view meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
         bool parsed = rowset_meta->init(meta_str);
         if (!parsed) {
@@ -374,7 +375,8 @@ Status DataDir::load() {
                 (!delete_pred->in_predicates().empty() &&
                  delete_pred->in_predicates()[0].has_column_unique_id())) {
                 // convert pred and write only when delete sub pred v2 is not set or there is in list pred to be set column uid
-                DeleteHandler::convert_to_sub_pred_v2(delete_pred, rowset_meta->tablet_schema());
+                RETURN_IF_ERROR(DeleteHandler::convert_to_sub_pred_v2(
+                        delete_pred, rowset_meta->tablet_schema()));
                 LOG(INFO) << fmt::format(
                         "convert rowset with old delete pred: rowset_id={}, tablet_id={}",
                         rowset_id.to_string(), tablet_uid.to_string());
@@ -416,7 +418,7 @@ Status DataDir::load() {
     std::set<int64_t> failed_tablet_ids;
     auto load_tablet_func = [this, &tablet_ids, &failed_tablet_ids](
                                     int64_t tablet_id, int32_t schema_hash,
-                                    const std::string& value) -> bool {
+                                    std::string_view value) -> bool {
         Status status = _engine.tablet_manager()->load_tablet_from_meta(
                 this, tablet_id, schema_hash, value, false, false, false, false);
         if (!status.ok() && !status.is<TABLE_ALREADY_DELETED_ERROR>() &&
@@ -471,9 +473,9 @@ Status DataDir::load() {
     }
 
     auto load_pending_publish_info_func =
-            [&engine = _engine](int64_t tablet_id, int64_t publish_version, const string& info) {
+            [&engine = _engine](int64_t tablet_id, int64_t publish_version, std::string_view info) {
                 PendingPublishInfoPB pending_publish_info_pb;
-                bool parsed = pending_publish_info_pb.ParseFromString(info);
+                bool parsed = pending_publish_info_pb.ParseFromArray(info.data(), info.size());
                 if (!parsed) {
                     LOG(WARNING) << "parse pending publish info failed, tablet_id: " << tablet_id
                                  << " publish_version: " << publish_version;
@@ -588,7 +590,8 @@ Status DataDir::load() {
         }
     }
 
-    auto load_delete_bitmap_func = [this](int64_t tablet_id, int64_t version, const string& val) {
+    auto load_delete_bitmap_func = [this](int64_t tablet_id, int64_t version,
+                                          std::string_view val) {
         TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
         if (!tablet) {
             return true;
@@ -600,7 +603,7 @@ Status DataDir::load() {
         }
 
         DeleteBitmapPB delete_bitmap_pb;
-        delete_bitmap_pb.ParseFromString(val);
+        delete_bitmap_pb.ParseFromArray(val.data(), val.size());
         int rst_ids_size = delete_bitmap_pb.rowset_ids_size();
         int seg_ids_size = delete_bitmap_pb.segment_ids_size();
         int seg_maps_size = delete_bitmap_pb.segment_delete_bitmaps_size();
@@ -638,171 +641,143 @@ Status DataDir::load() {
     return Status::OK();
 }
 
-void DataDir::perform_path_gc() {
-    auto tablet_paths = _perform_path_scan();
-    _perform_path_gc_by_tablet(tablet_paths);
-    _perform_path_gc_by_rowset(tablet_paths);
-}
-
-// gc unused tablet schemahash dir
-void DataDir::_perform_path_gc_by_tablet(std::vector<std::string>& tablet_paths) {
-    if (_stop_bg_worker || tablet_paths.empty()) {
+// gc unused local tablet dir
+void DataDir::_perform_tablet_gc(const std::string& tablet_schema_hash_path, int16_t shard_id) {
+    if (_stop_bg_worker) {
         return;
     }
 
-    LOG(INFO) << "start to path gc by tablet, dir=" << _path;
-    // Use double pointer to avoid move elements after erase a element
-    auto forward = tablet_paths.begin();
-    auto backward = tablet_paths.end();
-    int counter = 0;
-    do {
-        if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
-            std::this_thread::sleep_for(
-                    std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
-        }
-        auto& path = *forward;
-        TTabletId tablet_id = -1;
-        TSchemaHash schema_hash = -1;
-        bool is_valid = TabletManager::get_tablet_id_and_schema_hash_from_path(path, &tablet_id,
-                                                                               &schema_hash);
-        if (!is_valid || tablet_id < 1 || schema_hash < 1) [[unlikely]] {
-            LOG(WARNING) << "unknown path:" << path;
-            --backward;
-            std::swap(*forward, *backward);
-            continue;
-        }
-        auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-        if (!tablet || tablet->data_dir() != this) {
-            if (tablet) {
-                LOG(INFO) << "The tablet in path " << path
-                          << " is not same with the running one: " << tablet->data_dir()->_path
-                          << "/" << tablet->tablet_path()
-                          << ", might be the old tablet after migration, try to move it to trash";
-            }
-            _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
-                                                                    path);
-            --backward;
-            std::swap(*forward, *backward);
-            continue;
-        }
-        // could find the tablet, then skip check it
-        ++forward;
-    } while (forward != backward && !_stop_bg_worker);
-    tablet_paths.erase(backward, tablet_paths.end());
-    LOG(INFO) << "finish path gc by tablet, dir=" << _path;
-}
-
-void DataDir::_perform_path_gc_by_rowset(const std::vector<std::string>& tablet_paths) {
-    if (_stop_bg_worker || tablet_paths.empty()) {
+    TTabletId tablet_id = -1;
+    TSchemaHash schema_hash = -1;
+    bool is_valid = TabletManager::get_tablet_id_and_schema_hash_from_path(
+            tablet_schema_hash_path, &tablet_id, &schema_hash);
+    if (!is_valid || tablet_id < 1 || schema_hash < 1) [[unlikely]] {
+        LOG(WARNING) << "[path gc] unknown path: " << tablet_schema_hash_path;
         return;
     }
 
-    LOG(INFO) << "start to path gc by rowset";
-    int counter = 0;
-    for (const auto& path : tablet_paths) {
-        if (_stop_bg_worker) {
-            break;
+    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+    if (!tablet || tablet->data_dir() != this) {
+        if (tablet) {
+            LOG(INFO) << "The tablet in path " << tablet_schema_hash_path
+                      << " is not same with the running one: " << tablet->tablet_path()
+                      << ", might be the old tablet after migration, try to move it to trash";
+        }
+        _engine.tablet_manager()->try_delete_unused_tablet_path(this, tablet_id, schema_hash,
+                                                                tablet_schema_hash_path, shard_id);
+        return;
+    }
+
+    _perform_rowset_gc(tablet_schema_hash_path);
+}
+
+// gc unused local rowsets under tablet dir
+void DataDir::_perform_rowset_gc(const std::string& tablet_schema_hash_path) {
+    if (_stop_bg_worker) {
+        return;
+    }
+
+    TTabletId tablet_id = -1;
+    TSchemaHash schema_hash = -1;
+    bool is_valid = doris::TabletManager::get_tablet_id_and_schema_hash_from_path(
+            tablet_schema_hash_path, &tablet_id, &schema_hash);
+    if (!is_valid || tablet_id < 1 || schema_hash < 1) [[unlikely]] {
+        LOG(WARNING) << "[path gc] unknown path: " << tablet_schema_hash_path;
+        return;
+    }
+
+    auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
+    if (!tablet) {
+        // Could not found the tablet, maybe it's a dropped tablet, will be reclaimed
+        // in the next time `_perform_path_gc_by_tablet`
+        return;
+    }
+
+    if (tablet->data_dir() != this) {
+        // Current running tablet is not in same data_dir, maybe it's a tablet after migration,
+        // will be reclaimed in the next time `_perform_path_gc_by_tablet`
+        return;
+    }
+
+    bool exists;
+    std::vector<io::FileInfo> files;
+    auto st = io::global_local_filesystem()->list(tablet_schema_hash_path, true, &files, &exists);
+    if (!st.ok()) [[unlikely]] {
+        LOG(WARNING) << "[path gc] fail to list tablet path " << tablet_schema_hash_path << " : "
+                     << st;
+        return;
+    }
+
+    // Rowset files excluding pending rowsets
+    std::vector<std::pair<RowsetId, std::string /* filename */>> rowsets_not_pending;
+    for (auto&& file : files) {
+        auto rowset_id = extract_rowset_id(file.file_name);
+        if (rowset_id.hi == 0) {
+            continue; // Not a rowset
         }
 
-        ++counter;
-        if (config::path_gc_check_step > 0 && counter % config::path_gc_check_step == 0) {
-            std::this_thread::sleep_for(
-                    std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
-        }
-        TTabletId tablet_id = -1;
-        TSchemaHash schema_hash = -1;
-        bool is_valid = doris::TabletManager::get_tablet_id_and_schema_hash_from_path(
-                path, &tablet_id, &schema_hash);
-        if (!is_valid || tablet_id < 1 || schema_hash < 1) [[unlikely]] {
-            LOG(WARNING) << "[path gc] unknown path:" << path;
-            continue;
+        if (_engine.pending_local_rowsets().contains(rowset_id)) {
+            continue; // Pending rowset file
         }
 
-        auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
-        if (!tablet) {
-            // Could not found the tablet, maybe it's a dropped tablet, will be reclaimed
-            // in the next time `_perform_path_gc_by_tablet`
-            continue;
-        }
+        rowsets_not_pending.emplace_back(rowset_id, std::move(file.file_name));
+    }
 
-        if (tablet->data_dir() != this) {
-            // Current running tablet is not in same data_dir, maybe it's a tablet after migration,
-            // will be reclaimed in the next time `_perform_path_gc_by_tablet`
-            continue;
-        }
+    RowsetIdUnorderedSet rowsets_in_version_map;
+    tablet->traverse_rowsets(
+            [&rowsets_in_version_map](auto& rs) { rowsets_in_version_map.insert(rs->rowset_id()); },
+            true);
 
-        bool exists;
-        std::vector<io::FileInfo> files;
-        auto st = io::global_local_filesystem()->list(path, true, &files, &exists);
+    auto reclaim_rowset_file = [](const std::string& path) {
+        auto st = io::global_local_filesystem()->delete_file(path);
         if (!st.ok()) [[unlikely]] {
-            LOG(WARNING) << "[path gc] fail to list tablet path " << path << " : " << st;
+            LOG(WARNING) << "[path gc] failed to delete garbage rowset file: " << st;
+            return;
+        }
+        LOG(INFO) << "[path gc] delete garbage path: " << path; // Audit log
+    };
+
+    auto should_reclaim = [&, this](const RowsetId& rowset_id) {
+        return !rowsets_in_version_map.contains(rowset_id) &&
+               !_engine.check_rowset_id_in_unused_rowsets(rowset_id) &&
+               RowsetMetaManager::exists(get_meta(), tablet->tablet_uid(), rowset_id)
+                       .is<META_KEY_NOT_FOUND>();
+    };
+
+    // rowset_id -> is_garbage
+    std::unordered_map<RowsetId, bool> checked_rowsets;
+    for (auto&& [rowset_id, filename] : rowsets_not_pending) {
+        if (_stop_bg_worker) {
+            return;
+        }
+
+        if (auto it = checked_rowsets.find(rowset_id); it != checked_rowsets.end()) {
+            if (it->second) { // Is checked garbage rowset
+                reclaim_rowset_file(tablet_schema_hash_path + '/' + filename);
+            }
             continue;
         }
 
-        // Rowset files excluding pending rowsets
-        std::vector<std::pair<RowsetId, std::string /* filename */>> rowsets_not_pending;
-        for (auto&& file : files) {
-            auto rowset_id = extract_rowset_id(file.file_name);
-            if (rowset_id.hi == 0) {
-                continue; // Not a rowset
+        if (should_reclaim(rowset_id)) {
+            if (config::path_gc_check_step > 0 &&
+                ++_path_gc_step % config::path_gc_check_step == 0) {
+                std::this_thread::sleep_for(
+                        std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
             }
-
-            if (_engine.pending_local_rowsets().contains(rowset_id)) {
-                continue; // Pending rowset file
-            }
-
-            rowsets_not_pending.emplace_back(rowset_id, std::move(file.file_name));
-        }
-
-        RowsetIdUnorderedSet rowsets_in_version_map;
-        tablet->traverse_rowsets(
-                [&rowsets_in_version_map](auto& rs) {
-                    rowsets_in_version_map.insert(rs->rowset_id());
-                },
-                true);
-
-        auto reclaim_rowset_file = [](const std::string& path) {
-            auto st = io::global_local_filesystem()->delete_file(path);
-            if (!st.ok()) [[unlikely]] {
-                LOG(WARNING) << "[path gc] failed to delete garbage rowset file: " << st;
-                return;
-            }
-            LOG(INFO) << "[path gc] delete garbage path: " << path; // Audit log
-        };
-
-        auto should_reclaim = [&, this](const RowsetId& rowset_id) {
-            return !rowsets_in_version_map.contains(rowset_id) &&
-                   !_engine.check_rowset_id_in_unused_rowsets(rowset_id) &&
-                   RowsetMetaManager::exists(get_meta(), tablet->tablet_uid(), rowset_id)
-                           .is<META_KEY_NOT_FOUND>();
-        };
-
-        // rowset_id -> is_garbage
-        std::unordered_map<RowsetId, bool> checked_rowsets;
-        for (auto&& [rowset_id, filename] : rowsets_not_pending) {
-            if (auto it = checked_rowsets.find(rowset_id); it != checked_rowsets.end()) {
-                if (it->second) { // Is checked garbage rowset
-                    reclaim_rowset_file(path + '/' + filename);
-                }
-                continue;
-            }
-
-            if (should_reclaim(rowset_id)) {
-                reclaim_rowset_file(path + '/' + filename);
-                checked_rowsets.emplace(rowset_id, true);
-            } else {
-                checked_rowsets.emplace(rowset_id, false);
-            }
+            reclaim_rowset_file(tablet_schema_hash_path + '/' + filename);
+            checked_rowsets.emplace(rowset_id, true);
+        } else {
+            checked_rowsets.emplace(rowset_id, false);
         }
     }
-    LOG(INFO) << "finish path gc by rowset.";
 }
 
-// path producer
-std::vector<std::string> DataDir::_perform_path_scan() {
-    std::vector<std::string> tablet_paths;
-    if (_stop_bg_worker) return tablet_paths;
-    LOG(INFO) << "start to scan data dir " << _path;
+void DataDir::perform_path_gc() {
+    if (_stop_bg_worker) {
+        return;
+    }
+
+    LOG(INFO) << "start to gc data dir " << _path;
     auto data_path = fmt::format("{}/{}", _path, DATA_PREFIX);
     std::vector<io::FileInfo> shards;
     bool exists = true;
@@ -810,13 +785,18 @@ std::vector<std::string> DataDir::_perform_path_scan() {
     auto st = fs->list(data_path, false, &shards, &exists);
     if (!st.ok()) [[unlikely]] {
         LOG(WARNING) << "failed to scan data dir: " << st;
-        return tablet_paths;
+        return;
     }
+
     for (const auto& shard : shards) {
-        if (_stop_bg_worker) break;
+        if (_stop_bg_worker) {
+            break;
+        }
+
         if (shard.is_file) {
             continue;
         }
+
         auto shard_path = fmt::format("{}/{}", data_path, shard.file_name);
         std::vector<io::FileInfo> tablet_ids;
         st = io::global_local_filesystem()->list(shard_path, false, &tablet_ids, &exists);
@@ -824,31 +804,48 @@ std::vector<std::string> DataDir::_perform_path_scan() {
             LOG(WARNING) << "fail to walk dir, shard_path=" << shard_path << " : " << st;
             continue;
         }
+
         for (const auto& tablet_id : tablet_ids) {
             if (_stop_bg_worker) {
                 break;
             }
+
             if (tablet_id.is_file) {
                 continue;
             }
+
             auto tablet_id_path = fmt::format("{}/{}", shard_path, tablet_id.file_name);
             std::vector<io::FileInfo> schema_hashes;
-            st = io::global_local_filesystem()->list(tablet_id_path, false, &schema_hashes,
-                                                     &exists);
+            st = fs->list(tablet_id_path, false, &schema_hashes, &exists);
             if (!st.ok()) [[unlikely]] {
                 LOG(WARNING) << "fail to walk dir, tablet_id_path=" << tablet_id_path << " : "
                              << st;
                 continue;
             }
-            if (schema_hashes.size() != 1 || schema_hashes[0].is_file) [[unlikely]] {
-                LOG(WARNING) << "invalid tablet_path, path=" << tablet_id_path;
-                continue;
+
+            for (auto&& schema_hash : schema_hashes) {
+                if (schema_hash.is_file) {
+                    continue;
+                }
+
+                if (config::path_gc_check_step > 0 &&
+                    ++_path_gc_step % config::path_gc_check_step == 0) {
+                    std::this_thread::sleep_for(
+                            std::chrono::milliseconds(config::path_gc_check_step_interval_ms));
+                }
+                int16_t shard_id = -1;
+                try {
+                    shard_id = std::stoi(shard.file_name);
+                } catch (const std::exception&) {
+                    LOG(WARNING) << "failed to stoi shard_id, shard name=" << shard.file_name;
+                    continue;
+                }
+                _perform_tablet_gc(tablet_id_path + '/' + schema_hash.file_name, shard_id);
             }
-            tablet_paths.push_back(tablet_id_path + '/' + schema_hashes[0].file_name);
         }
     }
-    LOG(INFO) << "scan data dir path: " << _path << " finished. path size: " << tablet_paths.size();
-    return tablet_paths;
+
+    LOG(INFO) << "gc data dir path: " << _path << " finished";
 }
 
 Status DataDir::update_capacity() {
@@ -909,8 +906,14 @@ void DataDir::disks_compaction_num_increment(int64_t delta) {
 }
 
 Status DataDir::move_to_trash(const std::string& tablet_path) {
-    Status res = Status::OK();
+    if (config::trash_file_expire_time_sec <= 0) {
+        LOG(INFO) << "delete tablet dir " << tablet_path
+                  << " directly due to trash_file_expire_time_sec is 0";
+        RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(tablet_path));
+        return delete_tablet_parent_path_if_empty(tablet_path);
+    }
 
+    Status res = Status::OK();
     // 1. get timestamp string
     string time_str;
     if ((res = gen_timestamp_string(&time_str)) != Status::OK()) {
@@ -945,8 +948,16 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
     }
 
     // 5. check parent dir of source file, delete it when empty
+    RETURN_IF_ERROR(delete_tablet_parent_path_if_empty(tablet_path));
+
+    return Status::OK();
+}
+
+Status DataDir::delete_tablet_parent_path_if_empty(const std::string& tablet_path) {
+    auto fs_tablet_path = io::Path(tablet_path);
     std::string source_parent_dir = fs_tablet_path.parent_path(); // tablet_id level
     std::vector<io::FileInfo> sub_files;
+    bool exists = true;
     RETURN_IF_ERROR(
             io::global_local_filesystem()->list(source_parent_dir, false, &sub_files, &exists));
     if (sub_files.empty()) {
@@ -954,14 +965,13 @@ Status DataDir::move_to_trash(const std::string& tablet_path) {
         // no need to exam return status
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_directory(source_parent_dir));
     }
-
     return Status::OK();
 }
 
 void DataDir::perform_remote_rowset_gc() {
     std::vector<std::pair<std::string, std::string>> gc_kvs;
-    auto traverse_remote_rowset_func = [&gc_kvs](const std::string& key,
-                                                 const std::string& value) -> bool {
+    auto traverse_remote_rowset_func = [&gc_kvs](std::string_view key,
+                                                 std::string_view value) -> bool {
         gc_kvs.emplace_back(key, value);
         return true;
     };
@@ -976,22 +986,27 @@ void DataDir::perform_remote_rowset_gc() {
             deleted_keys.push_back(std::move(key));
             continue;
         }
-        auto fs = get_filesystem(gc_pb.resource_id());
-        if (!fs) {
+
+        auto storage_resource = get_storage_resource(gc_pb.resource_id());
+        if (!storage_resource) {
             LOG(WARNING) << "Cannot get file system: " << gc_pb.resource_id();
             continue;
         }
-        DCHECK(fs->type() != io::FileSystemType::LOCAL);
+
         std::vector<io::Path> seg_paths;
         seg_paths.reserve(gc_pb.num_segments());
         for (int i = 0; i < gc_pb.num_segments(); ++i) {
-            seg_paths.push_back(BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i));
+            seg_paths.emplace_back(
+                    storage_resource->first.remote_segment_path(gc_pb.tablet_id(), rowset_id, i));
         }
+
+        auto& fs = storage_resource->first.fs;
         LOG(INFO) << "delete remote rowset. root_path=" << fs->root_path()
                   << ", rowset_id=" << rowset_id;
         auto st = fs->batch_delete(seg_paths);
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
+            unused_remote_rowset_num << -1;
         } else {
             LOG(WARNING) << "failed to delete remote rowset. err=" << st;
         }
@@ -1003,8 +1018,8 @@ void DataDir::perform_remote_rowset_gc() {
 
 void DataDir::perform_remote_tablet_gc() {
     std::vector<std::pair<std::string, std::string>> tablet_gc_kvs;
-    auto traverse_remote_tablet_func = [&tablet_gc_kvs](const std::string& key,
-                                                        const std::string& value) -> bool {
+    auto traverse_remote_tablet_func = [&tablet_gc_kvs](std::string_view key,
+                                                        std::string_view value) -> bool {
         tablet_gc_kvs.emplace_back(key, value);
         return true;
     };

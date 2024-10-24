@@ -19,9 +19,16 @@ package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
+import com.google.common.collect.ImmutableList;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import javax.annotation.Nullable;
 
@@ -38,10 +45,26 @@ public abstract class Mapping {
 
         public final RelationId relationId;
         public final CatalogRelation belongedRelation;
+        // Generate eagerly, will be used to generate slot mapping
+        private final Map<List<String>, Slot> slotNameToSlotMap = new HashMap<>();
 
+        /**
+         * Construct relation and slot map
+         */
         public MappedRelation(RelationId relationId, CatalogRelation belongedRelation) {
             this.relationId = relationId;
             this.belongedRelation = belongedRelation;
+            for (Slot slot : belongedRelation.getOutput()) {
+                if (slot instanceof SlotReference) {
+                    // variant slot
+                    List<String> slotNames = new ArrayList<>();
+                    slotNames.add(slot.getName());
+                    slotNames.addAll(((SlotReference) slot).getSubPath());
+                    slotNameToSlotMap.put(slotNames, slot);
+                } else {
+                    slotNameToSlotMap.put(ImmutableList.of(slot.getName()), slot);
+                }
+            }
         }
 
         public static MappedRelation of(RelationId relationId, CatalogRelation belongedRelation) {
@@ -54,6 +77,10 @@ public abstract class Mapping {
 
         public CatalogRelation getBelongedRelation() {
             return belongedRelation;
+        }
+
+        public Map<List<String>, Slot> getSlotNameToSlotMap() {
+            return slotNameToSlotMap;
         }
 
         @Override
@@ -71,6 +98,11 @@ public abstract class Mapping {
         @Override
         public int hashCode() {
             return Objects.hash(relationId);
+        }
+
+        @Override
+        public String toString() {
+            return "MappedRelation{" + "relationId=" + relationId + ", slotNameToSlotMap=" + slotNameToSlotMap + '}';
         }
     }
 
@@ -140,13 +172,5 @@ public abstract class Mapping {
         public String toString() {
             return "MappedSlot{" + "slot=" + slot + '}';
         }
-    }
-
-    /** Chain fold tow mapping, such as this mapping is {[a -> b]}, the target mapping is
-     *  {[b -> c]} after chain fold, this result will be {[a -> c]}, if the value side in this mapping
-     *  can get the key in the target mapping, will lose the mapping
-     */
-    protected Mapping chainedFold(Mapping target) {
-        return null;
     }
 }

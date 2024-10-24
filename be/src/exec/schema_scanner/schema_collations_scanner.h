@@ -36,7 +36,7 @@ public:
     SchemaCollationsScanner();
     ~SchemaCollationsScanner() override;
 
-    Status get_next_block(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
 
 private:
     struct CollationStruct {

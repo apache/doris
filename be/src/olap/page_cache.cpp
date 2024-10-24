@@ -24,6 +24,32 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+template <typename TAllocator>
+PageBase<TAllocator>::PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type)
+        : LRUCacheValueBase(), _size(b), _capacity(b) {
+    if (use_cache) {
+        _mem_tracker_by_allocator = StoragePageCache::instance()->mem_tracker(page_type);
+    } else {
+        _mem_tracker_by_allocator = thread_context()->thread_mem_tracker_mgr->limiter_mem_tracker();
+    }
+    {
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
+        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
+    }
+}
+
+template <typename TAllocator>
+PageBase<TAllocator>::~PageBase() {
+    if (_data != nullptr) {
+        DCHECK(_capacity != 0 && _size != 0);
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker_by_allocator);
+        TAllocator::free(_data, _capacity);
+    }
+}
+
+template class PageBase<Allocator<true>>;
+template class PageBase<Allocator<false>>;
+
 StoragePageCache* StoragePageCache::create_global_cache(size_t capacity,
                                                         int32_t index_cache_percentage,
                                                         int64_t pk_index_cache_capacity,

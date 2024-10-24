@@ -24,6 +24,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -34,20 +35,23 @@
 #include <type_traits>
 #include <vector>
 
+#include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "common/sync_point.h"
+#include "cpp/sync_point.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/cloud.pb.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "io/fs/obj_storage_client.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -58,14 +62,6 @@
 
 namespace doris::cloud {
 using namespace ErrorCode;
-
-namespace {
-constexpr int kBrpcRetryTimes = 3;
-
-static bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
-static bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency(
-        "cloud_table_stats_report_latency");
-} // namespace
 
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
     if (tasks.empty()) {
@@ -129,10 +125,16 @@ Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int 
     return status;
 }
 
+namespace {
+constexpr int kBrpcRetryTimes = 3;
+
+bvar::LatencyRecorder _get_rowset_latency("doris_CloudMetaMgr", "get_rowset");
+bvar::LatencyRecorder g_cloud_commit_txn_resp_redirect_latency("cloud_table_stats_report_latency");
+
 class MetaServiceProxy {
 public:
     static Status get_client(std::shared_ptr<MetaService_Stub>* stub) {
-        SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
+        TEST_SYNC_POINT_RETURN_WITH_VALUE("MetaServiceProxy::get_client", Status::OK(), stub);
         return get_pooled_client(stub);
     }
 
@@ -147,6 +149,9 @@ private:
                 proxies_flag, +[]() {
                     if (config::meta_service_connection_pooled) {
                         num_proxies = config::meta_service_connection_pool_size;
+                    }
+                    if (config::meta_service_endpoint.find(',') != std::string::npos) {
+                        is_meta_service_endpoint_list = true;
                     }
                     proxies = std::make_unique<MetaServiceProxy[]>(num_proxies);
                 });
@@ -164,19 +169,28 @@ private:
     static Status init_channel(brpc::Channel* channel) {
         static std::atomic<size_t> index = 1;
 
-        std::string ip;
-        uint16_t port;
-        Status s = get_meta_service_ip_and_port(&ip, &port);
-        if (!s.ok()) {
-            LOG(WARNING) << "fail to get meta service ip and port: " << s;
-            return s;
+        const char* load_balancer_name = nullptr;
+        std::string endpoint;
+        if (is_meta_service_endpoint_list) {
+            endpoint = fmt::format("list://{}", config::meta_service_endpoint);
+            load_balancer_name = "random";
+        } else {
+            std::string ip;
+            uint16_t port;
+            Status s = get_meta_service_ip_and_port(&ip, &port);
+            if (!s.ok()) {
+                LOG(WARNING) << "fail to get meta service ip and port: " << s;
+                return s;
+            }
+
+            endpoint = get_host_port(ip, port);
         }
 
-        size_t next_id = index.fetch_add(1, std::memory_order_relaxed);
         brpc::ChannelOptions options;
-        options.connection_group = fmt::format("ms_{}", next_id);
-        if (channel->Init(ip.c_str(), port, &options) != 0) {
-            return Status::InternalError("fail to init brpc channel, ip: {}, port: {}", ip, port);
+        options.connection_group =
+                fmt::format("ms_{}", index.fetch_add(1, std::memory_order_relaxed));
+        if (channel->Init(endpoint.c_str(), load_balancer_name, &options) != 0) {
+            return Status::InvalidArgument("failed to init brpc channel, endpoint: {}", endpoint);
         }
         return Status::OK();
     }
@@ -196,7 +210,8 @@ private:
 
     bool is_idle_timeout(long now) {
         auto idle_timeout_ms = config::meta_service_idle_connection_timeout_ms;
-        return idle_timeout_ms > 0 &&
+        // idle timeout only works without list endpoint.
+        return !is_meta_service_endpoint_list && idle_timeout_ms > 0 &&
                _last_access_at_ms.load(std::memory_order_relaxed) + idle_timeout_ms < now;
     }
 
@@ -223,7 +238,9 @@ private:
                                                    google::protobuf::Service::STUB_OWNS_CHANNEL);
 
         long deadline = now;
-        if (config::meta_service_connection_age_base_minutes > 0) {
+        // connection age only works without list endpoint.
+        if (!is_meta_service_endpoint_list &&
+            config::meta_service_connection_age_base_minutes > 0) {
             std::default_random_engine rng(static_cast<uint32_t>(now));
             std::uniform_int_distribution<> uni(
                     config::meta_service_connection_age_base_minutes,
@@ -241,11 +258,15 @@ private:
         return Status::OK();
     }
 
+    static std::atomic_bool is_meta_service_endpoint_list;
+
     std::shared_mutex _mutex;
     std::atomic<long> _last_access_at_ms {0};
     long _deadline_ms {0};
     std::shared_ptr<MetaService_Stub> _stub;
 };
+
+std::atomic_bool MetaServiceProxy::is_meta_service_endpoint_list = false;
 
 template <typename T, typename... Ts>
 struct is_any : std::disjunction<std::is_same<T, Ts>...> {};
@@ -269,12 +290,14 @@ static std::string debug_info(const Request& req) {
         return "";
     } else if constexpr (is_any_v<Request, CreateRowsetRequest>) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
+    } else if constexpr (is_any_v<Request, RemoveDeleteBitmapRequest>) {
+        return fmt::format(" tablet_id={}", req.tablet_id());
     } else {
         static_assert(!sizeof(Request));
     }
 }
 
-static inline std::default_random_engine make_random_engine() {
+inline std::default_random_engine make_random_engine() {
     return std::default_random_engine(
             static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()));
 }
@@ -285,8 +308,8 @@ using MetaServiceMethod = void (MetaService_Stub::*)(::google::protobuf::RpcCont
                                                      ::google::protobuf::Closure*);
 
 template <typename Request, typename Response>
-static Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
-                        MetaServiceMethod<Request, Response> method) {
+Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
+                 MetaServiceMethod<Request, Response> method) {
     static_assert(std::is_base_of_v<::google::protobuf::Message, Request>);
     static_assert(std::is_base_of_v<::google::protobuf::Message, Response>);
 
@@ -308,6 +331,9 @@ static Status retry_rpc(std::string_view op_name, const Request& req, Response* 
             error_msg = cntl.ErrorText();
         } else if (res->status().code() == MetaServiceCode::OK) {
             return Status::OK();
+        } else if (res->status().code() == MetaServiceCode::INVALID_ARGUMENT) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("failed to {}: {}", op_name,
+                                                                     res->status().msg());
         } else if (res->status().code() != MetaServiceCode::KV_TXN_CONFLICT) {
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to {}: {}", op_name,
                                                                    res->status().msg());
@@ -326,6 +352,8 @@ static Status retry_rpc(std::string_view op_name, const Request& req, Response* 
     }
     return Status::RpcError("failed to {}: rpc timeout, last msg={}", op_name, error_msg);
 }
+
+} // namespace
 
 Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tablet_meta) {
     VLOG_DEBUG << "send GetTabletRequest, tablet_id: " << tablet_id;
@@ -425,7 +453,10 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
         tablet->last_sync_time_s = now;
 
-        if (tablet->enable_unique_key_merge_on_write()) {
+        // If is mow, the tablet has no delete bitmap in base rowsets.
+        // So dont need to sync it.
+        if (tablet->enable_unique_key_merge_on_write() &&
+            tablet->tablet_state() == TABLET_RUNNING) {
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
@@ -438,7 +469,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 continue;
             }
             if (!st.ok()) {
-                LOG_WARNING("failed to get delete bimtap")
+                LOG_WARNING("failed to get delete bitmap")
                         .tag("tablet", tablet->tablet_id())
                         .error(st);
                 return st;
@@ -498,8 +529,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 rs_meta->init_from_pb(meta_pb);
                 RowsetSharedPtr rowset;
                 // schema is nullptr implies using RowsetMeta.tablet_schema
-                Status s = RowsetFactory::create_rowset(nullptr, tablet->tablet_path(), rs_meta,
-                                                        &rowset);
+                Status s = RowsetFactory::create_rowset(nullptr, "", rs_meta, &rowset);
                 if (!s.ok()) {
                     LOG_WARNING("create rowset").tag("status", s);
                     return s;
@@ -526,12 +556,66 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
     }
 }
 
-Status CloudMetaMgr::sync_tablet_delete_bitmap(
-        CloudTablet* tablet, int64_t old_max_version,
-        const google::protobuf::RepeatedPtrField<RowsetMetaCloudPB>& rs_metas,
-        const TabletStatsPB& stats, const TabletIndexPB& idx, DeleteBitmap* delete_bitmap) {
+bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
+                                                      std::ranges::range auto&& rs_metas,
+                                                      DeleteBitmap* delete_bitmap) {
+    std::set<int64_t> txn_processed;
+    for (auto& rs_meta : rs_metas) {
+        auto txn_id = rs_meta.txn_id();
+        if (txn_processed.find(txn_id) != txn_processed.end()) {
+            continue;
+        }
+        txn_processed.insert(txn_id);
+        DeleteBitmapPtr tmp_delete_bitmap;
+        std::shared_ptr<PublishStatus> publish_status =
+                std::make_shared<PublishStatus>(PublishStatus::INIT);
+        CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+        Status status = engine.txn_delete_bitmap_cache().get_delete_bitmap(
+                txn_id, tablet->tablet_id(), &tmp_delete_bitmap, nullptr, &publish_status);
+        // CloudMetaMgr::sync_tablet_delete_bitmap_by_cache() is called after we sync rowsets from meta services.
+        // If the control flows reaches here, it's gauranteed that the rowsets is commited in meta services, so we can
+        // use the delete bitmap from cache directly if *publish_status == PublishStatus::SUCCEED without checking other
+        // stats(version or compaction stats)
+        if (status.ok() && *publish_status == PublishStatus::SUCCEED) {
+            // tmp_delete_bitmap contains sentinel marks, we should remove it before merge it to delete bitmap.
+            // Also, the version of delete bitmap key in tmp_delete_bitmap is DeleteBitmap::TEMP_VERSION_COMMON,
+            // we should replace it with the rowset's real version
+            DCHECK(rs_meta.start_version() == rs_meta.end_version());
+            int64_t rowset_version = rs_meta.start_version();
+            for (const auto& [delete_bitmap_key, bitmap_value] : tmp_delete_bitmap->delete_bitmap) {
+                // skip sentinel mark, which is used for delete bitmap correctness check
+                if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+                    delete_bitmap->merge({std::get<0>(delete_bitmap_key),
+                                          std::get<1>(delete_bitmap_key), rowset_version},
+                                         bitmap_value);
+                }
+            }
+            engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
+                                                                           tablet->tablet_id());
+        } else {
+            LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << tablet->tablet_id()
+                         << ", txn_id=" << txn_id << ", status=" << status;
+            return false;
+        }
+    }
+    return true;
+}
+
+Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
+                                               std::ranges::range auto&& rs_metas,
+                                               const TabletStatsPB& stats, const TabletIndexPB& idx,
+                                               DeleteBitmap* delete_bitmap) {
     if (rs_metas.empty()) {
         return Status::OK();
+    }
+
+    if (sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
+        return Status::OK();
+    } else {
+        LOG(WARNING) << "failed to sync delete bitmap by txn info. tablet_id="
+                     << tablet->tablet_id();
+        DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
+        *delete_bitmap = *new_delete_bitmap;
     }
 
     std::shared_ptr<MetaService_Stub> stub;
@@ -615,17 +699,32 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(
         delete_bitmap->merge({rst_id, segment_ids[i], vers[i]},
                              roaring::Roaring::read(delete_bitmaps[i].data()));
     }
+    int64_t latency = cntl.latency_us();
+    if (latency > 100 * 1000) { // 100ms
+        LOG(INFO) << "finish get_delete_bitmap rpc. rowset_ids.size()=" << rowset_ids.size()
+                  << ", delete_bitmaps.size()=" << delete_bitmaps.size() << ", latency=" << latency
+                  << "us";
+    } else {
+        LOG_EVERY_N(INFO, 100) << "finish get_delete_bitmap rpc. rowset_ids.size()="
+                               << rowset_ids.size()
+                               << ", delete_bitmaps.size()=" << delete_bitmaps.size()
+                               << ", latency=" << latency << "us";
+    }
     return Status::OK();
 }
 
 Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id();
-
+               << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::prepare_rowset", ret_st);
+    }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(rs_meta.txn_id());
 
     RowsetMetaPB doris_rs_meta = rs_meta.get_rowset_pb(/*skip_schema=*/true);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(doris_rs_meta));
@@ -646,10 +745,15 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
 Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
-               << ", rowset_id: " << rs_meta.rowset_id();
+               << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_rowset", ret_st);
+    }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(rs_meta.txn_id());
 
     RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb();
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
@@ -673,7 +777,12 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
 
-    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(true);
+    // Variant schema maybe updated, so we need to update the schema as well.
+    // The updated rowset meta after `rowset->merge_rowset_meta` in `BaseTablet::update_delete_bitmap`
+    // will be lost in `update_tmp_rowset` if skip_schema.So in order to keep the latest schema we should keep schema in update_tmp_rowset
+    // for variant type
+    bool skip_schema = rs_meta.tablet_schema()->num_variant_columns() == 0;
+    RowsetMetaPB rs_meta_pb = rs_meta.get_rowset_pb(skip_schema);
     doris_rowset_meta_to_cloud(req.mutable_rowset_meta(), std::move(rs_meta_pb));
     Status st =
             retry_rpc("update committed rowset", req, &resp, &MetaService_Stub::update_tmp_rowset);
@@ -741,12 +850,17 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
 Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     VLOG_DEBUG << "commit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label << ", is_2pc: " << is_2pc;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_txn", ret_st);
+    }
     CommitTxnRequest req;
     CommitTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
+    req.set_enable_txn_lazy_commit(config::enable_cloud_txn_lazy_commit);
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
@@ -759,14 +873,23 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
 Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     VLOG_DEBUG << "abort txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::abort_txn", ret_st);
+    }
     AbortTxnRequest req;
     AbortTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_reason(std::string(ctx.status.msg().substr(0, 1024)));
     if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
         req.set_label(ctx.label);
-    } else {
+    } else if (ctx.txn_id > 0) {
         req.set_txn_id(ctx.txn_id);
+    } else {
+        LOG(WARNING) << "failed abort txn, with illegal input, db_id=" << ctx.db_id
+                     << " txn_id=" << ctx.txn_id << " label=" << ctx.label;
+        return Status::InternalError<false>("failed to abort txn");
     }
     return retry_rpc("abort txn", req, &res, &MetaService_Stub::abort_txn);
 }
@@ -774,6 +897,10 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
 Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     VLOG_DEBUG << "precommit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::precommit_txn", ret_st);
+    }
     PrecommitTxnRequest req;
     PrecommitTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -782,8 +909,7 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
-Status CloudMetaMgr::get_storage_vault_info(
-        std::vector<std::tuple<std::string, std::variant<S3Conf, THdfsParams>>>* vault_infos) {
+Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -793,32 +919,35 @@ Status CloudMetaMgr::get_storage_vault_info(
         return s;
     }
 
-    for (const auto& obj_store : resp.obj_info()) {
-        S3Conf s3_conf;
-        s3_conf.ak = obj_store.ak();
-        s3_conf.sk = obj_store.sk();
-        s3_conf.endpoint = obj_store.endpoint();
-        s3_conf.region = obj_store.region();
-        s3_conf.bucket = obj_store.bucket();
-        s3_conf.prefix = obj_store.prefix();
-        s3_conf.sse_enabled = obj_store.sse_enabled();
-        s3_conf.provider = obj_store.provider();
-        vault_infos->emplace_back(obj_store.id(), std::move(s3_conf));
-    }
-    for (const auto& vault : resp.storage_vault()) {
-        THdfsParams params;
-        params.fs_name = vault.hdfs_info().build_conf().fs_name();
-        params.user = vault.hdfs_info().build_conf().user();
-        params.hdfs_kerberos_keytab = vault.hdfs_info().build_conf().hdfs_kerberos_keytab();
-        params.hdfs_kerberos_principal = vault.hdfs_info().build_conf().hdfs_kerberos_principal();
-        for (const auto& confs : vault.hdfs_info().build_conf().hdfs_confs()) {
-            THdfsConf conf;
-            conf.key = confs.key();
-            conf.value = confs.value();
-            params.hdfs_conf.emplace_back(std::move(conf));
+    *is_vault_mode = resp.enable_storage_vault();
+
+    auto add_obj_store = [&vault_infos](const auto& obj_store) {
+        vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
+                                  StorageVaultPB_PathFormat {});
+    };
+
+    std::ranges::for_each(resp.obj_info(), add_obj_store);
+    std::ranges::for_each(resp.storage_vault(), [&](const auto& vault) {
+        if (vault.has_hdfs_info()) {
+            vault_infos->emplace_back(vault.id(), vault.hdfs_info(), vault.path_format());
         }
-        vault_infos->emplace_back(vault.id(), std::move(params));
+        if (vault.has_obj_info()) {
+            add_obj_store(vault.obj_info());
+        }
+    });
+
+    // desensitization, hide secret
+    for (int i = 0; i < resp.obj_info_size(); ++i) {
+        resp.mutable_obj_info(i)->set_sk(resp.obj_info(i).sk().substr(0, 2) + "xxx");
     }
+    for (int i = 0; i < resp.storage_vault_size(); ++i) {
+        auto* j = resp.mutable_storage_vault(i);
+        if (!j->has_obj_info()) continue;
+        j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
+    }
+
+    LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode
+              << " response=" << resp.ShortDebugString();
     return Status::OK();
 }
 
@@ -920,16 +1049,43 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     return st;
 }
 
+Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                       DeleteBitmap* delete_bitmap) {
+    VLOG_DEBUG << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id();
+    UpdateDeleteBitmapRequest req;
+    UpdateDeleteBitmapResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_table_id(tablet.table_id());
+    req.set_partition_id(tablet.partition_id());
+    req.set_tablet_id(tablet.tablet_id());
+    // use a fake lock id to resolve compatibility issues
+    req.set_lock_id(-3);
+    req.set_unlock(true);
+    for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
+        req.add_rowset_ids(std::get<0>(key).to_string());
+        req.add_segment_ids(std::get<1>(key));
+        req.add_versions(std::get<2>(key));
+        // To save space, convert array and bitmap containers to run containers
+        bitmap.runOptimize();
+        std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+        bitmap.write(bitmap_data.data());
+        *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+    }
+    return retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
+}
+
 Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                                    int64_t initiator) {
-    VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id();
+    VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
+               << ",lock_id:" << lock_id;
     GetDeleteBitmapUpdateLockRequest req;
     GetDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_table_id(tablet.table_id());
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
-    req.set_expiration(10); // 10s expiration time for compaction and schema_change
+    // set expiration time for compaction and schema_change
+    req.set_expiration(config::delete_bitmap_lock_expiration_seconds);
     int retry_times = 0;
     Status st;
     std::default_random_engine rng = make_random_engine();
@@ -947,6 +1103,24 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
     } while (++retry_times <= 100);
+    return st;
+}
+
+Status CloudMetaMgr::remove_old_version_delete_bitmap(
+        int64_t tablet_id,
+        const std::vector<std::tuple<std::string, uint64_t, uint64_t>>& to_delete) {
+    LOG(INFO) << "remove_old_version_delete_bitmap , tablet_id: " << tablet_id;
+    RemoveDeleteBitmapRequest req;
+    RemoveDeleteBitmapResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet_id);
+    for (auto& value : to_delete) {
+        req.add_rowset_ids(std::get<0>(value));
+        req.add_begin_versions(std::get<1>(value));
+        req.add_end_versions(std::get<2>(value));
+    }
+    auto st = retry_rpc("remove old delete bitmap", req, &res,
+                        &MetaService_Stub::remove_delete_bitmap);
     return st;
 }
 

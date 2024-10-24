@@ -6,14 +6,15 @@
   "mappings": {
     "properties": {
       "test1": {
-        "type": "keyword"
+        "type": "keyword",
+        "ignore_above": 10
       },
       "test2": {
         "type": "text",
         "fields": {
           "keyword": {
             "type": "keyword",
-            "ignore_above": 256
+            "ignore_above": 10
           }
         }
       },
@@ -117,6 +118,9 @@
       "level": {
         "type": "constant_keyword",
         "value": "debug"
+      },
+      "c_user": {
+        "type": "nested"
       }
     }
   }

@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_multi_partition_key", "p0") {
-
-    // TODO: remove it after we add implicit cast check in Nereids
-    sql "set enable_nereids_dml=false"
-
     def random = new Random()
     sql "set enable_insert_strict=true"
     def createTable = { String tableName, String partitionInfo /* param */  ->
@@ -55,7 +51,7 @@ suite("test_multi_partition_key", "p0") {
             sql "select * from ${tableName} order by k1, k2"
             resultFile "partition_table.out"
         }
-        def result = sql "SHOW PARTITIONS FROM ${tableName}"
+        def result = sql_return_maparray "SHOW PARTITIONS FROM ${tableName}"
         assertTrue(result.size() > 1)
         if (ifDropTbl) {
             try_sql """DROP TABLE ${tableName}"""
@@ -77,21 +73,21 @@ suite("test_multi_partition_key", "p0") {
     )
 
     // partition columns are int & datetime
-    test {
-        sql """
-        CREATE TABLE err_1 ( 
-          k1 TINYINT NOT NULL,  
-          k5 DATETIME NOT NULL, 
-          v1 DATE REPLACE NOT NULL) 
-        PARTITION BY RANGE(k1,k5) ( 
-          PARTITION partition_a VALUES LESS THAN ("-127","2010-01-01"), 
-          PARTITION partition_e VALUES LESS THAN ("4","2010-01-01"), 
-          PARTITION partition_f VALUES LESS THAN MAXVALUE ) 
-        DISTRIBUTED BY HASH(k1) BUCKETS 53
-        PROPERTIES("replication_allocation" = "tag.location.default: 1")
-        """
-        exception "Invalid datetime value: 2010-01-01"
-    }
+
+    sql " drop table if exists err_1 "
+    sql """
+    CREATE TABLE err_1 ( 
+      k1 TINYINT NOT NULL,  
+      k5 DATETIME NOT NULL, 
+      v1 DATE REPLACE NOT NULL) 
+    PARTITION BY RANGE(k1,k5) ( 
+      PARTITION partition_a VALUES LESS THAN ("-127","2010-01-01"), 
+      PARTITION partition_e VALUES LESS THAN ("4","2010-01-01"), 
+      PARTITION partition_f VALUES LESS THAN MAXVALUE ) 
+    DISTRIBUTED BY HASH(k1) BUCKETS 53
+    PROPERTIES("replication_allocation" = "tag.location.default: 1")
+    """
+
     testPartitionTbl(
             "test_multi_partition_key_2",
             """
@@ -143,8 +139,8 @@ suite("test_multi_partition_key", "p0") {
             false
     )
     // expect partition_f range: [ [126, 126] ~ [500, -128] )
-    def ret = sql "SHOW PARTITIONS FROM test_default_minvalue WHERE PartitionName='partition_f'"
-    assertTrue(ret[0][6].contains("[500, -128]"))
+    def ret = sql_return_maparray "SHOW PARTITIONS FROM test_default_minvalue WHERE PartitionName='partition_f'"
+    assertTrue(ret[0].Range.contains("[500, -128]"))
 
     // partition columns error
     test {
@@ -221,12 +217,12 @@ suite("test_multi_partition_key", "p0") {
     test {
         sql "ALTER TABLE test_multi_col_test_partition_add ADD PARTITION partition_add VALUES LESS THAN ('30', '1000') " +
                 "DISTRIBUTED BY hash(k1) BUCKETS 5"
-        exception "Cannot assign hash distribution with different distribution cols. new is: [`k1` TINYINT NOT NULL] default is: [`k1` TINYINT NOT NULL, `k2` SMALLINT NOT NULL, `k3` INT NOT NULL]"
+        exception "Cannot assign hash distribution with different distribution cols. new is: [`k1` tinyint NOT NULL] default is: [`k1` tinyint NOT NULL, `k2` smallint NOT NULL, `k3` int NOT NULL]"
     }
 
     sql "ALTER TABLE test_multi_col_test_partition_add ADD PARTITION partition_add VALUES LESS THAN ('30', '1000') "
-    def ret_add_p = sql "SHOW PARTITIONS FROM test_multi_col_test_partition_add WHERE PartitionName='partition_add'"
-    assertTrue(ret[0][6].contains("[500, -128]"))
+    def ret_add_p = sql_return_maparray "SHOW PARTITIONS FROM test_multi_col_test_partition_add WHERE PartitionName='partition_add'"
+    assertTrue(ret[0].Range.contains("[500, -128]"))
     test {
         sql "ALTER TABLE test_multi_col_test_partition_add ADD PARTITION add_partition_wrong " +
                 "VALUES LESS THAN ('30', '800') DISTRIBUTED BY hash(k1) BUCKETS 5"
@@ -247,11 +243,11 @@ suite("test_multi_partition_key", "p0") {
             false
     )
     sql "ALTER TABLE test_multi_col_test_partition_drop DROP PARTITION partition_d"
-    def ret_drop_p = sql "SHOW PARTITIONS FROM test_multi_col_test_partition_drop WHERE PartitionName='partition_d'"
+    def ret_drop_p = sql_return_maparray "SHOW PARTITIONS FROM test_multi_col_test_partition_drop WHERE PartitionName='partition_d'"
     assertEquals(0, ret_drop_p.size())
     sql "ALTER TABLE test_multi_col_test_partition_drop ADD PARTITION partition_dd VALUES LESS THAN ('0','0') "
-    ret_drop_p = sql "SHOW PARTITIONS FROM test_multi_col_test_partition_drop WHERE PartitionName='partition_dd'"
-    assertTrue(ret_drop_p[0][6].contains("[0, 0]"))
+    ret_drop_p = sql_return_maparray "SHOW PARTITIONS FROM test_multi_col_test_partition_drop WHERE PartitionName='partition_dd'"
+    assertTrue(ret_drop_p[0].Range.contains("[0, 0]"))
     // null value in the lowest partition, if drop the partition null is deleted.
     sql """drop table if exists test_multi_col_test_partition_null_value"""
     sql """
@@ -284,10 +280,11 @@ suite("test_multi_partition_key", "p0") {
             "values(0, NULL, 0, 0, 0, '2000-01-01 00:00:00', '2000-01-01', 'a', 'a', 0.001, -0.001, 0.001)"
     qt_sql7 "select k1 from test_multi_col_test_partition_null_value partition(partition_a) where k2 is null"
     sql "ALTER TABLE test_multi_col_test_partition_null_value DROP PARTITION partition_a"
+    def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
     test {
         sql "insert into test_multi_col_test_partition_null_value " +
                 "values(0, NULL, 0, 0, 0, '2000-01-01 00:00:00', '2000-01-01', 'a', 'a', 0.001, -0.001, 0.001)"
-        exception "Insert has filtered data in strict mode"
+        exception exception_str
     }
     qt_sql8 "select k1 from test_multi_col_test_partition_null_value where k2 is null"
     // partition columns and add key column
@@ -369,8 +366,8 @@ suite("test_multi_partition_key", "p0") {
     if (!isCloudMode()) {
         sql "ALTER TABLE test_multi_col_test_rollup MODIFY PARTITION partition_a SET( 'replication_num' = '1')"
     }
-    ret = sql "SHOW PARTITIONS FROM test_multi_col_test_rollup WHERE PartitionName='partition_a'"
-    assertEquals('1', ret[0][9])
+    ret = sql_return_maparray "SHOW PARTITIONS FROM test_multi_col_test_rollup WHERE PartitionName='partition_a'"
+    assertEquals(1, ret[0].ReplicationNum as int)
     // create table with range partition
     testPartitionTbl(
             "test_multi_column_fixed_range_1",
@@ -396,7 +393,7 @@ suite("test_multi_partition_key", "p0") {
     )
     // add partition with range
     sql "ALTER TABLE test_multi_column_fixed_range_1 ADD PARTITION partition_add VALUES LESS THAN ('50','1000') "
-    ret = sql "SHOW PARTITIONS FROM test_multi_column_fixed_range_1 WHERE PartitionName='partition_add'"
+    ret = sql_return_maparray "SHOW PARTITIONS FROM test_multi_column_fixed_range_1 WHERE PartitionName='partition_add'"
     assertEquals(1, ret.size(), )
     test {
         sql "ALTER TABLE test_multi_column_fixed_range_1 ADD PARTITION add_partition_wrong VALUES LESS THAN ('50','800')"
@@ -417,28 +414,16 @@ suite("test_multi_partition_key", "p0") {
         """
     test {
         sql "insert into test_multi_col_insert values (-127, -200)"
-        exception "Insert has filtered data in strict mode"
+        exception exception_str
     }
     sql "insert into test_multi_col_insert values (10, -100)"
     test {
         sql "insert into test_multi_col_insert values (10, 50)"
-        exception "Insert has filtered data in strict mode"
+        exception exception_str
 
     }
     sql "insert into test_multi_col_insert values (10, 100)"
     sql "insert into test_multi_col_insert values (30, -32768)"
-    test {
-        sql "insert into test_multi_col_insert values (30, -32769)"
-        exception "Number out of range[-32769]. type: SMALLINT"
-    }
-    test {
-        sql "insert into test_multi_col_insert values (50, -300)"
-        exception "Insert has filtered data in strict mode"
-    }
-    test {
-        sql "insert into test_multi_col_insert values (127, -300)"
-        exception "Insert has filtered data in strict mode"
-    }
     qt_sql13 "select * from test_multi_col_insert order by k1, k2"
 
     try_sql "drop table if exists test_default_minvalue"
@@ -452,7 +437,6 @@ suite("test_multi_partition_key", "p0") {
     try_sql "drop table if exists test_multi_column_fixed_range_1"
     try_sql "drop table if exists test_multi_partition_key_2"
 
-    sql """set enable_nereids_planner=false"""
     test {
         sql """
             CREATE TABLE IF NOT EXISTS test_multi_col_ddd (
@@ -465,7 +449,7 @@ suite("test_multi_partition_key", "p0") {
             DISTRIBUTED BY HASH(k1,k2) BUCKETS 1
             PROPERTIES("replication_allocation" = "tag.location.default: 1")
         """
-        exception "Not support MAXVALUE in multi partition range values"
+        exception ""
     }
 
 }

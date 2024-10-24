@@ -22,12 +22,13 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 
-public class RecoverDbStmt extends DdlStmt {
+public class RecoverDbStmt extends DdlStmt implements NotFallbackInParser {
     private String dbName;
     private long dbId = -1;
     private String newDbName = "";
@@ -59,8 +60,9 @@ public class RecoverDbStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
 
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
-                PrivPredicate.ALTER_CREATE)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
+                        PrivPredicate.ALTER_CREATE)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
@@ -81,5 +83,10 @@ public class RecoverDbStmt extends DdlStmt {
             sb.append(this.newDbName);
         }
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RECOVER;
     }
 }

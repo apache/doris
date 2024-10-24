@@ -3,17 +3,17 @@
 pk	PRIMARY KEY	PRIMARY KEY (id)
 
 -- !add_unique --
-uk	UNIQUE	UNIQUE (id)
 pk	PRIMARY KEY	PRIMARY KEY (id)
+uk	UNIQUE	UNIQUE (id)
 
 -- !add_foreign --
-uk	UNIQUE	UNIQUE (id)
-pk	PRIMARY KEY	PRIMARY KEY (id)
 fk1	FOREIGN KEY	FOREIGN KEY (id) REFERENCES regression_test_nereids_syntax_p0.t2 (id)
+pk	PRIMARY KEY	PRIMARY KEY (id)
+uk	UNIQUE	UNIQUE (id)
 
 -- !drop_uk --
-pk	PRIMARY KEY	PRIMARY KEY (id)
 fk1	FOREIGN KEY	FOREIGN KEY (id) REFERENCES regression_test_nereids_syntax_p0.t2 (id)
+pk	PRIMARY KEY	PRIMARY KEY (id)
 
 -- !drop_fk --
 pk	PRIMARY KEY	PRIMARY KEY (id)

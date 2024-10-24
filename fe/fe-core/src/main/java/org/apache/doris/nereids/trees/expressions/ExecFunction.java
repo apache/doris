@@ -34,13 +34,4 @@ public @interface ExecFunction {
      */
     String name();
 
-    /**
-     * args type
-     */
-    String[] argTypes();
-
-    /**
-     * return type
-     */
-    String returnType();
 }

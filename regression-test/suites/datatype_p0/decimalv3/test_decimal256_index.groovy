@@ -19,7 +19,10 @@ suite("test_decimal256_index") {
     sql "set enable_nereids_planner = true;"
     sql "set enable_decimal256 = true;"
 
+    def timeout = 60000
     def delta_time = 1000
+    def alter_res = "null"
+    def useTime = 0
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->
         useTime = 0
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
@@ -139,9 +142,11 @@ suite("test_decimal256_index") {
 
     sql """CREATE INDEX k2_bitmap_index ON test_decimal256_bitmap_index(k2) USING BITMAP;"""
     wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
-    sql """BUILD INDEX k2_bitmap_index ON test_decimal256_bitmap_index;"""
-    wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
-    wait_for_build_index_on_partition_finish("test_decimal256_bitmap_index", 10000)
+    if (!isCloudMode()) {
+        sql """BUILD INDEX k2_bitmap_index ON test_decimal256_bitmap_index;"""
+        wait_for_latest_op_on_table_finish("test_decimal256_bitmap_index", 10000);
+        wait_for_build_index_on_partition_finish("test_decimal256_bitmap_index", 10000)
+    }
 
     qt_sql_bitmap_index_select_all """
         select * from test_decimal256_bitmap_index order by 1,2,3;

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 
@@ -89,7 +90,8 @@ public:
     // Precondition: the input `rowset` should have the same type of the rowset we're building
     virtual Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) = 0;
 
-    virtual Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) {
+    virtual Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer,
+                                      FileType file_type = FileType::SEGMENT_FILE) {
         return Status::NotSupported("RowsetWriter does not support create_file_writer");
     }
 
@@ -134,6 +136,9 @@ public:
 
     virtual int64_t num_rows() const = 0;
 
+    virtual int64_t num_rows_updated() const = 0;
+    virtual int64_t num_rows_deleted() const = 0;
+    virtual int64_t num_rows_new_added() const = 0;
     virtual int64_t num_rows_filtered() const = 0;
 
     virtual RowsetId rowset_id() = 0;

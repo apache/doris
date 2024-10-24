@@ -23,24 +23,20 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
-import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.thrift.TFileAttributes;
 
 import org.apache.paimon.table.Table;
 
-import java.util.Map;
 
 public class PaimonSource {
     private final PaimonExternalTable paimonExtTable;
     private final Table originTable;
-
     private final TupleDescriptor desc;
 
-    public PaimonSource(PaimonExternalTable table, TupleDescriptor desc,
-                            Map<String, ColumnRange> columnNameToRange) {
-        this.paimonExtTable = table;
-        this.originTable = paimonExtTable.getOriginTable();
+    public PaimonSource(TupleDescriptor desc) {
         this.desc = desc;
+        this.paimonExtTable = (PaimonExternalTable) desc.getTable();
+        this.originTable = paimonExtTable.getPaimonTable();
     }
 
     public TupleDescriptor getDesc() {
@@ -63,7 +59,7 @@ public class PaimonSource {
         return paimonExtTable.getCatalog();
     }
 
-    public String getFileFormat() {
-        return originTable.options().getOrDefault(PaimonProperties.FILE_FORMAT, "orc");
+    public String getFileFormatFromTableProperties() {
+        return originTable.options().getOrDefault(PaimonProperties.FILE_FORMAT, "parquet");
     }
 }

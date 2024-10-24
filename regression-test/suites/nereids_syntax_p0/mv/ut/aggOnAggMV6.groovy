@@ -43,15 +43,19 @@ suite ("aggOnAggMV6") {
 
     sql """insert into aggOnAggMV6 values("2020-01-01",1,"a",1,1,1);"""
 
-    explain {
-        sql("select * from aggOnAggMV6 order by empid;")
-        contains "(aggOnAggMV6)"
-    }
+    sql "analyze table aggOnAggMV6 with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from aggOnAggMV6 order by empid;", "aggOnAggMV6_mv")
     order_qt_select_star "select * from aggOnAggMV6 order by empid;"
 
-    explain {
-        sql("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10;")
-        contains "(aggOnAggMV6_mv)"
-    }
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10;",
+            "aggOnAggMV6_mv")
     order_qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10 order by 1;"
+
+    sql """set enable_stats=true;"""
+    mv_rewrite_fail("select * from aggOnAggMV6 order by empid;", "aggOnAggMV6_mv")
+
+    mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10;",
+            "aggOnAggMV6_mv")
 }

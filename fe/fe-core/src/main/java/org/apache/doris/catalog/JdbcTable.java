@@ -31,6 +31,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.collections.map.CaseInsensitiveMap;
@@ -38,7 +39,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.List;
@@ -65,25 +65,39 @@ public class JdbcTable extends Table {
     private static final String DRIVER_URL = "driver_url";
     private static final String CHECK_SUM = "checksum";
     private static Map<String, TOdbcTableType> TABLE_TYPE_MAP;
+    @SerializedName("rn")
     private String resourceName;
+    @SerializedName("etn")
     private String externalTableName;
 
     // real name only for jdbc catalog
+    @SerializedName("rdn")
     private String remoteDatabaseName;
+    @SerializedName("rtn")
     private String remoteTableName;
+    @SerializedName("rcn")
     private Map<String, String> remoteColumnNames;
 
+    @SerializedName("jtn")
     private String jdbcTypeName;
 
+    @SerializedName("jurl")
     private String jdbcUrl;
+    @SerializedName("jusr")
     private String jdbcUser;
+    @SerializedName("jpwd")
     private String jdbcPasswd;
+    @SerializedName("dc")
     private String driverClass;
+    @SerializedName("du")
     private String driverUrl;
+    @SerializedName("cs")
     private String checkSum;
 
+    @SerializedName("cid")
     private long catalogId = -1;
 
+    private boolean enableConnectionPool;
     private int connectionPoolMinSize;
     private int connectionPoolMaxSize;
     private int connectionPoolMaxWaitTime;
@@ -92,7 +106,6 @@ public class JdbcTable extends Table {
 
     static {
         Map<String, TOdbcTableType> tempMap = new CaseInsensitiveMap();
-        tempMap.put("nebula", TOdbcTableType.NEBULA);
         tempMap.put("mysql", TOdbcTableType.MYSQL);
         tempMap.put("postgresql", TOdbcTableType.POSTGRESQL);
         tempMap.put("sqlserver", TOdbcTableType.SQLSERVER);
@@ -104,6 +117,7 @@ public class JdbcTable extends Table {
         tempMap.put("oceanbase", TOdbcTableType.OCEANBASE);
         tempMap.put("oceanbase_oracle", TOdbcTableType.OCEANBASE_ORACLE);
         tempMap.put("db2", TOdbcTableType.DB2);
+        tempMap.put("gbase", TOdbcTableType.GBASE);
         TABLE_TYPE_MAP = Collections.unmodifiableMap(tempMap);
     }
 
@@ -177,6 +191,11 @@ public class JdbcTable extends Table {
         return catalogId;
     }
 
+    public boolean isEnableConnectionPool() {
+        return Boolean.parseBoolean(getFromJdbcResourceOrDefault(JdbcResource.ENABLE_CONNECTION_POOL,
+                String.valueOf(enableConnectionPool)));
+    }
+
     public int getConnectionPoolMinSize() {
         return Integer.parseInt(getFromJdbcResourceOrDefault(JdbcResource.CONNECTION_POOL_MIN_SIZE,
                 String.valueOf(connectionPoolMinSize)));
@@ -225,6 +244,7 @@ public class JdbcTable extends Table {
         tJdbcTable.setJdbcDriverUrl(getDriverUrl());
         tJdbcTable.setJdbcResourceName(resourceName);
         tJdbcTable.setJdbcDriverChecksum(checkSum);
+        tJdbcTable.setEnableConnectionPool(isEnableConnectionPool());
         tJdbcTable.setConnectionPoolMinSize(getConnectionPoolMinSize());
         tJdbcTable.setConnectionPoolMaxSize(getConnectionPoolMaxSize());
         tJdbcTable.setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime());
@@ -236,37 +256,7 @@ public class JdbcTable extends Table {
         return tTableDescriptor;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        super.write(out);
-        Map<String, String> serializeMap = Maps.newHashMap();
-        serializeMap.put(CATALOG_ID, String.valueOf(catalogId));
-        serializeMap.put(TABLE, externalTableName);
-        serializeMap.put(RESOURCE, resourceName);
-        serializeMap.put(TABLE_TYPE, jdbcTypeName);
-        serializeMap.put(URL, jdbcUrl);
-        serializeMap.put(USER, jdbcUser);
-        serializeMap.put(PASSWORD, jdbcPasswd);
-        serializeMap.put(DRIVER_CLASS, driverClass);
-        serializeMap.put(DRIVER_URL, driverUrl);
-        serializeMap.put(CHECK_SUM, checkSum);
-        serializeMap.put(REMOTE_DATABASE, remoteDatabaseName);
-        serializeMap.put(REMOTE_TABLE, remoteTableName);
-        serializeMap.put(REMOTE_COLUMNS, objectMapper.writeValueAsString(remoteColumnNames));
-
-        int size = (int) serializeMap.values().stream().filter(v -> {
-            return v != null;
-        }).count();
-        out.writeInt(size);
-
-        for (Map.Entry<String, String> kv : serializeMap.entrySet()) {
-            if (kv.getValue() != null) {
-                Text.writeString(out, kv.getKey());
-                Text.writeString(out, kv.getValue());
-            }
-        }
-    }
-
+    @Deprecated
     @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
@@ -363,8 +353,8 @@ public class JdbcTable extends Table {
 
     @Override
     public JdbcTable clone() {
-        JdbcTable copied = new JdbcTable();
-        if (!DeepCopy.copy(this, copied, JdbcTable.class, FeConstants.meta_version)) {
+        JdbcTable copied = DeepCopy.copy(this, JdbcTable.class, FeConstants.meta_version);
+        if (copied == null) {
             LOG.warn("failed to copy jdbc table: " + getName());
             return null;
         }
@@ -411,6 +401,7 @@ public class JdbcTable extends Table {
         driverClass = jdbcResource.getProperty(DRIVER_CLASS);
         driverUrl = jdbcResource.getProperty(DRIVER_URL);
         checkSum = jdbcResource.getProperty(CHECK_SUM);
+        enableConnectionPool = Boolean.parseBoolean(jdbcResource.getProperty(JdbcResource.ENABLE_CONNECTION_POOL));
         connectionPoolMinSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MIN_SIZE));
         connectionPoolMaxSize = Integer.parseInt(jdbcResource.getProperty(JdbcResource.CONNECTION_POOL_MAX_SIZE));
         connectionPoolMaxWaitTime = Integer.parseInt(
@@ -482,6 +473,7 @@ public class JdbcTable extends Table {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
+            case GBASE:
                 return formatName(name, "`", "`", false, false);
             case SQLSERVER:
                 return formatName(name, "[", "]", false, false);
@@ -504,6 +496,7 @@ public class JdbcTable extends Table {
         switch (tableType) {
             case MYSQL:
             case OCEANBASE:
+            case GBASE:
                 return formatNameWithRemoteName(remoteName, "`", "`");
             case SQLSERVER:
                 return formatNameWithRemoteName(remoteName, "[", "]");

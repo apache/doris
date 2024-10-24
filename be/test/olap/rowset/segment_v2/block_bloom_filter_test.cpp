@@ -115,13 +115,13 @@ TEST_F(BlockBloomFilterTest, SP) {
     EXPECT_TRUE(bf2->size() > 0);
 
     int num = _expected_num;
-    int32_t values[num];
+    std::vector<int32_t> values(num);
     for (int32_t i = 0; i < num; ++i) {
         values[i] = i * 10 + 1;
         bf->add_bytes((char*)&values[i], sizeof(int32_t));
     }
 
-    int32_t values2[num];
+    std::vector<int32_t> values2(num);
     for (int32_t i = 0; i < num; ++i) {
         values2[i] = 15360 + i * 10 + 1;
         bf2->add_bytes((char*)&values2[i], sizeof(int32_t));

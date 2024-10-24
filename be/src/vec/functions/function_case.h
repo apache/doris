@@ -93,8 +93,8 @@ struct CaseWhenColumnHolder {
         pair_count = (end - begin) / 2 + 1; // when/then at [1: pair_count)
 
         for (int i = begin; i < end; i += 2) {
-            when_ptrs.emplace_back(OptionalPtr(block.get_by_position(arguments[i]).column));
-            then_ptrs.emplace_back(OptionalPtr(block.get_by_position(arguments[i + 1]).column));
+            when_ptrs.emplace_back(block.get_by_position(arguments[i]).column);
+            then_ptrs.emplace_back(block.get_by_position(arguments[i + 1]).column);
         }
 
         // if case_column/when_column is nullable. cast all case_column/when_column to nullable.
@@ -231,7 +231,7 @@ public:
                         }
                     }
                 } else {
-                    auto* __restrict cond_raw_data =
+                    const auto* __restrict cond_raw_data =
                             assert_cast<const ColumnUInt8*>(when_column_ptr.get())
                                     ->get_data()
                                     .data();
@@ -302,11 +302,11 @@ public:
             }
             size_t target = is_consts[then_idx[row_idx]] ? 0 : row_idx;
             if constexpr (then_null) {
-                assert_cast<ColumnNullable*>(result_column_ptr.get())
+                assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
                         ->insert_from_with_type<ColumnType>(*raw_columns[then_idx[row_idx]],
                                                             target);
             } else {
-                assert_cast<ColumnType*>(result_column_ptr.get())
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
                         ->insert_from(*raw_columns[then_idx[row_idx]], target);
             }
         }
@@ -316,15 +316,16 @@ public:
     void update_result_auto_simd(MutableColumnPtr& result_column_ptr,
                                  const uint8* __restrict then_idx,
                                  CaseWhenColumnHolder& column_holder) const {
-        for (size_t i = 0; i < column_holder.then_ptrs.size(); i++) {
-            column_holder.then_ptrs[i]->reset(
-                    column_holder.then_ptrs[i].value()->convert_to_full_column_if_const());
+        for (auto& then_ptr : column_holder.then_ptrs) {
+            then_ptr->reset(then_ptr.value()->convert_to_full_column_if_const());
         }
 
         size_t rows_count = column_holder.rows_count;
         result_column_ptr->resize(rows_count);
         auto* __restrict result_raw_data =
-                assert_cast<ColumnType*>(result_column_ptr.get())->get_data().data();
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
+                        ->get_data()
+                        .data();
 
         // set default value
         for (int i = 0; i < rows_count; i++) {

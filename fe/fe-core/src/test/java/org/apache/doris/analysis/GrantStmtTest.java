@@ -108,8 +108,8 @@ public class GrantStmtTest {
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null,
                 new ResourcePattern("*", ResourceTypeEnum.GENERAL), privileges, ResourceTypeEnum.GENERAL);
         stmt.analyze(analyzer);
-        Assert.assertEquals(Auth.PrivLevel.GLOBAL, stmt.getResourcePattern().getPrivLevel());
-        Assert.assertEquals("GRANT Usage_priv ON RESOURCE '*' TO 'testUser'@'%'", stmt.toSql());
+        Assert.assertEquals(Auth.PrivLevel.RESOURCE, stmt.getResourcePattern().getPrivLevel());
+        Assert.assertEquals("GRANT Usage_priv ON RESOURCE '%' TO 'testUser'@'%'", stmt.toSql());
     }
 
     @Test(expected = AnalysisException.class)

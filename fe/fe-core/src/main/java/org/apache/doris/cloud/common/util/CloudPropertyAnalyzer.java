@@ -34,7 +34,6 @@ public class CloudPropertyAnalyzer extends PropertyAnalyzer {
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME),
                 RewriteProperty.delete(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM),
-                RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"),
                 RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "true"),
                 RewriteProperty.replace(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
                         String.valueOf(ReplicaAllocation.DEFAULT_ALLOCATION.getTotalReplicaNum())),

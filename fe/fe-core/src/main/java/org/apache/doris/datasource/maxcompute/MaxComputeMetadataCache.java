@@ -20,52 +20,30 @@ package org.apache.doris.datasource.maxcompute;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.TablePartitionValues;
 
-import com.aliyun.odps.tunnel.TunnelException;
-import com.google.common.cache.Cache;
-import com.google.common.cache.CacheBuilder;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 
 import java.util.List;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public class MaxComputeMetadataCache {
     private final Cache<MaxComputeCacheKey, TablePartitionValues> partitionValuesCache;
-    private final Cache<MaxComputeCacheKey, Long> tableRowCountCache;
 
     public MaxComputeMetadataCache() {
-        partitionValuesCache = CacheBuilder.newBuilder().maximumSize(Config.max_hive_partition_cache_num)
+        partitionValuesCache = Caffeine.newBuilder().maximumSize(Config.max_hive_partition_cache_num)
                 .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
                 .build();
-        tableRowCountCache = CacheBuilder.newBuilder().maximumSize(10000)
-                .expireAfterAccess(Config.external_cache_expire_time_minutes_after_access, TimeUnit.MINUTES)
-                .build();
-    }
-
-    public Long getCachedRowCount(String dbName, String tblName, String partitionSpec,
-                                  Callable<? extends Long> loader) throws TunnelException {
-        try {
-            MaxComputeCacheKey tablePartitionKey = new MaxComputeCacheKey(dbName, tblName, partitionSpec);
-            return tableRowCountCache.get(tablePartitionKey, loader);
-        } catch (ExecutionException e) {
-            throw new TunnelException(e.getMessage(), e);
-        }
     }
 
     public TablePartitionValues getCachedPartitionValues(MaxComputeCacheKey tablePartitionKey,
-                                                         Callable<? extends TablePartitionValues> loader) {
-        try {
-            return partitionValuesCache.get(tablePartitionKey, loader);
-        } catch (ExecutionException e) {
-            throw new RuntimeException("Fail to load partition values for table:"
-                    + " '" + tablePartitionKey.getDbName() + "." + tablePartitionKey.getTblName() + "'");
-        }
+            Function<? super MaxComputeCacheKey, ? extends TablePartitionValues> loader) {
+        return partitionValuesCache.get(tablePartitionKey, loader);
     }
 
     public void cleanUp() {
         partitionValuesCache.invalidateAll();
-        tableRowCountCache.invalidateAll();
     }
 
     public void cleanDatabaseCache(String dbName) {
@@ -74,17 +52,10 @@ public class MaxComputeMetadataCache {
                 .filter(k -> k.getDbName().equalsIgnoreCase(dbName))
                 .collect(Collectors.toList());
         partitionValuesCache.invalidateAll(removeCacheList);
-
-        List<MaxComputeCacheKey> removeCacheRowCountList = tableRowCountCache.asMap().keySet()
-                .stream()
-                .filter(k -> k.getDbName().equalsIgnoreCase(dbName))
-                .collect(Collectors.toList());
-        tableRowCountCache.invalidateAll(removeCacheRowCountList);
     }
 
     public void cleanTableCache(String dbName, String tblName) {
         MaxComputeCacheKey cacheKey = new MaxComputeCacheKey(dbName, tblName);
         partitionValuesCache.invalidate(cacheKey);
-        tableRowCountCache.invalidate(cacheKey);
     }
 }

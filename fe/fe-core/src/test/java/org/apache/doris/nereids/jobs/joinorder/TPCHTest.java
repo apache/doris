@@ -60,6 +60,7 @@ public class TPCHTest extends TPCHTestBase implements MemoPatternMatchSupported 
         // o_orderstatus is smaller than o_orderdate, but o_orderstatus is not used in this sql
         // it is better to choose the column which is already used to represent count(*)
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze(sql)
                 .rewrite()
                 .matches(
@@ -67,8 +68,8 @@ public class TPCHTest extends TPCHTestBase implements MemoPatternMatchSupported 
                                 logicalAggregate(
                                     logicalProject().when(
                                             project -> project.getProjects().size() == 1
-                                                    && project.getProjects().get(0) instanceof SlotReference
-                                                    && "o_orderdate".equals(project.getProjects().get(0).toSql()))))
+                                                    && !(project.getProjects().get(0) instanceof SlotReference)
+                                    )))
                 );
     }
 }

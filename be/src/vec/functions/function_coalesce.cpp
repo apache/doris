@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/bitmap_value.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -56,6 +56,7 @@ class FunctionCoalesce : public IFunction {
 public:
     static constexpr auto name = "coalesce";
 
+    mutable DataTypePtr result_type;
     mutable FunctionBasePtr func_is_not_null;
 
     static FunctionPtr create() { return std::make_shared<FunctionCoalesce>(); }
@@ -69,25 +70,26 @@ public:
     size_t get_number_of_arguments() const override { return 0; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        DataTypePtr res;
         for (const auto& arg : arguments) {
             if (!arg->is_nullable()) {
-                res = arg;
+                result_type = arg;
                 break;
             }
         }
 
-        res = res ? res : arguments[0];
-
-        const ColumnsWithTypeAndName is_not_null_col {{nullptr, make_nullable(res), ""}};
-        func_is_not_null = SimpleFunctionFactory::instance().get_function(
-                "is_not_null_pred", is_not_null_col, std::make_shared<DataTypeUInt8>());
-
-        return res;
+        result_type = result_type ? result_type : arguments[0];
+        return result_type;
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        if (!func_is_not_null) [[unlikely]] {
+            const ColumnsWithTypeAndName is_not_null_col {
+                    {nullptr, make_nullable(result_type), ""}};
+            func_is_not_null = SimpleFunctionFactory::instance().get_function(
+                    "is_not_null_pred", is_not_null_col, std::make_shared<DataTypeUInt8>(),
+                    {.enable_decimal256 = context->state()->enable_decimal256()});
+        }
         DCHECK_GE(arguments.size(), 1);
         DataTypePtr result_type = block.get_by_position(result).type;
         ColumnNumbers filtered_args;
@@ -137,14 +139,16 @@ public:
         auto null_map = ColumnUInt8::create(
                 input_rows_count, 1); //if null_map_data==1, the current row should be null
         auto* __restrict null_map_data = null_map->get_data().data();
-        ColumnPtr argument_columns[argument_size]; //use to save nested_column if is nullable column
+        std::vector<ColumnPtr> argument_columns(
+                argument_size); //use to save nested_column if is nullable column
 
         for (size_t i = 0; i < argument_size; ++i) {
             block.get_by_position(filtered_args[i]).column =
                     block.get_by_position(filtered_args[i])
                             .column->convert_to_full_column_if_const();
             argument_columns[i] = block.get_by_position(filtered_args[i]).column;
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
+            if (const auto* nullable =
+                        check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
                 argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
@@ -162,7 +166,9 @@ public:
             auto res_column =
                     (*temporary_block.get_by_position(1).column->convert_to_full_column_if_const())
                             .mutate();
-            auto& res_map = assert_cast<ColumnVector<UInt8>*>(res_column.get())->get_data();
+            auto& res_map =
+                    assert_cast<ColumnVector<UInt8>*, TypeCheckOnRelease::DISABLE>(res_column.get())
+                            ->get_data();
             auto* __restrict res = res_map.data();
 
             // Here it's SIMD thought the compiler automatically

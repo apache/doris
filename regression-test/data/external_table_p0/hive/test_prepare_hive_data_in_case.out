@@ -9,3 +9,13 @@ eee	fff
 ccc	ddd
 aaa	bbb
 
+-- !hive_docker_01 --
+eee	fff
+ccc	ddd
+aaa	bbb
+
+-- !sql_02 --
+eee	fff
+ccc	ddd
+aaa	bbb
+

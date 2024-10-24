@@ -70,5 +70,5 @@ public interface Task {
      * get info for tvf `tasks`
      * @return TRow
      */
-    TRow getTvfInfo();
+    TRow getTvfInfo(String jobName);
 }

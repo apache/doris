@@ -19,42 +19,25 @@ name: Need_2_Approval
 
 on:
   pull_request_review:
-    types: [submitted]
+    types: [ submitted ]
+
 jobs:
   Need_2_Approval:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v3
-      - run: |
-          pr_num=${{ github.event.pull_request.number }}
-          echo $pr_num
-          if [ -z "$pr_num" ]; then
-              echo "PR number is not set"
-              exit 1
-          fi
-          response=$(curl -s  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }} "  "https://api.github.com/repos/apache/doris/pulls/${pr_num}/reviews?per_page=100")
-          # shellcheck disable=SC2207
-          reviewers=($(echo $response | jq -r '.[] | .user.login'))
-          # shellcheck disable=SC2207
-          statuses=($(echo $response | jq -r '.[] | .state'))
-          echo "${reviewers[@]}"
-          echo "${statuses[@]}"
-          approves=()
-          reviewers_unique=()
-          for ((i=${#reviewers[@]}-1;i>=0;i--)); do
-            if ! echo "${reviewers_unique[@]}" | grep -q -w "${reviewers[$i]}" && [ "${statuses[$i]}" != "COMMENTED" ]; then
-                  reviewers_unique+=( "${reviewers[$i]}" )
-                  if [ "${statuses[$i]}" == "APPROVED" ]; then
-                      approves+=( "${reviewers[$i]}" )
-                  fi
-              fi
-          done
-          echo "${approves[@]}"
-          if [ ${#approves[@]} -lt 2 ]; then
-              echo "PR ${pr_num} has not been approved by at least 2 reviewers"
-              # shellcheck disable=SC2242
-              exit 1
-          fi
-          echo "Thanks for your contribution to Doris."
-          exit 0
+      - name: Install Python dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  # Adjust if needed
+      - name: Install match library
+        run: |
+          pip install --upgrade pip 
+          pip install match
+          pip install requests
+      - name: Run Python script
+        run: |
+          python tools/maintainers/check_review.py  ${{ github.event.pull_request.number }} ${{secrets.GITHUB_TOKEN}}
+env:
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

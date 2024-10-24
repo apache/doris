@@ -18,6 +18,7 @@
 #pragma once
 
 #include <arrow/type.h>
+#include <cctz/time_zone.h>
 #include <stddef.h>
 
 #include <memory>
@@ -43,9 +44,7 @@ public:
 
     Status init(RuntimeState* state) override;
 
-    Status write(Block& block) override;
-
-    bool can_sink() override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status) override;
 
@@ -73,6 +72,8 @@ private:
     uint64_t _bytes_sent = 0;
 
     std::shared_ptr<arrow::Schema> _arrow_schema;
+
+    cctz::time_zone _timezone_obj;
 };
 } // namespace vectorized
 } // namespace doris

@@ -181,21 +181,11 @@ PROPERTIES (
     }
 
     def getAlterTableState = { table_name ->
-        def retry = 0
-        while (true) {
-            def state = sql "show alter table column where tablename = '${table_name}' order by CreateTime desc "
-            logger.info("alter table state: ${state}")
-            logger.info("state:" + state[0][9]);
-            if (state.size() > 0 && state[0][9] == "FINISHED") {
-                return true
-            }
-            retry++
-            if (retry >= 60) {
-                return false
-            }
-            Thread.sleep(5000)
+        waitForSchemaChangeDone {
+            sql """ SHOW ALTER TABLE COLUMN WHERE tablename='${table_name}' ORDER BY createtime DESC LIMIT 1 """
+            time 600
         }
-        return false
+        return true
     }
 
     def truncate = { table_name ->
@@ -231,6 +221,7 @@ PROPERTIES (
         for (int i = 1; i <= 10; i++) {
             logger.info("process file:" + i)
             if (i == 5) {
+                getRowCount(total, table_name)
                 def retry = 0
                 while (retry < 10) {
                     try {

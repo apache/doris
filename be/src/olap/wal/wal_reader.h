@@ -32,13 +32,12 @@ public:
     Status finalize();
 
     Status read_block(PBlock& block);
-    Status read_header(std::string& col_ids);
+    Status read_header(uint32_t& version, std::string& col_ids);
 
 private:
     Status _check_checksum(const char* binary, size_t size, uint32_t checksum);
 
     std::string _file_name;
-    uint32_t _version = 0;
     size_t _offset;
     io::FileReaderSPtr file_reader;
 };

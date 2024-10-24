@@ -25,14 +25,27 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <zlib.h>
+#include <zstd.h>
 
+#include <memory>
 #include <string>
 
 #include "common/status.h"
+#include "gen_cpp/PlanNodes_types.h"
 
 namespace doris {
 
-enum CompressType { UNCOMPRESSED, GZIP, DEFLATE, BZIP2, LZ4FRAME, LZOP, LZ4BLOCK, SNAPPYBLOCK };
+enum CompressType {
+    UNCOMPRESSED,
+    GZIP,
+    DEFLATE,
+    BZIP2,
+    ZSTD,
+    LZ4FRAME,
+    LZOP,
+    LZ4BLOCK,
+    SNAPPYBLOCK
+};
 
 class Decompressor {
 public:
@@ -57,7 +70,14 @@ public:
                               size_t* more_output_bytes) = 0;
 
 public:
-    static Status create_decompressor(CompressType type, Decompressor** decompressor);
+    static Status create_decompressor(CompressType type,
+                                      std::unique_ptr<Decompressor>* decompressor);
+
+    static Status create_decompressor(TFileCompressType::type type,
+                                      std::unique_ptr<Decompressor>* decompressor);
+
+    static Status create_decompressor(TFileFormatType::type type,
+                                      std::unique_ptr<Decompressor>* decompressor);
 
     virtual std::string debug_info();
 
@@ -115,6 +135,25 @@ private:
 
 private:
     bz_stream _bz_strm;
+};
+
+class ZstdDecompressor : public Decompressor {
+public:
+    ~ZstdDecompressor() override;
+
+    Status decompress(uint8_t* input, size_t input_len, size_t* input_bytes_read, uint8_t* output,
+                      size_t output_max_len, size_t* decompressed_len, bool* stream_end,
+                      size_t* more_input_bytes, size_t* more_output_bytes) override;
+
+    std::string debug_info() override;
+
+private:
+    friend class Decompressor;
+    ZstdDecompressor() : Decompressor(CompressType::ZSTD) {}
+    Status init() override;
+
+private:
+    ZSTD_DStream* _zstd_strm {nullptr};
 };
 
 class Lz4FrameDecompressor : public Decompressor {

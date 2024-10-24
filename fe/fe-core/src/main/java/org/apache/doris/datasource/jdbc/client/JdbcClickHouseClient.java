@@ -20,16 +20,14 @@ package org.apache.doris.datasource.jdbc.client;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.util.JdbcFieldSchema;
+
+import java.util.Optional;
 
 public class JdbcClickHouseClient extends JdbcClient {
 
     protected JdbcClickHouseClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
-    }
-
-    @Override
-    protected String getDatabaseQuery() {
-        return "SHOW DATABASES";
     }
 
     @Override
@@ -40,7 +38,7 @@ public class JdbcClickHouseClient extends JdbcClient {
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
 
-        String ckType = fieldSchema.getDataTypeName();
+        String ckType = fieldSchema.getDataTypeName().orElse("unknown");
 
         if (ckType.startsWith("LowCardinality")) {
             fieldSchema.setAllowNull(true);
@@ -86,7 +84,7 @@ public class JdbcClickHouseClient extends JdbcClient {
 
         if (ckType.startsWith("Array")) {
             String cktype = ckType.substring(6, ckType.length() - 1);
-            fieldSchema.setDataTypeName(cktype);
+            fieldSchema.setDataTypeName(Optional.of(cktype));
             Type type = jdbcTypeToDoris(fieldSchema);
             return ArrayType.create(type, true);
         }

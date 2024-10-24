@@ -75,7 +75,7 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
 
     private Pair<ImmutableList<String>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        Plan analyzedPlan = planner.plan(plan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
+        Plan analyzedPlan = planner.planWithLock(plan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
         Set<LogicalCatalogRelation> logicalCatalogRelationSet = analyzedPlan
                 .collect(LogicalCatalogRelation.class::isInstance);
         if (logicalCatalogRelationSet.size() != 1) {

@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_two_phase_read_with_having", "arrow_flight_sql") {
+suite("test_two_phase_read_with_having") { // "arrow_flight_sql" not support two phase read
 
     sql """ set enable_partition_topn = 1; """
     sql """ set topn_opt_limit_threshold = 1024; """

@@ -20,11 +20,15 @@
 suite("eliminate_empty") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-    sql 'set forbid_unknown_col_stats=false'
+    multi_sql """
+        SET enable_nereids_planner=true;
+        SET enable_fallback_to_original_planner=false;
+        set disable_nereids_rules='PRUNE_EMPTY_PARTITION';
+        set forbid_unknown_col_stats=false;
+        set enable_parallel_result_sink=false;
+    """
     qt_onerow_union """
-        select * from (select 1, 2 union select 3, 4) T
+        select * from (select 1, 2 union select 3, 4) T order by 1, 2
     """
 
     qt_join """
@@ -126,6 +130,107 @@ suite("eliminate_empty") {
 
     qt_except_empty_data """
         select r_regionkey from region where false except select n_nationkey from nation  
+    """
+
+    qt_null_join """
+        explain shape plan
+        select * 
+        from 
+            nation 
+            join 
+            (select * from region where Null) R
+    """
+
+    qt_null_explain_union_empty_data """
+        explain shape plan
+        select * 
+        from (select n_nationkey from nation union select r_regionkey from region where Null) T
+    """
+    qt_null_union_empty_data """
+        select * 
+        from (select n_nationkey from nation union select r_regionkey from region where Null) T
+    """
+
+    qt_null_explain_union_empty_empty """
+        explain shape plan
+        select * 
+        from (
+                select n_nationkey from nation where Null 
+                union 
+                select r_regionkey from region where Null
+            ) T
+    """
+    qt_null_union_empty_empty """
+        select * 
+        from (
+                select n_nationkey from nation where Null 
+                union 
+                select r_regionkey from region where Null
+            ) T
+    """
+    qt_null_union_emtpy_onerow """
+        select *
+        from (
+            select n_nationkey from nation where Null 
+                union
+            select 10
+                union
+            select 10
+        )T
+        """
+
+    qt_null_explain_intersect_data_empty """
+        explain shape plan
+        select n_nationkey from nation intersect select r_regionkey from region where Null
+    """
+
+    qt_null_explain_intersect_empty_data """
+        explain shape plan
+        select r_regionkey from region where Null intersect select n_nationkey from nation  
+    """
+
+    qt_null_explain_except_data_empty """
+        explain shape plan
+        select n_nationkey from nation except select r_regionkey from region where Null
+    """
+
+    qt_null_explain_except_data_empty_data """
+        explain shape plan
+        select n_nationkey from nation 
+        except 
+        select r_regionkey from region where Null
+        except
+        select n_nationkey from nation where n_nationkey != 1;
+    """
+
+    qt_null_except_data_empty_data """
+        select n_nationkey from nation 
+        except 
+        select r_regionkey from region where Null
+        except
+        select n_nationkey from nation where n_nationkey != 1;
+    """
+
+    qt_null_explain_except_empty_data """
+        explain shape plan
+        select r_regionkey from region where Null except select n_nationkey from nation  
+    """
+
+
+    qt_null_intersect_data_empty """
+        select n_nationkey from nation intersect select r_regionkey from region where Null
+    """
+
+    qt_null_intersect_empty_data """
+        select r_regionkey from region where Null intersect select n_nationkey from nation  
+    """
+
+    qt_null_except_data_empty """
+        select n_nationkey from nation except select r_regionkey from region where Null
+    """
+
+    qt_null_except_empty_data """
+        select r_regionkey from region where Null except select n_nationkey from nation  
     """
 
     sql """

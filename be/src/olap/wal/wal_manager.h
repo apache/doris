@@ -73,7 +73,7 @@ public:
 
     // replay wal
     Status create_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
-                           const std::string& label, std::string& base_path);
+                           const std::string& label, std::string& base_path, uint32_t wal_version);
     Status get_wal_path(int64_t wal_id, std::string& wal_path);
     Status delete_wal(int64_t table_id, int64_t wal_id);
     Status rename_to_tmp_path(const std::string wal, int64_t table_id, int64_t wal_id);
@@ -144,7 +144,6 @@ private:
     std::shared_mutex _wal_queue_lock;
     std::unordered_map<int64_t, std::set<int64_t>> _wal_queues;
 
-    int64_t _wal_version = 0;
     std::atomic<bool> _first_replay;
 
     // for test relay
@@ -154,4 +153,8 @@ private:
     std::shared_mutex _wal_cv_lock;
     std::unordered_map<int64_t, WalCvInfo> _wal_cv_map;
 };
+
+// In doris 2.1.0, wal version is 0, now need to upgrade it to 1 to solve compatibility issues.
+// see https://github.com/apache/doris/pull/32299
+constexpr inline uint32_t WAL_VERSION = 1;
 } // namespace doris

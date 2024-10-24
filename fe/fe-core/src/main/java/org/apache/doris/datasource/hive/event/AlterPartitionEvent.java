@@ -119,8 +119,8 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
                         .addExternalPartitions(catalogName, dbName, tblName,
                                 Lists.newArrayList(partitionNameAfter), eventTime, true);
             } else {
-                Env.getCurrentEnv().getCatalogMgr()
-                        .refreshExternalPartitions(catalogName, dbName, hmsTbl.getTableName(),
+                Env.getCurrentEnv().getRefreshManager()
+                        .refreshPartitions(catalogName, dbName, hmsTbl.getTableName(),
                                 Lists.newArrayList(partitionNameAfter), eventTime, true);
             }
         } catch (DdlException e) {
@@ -145,9 +145,7 @@ public class AlterPartitionEvent extends MetastorePartitionEvent {
         // `that` event can be batched if this event's partitions contains all of the partitions which `that` event has
         // else just remove `that` event's relevant partitions
         for (String partitionName : getAllPartitionNames()) {
-            if (thatPartitionEvent instanceof AddPartitionEvent) {
-                ((AddPartitionEvent) thatPartitionEvent).removePartition(partitionName);
-            } else if (thatPartitionEvent instanceof DropPartitionEvent) {
+            if (thatPartitionEvent instanceof DropPartitionEvent) {
                 ((DropPartitionEvent) thatPartitionEvent).removePartition(partitionName);
             }
         }

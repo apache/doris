@@ -113,7 +113,7 @@ TEST_F(TabletMetaManagerTest, TestLoad) {
     // EXPECT_EQ(_json_header, json_meta_read);
 }
 
-TEST_F(TabletMetaManagerTest, TestDeleteBimapEncode) {
+TEST_F(TabletMetaManagerTest, TestDeleteBitmapEncode) {
     TTabletId tablet_id = 1234;
     int64_t version = 456;
     std::string key = TabletMetaManager::encode_delete_bitmap_key(tablet_id, version);
@@ -125,7 +125,7 @@ TEST_F(TabletMetaManagerTest, TestDeleteBimapEncode) {
     EXPECT_EQ(version, de_version);
 }
 
-TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
+TEST_F(TabletMetaManagerTest, TestSaveDeleteBitmap) {
     int64_t test_tablet_id = 10086;
     std::shared_ptr<DeleteBitmap> dbmp = std::make_shared<DeleteBitmap>(test_tablet_id);
     auto gen1 = [&dbmp](int64_t max_rst_id, uint32_t max_seg_id, uint32_t max_row) {
@@ -146,10 +146,10 @@ TEST_F(TabletMetaManagerTest, TestSaveDeleteBimap) {
                 TabletMetaManager::save_delete_bitmap(_data_dir, test_tablet_id, dbmp, ver));
     }
     size_t num_keys = 0;
-    auto load_delete_bitmap_func = [&](int64_t tablet_id, int64_t version, const string& val) {
+    auto load_delete_bitmap_func = [&](int64_t tablet_id, int64_t version, std::string_view val) {
         EXPECT_EQ(tablet_id, test_tablet_id);
         DeleteBitmapPB delete_bitmap_pb;
-        delete_bitmap_pb.ParseFromString(val);
+        delete_bitmap_pb.ParseFromArray(val.data(), val.size());
         int rst_ids_size = delete_bitmap_pb.rowset_ids_size();
         int seg_ids_size = delete_bitmap_pb.segment_ids_size();
         int seg_maps_size = delete_bitmap_pb.segment_delete_bitmaps_size();

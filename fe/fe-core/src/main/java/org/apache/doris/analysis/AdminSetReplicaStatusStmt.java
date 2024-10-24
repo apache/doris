@@ -35,7 +35,7 @@ import java.util.Map;
  *      "backend_id" = "10001"
  *      "status" = "drop"/"bad"/"ok"
  */
-public class AdminSetReplicaStatusStmt extends DdlStmt {
+public class AdminSetReplicaStatusStmt extends DdlStmt implements NotFallbackInParser {
 
     public static final String TABLET_ID = "tablet_id";
     public static final String BACKEND_ID = "backend_id";

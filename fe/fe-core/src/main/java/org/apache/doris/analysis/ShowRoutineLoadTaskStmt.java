@@ -35,7 +35,7 @@ import java.util.List;
 
     where expr: JobName=xxx
  */
-public class ShowRoutineLoadTaskStmt extends ShowStmt {
+public class ShowRoutineLoadTaskStmt extends ShowStmt implements NotFallbackInParser {
     private static final List<String> supportColumn = Arrays.asList("jobname");
     private static final ImmutableList<String> TITLE_NAMES =
             new ImmutableList.Builder<String>()
@@ -121,7 +121,7 @@ public class ShowRoutineLoadTaskStmt extends ShowStmt {
                 break CHECK;
             }
             StringLiteral stringLiteral = (StringLiteral) binaryPredicate.getChild(1);
-            jobName = stringLiteral.getValue().toLowerCase();
+            jobName = stringLiteral.getValue();
         } // CHECKSTYLE IGNORE THIS LINE
 
         if (!valid) {

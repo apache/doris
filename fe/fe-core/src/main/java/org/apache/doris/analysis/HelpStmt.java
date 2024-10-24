@@ -24,7 +24,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 import com.google.common.base.Strings;
 
-public class HelpStmt extends ShowStmt {
+public class HelpStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData TOPIC_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("name", ScalarType.createVarchar(64)))

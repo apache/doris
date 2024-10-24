@@ -30,9 +30,13 @@
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
+#include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
-#include "vec/exec/join/join_op.h"
 #include "vec/utils/util.hpp"
+
+namespace doris::pipeline {
+struct RowRefListWithFlags;
+}
 
 namespace doris::vectorized {
 
@@ -48,7 +52,7 @@ struct MethodBaseInner {
     using Value = typename HashMap::value_type;
     using HashMapType = HashMap;
 
-    std::shared_ptr<HashMap> hash_table;
+    std::shared_ptr<HashMap> hash_table = nullptr;
     bool inited_iterator = false;
     Key* keys = nullptr;
     Arena arena;
@@ -125,12 +129,12 @@ struct MethodBaseInner {
         if constexpr (!is_string_hash_map()) {
             prefetch<true>(i);
         }
-        return state.find_key_with_hash(*hash_table, hash_values[i], keys[i]);
+        return state.find_key_with_hash(*hash_table, i, keys[i], hash_values[i]);
     }
 
     template <typename State, typename F, typename FF>
-    ALWAYS_INLINE auto& lazy_emplace(State& state, size_t i, F&& creator,
-                                     FF&& creator_for_null_key) {
+    ALWAYS_INLINE auto lazy_emplace(State& state, size_t i, F&& creator,
+                                    FF&& creator_for_null_key) {
         if constexpr (!is_string_hash_map()) {
             prefetch<false>(i);
         }
@@ -281,29 +285,47 @@ struct MethodStringNoCache : public MethodBase<TData> {
     using State =
             ColumnsHashing::HashMethodString<typename Base::Value, typename Base::Mapped, true>;
 
-    std::vector<StringRef> stored_keys;
+    // need keep until the hash probe end.
+    std::vector<StringRef> _build_stored_keys;
+    // refresh each time probe
+    std::vector<StringRef> _stored_keys;
 
     size_t serialized_keys_size(bool is_build) const override {
-        return stored_keys.size() * sizeof(StringRef);
+        return is_build ? (_build_stored_keys.size() * sizeof(StringRef))
+                        : (_stored_keys.size() * sizeof(StringRef));
+    }
+
+    void init_serialized_keys_impl(const ColumnRawPtrs& key_columns, size_t num_rows,
+                                   std::vector<StringRef>& stored_keys) {
+        const IColumn& column = *key_columns[0];
+        const auto& nested_column =
+                column.is_nullable()
+                        ? assert_cast<const ColumnNullable&>(column).get_nested_column()
+                        : column;
+        auto serialized_str = [](const auto& column_string, std::vector<StringRef>& stored_keys) {
+            const auto& offsets = column_string.get_offsets();
+            const auto* chars = column_string.get_chars().data();
+            stored_keys.resize(column_string.size());
+            for (size_t row = 0; row < column_string.size(); row++) {
+                stored_keys[row] =
+                        StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
+            }
+        };
+        if (nested_column.is_column_string64()) {
+            const auto& column_string = assert_cast<const ColumnString64&>(nested_column);
+            serialized_str(column_string, stored_keys);
+        } else {
+            const auto& column_string = assert_cast<const ColumnString&>(nested_column);
+            serialized_str(column_string, stored_keys);
+        }
+        Base::keys = stored_keys.data();
     }
 
     void init_serialized_keys(const ColumnRawPtrs& key_columns, size_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
-        const IColumn& column = *key_columns[0];
-        const auto& column_string = assert_cast<const ColumnString&>(
-                column.is_nullable()
-                        ? assert_cast<const ColumnNullable&>(column).get_nested_column()
-                        : column);
-        const auto* offsets = column_string.get_offsets().data();
-        const auto* chars = column_string.get_chars().data();
-
-        stored_keys.resize(column_string.size());
-        for (size_t row = 0; row < column_string.size(); row++) {
-            stored_keys[row] = StringRef(chars + offsets[row - 1], offsets[row] - offsets[row - 1]);
-        }
-
-        Base::keys = stored_keys.data();
+        init_serialized_keys_impl(key_columns, num_rows,
+                                  is_build ? _build_stored_keys : _stored_keys);
         if (is_join) {
             Base::init_join_bucket_num(num_rows, bucket_size, null_map);
         } else {
@@ -346,11 +368,9 @@ struct MethodOneNumber : public MethodBase<TData> {
 
     void insert_keys_into_columns(std::vector<typename Base::Key>& input_keys,
                                   MutableColumns& key_columns, const size_t num_rows) override {
-        key_columns[0]->reserve(num_rows);
-        auto* column = static_cast<ColumnVectorHelper*>(key_columns[0].get());
-        for (size_t i = 0; i != num_rows; ++i) {
-            const auto* key_holder = reinterpret_cast<const char*>(&input_keys[i]);
-            column->insert_raw_data<sizeof(FieldType)>(key_holder);
+        if (!input_keys.empty()) {
+            // If size() is ​0​, data() may or may not return a null pointer.
+            key_columns[0]->insert_many_raw_data((char*)input_keys.data(), num_rows);
         }
     }
 };
@@ -575,6 +595,10 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
                                   MutableColumns& key_columns, const size_t num_rows) override {
         auto* col = key_columns[0].get();
         col->reserve(num_rows);
+        if (input_keys.empty()) {
+            // If size() is ​0​, data() may or may not return a null pointer.
+            return;
+        }
         if constexpr (std::is_same_v<typename Base::Key, StringRef>) {
             col->insert_many_strings(input_keys.data(), num_rows);
         } else {
@@ -583,22 +607,10 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
     }
 };
 
-using SerializedHashTableContext = MethodSerialized<JoinHashMap<StringRef>>;
-
 template <class T>
 using PrimaryTypeHashTableContext = MethodOneNumber<T, JoinHashMap<T, HashCRC32<T>>>;
 
 template <class Key, bool has_null>
 using FixedKeyHashTableContext = MethodKeysFixed<JoinHashMap<Key, HashCRC32<Key>>, has_null>;
-
-template <class Key, bool has_null>
-using SetFixedKeyHashTableContext =
-        MethodKeysFixed<HashMap<Key, RowRefListWithFlags, HashCRC32<Key>>, has_null>;
-
-template <class T>
-using SetPrimaryTypeHashTableContext =
-        MethodOneNumber<T, HashMap<T, RowRefListWithFlags, HashCRC32<T>>>;
-
-using SetSerializedHashTableContext = MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>;
 
 } // namespace doris::vectorized

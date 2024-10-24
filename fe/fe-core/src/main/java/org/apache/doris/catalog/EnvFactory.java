@@ -25,6 +25,7 @@ import org.apache.doris.cloud.catalog.CloudEnvFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
@@ -136,10 +137,12 @@ public class EnvFactory {
         return new Coordinator(context, analyzer, planner, statsErrorEstimator);
     }
 
+    // Used for broker load task/export task/update coordinator
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
-                                         String timezone, boolean loadZeroTolerance) {
-        return new Coordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance);
+                                         String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        return new Coordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
+                            enableProfile);
     }
 
     public GroupCommitPlanner createGroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames,
@@ -153,5 +156,9 @@ public class EnvFactory {
 
     public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler) {
         return new LoadManager(loadJobScheduler);
+    }
+
+    public MasterDaemon createTabletStatMgr() {
+        return new TabletStatMgr();
     }
 }

@@ -23,8 +23,6 @@
 #include <fmt/format.h>
 
 #include <limits>
-#include <ostream>
-#include <string>
 
 #include "olap/decimal12.h"
 #include "runtime/decimalv2_value.h"
@@ -46,7 +44,7 @@ namespace doris::vectorized {
 
 template <typename T>
 int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) const {
-    auto& other = assert_cast<const Self&>(rhs_);
+    auto& other = assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(rhs_);
     const T& a = data[n];
     const T& b = other.data[m];
 
@@ -86,11 +84,28 @@ void ColumnDecimal<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_ro
 
 template <typename T>
 void ColumnDecimal<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                                   const uint8_t* null_map) const {
-    for (size_t i = 0; i < num_rows; ++i) {
-        if (null_map[i] == 0) {
-            memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
-            keys[i].size += sizeof(T);
+                                                   const UInt8* null_map) const {
+    DCHECK(null_map != nullptr);
+    const bool has_null = simd::contain_byte(null_map, num_rows, 1);
+    if (has_null) {
+        for (size_t i = 0; i < num_rows; ++i) {
+            char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
+            // serialize null first
+            memcpy(dest, null_map + i, sizeof(UInt8));
+            if (null_map[i] == 0) {
+                memcpy_fixed<T>(dest + 1, (char*)&data[i]);
+            }
+
+            keys[i].size += sizeof(UInt8) + (1 - null_map[i]) * sizeof(T);
+        }
+    } else {
+        for (size_t i = 0; i < num_rows; ++i) {
+            if (null_map[i] == 0) {
+                char* __restrict dest = const_cast<char*>(keys[i].data + +keys[i].size);
+                memset(dest, 0, 1);
+                memcpy_fixed<T>(dest + 1, (char*)&data[i]);
+                keys[i].size += sizeof(T) + sizeof(UInt8);
+            }
         }
     }
 }
@@ -114,15 +129,6 @@ void ColumnDecimal<T>::deserialize_vec_with_null_map(std::vector<StringRef>& key
         } else {
             insert_default();
         }
-    }
-}
-
-template <typename T>
-UInt64 ColumnDecimal<T>::get64(size_t n) const {
-    if constexpr (sizeof(T) > sizeof(UInt64)) {
-        LOG(FATAL) << "Method get64 is not supported for " << get_family_name();
-    } else {
-        return static_cast<typename T::NativeType>(data[n]);
     }
 }
 
@@ -235,7 +241,10 @@ template <typename T>
 ColumnPtr ColumnDecimal<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
     size_t size = limit ? std::min(data.size(), limit) : data.size();
     if (perm.size() < size) {
-        LOG(FATAL) << "Size of permutation is less than required.";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Size of permutation ({}) is less than required ({})", perm.size(),
+                               limit);
+        __builtin_unreachable();
     }
 
     auto res = this->create(size, scale);
@@ -292,6 +301,14 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
 }
 
 template <typename T>
+void ColumnDecimal<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    auto old_size = data.size();
+    data.resize(old_size + length);
+    auto& vals = assert_cast<const Self&>(src).get_data();
+    std::fill(&data[old_size], &data[old_size + length], vals[position]);
+}
+
+template <typename T>
 void ColumnDecimal<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnDecimal& src_vec = assert_cast<const ColumnDecimal&>(src);
 
@@ -326,20 +343,18 @@ ColumnPtr ColumnDecimal<T>::filter(const IColumn::Filter& filt, ssize_t result_s
         *  completely pass or do not pass the filter.
         * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
         */
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
     const UInt8* filt_end_sse = filt_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filt_pos < filt_end_sse) {
-        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filt_pos);
-
-        if (0xFFFFFFFF == mask) {
+        auto mask = simd::bytes_mask_to_bits_mask(filt_pos);
+        if (0 == mask) {
+            //pass
+        } else if (simd::bits_mask_all() == mask) {
             res_data.insert(data_pos, data_pos + SIMD_BYTES);
         } else {
-            while (mask) {
-                const size_t idx = __builtin_ctzll(mask);
-                res_data.push_back(data_pos[idx]);
-                mask = mask & (mask - 1);
-            }
+            simd::iterate_through_bits_mask(
+                    [&](const size_t bit_pos) { res_data.push_back(data_pos[bit_pos]); }, mask);
         }
 
         filt_pos += SIMD_BYTES;
@@ -371,22 +386,23 @@ size_t ColumnDecimal<T>::filter(const IColumn::Filter& filter) {
         *  completely pass or do not pass the filter.
         * Therefore, we will optimistically check the parts of `SIMD_BYTES` values.
         */
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
     const UInt8* filter_end_sse = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
 
     while (filter_pos < filter_end_sse) {
-        uint32_t mask = simd::bytes32_mask_to_bits32_mask(filter_pos);
-
-        if (0xFFFFFFFF == mask) {
+        auto mask = simd::bytes_mask_to_bits_mask(filter_pos);
+        if (0 == mask) {
+            //pass
+        } else if (simd::bits_mask_all() == mask) {
             memmove(result_data, data_pos, sizeof(T) * SIMD_BYTES);
             result_data += SIMD_BYTES;
         } else {
-            while (mask) {
-                const size_t idx = __builtin_ctzll(mask);
-                *result_data = data_pos[idx];
-                ++result_data;
-                mask = mask & (mask - 1);
-            }
+            simd::iterate_through_bits_mask(
+                    [&](const size_t idx) {
+                        *result_data = data_pos[idx];
+                        ++result_data;
+                    },
+                    mask);
         }
 
         filter_pos += SIMD_BYTES;
@@ -490,11 +506,6 @@ Decimal128V3 ColumnDecimal<Decimal128V3>::get_scale_multiplier() const {
 template <>
 Decimal256 ColumnDecimal<Decimal256>::get_scale_multiplier() const {
     return Decimal256(common::exp10_i256(scale));
-}
-
-template <typename T>
-ColumnPtr ColumnDecimal<T>::index(const IColumn& indexes, size_t limit) const {
-    return select_index_impl(*this, indexes, limit);
 }
 
 template <typename T>

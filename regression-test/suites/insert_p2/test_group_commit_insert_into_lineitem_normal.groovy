@@ -15,21 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-String[] getFiles(String dirName, int num) {
-    File[] datas = new File(dirName).listFiles()
-    if (num != datas.length) {
-        throw new Exception("num not equals,expect:" + num + " vs real:" + datas.length)
-    }
-    String[] array = new String[datas.length];
-    for (int i = 0; i < datas.length; i++) {
-        array[i] = datas[i].getPath();
-    }
-    Arrays.sort(array);
-    return array;
-}
 
 suite("test_group_commit_insert_into_lineitem_normal") {
     String[] file_array;
+    def getFiles = { String dirName, int num->
+        File[] datas = new File(dirName).listFiles()
+        if (num != datas.length) {
+            throw new Exception("num not equals,expect:" + num + " vs real:" + datas.length)
+        }
+        file_array = new String[datas.length];
+        for (int i = 0; i < datas.length; i++) {
+            file_array[i] = datas[i].getPath();
+        }
+        Arrays.sort(file_array);
+    }
     def prepare = {
         def dataDir = "${context.config.cacheDataPath}/insert_into_lineitem_normal"
         File dir = new File(dataDir)
@@ -41,7 +40,7 @@ suite("test_group_commit_insert_into_lineitem_normal") {
             def split_file = """split -l 60000 ${dataDir}/lineitem.tbl.1 ${dataDir}/""".execute().getText()
             def rm_file = """rm ${dataDir}/lineitem.tbl.1""".execute().getText()
         }
-        file_array = getFiles(dataDir, 11)
+        getFiles(dataDir, 11)
         for (String s : file_array) {
             logger.info(s)
         }
@@ -99,7 +98,6 @@ PROPERTIES (
 );
         """
         sql """ set group_commit = async_mode; """
-        sql """ set enable_nereids_dml = false; """
     }
 
     def do_insert_into = { exp_str, num ->
@@ -111,6 +109,9 @@ PROPERTIES (
                 break
             } catch (Exception e) {
                 logger.info("got exception:" + e)
+                Thread.sleep(5000)
+                context.reconnectFe()
+                sql """ set group_commit = async_mode; """
             }
             i++;
             if (i >= 30) {

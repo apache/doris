@@ -50,7 +50,7 @@ public final class LocalJournalCursor implements JournalCursor {
 
     public static LocalJournalCursor getJournalCursor(String imageDir, long fromKey, long toKey) {
         if (toKey < fromKey && toKey != -1 || fromKey < 0) {
-            System.out.println("Invalid key range!");
+            LOG.warn("Invalid fromKey:{} toKey:{}", fromKey, toKey);
             return null;
         }
         long newToKey = toKey;
@@ -95,7 +95,7 @@ public final class LocalJournalCursor implements JournalCursor {
         }
 
         if (fileName == null) {
-            System.out.println("Can not find the key:" + fromKey);
+            LOG.warn("Can not find the key:{}", fromKey);
             throw new IOException();
         }
 

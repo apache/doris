@@ -21,6 +21,7 @@
 #include <bthread/countdown_event.h>
 #include <gtest/gtest.h>
 
+#include <cstdint>
 #include <cstring>
 #include <iostream>
 #include <random>
@@ -298,14 +299,14 @@ TEST(KeysTest, VersionKeyTest) {
     using namespace doris::cloud;
     std::string instance_id = "instance_id_deadbeef";
 
-    // 0x01 "version" ${instance_id} "version_id" ${db_id} ${tbl_id} ${partition_id} -> ${version}
+    // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id} -> ${version}
     {
         int64_t db_id = 11111;
-        int64_t tablet_id = 10086;
+        int64_t table_id = 10086;
         int64_t partition_id = 9998;
-        VersionKeyInfo v_key {instance_id, db_id, tablet_id, partition_id};
+        PartitionVersionKeyInfo v_key {instance_id, db_id, table_id, partition_id};
         std::string encoded_version_key0;
-        version_key(v_key, &encoded_version_key0);
+        partition_version_key(v_key, &encoded_version_key0);
         std::cout << "version key after encode: " << hex(encoded_version_key0) << std::endl;
 
         std::string dec_instance_id;
@@ -329,12 +330,50 @@ TEST(KeysTest, VersionKeyTest) {
         EXPECT_EQ("partition", dec_version_infix);
         EXPECT_EQ(instance_id, dec_instance_id);
         EXPECT_EQ(db_id, dec_db_id);
-        EXPECT_EQ(tablet_id, dec_table_id);
+        EXPECT_EQ(table_id, dec_table_id);
         EXPECT_EQ(partition_id, dec_partition_id);
 
         std::get<3>(v_key) = partition_id + 1;
         std::string encoded_version_key1;
-        version_key(v_key, &encoded_version_key1);
+        partition_version_key(v_key, &encoded_version_key1);
+        std::cout << "version key after encode: " << hex(encoded_version_key1) << std::endl;
+
+        ASSERT_GT(encoded_version_key1, encoded_version_key0);
+    }
+
+    // 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id} -> ${version}
+    {
+        int64_t db_id = 11111;
+        int64_t table_id = 10010;
+        TableVersionKeyInfo v_key {instance_id, db_id, table_id};
+        std::string encoded_version_key0;
+        table_version_key(v_key, &encoded_version_key0);
+        std::cout << "version key after encode: " << hex(encoded_version_key0) << std::endl;
+
+        std::string dec_instance_id;
+        int64_t dec_db_id = 0;
+        int64_t dec_table_id = 0;
+
+        std::string_view key_sv(encoded_version_key0);
+        std::string dec_version_prefix;
+        std::string dec_version_infix;
+        remove_user_space_prefix(&key_sv);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_version_prefix), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_instance_id), 0);
+        ASSERT_EQ(decode_bytes(&key_sv, &dec_version_infix), 0);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_db_id), 0) << hex(key_sv);
+        ASSERT_EQ(decode_int64(&key_sv, &dec_table_id), 0);
+        ASSERT_TRUE(key_sv.empty());
+
+        EXPECT_EQ("version", dec_version_prefix);
+        EXPECT_EQ("table", dec_version_infix);
+        EXPECT_EQ(instance_id, dec_instance_id);
+        EXPECT_EQ(db_id, dec_db_id);
+        EXPECT_EQ(table_id, dec_table_id);
+
+        std::get<2>(v_key) = table_id + 1;
+        std::string encoded_version_key1;
+        table_version_key(v_key, &encoded_version_key1);
         std::cout << "version key after encode: " << hex(encoded_version_key1) << std::endl;
 
         ASSERT_GT(encoded_version_key1, encoded_version_key0);
@@ -985,4 +1024,33 @@ TEST(KeysTest, DecodeKeysTest) {
     pretty_key = prettify_key(key, true);
     ASSERT_TRUE(!pretty_key.empty()) << key;
     std::cout << "\n" << pretty_key << std::endl;
+}
+
+TEST(KeysTest, MetaSchemaPBDictionaryTest) {
+    using namespace doris::cloud;
+    std::string instance_id = "instance_id_meta_dict";
+    int64_t index_id = 123456;
+
+    // 0:instance_id  1:index_id
+    MetaSchemaPBDictionaryInfo dict_key {instance_id, index_id};
+    std::string encoded_dict_key;
+    meta_schema_pb_dictionary_key(dict_key, &encoded_dict_key);
+    std::cout << hex(encoded_dict_key) << std::endl;
+
+    std::string decoded_instance_id;
+    std::string decoded_prefix;
+    std::string decoded_meta_prefix;
+    int64_t decoded_index_id;
+    std::string_view key_sv(encoded_dict_key);
+    remove_user_space_prefix(&key_sv);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_prefix), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_instance_id), 0);
+    ASSERT_EQ(decode_bytes(&key_sv, &decoded_meta_prefix), 0);
+    ASSERT_EQ(decode_int64(&key_sv, &decoded_index_id), 0);
+    ASSERT_TRUE(key_sv.empty());
+
+    EXPECT_EQ("meta", decoded_prefix);
+    EXPECT_EQ("tablet_schema_pb_dict", decoded_meta_prefix);
+    EXPECT_EQ(instance_id, decoded_instance_id);
+    EXPECT_EQ(index_id, decoded_index_id);
 }

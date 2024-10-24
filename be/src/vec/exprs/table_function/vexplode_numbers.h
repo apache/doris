@@ -28,11 +28,9 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
 class Block;
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized
 
 namespace doris::vectorized {
 
@@ -46,10 +44,10 @@ public:
     Status process_init(Block* block, RuntimeState* state) override;
     void process_row(size_t row_idx) override;
     void process_close() override;
-    void get_value(MutableColumnPtr& column) override;
+    void get_same_many_values(MutableColumnPtr& column, int length) override;
     int get_value(MutableColumnPtr& column, int max_step) override {
+        max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
         if (_is_const) {
-            max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
             if (_is_nullable) {
                 static_cast<ColumnInt32*>(
                         static_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get())
@@ -61,12 +59,32 @@ public:
                 static_cast<ColumnInt32*>(column.get())
                         ->insert_range_from(*_elements_column, _cur_offset, max_step);
             }
-
-            forward(max_step);
-            return max_step;
+        } else {
+            // should dispose the empty status, forward one step
+            if (current_empty()) {
+                column->insert_default();
+                max_step = 1;
+            } else {
+                ColumnInt32* target = nullptr;
+                if (_is_nullable) {
+                    target = assert_cast<ColumnInt32*>(assert_cast<ColumnNullable*>(column.get())
+                                                               ->get_nested_column_ptr()
+                                                               .get());
+                    assert_cast<ColumnUInt8*>(assert_cast<ColumnNullable*>(column.get())
+                                                      ->get_null_map_column_ptr()
+                                                      .get())
+                            ->insert_many_defaults(max_step);
+                } else {
+                    target = assert_cast<ColumnInt32*>(column.get());
+                }
+                auto origin_size = target->size();
+                target->resize(origin_size + max_step);
+                std::iota(target->get_data().data() + origin_size,
+                          target->get_data().data() + origin_size + max_step, _cur_offset);
+            }
         }
-
-        return TableFunction::get_value(column, max_step);
+        forward(max_step);
+        return max_step;
     }
 
 private:

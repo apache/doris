@@ -718,3 +718,19 @@ LICENSE file in the root directory of this source tree. An additional grant
 of patent rights can be found in the PATENTS file in the same directory.
 
 ----------------------------------------------------------------------------------
+
+me.bechberger.ap-loader-all: Apache 2.0 license
+
+Apache 2.0, Copyright 2023 SAP SE or an SAP affiliate company, Johannes Bechberger and ap-loader contributors
+
+This project is maintained by the SapMachine team at SAP SE
+
+----------------------------------------------------------------------------------
+
+be/tools/FlameGraph/*.pl: COMMON DEVELOPMENT AND DISTRIBUTION LICENSE Version 1.0
+
+Unless otherwise noted, all files in this distribution are released
+under the Common Development and Distribution License (CDDL).
+Exceptions are noted within the associated source files.
+
+----------------------------------------------------------------------------------

@@ -63,6 +63,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .nonMatch(logicalSort());
 
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("with cte_test as (\n"
                         + "select id, name, age from student\n"
                         + ")\n"
@@ -74,6 +75,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 .matches(logicalSort());
 
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select t.age from\n"
                         + "(\n"
                         + "with cte_test as (\n"
@@ -99,6 +101,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
                 new ArrayList<>(), plan.getOutput().stream().map(NamedExpression.class::cast).collect(
                 Collectors.toList()), false, DMLCommandType.NONE, plan);
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .rewrite()
                 .nonMatch(logicalSort())
                 .matches(logicalTopN());
@@ -119,6 +122,7 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
     @Test
     void testEliminateSortInUnion() {
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("SELECT * FROM (SELECT * FROM student UNION SELECT * FROM student ORDER BY id) u  LIMIT 1")
                 .rewrite()
                 .nonMatch(logicalSort());
@@ -127,10 +131,12 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
     @Test
     void testEliminateSortInSubquery() {
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id) t")
                 .rewrite()
                 .nonMatch(logicalSort());
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select \n"
                         + "  id, \n"
                         + "  name \n"
@@ -156,24 +162,30 @@ class EliminateSortTest extends TestWithFeService implements MemoPatternMatchSup
 
     @Test
     void testSortLimit() {
-        PlanChecker.from(connectContext)
+        PlanChecker.from(connectContext).disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id) t limit 1")
                 .rewrite()
-                .nonMatch(logicalTopN());
+                // there is no topn below agg
+                .matches(logicalTopN(logicalAggregate(logicalProject(logicalOlapScan()))));
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from (select * from student order by id limit 1) t")
                 .rewrite()
                 .matches(logicalTopN());
 
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from "
                         + "(select * from student order by id limit 1) t1 left join student t2 on t1.id = t2.id")
                 .rewrite()
                 .matches(logicalTopN());
         PlanChecker.from(connectContext)
+                .disableNereidsRules("PRUNE_EMPTY_PARTITION")
                 .analyze("select count(*) from "
                         + "(select * from student order by id) t1 left join student t2 on t1.id = t2.id limit 1")
                 .rewrite()
-                .nonMatch(logicalTopN());
+                .matches(logicalTopN(logicalAggregate(logicalProject(logicalJoin(
+                        logicalProject(logicalOlapScan()),
+                        logicalProject(logicalOlapScan()))))));
     }
 }

@@ -106,14 +106,12 @@ suite("literal_view_test", "arrow_flight_sql") {
         insert into test_insert values (1,'doris',10),(2,'spark',2),(3,'flink',20);
     """
 
-    sql "set enable_nereids_planner=false"
     order_qt_left """select * 
         from test_insert 
         left join (select 1 as v1) t1 
         on false 
         where t1.v1 is null
     """
-    sql "set enable_nereids_planner=true"
 
     qt_sql1 """
         select id, name
@@ -139,11 +137,5 @@ suite("literal_view_test", "arrow_flight_sql") {
     test {
         sql "select * from (select null as top) t where top = 5"
         result ([])
-    }
-
-    sql """set enable_nereids_planner=false;"""
-    explain {
-        sql """ select c.* from ( select a.*, '' x from test_insert a left join test_insert b on true ) c where c.x is null; """
-        notContains("VEMPTYSET")
     }
 }

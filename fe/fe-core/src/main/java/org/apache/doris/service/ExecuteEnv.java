@@ -22,6 +22,8 @@ import org.apache.doris.common.io.DiskUtils;
 import org.apache.doris.qe.ConnectScheduler;
 import org.apache.doris.qe.MultiLoadMgr;
 
+import com.google.common.base.Strings;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -40,9 +42,11 @@ public class ExecuteEnv {
         scheduler = new ConnectScheduler(Config.qe_max_connection);
         startupTime = System.currentTimeMillis();
         processUUID = System.currentTimeMillis();
+        String logDir = Strings.isNullOrEmpty(Config.sys_log_dir) ? System.getenv("LOG_DIR") :
+                Config.sys_log_dir;
         diskInfos = new ArrayList<FeDiskInfo>() {{
                 add(new FeDiskInfo("meta", Config.meta_dir, DiskUtils.df(Config.meta_dir)));
-                add(new FeDiskInfo("log", Config.sys_log_dir, DiskUtils.df(Config.sys_log_dir)));
+                add(new FeDiskInfo("log", logDir, DiskUtils.df(logDir)));
                 add(new FeDiskInfo("audit-log", Config.audit_log_dir, DiskUtils.df(Config.audit_log_dir)));
                 add(new FeDiskInfo("temp", Config.tmp_dir, DiskUtils.df(Config.tmp_dir)));
                 add(new FeDiskInfo("deploy", System.getenv("DORIS_HOME"), DiskUtils.df(System.getenv("DORIS_HOME"))));

@@ -33,13 +33,24 @@ import static org.apache.doris.regression.ConfigOptions.*
 
 import org.apache.doris.thrift.TNetworkAddress;
 
+enum RunMode {
+    UNKNOWN,
+    NOT_CLOUD,
+    CLOUD
+}
+
 @Slf4j
 @CompileStatic
 class Config {
     public String jdbcUrl
     public String jdbcUser
     public String jdbcPassword
+
     public String defaultDb
+
+    public String ccrDownstreamUrl
+    public String ccrDownstreamUser
+    public String ccrDownstreamPassword
 
     public String feSourceThriftAddress
     public String feTargetThriftAddress
@@ -60,6 +71,8 @@ class Config {
     public String metaServiceHttpAddress
     public String recycleServiceHttpAddress
 
+    public RunMode runMode = RunMode.UNKNOWN
+
     public String suitePath
     public String dataPath
     public String realDataPath
@@ -71,6 +84,7 @@ class Config {
     public String image
     public String dockerCoverageOutputDir
     public Boolean dockerEndDeleteFiles
+    public Boolean dockerEndNoKill
     public Boolean excludeDockerTest
 
     public String testGroups
@@ -104,9 +118,11 @@ class Config {
     public InetSocketAddress recycleServiceHttpInetSocketAddress
     public Integer parallel
     public Integer suiteParallel
+    public Integer dockerSuiteParallel
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
+    public boolean runNonConcurrent
     public String caseNamePrefix
     public boolean isSmokeTest
     public String multiClusterBes
@@ -131,9 +147,12 @@ class Config {
     public String kafkaBrokerList
     public String cloudVersion
 
+    public String s3Source
+
     Config() {}
 
     Config(
+            String s3Source,
             String caseNamePrefix,
             String defaultDb, 
             String jdbcUrl, 
@@ -186,6 +205,7 @@ class Config {
             String clusterDir, 
             String kafkaBrokerList, 
             String cloudVersion) {
+        this.s3Source = s3Source
         this.caseNamePrefix = caseNamePrefix
         this.defaultDb = defaultDb
         this.jdbcUrl = jdbcUrl
@@ -240,6 +260,17 @@ class Config {
         this.cloudVersion = cloudVersion
     }
 
+    static String removeDirectoryPrefix(String str) {
+        def prefixes = ["./regression-test/suites/", "regression-test/suites/"]
+
+        def prefix = prefixes.find { str.startsWith(it) }
+        if (prefix) {
+            return str.substring(prefix.length())
+        }
+
+        return str
+    }
+
     static Config fromCommandLine(CommandLine cmd) {
         String confFilePath = cmd.getOptionValue(confFileOpt, "")
         File confFile = new File(confFilePath)
@@ -264,11 +295,26 @@ class Config {
         config.dataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(dataOpt, config.dataPath))
         config.realDataPath = FileUtils.getCanonicalPath(cmd.getOptionValue(realDataOpt, config.realDataPath))
         config.cacheDataPath = cmd.getOptionValue(cacheDataOpt, config.cacheDataPath)
-        config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, "true"))
+        config.enableCacheData = Boolean.parseBoolean(cmd.getOptionValue(enableCacheDataOpt, config.enableCacheData.toString()))
         config.pluginPath = FileUtils.getCanonicalPath(cmd.getOptionValue(pluginOpt, config.pluginPath))
         config.sslCertificatePath = FileUtils.getCanonicalPath(cmd.getOptionValue(sslCertificateOpt, config.sslCertificatePath))
         config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
         config.image = cmd.getOptionValue(imageOpt, config.image)
+        config.dockerEndNoKill = cmd.hasOption(noKillDockerOpt)
+        if (cmd.hasOption(runModeOpt)) {
+            String runMode = cmd.getOptionValue(runModeOpt, "unknown")
+            if (runMode.equalsIgnoreCase("unknown")) {
+                config.runMode = RunMode.UNKNOWN;
+            } else if (runMode.equalsIgnoreCase("cloud")) {
+                config.runMode = RunMode.CLOUD;
+            } else if (runMode.equalsIgnoreCase("not_cloud")) {
+                config.runMode = RunMode.NOT_CLOUD;
+            } else {
+                throw new IllegalStateException("Bad runMode: ${runMode}, should be one of unknown/cloud/not_cloud, "
+                        + "if is unknown, fetch it from fe")
+            }
+        }
+        log.info("runMode: ${config.runMode}")
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -281,7 +327,9 @@ class Config {
                 .toSet()
         config.directories = cmd.getOptionValue(directoriesOpt, config.testDirectories)
                 .split(",")
-                .collect({d -> d.trim()})
+                .collect({d -> 
+                    d.trim()
+                    removeDirectoryPrefix(d)})
                 .findAll({d -> d != null && d.length() > 0})
                 .toSet()
         config.excludeSuiteWildcard = cmd.getOptionValue(excludeSuiteOpt, config.excludeSuites)
@@ -422,7 +470,6 @@ class Config {
         }
         log.info("recycleAddr : $config.recycleServiceHttpAddress, socketAddr : $config.recycleServiceHttpInetSocketAddress")
 
-
         config.defaultDb = cmd.getOptionValue(defaultDbOpt, config.defaultDb)
         config.jdbcUrl = cmd.getOptionValue(jdbcOpt, config.jdbcUrl)
         config.jdbcUser = cmd.getOptionValue(userOpt, config.jdbcUser)
@@ -437,11 +484,13 @@ class Config {
         config.forceGenerateOutputFile = cmd.hasOption(forceGenOutOpt)
         config.parallel = Integer.parseInt(cmd.getOptionValue(parallelOpt, "10"))
         config.suiteParallel = Integer.parseInt(cmd.getOptionValue(suiteParallelOpt, "10"))
+        config.dockerSuiteParallel = Integer.parseInt(cmd.getOptionValue(dockerSuiteParallelOpt, "1"))
         config.actionParallel = Integer.parseInt(cmd.getOptionValue(actionParallelOpt, "10"))
         config.times = Integer.parseInt(cmd.getOptionValue(timesOpt, "1"))
         config.randomOrder = cmd.hasOption(randomOrderOpt)
         config.stopWhenFail = cmd.hasOption(stopWhenFailOpt)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
+        config.runNonConcurrent = Boolean.parseBoolean(cmd.getOptionValue(runNonConcurrentOpt, "True"))
         config.caseNamePrefix = cmd.getOptionValue(caseNamePrefixOpt, config.caseNamePrefix)
         config.dryRun = cmd.hasOption(dryRunOpt)
         config.isSmokeTest = cmd.hasOption(isSmokeTestOpt)
@@ -449,20 +498,39 @@ class Config {
         log.info("randomOrder is ${config.randomOrder}".toString())
         log.info("stopWhenFail is ${config.stopWhenFail}".toString())
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
+        log.info("runNonConcurrent is ${config.runNonConcurrent}".toString())
         log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
+        def s3SourceList = ["aliyun", "aliyun-internal", "tencent", "huawei", "azure", "gcp"]
+        if (s3SourceList.contains(config.s3Source)) {
+            log.info("s3Source is ${config.s3Source}".toString())
+            log.info("s3Provider is ${config.otherConfigs.get("s3Provider")}".toString())
+            log.info("s3BucketName is ${config.otherConfigs.get("s3BucketName")}".toString())
+            log.info("s3Region is ${config.otherConfigs.get("s3Region")}".toString())
+            log.info("s3Endpoint is ${config.otherConfigs.get("s3Endpoint")}".toString())
+        } else {
+            throw new Exception("The s3Source '${config.s3Source}' is invalid, optional values ${s3SourceList}")
+        }
 
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
 
-        config.tryCreateDbIfNotExist()
-        config.buildUrlWithDefaultDb()
+        // mainly auth_xxx cases use defaultDb, these suites better not use defaultDb
+        config.createDefaultDb()
+
+        try {
+            config.fetchCloudMode()
+        } catch (Exception e) {
+            // docker suite no need external cluster.
+            // so can ignore error here.
+        }
 
         return config
     }
 
     static Config fromConfigObject(ConfigObject obj) {
         def config = new Config(
+            configToString(obj.s3Source),
             configToString(obj.caseNamePrefix),
             configToString(obj.defaultDb),
             configToString(obj.jdbcUrl),
@@ -517,9 +585,13 @@ class Config {
             configToString(obj.cloudVersion)
         )
 
+        config.ccrDownstreamUrl = configToString(obj.ccrDownstreamUrl)
+        config.ccrDownstreamUser = configToString(obj.ccrDownstreamUser)
+        config.ccrDownstreamPassword = configToString(obj.ccrDownstreamPassword)
         config.image = configToString(obj.image)
         config.dockerCoverageOutputDir = configToString(obj.dockerCoverageOutputDir)
         config.dockerEndDeleteFiles = configToBoolean(obj.dockerEndDeleteFiles)
+        config.dockerEndNoKill = configToBoolean(obj.dockerEndNoKill)
         config.excludeDockerTest = configToBoolean(obj.excludeDockerTest)
 
         def declareFileNames = config.getClass()
@@ -546,16 +618,6 @@ class Config {
         return config
     }
 
-    static String getProvider(String endpoint) {
-        def providers = ["cos", "oss", "s3", "obs", "bos"]
-        for (final def provider in providers) {
-            if (endpoint.containsIgnoreCase(provider)) {
-                return provider
-            }
-        }
-        return ""
-    }
-
     static void checkCloudSmokeEnv(Properties properties) {
         // external stage obj info
         String s3Endpoint = properties.getOrDefault("s3Endpoint", "")
@@ -571,8 +633,7 @@ class Config {
                 s3EndpointConf:s3Endpoint,
                 s3BucketConf:s3BucketName,
                 s3AKConf:s3AK,
-                s3SKConf:s3SK,
-                s3ProviderConf:getProvider(s3Endpoint)
+                s3SKConf:s3SK
         ]
         for (final def item in items) {
             if (item.value == null || item.value.isEmpty()) {
@@ -582,6 +643,82 @@ class Config {
     }
 
     static void fillDefaultConfig(Config config) {
+        if (config.s3Source == null) {
+            config.s3Source = "aliyun"
+            log.info("Set s3Source to 'aliyun' because not specify.".toString())
+        }
+
+        if (config.otherConfigs.get("s3Provider") == null) {
+            def s3Provider = "OSS"
+            if (config.s3Source == "aliyun" || config.s3Source == "aliyun-internal") {
+                s3Provider = "OSS"
+            } else if (config.s3Source == "tencent") {
+                s3Provider = "COS"
+            } else if (config.s3Source == "huawei") {
+                s3Provider = "OBS"
+            } else if (config.s3Source == "azure") {
+                s3Provider = "Azure" // case insensitive test
+            } else if (config.s3Source == "gcp") {
+                s3Provider = "GCP"
+            }
+            config.otherConfigs.put("s3Provider", "${s3Provider}")
+            log.info("Set s3Provider to '${s3Provider}' because not specify.".toString())
+        }
+        if (config.otherConfigs.get("s3BucketName") == null) {
+            def s3BucketName = "doris-regression-hk"
+            if (config.s3Source == "aliyun") {
+                s3BucketName = "doris-regression-hk"
+            } else if (config.s3Source == "aliyun-internal") {
+                s3BucketName = "doris-regression"
+            } else if (config.s3Source == "tencent") {
+                s3BucketName = "doris-build-1308700295"
+            } else if (config.s3Source == "huawei") {
+                s3BucketName = "doris-build"
+            } else if (config.s3Source == "azure") {
+                s3BucketName = "qa-build"
+            } else if (config.s3Source == "gcp") {
+                s3BucketName = "doris-regression"
+            }
+            config.otherConfigs.put("s3BucketName", "${s3BucketName}")
+            log.info("Set s3BucketName to '${s3BucketName}' because not specify.".toString())
+        }
+        if (config.otherConfigs.get("s3Region") == null) {
+            def s3Region = "oss-cn-hongkong"
+            if (config.s3Source == "aliyun") {
+                s3Region = "oss-cn-hongkong"
+            } else if (config.s3Source == "aliyun-internal") {
+                s3Region = "oss-cn-beijing"
+            } else if (config.s3Source == "tencent") {
+                s3Region = "ap-beijing"
+            } else if (config.s3Source == "huawei") {
+                s3Region = "cn-north-4"
+            } else if (config.s3Source == "azure") {
+                s3Region = "azure-region"
+            } else if (config.s3Source == "gcp") {
+                s3Region = "us-central1"
+            }
+            config.otherConfigs.put("s3Region", "${s3Region}")
+            log.info("Set s3Region to '${s3Region}' because not specify.".toString())
+        }
+        if (config.otherConfigs.get("s3Endpoint") == null) {
+            def s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+            if (config.s3Source == "aliyun") {
+                s3Endpoint = "oss-cn-hongkong.aliyuncs.com"
+            } else if (config.s3Source == "aliyun-internal") {
+                s3Endpoint = "oss-cn-beijing-internal.aliyuncs.com"
+            } else if (config.s3Source == "tencent") {
+                s3Endpoint = "cos.ap-beijing.myqcloud.com"
+            } else if (config.s3Source == "huawei") {
+                s3Endpoint = "obs.cn-north-4.myhuaweicloud.com"
+            } else if (config.s3Source == "azure") {
+                s3Endpoint = "azure-endpoint"
+            } else if (config.s3Source == "gcp") {
+                s3Endpoint = "storage.googleapis.com"
+            }
+            config.otherConfigs.put("s3Endpoint", "${s3Endpoint}")
+            log.info("Set s3Endpoint to '${s3Endpoint}' because not specify.".toString())
+        }
+
         if (config.caseNamePrefix == null) {
             config.caseNamePrefix = ""
             log.info("set caseNamePrefix to '' because not specify.".toString())
@@ -711,7 +848,7 @@ class Config {
 
         if (config.pluginPath == null) {
             config.pluginPath = "regression-test/plugins"
-            log.info("Set dataPath to '${config.pluginPath}' because not specify.".toString())
+            log.info("Set pluginPath to '${config.pluginPath}' because not specify.".toString())
         }
 
         if (config.sslCertificatePath == null) {
@@ -778,6 +915,11 @@ class Config {
             log.info("Set suiteParallel to 1 because not specify.".toString())
         }
 
+        if (config.dockerSuiteParallel == null) {
+            config.dockerSuiteParallel = 1
+            log.info("Set dockerSuiteParallel to 1 because not specify.".toString())
+        }
+
         if (config.actionParallel == null) {
             config.actionParallel = 10
             log.info("Set actionParallel to 10 because not specify.".toString())
@@ -802,7 +944,25 @@ class Config {
         return null
     }
 
-    void tryCreateDbIfNotExist(String dbName = defaultDb) {
+    void createDefaultDb() {
+        String dbName = null
+        try {
+            tryCreateDbIfNotExist(defaultDb)
+            dbName = defaultDb
+        } catch (Exception e) {
+            // defaultDb is not need for most cases.
+            // when run docker suites without external fe/be,  createDefaultDb will fail, but can ignore this exception.
+            // Infact, only mainly auth_xxx cases use defaultDb, and they just use jdbcUrl in connect function.
+            // And they can avoid using defaultDb too. But modify all these cases take a lot work.
+            // We better delete all the usage of defaultDb in suites later, and all suites should use their own db, not the defaultDb.
+            log.warn("create default db failed ${defaultDb}".toString())
+        }
+
+        jdbcUrl = buildUrlWithDb(jdbcUrl, dbName)
+        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
+    }
+
+    void tryCreateDbIfNotExist(String dbName) {
         // connect without specify default db
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
@@ -817,15 +977,54 @@ class Config {
         }
     }
 
+    void tryCreateDownstreamDbIfNotExist(String dbName = defaultDb) {
+        // connect without specify default db
+        try {
+            String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
+            log.info("Try to create db, sql: ${sql}".toString())
+            if (!dryRun) {
+                getDownstreamConnection().withCloseable { conn ->
+                    JdbcUtils.executeToList(conn, sql)
+                }
+            }
+        } catch (Throwable t) {
+            throw new IllegalStateException("Create database failed, ccrDownstreamUrl: ${ccrDownstreamUrl}", t)
+        }
+    }
+
+    boolean isCloudMode() {
+        fetchCloudMode()
+        return runMode == RunMode.CLOUD
+    }
+
+    void fetchCloudMode() {
+        if (runMode == RunMode.UNKNOWN) {
+            try {
+                def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
+                runMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
+            } catch (Throwable t) {
+                throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
+            }
+        }
+    }
+
     Connection getConnection() {
         return DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword)
     }
 
+    Connection getRootConnection() {
+        return DriverManager.getConnection(jdbcUrl, 'root', '')
+    }
+
     Connection getConnectionByDbName(String dbName) {
-        String dbUrl = buildUrlWithDb(jdbcUrl, dbName)
+        String dbUrl = getConnectionUrlByDbName(dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    String getConnectionUrlByDbName(String dbName) {
+        return buildUrlWithDb(jdbcUrl, dbName)
     }
 
     Connection getConnectionByArrowFlightSql(String dbName) {
@@ -841,6 +1040,19 @@ class Config {
         String arrowFlightSqlJdbcUser = otherConfigs.get("extArrowFlightSqlUser")
         String arrowFlightSqlJdbcPassword = otherConfigs.get("extArrowFlightSqlPassword")
         return DriverManager.getConnection(dbUrl, arrowFlightSqlJdbcUser, arrowFlightSqlJdbcPassword)
+    }
+
+    Connection getDownstreamConnection() {
+        return DriverManager.getConnection(ccrDownstreamUrl, ccrDownstreamUser, ccrDownstreamPassword)
+    }
+
+    Connection getDownstreamConnectionByDbName(String dbName) {
+        log.info("get downstream connection, url: ${ccrDownstreamUrl}, db: ${dbName}, " +
+                "user: ${ccrDownstreamUser}, passwd: ${ccrDownstreamPassword}")
+        String dbUrl = buildUrlWithDb(ccrDownstreamUrl, dbName)
+        tryCreateDownstreamDbIfNotExist(dbName)
+        log.info("connect to ${dbUrl}".toString())
+        return DriverManager.getConnection(dbUrl, ccrDownstreamUser, ccrDownstreamPassword)
     }
 
     String getDbNameByFile(File suiteFile) {
@@ -891,12 +1103,11 @@ class Config {
         }
     }
 
-    public void buildUrlWithDefaultDb() {
-        this.jdbcUrl = buildUrlWithDb(jdbcUrl, defaultDb)
-        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
-    }
-
     public static String buildUrlWithDbImpl(String jdbcUrl, String dbName) {
+        if (!dbName?.trim()) {
+            return jdbcUrl
+        }
+
         String urlWithDb = jdbcUrl
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
@@ -923,6 +1134,14 @@ class Config {
         urlWithDb = addTimeoutUrl(urlWithDb);
 
         return urlWithDb
+    }
+
+    public static String buildUrlWithDb(String host, int queryPort, String dbName) {
+        def url = String.format(
+            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+            host, queryPort)
+        url = buildUrlWithDb(url, dbName)
+        return url
     }
 
     private static String addSslUrl(String url) {

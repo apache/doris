@@ -25,4 +25,88 @@ suite("test_time_lut") {
             qt_sql """ select yearweek('${year}-${month}-1 23:59:59') """
         }
     }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select week('${year}-${month}-1 23:59:59', 1) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select week('${year}-${month}-1 23:59:59', 2) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select week('${year}-${month}-1 23:59:59', 3) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select week('${year}-${month}-1 23:59:59', 4) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select week('${year}-${month}-1 23:59:59', 5) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select week('${year}-${month}-1 23:59:59', 6) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select week('${year}-${month}-1 23:59:59', 7) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select yearweek('${year}-${month}-1 23:59:59', 1) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select yearweek('${year}-${month}-1 23:59:59', 2) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select yearweek('${year}-${month}-1 23:59:59', 3) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select yearweek('${year}-${month}-1 23:59:59', 4) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select yearweek('${year}-${month}-1 23:59:59', 5) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select yearweek('${year}-${month}-1 23:59:59', 6) """
+        }
+    }
+
+    for (def year = 1980; year < 2030; year++) {
+        for (def month = 1; month < 13; month++) {
+            qt_sql """ select yearweek('${year}-${month}-1 23:59:59', 7) """
+        }
+    }
 }

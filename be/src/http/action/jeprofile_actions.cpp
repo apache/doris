@@ -32,6 +32,7 @@
 #include "http/ev_http_server.h"
 #include "http/http_channel.h"
 #include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 #include "http/http_method.h"
 #include "io/fs/local_file_system.h"
 
@@ -39,9 +40,9 @@ namespace doris {
 class HttpRequest;
 
 static std::mutex kJeprofileActionMutex;
-class JeHeapAction : public HttpHandler {
+class JeHeapAction : public HttpHandlerWithAuth {
 public:
-    JeHeapAction() = default;
+    JeHeapAction(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
     virtual ~JeHeapAction() = default;
 
     virtual void handle(HttpRequest* req) override;
@@ -77,7 +78,8 @@ Status JeprofileActions::setup(doris::ExecEnv* exec_env, doris::EvHttpServer* ht
     if (!config::jeprofile_dir.empty()) {
         RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(config::jeprofile_dir));
     }
-    http_server->register_handler(HttpMethod::GET, "/jeheap/dump", pool.add(new JeHeapAction()));
+    http_server->register_handler(HttpMethod::GET, "/jeheap/dump",
+                                  pool.add(new JeHeapAction(exec_env)));
     return Status::OK();
 }
 

@@ -59,10 +59,9 @@ public:
         size_t size = 0;
         int64_t last_visit_time;
 
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE) {}
+        CacheValue() = default;
         explicit CacheValue(IndexSearcherPtr searcher, size_t mem_size, int64_t visit_time)
-                : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE),
-                  index_searcher(std::move(searcher)) {
+                : index_searcher(std::move(searcher)) {
             size = mem_size;
             last_visit_time = visit_time;
         }
@@ -182,6 +181,8 @@ class InvertedIndexQueryCacheHandle;
 
 class InvertedIndexQueryCache : public LRUCachePolicy {
 public:
+    using LRUCachePolicy::insert;
+
     // cache key
     struct CacheKey {
         io::Path index_path;               // index file path
@@ -208,14 +209,12 @@ public:
 
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::INVERTEDINDEX_QUERY_CACHE) {}
-
         std::shared_ptr<roaring::Roaring> bitmap;
     };
 
     // Create global instance of this class
     static InvertedIndexQueryCache* create_global_cache(size_t capacity, uint32_t num_shards = 16) {
-        InvertedIndexQueryCache* res = new InvertedIndexQueryCache(capacity, num_shards);
+        auto* res = new InvertedIndexQueryCache(capacity, num_shards);
         return res;
     }
 
@@ -236,8 +235,6 @@ public:
 
     void insert(const CacheKey& key, std::shared_ptr<roaring::Roaring> bitmap,
                 InvertedIndexQueryCacheHandle* handle);
-
-    int64_t mem_consumption();
 };
 
 class InvertedIndexQueryCacheHandle {

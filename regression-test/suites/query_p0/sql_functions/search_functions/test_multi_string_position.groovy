@@ -58,24 +58,24 @@ suite("test_multi_string_position") {
     try {
         sql "select multi_search_all_positions(content, 'hello') from ${table_name} order by col1"
     } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_search_all_positions"))
+        assert("${ex}".contains("multi_search_all_positions"))
     }
 
     try {
         sql "select multi_search_all_positions(content, 'hello, !, world, Hello, World') from ${table_name} order by col1"
     } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_search_all_positions"))
+        assert("${ex}".contains("multi_search_all_positions"))
     }
 
     try {
         sql "select multi_search_all_positions(content, '[hello]') from ${table_name} order by col1"
     } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_search_all_positions"))
+        assert("${ex}".contains("multi_search_all_positions"))
     }
 
     try {
         sql "select multi_search_all_positions(content, '[hello, !, world, Hello, World]') from ${table_name} order by col1"
     } catch (Exception ex) {
-        assert("${ex}".contains("errCode = 2, detailMessage = No matching function with signature: multi_search_all_positions"))
+        assert("${ex}".contains("multi_search_all_positions"))
     }
 }

@@ -53,7 +53,6 @@ suite("test_schema_change_duplicate", "p0") {
             set 'column_separator', ','
 
             file 'all_types.csv'
-            time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
                 if (exception != null) {
@@ -96,40 +95,20 @@ suite("test_schema_change_duplicate", "p0") {
     execStreamLoad()
 
     sql """ alter table ${tableName3} modify column k4 string NULL"""
-    sleep(10)
-    int max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            execStreamLoad()
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
     }
 
+    execStreamLoad();
+
     sql """ alter table ${tableName3} modify column k2 bigint(11) key NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            execStreamLoad()
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
     }
+
+    execStreamLoad()
 
     /*
     sql """ create materialized view view_1 as select k2, k1, k4, k5 from ${tableName3} """
@@ -152,47 +131,27 @@ suite("test_schema_change_duplicate", "p0") {
     */
 
     sql """ alter table ${tableName3} modify column k5 string NULL"""
-    sleep(10)
-    max_try_num = 60
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            execStreamLoad()
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
     }
+
+    execStreamLoad()
 
     sql """ alter table ${tableName3} add column v14 int NOT NULL default "1" after k13 """
     sql """ insert into ${tableName3} values (10001, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
 
     sql """ alter table ${tableName3} modify column v14 int NULL default "1" """
-    sleep(10)
-    max_try_num = 6000
-    while (max_try_num--) {
-        String res = getJobState(tableName3)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            sleep(3000)
-            break
-        } else {
-            int val = 100000 + max_try_num
-            sql """ insert into ${tableName3} values (${val}, 2, 3, 4, 5, 6.6, 1.7, 8.8,
-    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 9527) """
-            sleep(10)
-            if (max_try_num < 1) {
-                println "test timeout," + "state:" + res
-                assertEquals("FINISHED",res)
-            }
-        }
+    waitForSchemaChangeDone {
+        sql """ SHOW ALTER TABLE COLUMN WHERE TableName='${tableName3}' ORDER BY createtime DESC LIMIT 1 """
+        time 600
     }
+
+    int val = 100000 + max_try_num
+    sql """ insert into ${tableName3} values (${val}, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 9527) """
+
 
     sql """ alter table ${tableName3} drop column v14 """
     execStreamLoad()
@@ -201,6 +160,13 @@ suite("test_schema_change_duplicate", "p0") {
 
     sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.8,
     'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', 10086) """
+
+    sql """ alter table ${tableName3} drop column v14 """
+    
+    sql """ alter table ${tableName3} add column v14 bitmap after k13 """
+
+    sql """ insert into ${tableName3} values (10002, 2, 3, 4, 5, 6.6, 1.7, 8.8,
+    'a', 'b', 'c', '2021-10-30', '2021-10-30 00:00:00', to_bitmap(243)) """
 
     sql """ alter table ${tableName3} drop column v14 """
 

@@ -29,8 +29,10 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -54,6 +56,7 @@ import org.junit.jupiter.api.TestInstance;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class AggregateStrategiesTest implements MemoPatternMatchSupported {
@@ -138,7 +141,7 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
         Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
                 true, Optional.empty(), rStudent);
 
-        Sum localOutput0 = new Sum(rStudent.getOutput().get(0).toSlot());
+        Sum localOutput0 = new Sum(false, true, rStudent.getOutput().get(0).toSlot());
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), root)
                 .applyImplementation(twoPhaseAggregateWithoutDistinct())
@@ -380,6 +383,40 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
                 );
     }
 
+    @Test
+    public void distinctApply4PhaseRuleNullableChange() {
+        Slot id = rStudent.getOutput().get(0).toSlot();
+        List<Expression> groupExpressionList = Lists.newArrayList();
+        List<NamedExpression> outputExpressionList = Lists.newArrayList(
+                new Alias(new Count(true, id), "count_id"),
+                new Alias(new Sum(id), "sum_id"));
+        Plan root = new LogicalAggregate<>(groupExpressionList, outputExpressionList,
+                true, Optional.empty(), rStudent);
+
+        // select count(distinct id), sum(id) from t;
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyImplementation(fourPhaseAggregateWithDistinct())
+                .matches(
+                        physicalHashAggregate(
+                                physicalHashAggregate(
+                                        physicalHashAggregate(
+                                                physicalHashAggregate()
+                                                        .when(agg -> agg.getAggPhase().equals(AggPhase.LOCAL))
+                                                        .when(agg -> agg.getGroupByExpressions().get(0).equals(id))
+                                                        .when(agg -> verifyAlwaysNullableFlag(
+                                                                agg.getAggregateFunctions(), false)))
+                                                .when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL))
+                                                .when(agg -> agg.getGroupByExpressions().get(0).equals(id))
+                                                .when(agg -> verifyAlwaysNullableFlag(agg.getAggregateFunctions(),
+                                                        false)))
+                                        .when(agg -> agg.getAggPhase().equals(AggPhase.DISTINCT_LOCAL))
+                                        .when(agg -> agg.getGroupByExpressions().isEmpty())
+                                        .when(agg -> verifyAlwaysNullableFlag(agg.getAggregateFunctions(), true)))
+                                .when(agg -> agg.getAggPhase().equals(AggPhase.DISTINCT_GLOBAL))
+                                .when(agg -> agg.getGroupByExpressions().isEmpty())
+                                .when(agg -> verifyAlwaysNullableFlag(agg.getAggregateFunctions(), true)));
+    }
+
     private Rule twoPhaseAggregateWithoutDistinct() {
         return new AggregateStrategies().buildRules()
                 .stream()
@@ -400,8 +437,18 @@ public class AggregateStrategiesTest implements MemoPatternMatchSupported {
     private Rule fourPhaseAggregateWithDistinct() {
         return new AggregateStrategies().buildRules()
                 .stream()
-                .filter(rule -> rule.getRuleType() == RuleType.TWO_PHASE_AGGREGATE_WITH_DISTINCT)
+                .filter(rule -> rule.getRuleType() == RuleType.FOUR_PHASE_AGGREGATE_WITH_DISTINCT)
                 .findFirst()
                 .get();
+    }
+
+    private boolean verifyAlwaysNullableFlag(Set<AggregateFunction> functions, boolean alwaysNullable) {
+        for (AggregateFunction f : functions) {
+            if (f instanceof NullableAggregateFunction
+                    && ((NullableAggregateFunction) f).isAlwaysNullable() != alwaysNullable) {
+                return false;
+            }
+        }
+        return true;
     }
 }

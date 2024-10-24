@@ -42,7 +42,7 @@ import javax.servlet.http.HttpServletResponse;
  * Used to return the cluster information for the manager.
  */
 @RestController
-@RequestMapping("/rest/v2/manager/cluster")
+@RequestMapping(path = {"/rest/v2/manager/cluster", "/rest/v2/manager/compute_group"})
 public class ClusterAction extends RestBaseController {
 
     // Returns mysql and http connection information for the cluster.
@@ -54,7 +54,7 @@ public class ClusterAction extends RestBaseController {
     //     ""
     //   ]
     // }
-    @RequestMapping(path = "/cluster_info/conn_info", method = RequestMethod.GET)
+    @RequestMapping(path = {"/cluster_info/conn_info", "/compute_group_info/conn_info"}, method = RequestMethod.GET)
     public Object clusterInfo(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
@@ -85,7 +85,8 @@ public class ClusterAction extends RestBaseController {
         public volatile long lastFragmentUpdateTime = 0;
     }
 
-    @RequestMapping(path = "/cluster_info/cloud_cluster_status", method = RequestMethod.GET)
+    @RequestMapping(path = {"/cluster_info/cloud_cluster_status", "/compute_group_info/compute_group_status"},
+            method = RequestMethod.GET)
     public Object cloudClusterInfo(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);

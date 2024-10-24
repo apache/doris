@@ -22,7 +22,6 @@
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "vec/core/block.h"
-#include "vec/exec/vrepeat_node.h"
 
 namespace doris {
 class RuntimeState;
@@ -30,27 +29,15 @@ class RuntimeState;
 
 namespace doris::pipeline {
 
-OPERATOR_CODE_GENERATOR(RepeatOperator, StatefulOperator)
-
-Status RepeatOperator::prepare(doris::RuntimeState* state) {
-    // just for speed up, the way is dangerous
-    _child_block = _node->get_child_block();
-    return StatefulOperator::prepare(state);
-}
-
-Status RepeatOperator::close(doris::RuntimeState* state) {
-    return StatefulOperator::close(state);
-}
-
 RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _child_block(vectorized::Block::create_unique()),
           _repeat_id_idx(0) {}
 
-Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(Base::init(state, info));
+Status RepeatLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<Parent>();
     _expr_ctxs.resize(p._expr_ctxs.size());
     for (size_t i = 0; i < _expr_ctxs.size(); i++) {
@@ -65,24 +52,17 @@ Status RepeatOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status RepeatOperatorX::prepare(RuntimeState* state) {
-    VLOG_CRITICAL << "VRepeatNode::prepare";
-    RETURN_IF_ERROR(OperatorXBase::prepare(state));
+Status RepeatOperatorX::open(RuntimeState* state) {
+    VLOG_CRITICAL << "VRepeatNode::open";
+    RETURN_IF_ERROR(OperatorXBase::open(state));
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("Failed to get tuple descriptor.");
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_expr_ctxs, state, _child->row_desc()));
     for (const auto& slot_desc : _output_tuple_desc->slots()) {
         _output_slots.push_back(slot_desc);
     }
-
-    return Status::OK();
-}
-
-Status RepeatOperatorX::open(RuntimeState* state) {
-    VLOG_CRITICAL << "VRepeatNode::open";
-    RETURN_IF_ERROR(OperatorXBase::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_expr_ctxs, state));
     return Status::OK();
 }
@@ -178,7 +158,7 @@ Status RepeatLocalState::add_grouping_id_column(std::size_t rows, std::size_t& c
         auto* column_ptr = columns[cur_col].get();
         DCHECK(!p._output_slots[cur_col]->is_nullable());
         auto* col = assert_cast<vectorized::ColumnVector<vectorized::Int64>*>(column_ptr);
-        col->insert_raw_integers(val, rows);
+        col->insert_many_vals(val, rows);
         cur_col++;
     }
     return Status::OK();
@@ -231,7 +211,7 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
         int size = _repeat_id_list.size();
         if (_repeat_id_idx >= size) {
             _intermediate_block->clear();
-            _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+            _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
             _repeat_id_idx = 0;
         }
     } else if (local_state._expr_ctxs.empty()) {
@@ -245,13 +225,12 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
             RETURN_IF_ERROR(
                     local_state.add_grouping_id_column(rows, cur_col, columns, repeat_id_idx));
         }
-        _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+        _child_block.clear_column_data(_child->row_desc().num_materialized_slots());
     }
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
                                                            output_block->columns()));
     *eos = _child_eos && _child_block.rows() == 0;
     local_state.reached_limit(output_block, eos);
-    COUNTER_SET(local_state._rows_returned_counter, local_state._num_rows_returned);
     return Status::OK();
 }
 

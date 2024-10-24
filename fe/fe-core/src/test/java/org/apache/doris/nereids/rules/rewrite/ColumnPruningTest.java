@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.types.DoubleType;
-import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -70,18 +72,18 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                                         logicalProject()
                                                                 .when(p -> getOutputQualifiedNames(p).containsAll(
                                                                         ImmutableList.of(
-                                                                                "test.student.id",
-                                                                                "test.student.name"))),
+                                                                                "internal.test.student.id",
+                                                                                "internal.test.student.name"))),
                                                         logicalProject().when(
                                                                 p -> getOutputQualifiedNames(p).containsAll(
                                                                         ImmutableList.of(
-                                                                                "test.score.sid",
-                                                                                "test.score.grade")))
+                                                                                "internal.test.score.sid",
+                                                                                "internal.test.score.grade")))
                                                 ))
                                                 .when(p -> getOutputQualifiedNames(p)
                                                         .containsAll(
-                                                                ImmutableList.of("test.student.name",
-                                                                        "test.student.id")))
+                                                                ImmutableList.of("internal.test.student.name",
+                                                                        "internal.test.student.id")))
                                 )
                         )
                 );
@@ -102,18 +104,18 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                                         logicalProject()
                                                                 .when(p -> getOutputQualifiedNames(p).containsAll(
                                                                         ImmutableList.of(
-                                                                                "test.student.id",
-                                                                                "test.student.name",
-                                                                                "test.student.sex"))),
+                                                                                "internal.test.student.id",
+                                                                                "internal.test.student.name",
+                                                                                "internal.test.student.sex"))),
 
                                                         logicalRelation()
                                                 ))
                                                 .when(p -> getOutputQualifiedNames(p)
                                                         .containsAll(
-                                                                ImmutableList.of("test.student.name",
-                                                                        "test.score.cid",
-                                                                        "test.score.grade",
-                                                                        "test.student.sex")))
+                                                                ImmutableList.of("internal.test.student.name",
+                                                                        "internal.test.score.cid",
+                                                                        "internal.test.score.grade",
+                                                                        "internal.test.student.sex")))
                                 )
                         )
                 );
@@ -129,9 +131,9 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                 logicalFilter(
                                         logicalProject().when(p -> getOutputQualifiedNames(p)
                                                 .containsAll(ImmutableList.of(
-                                                        "test.student.name",
-                                                        "test.student.id",
-                                                        "test.student.age")))
+                                                        "internal.test.student.name",
+                                                        "internal.test.student.id",
+                                                        "internal.test.student.age")))
                                 )
                         )
                 );
@@ -155,25 +157,25 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                                                 logicalProject(logicalRelation())
                                                                         .when(p -> getOutputQualifiedNames(
                                                                                 p).containsAll(ImmutableList.of(
-                                                                                "test.student.id",
-                                                                                "test.student.name"))),
+                                                                                "internal.test.student.id",
+                                                                                "internal.test.student.name"))),
                                                                 logicalRelation()
 
                                                         )).when(p -> getOutputQualifiedNames(p)
                                                                 .containsAll(ImmutableList.of(
-                                                                        "test.student.name",
-                                                                        "test.score.cid",
-                                                                        "test.score.grade"))),
+                                                                        "internal.test.student.name",
+                                                                        "internal.test.score.cid",
+                                                                        "internal.test.score.grade"))),
                                                         logicalProject(logicalRelation())
                                                                 .when(p -> getOutputQualifiedNames(p)
                                                                         .containsAll(ImmutableList.of(
-                                                                                "test.course.cid",
-                                                                                "test.course.cname")))
+                                                                                "internal.test.course.cid",
+                                                                                "internal.test.course.cname")))
                                                 )
                                         ).when(p -> getOutputQualifiedNames(p).containsAll(ImmutableList.of(
-                                                "test.student.name",
-                                                "test.course.cname",
-                                                "test.score.grade")))
+                                                "internal.test.student.name",
+                                                "internal.test.course.cname",
+                                                "internal.test.score.grade")))
                                 )
                         )
                 );
@@ -188,7 +190,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(TinyIntType.INSTANCE)
                                         && p.getProjects().size() == 1)
                         )
                 );
@@ -203,7 +205,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(TinyIntType.INSTANCE)
                                         && p.getProjects().size() == 1)
                         )
                 );
@@ -218,7 +220,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(TinyIntType.INSTANCE)
                                         && p.getProjects().size() == 1)
                         )
                 );
@@ -233,7 +235,7 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                         logicalAggregate(
                                 logicalProject(
                                         logicalOlapScan()
-                                ).when(p -> p.getProjects().get(0).getDataType().equals(IntegerType.INSTANCE)
+                                ).when(p -> p.getProjects().get(0).getDataType().equals(TinyIntType.INSTANCE)
                                         && p.getProjects().size() == 1)
                         )
                 );
@@ -280,12 +282,10 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                             logicalProject(logicalRelation())
                                                     .when(p -> getOutputQualifiedNames(p)
                                                             .containsAll(ImmutableList.of(
-                                                                    "test.student.id",
-                                                                    "test.student.name"))),
+                                                                    "internal.test.student.id",
+                                                                    "internal.test.student.name"))),
                                             logicalProject(logicalRelation())
-                                                    .when(p -> getOutputQualifiedNames(p)
-                                                            .containsAll(ImmutableList.of(
-                                                                    "test.score.sid")))
+                                                    .when(p -> p.getProjects().stream().noneMatch(SlotReference.class::isInstance))
                                     )
                         )
                 );
@@ -304,13 +304,28 @@ public class ColumnPruningTest extends TestWithFeService implements MemoPatternM
                                             logicalProject(
                                                 logicalOlapScan()
                                             ).when(p -> getOutputQualifiedNames(p).equals(
-                                                    ImmutableList.of("test.student.id")
+                                                    ImmutableList.of("internal.test.student.id")
                                             ))
                                         ).when(agg -> getOutputQualifiedNames(agg.getOutputs()).equals(
-                                                ImmutableList.of("test.student.id")
+                                                ImmutableList.of("internal.test.student.id")
                                 )))
                             )
                         )
+                );
+    }
+
+    @Test
+    public void pruneUnionAllWithCount() {
+        PlanChecker.from(connectContext)
+                .analyze("select count() from (select 1, 2 union all select id, age from student) t")
+                .customRewrite(new ColumnPruning())
+                .matches(
+                        logicalProject(
+                                logicalUnion(
+                                        logicalProject().when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral),
+                                        logicalProject().when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral)
+                                )
+                        ).when(p -> p.getProjects().size() == 1 && p.getProjects().get(0).child(0) instanceof TinyIntLiteral)
                 );
     }
 

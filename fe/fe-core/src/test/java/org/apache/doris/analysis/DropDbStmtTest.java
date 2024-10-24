@@ -38,23 +38,24 @@ public class DropDbStmtTest {
 
     @Before
     public void setUp() {
-        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
     }
 
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        DropDbStmt stmt = new DropDbStmt(false, "test", true);
+        DropDbStmt stmt = new DropDbStmt(false, new DbName("test", "test"), true);
 
         stmt.analyze(analyzer);
+        Assert.assertEquals("test", stmt.getCtlName());
         Assert.assertEquals("test", stmt.getDbName());
         Assert.assertEquals("DROP DATABASE `test`", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
     public void testFailed() throws UserException, AnalysisException {
-        DropDbStmt stmt = new DropDbStmt(false, "", true);
+        DropDbStmt stmt = new DropDbStmt(false, new DbName("", ""), true);
 
         stmt.analyze(analyzer);
         Assert.fail("no exception");
@@ -62,7 +63,7 @@ public class DropDbStmtTest {
 
     @Test
     public void testNoPriv() {
-        DropDbStmt stmt = new DropDbStmt(false, "", true);
+        DropDbStmt stmt = new DropDbStmt(false, new DbName("", ""), true);
         try {
             stmt.analyze(AccessTestUtil.fetchBlockAnalyzer());
         } catch (AnalysisException e) {

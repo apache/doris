@@ -244,7 +244,7 @@ void serialize_and_deserialize_arrow_test() {
                                       decimal_column.get())
                                      ->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    __int128_t value = i * pow(10, 9) + i * pow(10, 8);
+                    __int128_t value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
                     data.push_back(value);
                 }
                 vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
@@ -489,15 +489,17 @@ void serialize_and_deserialize_arrow_test() {
     RowDescriptor row_desc(&tuple_desc, true);
     // arrow schema
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema), Status::OK());
+    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema, "UTC"), Status::OK());
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
     std::cout << "block data: " << block.dump_data(0, row_num) << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    static_cast<void>(
-            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
+    cctz::time_zone timezone_obj;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
+                                             &result, timezone_obj));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;
@@ -621,15 +623,17 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     RowDescriptor row_desc(&tuple_desc, true);
     // arrow schema
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema), Status::OK());
+    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema, "UTC"), Status::OK());
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
     std::cout << "block structure: " << block.dump_structure() << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    static_cast<void>(
-            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
+    cctz::time_zone timezone_obj;
+    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, timezone_obj);
+    static_cast<void>(convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(),
+                                             &result, timezone_obj));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;

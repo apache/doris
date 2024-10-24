@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -39,6 +40,8 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 class BindSlotReferenceTest {
 
@@ -58,11 +61,18 @@ class BindSlotReferenceTest {
 
     @Test
     public void testAmbiguousSlot() {
-        LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
-        LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
-        LogicalJoin<LogicalOlapScan, LogicalOlapScan> join = new LogicalJoin<>(
-                JoinType.CROSS_JOIN, scan1, scan2, null);
-        LogicalProject<LogicalJoin<LogicalOlapScan, LogicalOlapScan>> project = new LogicalProject<>(
+        String qualifiedName = "internal.db.student";
+        List<String> qualifier = ImmutableList.copyOf(qualifiedName.split("\\."));
+        LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
+                qualifier);
+        LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
+                qualifier);
+        LogicalSubQueryAlias<LogicalOlapScan> aliasedScan2 = new LogicalSubQueryAlias<>("scan2_alias", scan2);
+
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(
+                JoinType.CROSS_JOIN, scan1, aliasedScan2, null);
+
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(
                 ImmutableList.of(new UnboundSlot("id")), join);
 
         AnalysisException exception = Assertions.assertThrows(AnalysisException.class,
@@ -73,14 +83,18 @@ class BindSlotReferenceTest {
     }
 
     /*
-    select t1.id from student t1 join on student t2 on t1.di=t2.id group by id;
+    select t1.id from student t1 join student t2 on t1.id=t2.id group by id;
     group_by_key bind on t1.id, not t2.id
      */
     @Test
     public void testGroupByOnJoin() {
-        LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
+        String qualifiedName = "internal.db.student";
+        List<String> qualifier = ImmutableList.copyOf(qualifiedName.split("\\."));
+        LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
+                qualifier);
         LogicalSubQueryAlias<LogicalOlapScan> sub1 = new LogicalSubQueryAlias<>("t1", scan1);
-        LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
+        LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
+                qualifier);
         LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2);
         LogicalJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>> join =
                 new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2, null);
@@ -100,14 +114,18 @@ class BindSlotReferenceTest {
     }
 
     /*
-    select count(1) from student t1 join on student t2 on t1.di=t2.id group by id;
+    select count(1) from student t1 join student t2 on t1.di=t2.id group by id;
     group by key is ambiguous
      */
     @Test
     public void testGroupByOnJoinAmbiguous() {
-        LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
+        String qualifiedName = "internal.db.student";
+        List<String> qualifier = ImmutableList.copyOf(qualifiedName.split("\\."));
+        LogicalOlapScan scan1 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
+                qualifier);
         LogicalSubQueryAlias<LogicalOlapScan> sub1 = new LogicalSubQueryAlias<>("t1", scan1);
-        LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
+        LogicalOlapScan scan2 = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student,
+                qualifier);
         LogicalSubQueryAlias<LogicalOlapScan> sub2 = new LogicalSubQueryAlias<>("t2", scan2);
         LogicalJoin<LogicalSubQueryAlias<LogicalOlapScan>, LogicalSubQueryAlias<LogicalOlapScan>> join =
                 new LogicalJoin<>(JoinType.CROSS_JOIN, sub1, sub2, null);

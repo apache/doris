@@ -45,6 +45,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
             "driver_url" = "${driver_url}",
             "driver_class" = "org.postgresql.Driver"
         );"""
+        order_qt_show_db """ show databases from ${catalog_name}; """
         sql """use ${internal_db_name}"""
         sql  """ drop table if exists ${internal_db_name}.${inDorisTable} """
         sql  """
@@ -106,7 +107,6 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         order_qt_test10  """ select * from test8 order by id; """
         order_qt_test11  """ select * from test9 order by id1; """
         order_qt_filter4  """ select * from test3 where name not like '%abc%' order by id; """
-        order_qt_filter4_old  """ select /*+ SET_VAR(enable_nereids_planner=false) */  * from test3 where name not like '%abc%' order by id; """
 
         sql """ use ${ex_schema_name2}"""
         order_qt_test12  """ select * from test10 order by id; """

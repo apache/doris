@@ -19,7 +19,6 @@
 
 #include <gen_cpp/PaloBrokerService_types.h>
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
 #include <atomic>
 #include <memory>
@@ -36,10 +35,10 @@ namespace doris::io {
 
 struct IOContext;
 
-class BrokerFileReader : public FileReader {
+class BrokerFileReader final : public FileReader {
 public:
     BrokerFileReader(const TNetworkAddress& broker_addr, Path path, size_t file_size, TBrokerFD fd,
-                     std::shared_ptr<BrokerFileSystem> fs);
+                     std::shared_ptr<BrokerServiceConnection> connection);
 
     ~BrokerFileReader() override;
 
@@ -50,8 +49,6 @@ public:
     size_t size() const override { return _file_size; }
 
     bool closed() const override { return _closed.load(std::memory_order_acquire); }
-
-    FileSystemSPtr fs() const override { return _fs; }
 
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
@@ -64,7 +61,7 @@ private:
     const TNetworkAddress _broker_addr;
     TBrokerFD _fd;
 
-    std::shared_ptr<BrokerFileSystem> _fs;
+    std::shared_ptr<BrokerServiceConnection> _connection;
     std::atomic<bool> _closed = false;
 };
 } // namespace doris::io

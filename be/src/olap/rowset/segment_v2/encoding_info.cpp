@@ -51,8 +51,7 @@ struct TypeEncodingTraits {};
 template <FieldType type, typename CppType>
 struct TypeEncodingTraits<type, PLAIN_ENCODING, CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new PlainPageBuilder<type>(opts);
-        return Status::OK();
+        return PlainPageBuilder<type>::create(builder, opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
@@ -64,8 +63,7 @@ struct TypeEncodingTraits<type, PLAIN_ENCODING, CppType> {
 template <FieldType type>
 struct TypeEncodingTraits<type, PLAIN_ENCODING, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new BinaryPlainPageBuilder<type>(opts);
-        return Status::OK();
+        return BinaryPlainPageBuilder<type>::create(builder, opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
@@ -78,8 +76,7 @@ template <FieldType type, typename CppType>
 struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
                           typename std::enable_if<!std::is_same<CppType, Slice>::value>::type> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new BitshufflePageBuilder<type>(opts);
-        return Status::OK();
+        return BitshufflePageBuilder<type>::create(builder, opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
@@ -91,8 +88,7 @@ struct TypeEncodingTraits<type, BIT_SHUFFLE, CppType,
 template <>
 struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, bool> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>(opts);
-        return Status::OK();
+        return RlePageBuilder<FieldType::OLAP_FIELD_TYPE_BOOL>::create(builder, opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
@@ -104,8 +100,7 @@ struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_BOOL, RLE, bool> {
 template <FieldType type>
 struct TypeEncodingTraits<type, DICT_ENCODING, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new BinaryDictPageBuilder(opts);
-        return Status::OK();
+        return BinaryDictPageBuilder::create(builder, opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
@@ -118,8 +113,7 @@ template <>
 struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATE, FOR_ENCODING,
                           typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>::CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>(opts);
-        return Status::OK();
+        return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATE>::create(builder, opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
@@ -132,8 +126,8 @@ template <>
 struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATEV2, FOR_ENCODING,
                           typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>::CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATEV2>(opts);
-        return Status::OK();
+        return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATEV2>::create(builder,
+                                                                                      opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
@@ -146,8 +140,8 @@ template <>
 struct TypeEncodingTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2, FOR_ENCODING,
                           typename CppTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::CppType> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(opts);
-        return Status::OK();
+        return FrameOfReferencePageBuilder<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>::create(builder,
+                                                                                          opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
@@ -161,8 +155,7 @@ template <FieldType type, typename CppType>
 struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
                           typename std::enable_if<std::is_integral<CppType>::value>::type> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new FrameOfReferencePageBuilder<type>(opts);
-        return Status::OK();
+        return FrameOfReferencePageBuilder<type>::create(builder, opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
@@ -174,8 +167,7 @@ struct TypeEncodingTraits<type, FOR_ENCODING, CppType,
 template <FieldType type>
 struct TypeEncodingTraits<type, PREFIX_ENCODING, Slice> {
     static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
-        *builder = new BinaryPrefixPageBuilder(opts);
-        return Status::OK();
+        return BinaryPrefixPageBuilder::create(builder, opts);
     }
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {

@@ -175,6 +175,20 @@ public class BrokerFileGroupAggInfo implements Writable {
     public void addFileGroup(BrokerFileGroup fileGroup) throws DdlException {
         FileGroupAggKey fileGroupAggKey = new FileGroupAggKey(fileGroup.getTableId(), fileGroup.getPartitionIds());
         List<BrokerFileGroup> fileGroupList = aggKeyToFileGroups.get(fileGroupAggKey);
+        // check if there are overlapping of table with partitions and table without partitions of same table
+        if (fileGroup.getPartitionIds() == null) {
+            for (FileGroupAggKey groupAggKey : aggKeyToFileGroups.keySet()) {
+                if (groupAggKey.tableId == fileGroup.getTableId() && !groupAggKey.partitionIds.isEmpty()) {
+                    throw new DdlException("There are overlapping partitions of same table"
+                            + " in data description of load job stmt");
+                }
+            }
+        } else {
+            if (aggKeyToFileGroups.containsKey(new FileGroupAggKey(fileGroup.getTableId(), null))) {
+                throw new DdlException("There are overlapping partitions of same table"
+                        + " in data description of load job stmt");
+            }
+        }
         if (fileGroupList == null) {
             // check if there are overlapping partitions of same table
             if (tableIdToPartitionIds.containsKey(fileGroup.getTableId())

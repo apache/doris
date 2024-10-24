@@ -61,6 +61,7 @@ under the License.
 
     <!-- ignore hive meta store client copied from hive/aliyun/aws -->
     <suppress files="HiveMetaStoreClient\.java" checks="[a-zA-Z0-9]*"/>
+    <suppress files="HiveVersionUtil\.java" checks="[a-zA-Z0-9]*"/>
     <suppress files="[\\/]com[\\/]amazonaws[\\/]glue[\\/]catalog[\\/]" checks="[a-zA-Z0-9]*"/>
     <suppress files="[\\/]com[\\/]aliyun[\\/]datalake[\\/]metastore[\\/]hive2[\\/]" checks="[a-zA-Z0-9]*"/>
 </suppressions>

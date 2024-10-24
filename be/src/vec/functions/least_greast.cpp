@@ -66,7 +66,8 @@ struct CompareMultiImpl {
         MutableColumnPtr result_column = data_type->create_column();
 
         Columns cols(arguments.size());
-        std::unique_ptr<bool[]> col_const = std::make_unique<bool[]>(arguments.size());
+        std::unique_ptr<bool[]> col_const =
+                std::make_unique_for_overwrite<bool[]>(arguments.size());
         for (int i = 0; i < arguments.size(); ++i) {
             std::tie(cols[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
@@ -175,7 +176,7 @@ struct FunctionFieldImpl {
         auto& res_data = static_cast<ColumnInt32*>(result_column)->get_data();
 
         const auto& column_size = arguments.size();
-        ColumnPtr argument_columns[column_size];
+        std::vector<ColumnPtr> argument_columns(column_size);
         for (int i = 0; i < column_size; ++i) {
             argument_columns[i] = block.get_by_position(arguments[i]).column;
         }

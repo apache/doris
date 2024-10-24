@@ -43,6 +43,7 @@ suite('nereids_delete_mow_partial_update') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
@@ -55,12 +56,18 @@ suite('nereids_delete_mow_partial_update') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 
             sql "insert into ${tableName1} values(1, 1), (2, 2), (3, 3), (4, 4), (5, 5);"
             qt_sql "select * from ${tableName1} order by uid;"
-            sql "insert into ${tableName2} values(1), (2), (3);"
+            sql "insert into ${tableName2} values(1), (3);"
+            explain {
+                // delete from using command should use partial update
+                sql "delete from ${tableName1} A using ${tableName2} B where A.uid=B.uid;"
+                contains "IS_PARTIAL_UPDATE: true"
+            }
             sql "delete from ${tableName1} A using ${tableName2} B where A.uid=B.uid;"
             qt_sql "select * from ${tableName1} order by uid;"
             // when using parital update insert stmt for delete stmt, it will use delete bitmap or delete sign rather than 
@@ -68,6 +75,23 @@ suite('nereids_delete_mow_partial_update') {
             sql "set skip_delete_predicate=true;"
             sql "sync"
             qt_sql_skip_delete_predicate "select * from ${tableName1} order by uid;"
+            sql "set skip_delete_predicate=false;"
+            sql "sync"
+
+            explain {
+                // delete from command should use partial update
+                sql "delete from ${tableName1} where ${tableName1}.uid=2;"
+                contains "IS_PARTIAL_UPDATE: true"
+            }
+
+            explain {
+                // delete from command should use partial update
+                sql "delete from ${tableName1} where ${tableName1}.v1=4;"
+                contains "IS_PARTIAL_UPDATE: true"
+            }
+
+            sql "delete from ${tableName1} where ${tableName1}.v1=4;"
+            qt_sql "select * from ${tableName1} order by uid;"
 
             sql "set skip_delete_sign=true;"
             sql "set skip_storage_engine_merge=true;"
@@ -94,6 +118,7 @@ suite('nereids_delete_mow_partial_update') {
                 PROPERTIES (
                     "enable_unique_key_merge_on_write" = "true",
                     "disable_auto_compaction" = "true",
+                    "enable_mow_light_delete" = "false",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
 

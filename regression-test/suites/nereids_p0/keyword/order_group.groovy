@@ -168,16 +168,13 @@ suite("order_group", "query,p0") {
     qt_orderBy_withNull_7 "select k6 + k5 as nu, sum(1) from test  group by nu order by nu limit 5"
 
     // 窗口函数对NULL的处理
-    // Nereids does't support window function
-    // def res3 = sql"select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
-    //      sum(k2) over (partition by k5 + k6)\
-    //     as ss from ${tableName2})s  where s.k5 > 2000 order by k1 nulls first"
-    // Nereids does't support window function
-    // def res4 = sql"select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
-    //     sum(k2) over (partition by k5 + k6)\
-    //     as ss from ${tableName2}  where k5 > 2000 )s order by k1"
-    // Nereids does't support window function
-    // check2_doris(res3, res4)
+    def res3 = sql"select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
+          sum(k2) over (partition by k5 + k6)\
+         as ss from ${tableName2})s  where s.k5 > 2000 order by k1 nulls first"
+    def res4 = sql"select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
+         sum(k2) over (partition by k5 + k6)\
+         as ss from ${tableName2}  where k5 > 2000 )s order by k1"
+    check2_doris(res3, res4)
 
     // 2
     // 非NULL结果
@@ -203,16 +200,13 @@ suite("order_group", "query,p0") {
     def res6 = order_sql"""select k6 + k5 as nu, sum(k1) from ${tableName1} group by nu order by nu, sum(k1)"""
     check2_doris(res5, res6)
     //issue https://github.com/apache/doris/issues/2142
-    // Nereids does't support window function
-    // def res7 = sql "select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
-    //      sum(k2) over (partition by k5 + k6)\
-    //     as ss from ${tableName2})s  where s.k5 > 2000 order by k1,k2 nulls last"
-    // Nereids does't support window function
-    // def res8 = sql "select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
-    //     sum(k2) over (partition by k5 + k6)\
-    //     as ss from ${tableName2}  where k5 > 2000 )s order by k1,k2 "
-    // Nereids does't support window function
-    // check2_doris(res7, res8)
+    def res7 = sql "select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
+          sum(k2) over (partition by k5 + k6)\
+         as ss from ${tableName2})s  where s.k5 > 2000 order by k1,k2 nulls last"
+    def res8 = sql "select k1, k2, nu from (select k1, k2, k5, k5 + k6 as nu,\
+         sum(k2) over (partition by k5 + k6)\
+         as ss from ${tableName2}  where k5 > 2000 )s order by k1,k2 "
+    check2_doris(res7, res8)
 
     qt_group31 "select count(*) from ${tableName1} where (k11='2015-03-13 12:36:38' or k11 = '2000-01-01 00:00:00')\
 		    and k5 is not null group by k1%2, k2%2, k3%3, k4%3, k11%2 order by count(*)"

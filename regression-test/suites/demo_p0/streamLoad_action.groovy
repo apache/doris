@@ -97,7 +97,7 @@ suite("streamLoad_action") {
             assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
         }
     }
-
+    sql """ sync; """
     order_qt_select_2 "SELECT * FROM ${tableName}"
 
     // to test merge sort
@@ -112,7 +112,7 @@ suite("streamLoad_action") {
     """
 
     sql " INSERT INTO B values (1);"
-
+    sql """ sync; """
     qt_sql """
         SELECT subq_0.`c1` AS c1
         FROM
@@ -126,6 +126,11 @@ suite("streamLoad_action") {
         LIMIT 5;
     """
 
+    def tableName2 = "test_streamload_action2"
+    runStreamLoadExample(tableName2)
+
     sql """ DROP TABLE ${tableName} """
+    sql """ DROP TABLE ${tableName2}"""
+
     sql """ DROP TABLE B """
 }

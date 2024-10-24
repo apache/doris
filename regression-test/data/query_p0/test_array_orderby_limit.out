@@ -2,3 +2,6 @@
 -- !select --
 100	[["abc"]]
 
+-- !select_2 --
+a	{"codes":[123, 456], "props":{"key1":["char1", "char2"]}}
+

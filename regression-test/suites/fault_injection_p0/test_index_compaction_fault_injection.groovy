@@ -18,6 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_index_compaction_failure_injection", "nonConcurrent") {
+    def isCloudMode = isCloudMode()
     def tableName = "test_index_compaction_failure_injection_dups"
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
@@ -143,6 +144,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             GetDebugPoint().enableDebugPointForAllBEs("index_compaction_compact_column_throw_error")
             logger.info("trigger_full_compaction_on_tablets with fault injection: index_compaction_compact_column_throw_error")
             trigger_full_compaction_on_tablets.call(tablets)
+            wait_full_compaction_done.call(tablets)
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("index_compaction_compact_column_throw_error")
         }
@@ -160,7 +162,11 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         run_sql.call()
 
@@ -171,13 +177,18 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
 
         // insert 6 rows, so there are 7 rowsets.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 7 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (7 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 7 * replicaNum)
+        }
 
         // tigger full compaction for all tablets with fault injection
         try {
             GetDebugPoint().enableDebugPointForAllBEs("index_compaction_compact_column_status_not_ok")
             logger.info("trigger_full_compaction_on_tablets with fault injection: index_compaction_compact_column_status_not_ok")
             trigger_full_compaction_on_tablets.call(tablets)
+            wait_full_compaction_done.call(tablets)
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("index_compaction_compact_column_status_not_ok")
         }
@@ -185,10 +196,16 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
         // insert more data
         insert_data.call()
 
+        sql """ select * from ${tableName} """
+
         // after fault injection, there are still 7 rowsets.
         // and we insert 6 rows, so there are 13 rowsets.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 13 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (13 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 13 * replicaNum)
+        }
 
         logger.info("trigger_full_compaction_on_tablets normally")
         // trigger full compactions for all tablets in ${tableName}
@@ -200,25 +217,41 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
 
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         run_sql.call()
 
         // insert more data and trigger full compaction again
         insert_data.call()
         
+        sql """ select * from ${tableName} """
+
         // insert 6 rows, so there are 7 rowsets.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 7 * replicaNum)
-
+        if (isCloudMode) {
+            assert (rowsetCount == (7 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 7 * replicaNum)
+        }
         // tigger full compaction for all tablets normally
         // this time, index compaction will be done successfully
         logger.info("trigger_full_compaction_on_tablets normally")
         trigger_full_compaction_on_tablets.call(tablets)
 
+        // wait for full compaction done
+        wait_full_compaction_done.call(tablets)
+
         // after full compaction, there is only 1 rowset.
         rowsetCount = get_rowset_count.call(tablets);
-        assert (rowsetCount == 1 * replicaNum)
+        if (isCloudMode) {
+            assert (rowsetCount == (1 + 1) * replicaNum)
+        } else {
+            assert (rowsetCount == 1 * replicaNum)
+        }
 
         run_sql.call()
     }
@@ -269,7 +302,7 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             DUPLICATE KEY(`id`)
             COMMENT 'OLAP'
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
-            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true");
+            PROPERTIES ( "replication_num" = "1", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
         """
 
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
@@ -299,7 +332,8 @@ suite("test_index_compaction_failure_injection", "nonConcurrent") {
             PROPERTIES ( 
                 "replication_num" = "1",
                 "disable_auto_compaction" = "true",
-                "enable_unique_key_merge_on_write" = "true"
+                "enable_unique_key_merge_on_write" = "true",
+                "inverted_index_storage_format" = "V1"
             );
         """
 

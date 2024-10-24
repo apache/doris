@@ -38,11 +38,13 @@ import java.util.Set;
 //      ACCOUNT_LOCK[ACCOUNT_UNLOCK]
 //      FAILED_LOGIN_ATTEMPTS
 //      PASSWORD_LOCK_TIME
-public class AlterUserStmt extends DdlStmt {
+public class AlterUserStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExist;
     private UserDesc userDesc;
     private String role;
     private PasswordOptions passwordOptions;
+
+    private String comment;
 
     // Only support doing one of these operation at one time.
     public enum OpType {
@@ -50,16 +52,19 @@ public class AlterUserStmt extends DdlStmt {
         SET_ROLE,
         SET_PASSWORD_POLICY,
         LOCK_ACCOUNT,
-        UNLOCK_ACCOUNT
+        UNLOCK_ACCOUNT,
+        MODIFY_COMMENT
     }
 
     private Set<OpType> ops = Sets.newHashSet();
 
-    public AlterUserStmt(boolean ifExist, UserDesc userDesc, String role, PasswordOptions passwordOptions) {
+    public AlterUserStmt(boolean ifExist, UserDesc userDesc, String role, PasswordOptions passwordOptions,
+            String comment) {
         this.ifExist = ifExist;
         this.userDesc = userDesc;
         this.role = role;
         this.passwordOptions = passwordOptions;
+        this.comment = comment;
     }
 
     public boolean isIfExist() {
@@ -90,6 +95,10 @@ public class AlterUserStmt extends DdlStmt {
         return ops.iterator().next();
     }
 
+    public String getComment() {
+        return comment;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
@@ -104,6 +113,10 @@ public class AlterUserStmt extends DdlStmt {
             ops.add(OpType.SET_ROLE);
         }
 
+        // may be set comment to "", so not use `Strings.isNullOrEmpty`
+        if (comment != null) {
+            ops.add(OpType.MODIFY_COMMENT);
+        }
         passwordOptions.analyze();
         if (passwordOptions.getAccountUnlocked() == FailedLoginPolicy.LOCK_ACCOUNT) {
             throw new AnalysisException("Not support lock account now");
@@ -145,5 +158,10 @@ public class AlterUserStmt extends DdlStmt {
         }
 
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

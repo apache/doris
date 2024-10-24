@@ -52,57 +52,30 @@ public class GroupConcat extends NullableAggregateFunction
     /**
      * constructor with 1 argument.
      */
-    public GroupConcat(boolean distinct, boolean alwaysNullable, Expression arg, OrderExpression... orders) {
-        super("group_concat", distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg, orders));
-        this.nonOrderArguments = 1;
-        checkArguments();
+    public GroupConcat(boolean distinct, boolean alwaysNullable, Expression arg, Expression... others) {
+        this(distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg, others));
     }
 
     /**
      * constructor with 1 argument.
      */
-    public GroupConcat(boolean distinct, Expression arg, OrderExpression... orders) {
-        this(distinct, false, arg, orders);
+    public GroupConcat(boolean distinct, Expression arg, Expression... others) {
+        this(distinct, false, arg, others);
     }
 
     /**
      * constructor with 1 argument, use for function search.
      */
-    public GroupConcat(Expression arg, OrderExpression... orders) {
-        this(false, arg, orders);
-    }
-
-    /**
-     * constructor with 2 arguments.
-     */
-    public GroupConcat(boolean distinct, boolean alwaysNullable,
-            Expression arg0, Expression arg1, OrderExpression... orders) {
-        super("group_concat", distinct, alwaysNullable, ExpressionUtils.mergeArguments(arg0, arg1, orders));
-        this.nonOrderArguments = 2;
-        checkArguments();
-    }
-
-    /**
-     * constructor with 2 arguments.
-     */
-    public GroupConcat(boolean distinct, Expression arg0, Expression arg1, OrderExpression... orders) {
-        this(distinct, false, arg0, arg1, orders);
-    }
-
-    /**
-     * constructor with 2 arguments, use for function search.
-     */
-    public GroupConcat(Expression arg0, Expression arg1, OrderExpression... orders) {
-        this(false, arg0, arg1, orders);
+    public GroupConcat(Expression arg, Expression... others) {
+        this(false, arg, others);
     }
 
     /**
      * constructor for always nullable.
      */
-    public GroupConcat(boolean distinct, boolean alwaysNullable, int nonOrderArguments, List<Expression> args) {
+    public GroupConcat(boolean distinct, boolean alwaysNullable, List<Expression> args) {
         super("group_concat", distinct, alwaysNullable, args);
-        this.nonOrderArguments = nonOrderArguments;
-        checkArguments();
+        this.nonOrderArguments = findOrderExprIndex(children);
     }
 
     @Override
@@ -139,7 +112,7 @@ public class GroupConcat extends NullableAggregateFunction
 
     @Override
     public GroupConcat withAlwaysNullable(boolean alwaysNullable) {
-        return new GroupConcat(distinct, alwaysNullable, nonOrderArguments, children);
+        return new GroupConcat(distinct, alwaysNullable, children);
     }
 
     /**
@@ -147,30 +120,7 @@ public class GroupConcat extends NullableAggregateFunction
      */
     @Override
     public GroupConcat withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children().size() >= 1);
-        boolean foundOrderExpr = false;
-        int firstOrderExrIndex = 0;
-        for (int i = 0; i < children.size(); i++) {
-            Expression child = children.get(i);
-            if (child instanceof OrderExpression) {
-                foundOrderExpr = true;
-            } else if (!foundOrderExpr) {
-                firstOrderExrIndex++;
-            } else {
-                throw new AnalysisException("invalid group_concat parameters: " + children);
-            }
-        }
-
-        List<OrderExpression> orders = (List) children.subList(firstOrderExrIndex, children.size());
-        if (firstOrderExrIndex == 1) {
-            return new GroupConcat(distinct, alwaysNullable,
-                    children.get(0), orders.toArray(new OrderExpression[0]));
-        } else if (firstOrderExrIndex == 2) {
-            return new GroupConcat(distinct, alwaysNullable,
-                    children.get(0), children.get(1), orders.toArray(new OrderExpression[0]));
-        } else {
-            throw new AnalysisException("group_concat requires one or two parameters: " + children);
-        }
+        return new GroupConcat(distinct, alwaysNullable, children);
     }
 
     @Override
@@ -186,15 +136,34 @@ public class GroupConcat extends NullableAggregateFunction
     public MultiDistinctGroupConcat convertToMultiDistinct() {
         Preconditions.checkArgument(distinct,
                 "can't convert to multi_distinct_group_concat because there is no distinct args");
-        return new MultiDistinctGroupConcat(alwaysNullable, nonOrderArguments, children);
+        return new MultiDistinctGroupConcat(alwaysNullable, children);
     }
 
-    // TODO: because of current be's limitation, we have to thow exception for now
-    // remove this after be support new method of multi distinct functions
-    private void checkArguments() {
-        if (isDistinct() && children().stream().anyMatch(expression -> expression instanceof OrderExpression)) {
-            throw new AnalysisException(
-                    "group_concat don't support using distinct with order by together");
+    @Override
+    public boolean mustUseMultiDistinctAgg() {
+        return distinct && children.stream().anyMatch(OrderExpression.class::isInstance);
+    }
+
+    private int findOrderExprIndex(List<Expression> children) {
+        Preconditions.checkArgument(children().size() >= 1, "children's size should >= 1");
+        boolean foundOrderExpr = false;
+        int firstOrderExrIndex = 0;
+        for (int i = 0; i < children.size(); i++) {
+            Expression child = children.get(i);
+            if (child instanceof OrderExpression) {
+                foundOrderExpr = true;
+            } else if (!foundOrderExpr) {
+                firstOrderExrIndex++;
+            } else {
+                throw new AnalysisException(
+                        "invalid multi_distinct_group_concat parameters: " + children);
+            }
         }
+
+        if (firstOrderExrIndex > 2) {
+            throw new AnalysisException(
+                    "multi_distinct_group_concat requires one or two parameters: " + children);
+        }
+        return firstOrderExrIndex;
     }
 }

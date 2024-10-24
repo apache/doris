@@ -23,48 +23,63 @@
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/tablet_schema.h"
+#include "util/debug_points.h"
 
 namespace doris::segment_v2 {
 
 Status InvertedIndexFileReader::init(int32_t read_buffer_size, bool open_idx_file_cache) {
-    _read_buffer_size = read_buffer_size;
-    _open_idx_file_cache = open_idx_file_cache;
-    if (_storage_format == InvertedIndexStorageFormatPB::V2) {
-        return _init_from_v2(read_buffer_size);
-    } else {
-        return Status::OK();
+    if (!_inited) {
+        _read_buffer_size = read_buffer_size;
+        _open_idx_file_cache = open_idx_file_cache;
+        if (_storage_format == InvertedIndexStorageFormatPB::V2) {
+            auto st = _init_from_v2(read_buffer_size);
+            if (!st.ok()) {
+                return st;
+            }
+        }
+        _inited = true;
     }
+    return Status::OK();
 }
 
 Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
-    std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
-    auto index_file_full_path = _index_file_dir / _index_file_name;
-    try {
-        bool exists = false;
-        RETURN_IF_ERROR(_fs->exists(index_file_full_path, &exists));
-        if (!exists) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                    "inverted index file {} is not found", index_file_full_path.native());
-        }
-        int64_t file_size = 0;
-        RETURN_IF_ERROR(_fs->file_size(index_file_full_path, &file_size));
-        if (file_size == 0) {
-            LOG(WARNING) << "inverted index file " << index_file_full_path << " is empty.";
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "inverted index file {} is empty", index_file_full_path.native());
-        }
+    auto index_file_full_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
 
+    std::unique_lock<std::shared_mutex> lock(_mutex); // Lock for writing
+    try {
         CLuceneError err;
         CL_NS(store)::IndexInput* index_input = nullptr;
-        auto ok = DorisFSDirectory::FSIndexInput::open(_fs, index_file_full_path.c_str(),
-                                                       index_input, err, read_buffer_size);
+
+        // 1. get file size from meta
+        int64_t file_size = -1;
+        if (_idx_file_info.has_index_size()) {
+            file_size = _idx_file_info.index_size();
+        }
+        file_size = file_size == 0 ? -1 : file_size;
+
+        DBUG_EXECUTE_IF("file_size_not_in_rowset_meta ", {
+            if (file_size == -1) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "CLuceneError occur file size = -1, file is {}", index_file_full_path);
+            }
+        })
+
+        // 2. open file
+        auto ok = DorisFSDirectory::FSIndexInput::open(
+                _fs, index_file_full_path.c_str(), index_input, err, read_buffer_size, file_size);
         if (!ok) {
+            if (err.number() == CL_ERR_FileNotFound) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                        "inverted index file {} is not found.", index_file_full_path);
+            }
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occur when open idx file {}, error msg: {}",
-                    index_file_full_path.native(), err.what());
+                    "CLuceneError occur when open idx file {}, error msg: {}", index_file_full_path,
+                    err.what());
         }
         index_input->setIdxFileCache(_open_idx_file_cache);
         _stream = std::unique_ptr<CL_NS(store)::IndexInput>(index_input);
+
+        // 3. read file
         int32_t version = _stream->readInt(); // Read version number
         if (version == InvertedIndexStorageFormatPB::V2) {
             DCHECK(version == _storage_format);
@@ -72,7 +87,7 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
             ReaderFileEntry* entry = nullptr;
 
             for (int32_t i = 0; i < numIndices; ++i) {
-                int64_t indexId = _stream->readInt();       // Read index ID
+                int64_t indexId = _stream->readLong();      // Read index ID
                 int32_t suffix_length = _stream->readInt(); // Read suffix length
                 std::vector<uint8_t> suffix_data(suffix_length);
                 _stream->readBytes(suffix_data.data(), suffix_length);
@@ -113,12 +128,12 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
             } catch (CLuceneError& err) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "CLuceneError occur when close idx file {}, error msg: {}",
-                        index_file_full_path.native(), err.what());
+                        index_file_full_path, err.what());
             }
         }
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "CLuceneError occur when init idx file {}, error msg: {}",
-                index_file_full_path.native(), err.what());
+                "CLuceneError occur when init idx file {}, error msg: {}", index_file_full_path,
+                err.what());
     }
     return Status::OK();
 }
@@ -126,9 +141,8 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
 Result<InvertedIndexDirectoryMap> InvertedIndexFileReader::get_all_directories() {
     InvertedIndexDirectoryMap res;
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
-    for (auto& index : _indices_entries) {
-        auto index_id = index.first.first;
-        auto index_suffix = index.first.second;
+    for (auto& [index, _] : _indices_entries) {
+        auto&& [index_id, index_suffix] = index;
         LOG(INFO) << "index_id:" << index_id << " index_suffix:" << index_suffix;
         auto ret = _open(index_id, index_suffix);
         if (!ret.has_value()) {
@@ -140,33 +154,63 @@ Result<InvertedIndexDirectoryMap> InvertedIndexFileReader::get_all_directories()
 }
 
 Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
-        int64_t index_id, std::string& index_suffix) const {
+        int64_t index_id, const std::string& index_suffix) const {
     std::unique_ptr<DorisCompoundReader> compound_reader;
 
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
-        DorisFSDirectory* dir = nullptr;
-        auto file_name = InvertedIndexDescriptor::get_index_file_name(_segment_file_name, index_id,
-                                                                      index_suffix);
+        auto index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                _index_path_prefix, index_id, index_suffix);
         try {
-            dir = DorisFSDirectoryFactory::getDirectory(_fs, _index_file_dir.c_str());
+            CLuceneError err;
+            CL_NS(store)::IndexInput* index_input = nullptr;
 
-            compound_reader = std::make_unique<DorisCompoundReader>(
-                    dir, file_name.c_str(), _read_buffer_size, _open_idx_file_cache);
-        } catch (CLuceneError& err) {
-            if (dir != nullptr) {
-                dir->close();
-                _CLDELETE(dir)
+            // 1. get file size from meta
+            int64_t file_size = -1;
+            if (_idx_file_info.index_info_size() > 0) {
+                for (const auto& idx_info : _idx_file_info.index_info()) {
+                    if (index_id == idx_info.index_id() &&
+                        index_suffix == idx_info.index_suffix()) {
+                        file_size = idx_info.index_file_size();
+                        break;
+                    }
+                }
             }
+            file_size = file_size == 0 ? -1 : file_size;
+            DBUG_EXECUTE_IF("file_size_not_in_rowset_meta ", {
+                if (file_size == -1) {
+                    return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "CLuceneError occur file size = -1, file is {}", index_file_path));
+                }
+            })
+
+            // 2. open file
+            auto ok = DorisFSDirectory::FSIndexInput::open(
+                    _fs, index_file_path.c_str(), index_input, err, _read_buffer_size, file_size);
+            if (!ok) {
+                // now index_input = nullptr
+                if (err.number() == CL_ERR_FileNotFound) {
+                    return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                            "inverted index file {} is not found.", index_file_path));
+                }
+                return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                        "CLuceneError occur when open idx file {}, error msg: {}", index_file_path,
+                        err.what()));
+            }
+
+            // 3. read file in DorisCompoundReader
+            index_input->setIdxFileCache(_open_idx_file_cache);
+            compound_reader = std::make_unique<DorisCompoundReader>(index_input, _read_buffer_size);
+        } catch (CLuceneError& err) {
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occur when open idx file {}, error msg: {}",
-                    (_index_file_dir / file_name).native(), err.what()));
+                    "CLuceneError occur when open idx file {}, error msg: {}", index_file_path,
+                    err.what()));
         }
     } else {
         std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
         if (_stream == nullptr) {
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                     "CLuceneError occur when open idx file {}, stream is nullptr",
-                    (_index_file_dir / _index_file_name).native()));
+                    InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)));
         }
 
         // Check if the specified index exists
@@ -174,14 +218,14 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
         if (index_it == _indices_entries.end()) {
             std::ostringstream errMsg;
             errMsg << "No index with id " << index_id << " found";
-            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+            return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
                     "CLuceneError occur when open idx file {}, error msg: {}",
-                    (_index_file_dir / _index_file_name).native(), errMsg.str()));
+                    InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix),
+                    errMsg.str()));
         }
         // Need to clone resource here, because index searcher cache need it.
-        bool own_index_input = true;
         compound_reader = std::make_unique<DorisCompoundReader>(
-                _stream->clone(), index_it->second.get(), own_index_input, _read_buffer_size);
+                _stream->clone(), index_it->second.get(), _read_buffer_size);
     }
     return compound_reader;
 }
@@ -192,33 +236,31 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::open(
     return _open(index_id, index_suffix);
 }
 
-std::string InvertedIndexFileReader::get_index_file_key(const TabletIndex* index_meta) const {
-    return InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name,
-                                                        index_meta->index_id(),
-                                                        index_meta->get_index_suffix());
+std::string InvertedIndexFileReader::get_index_file_cache_key(const TabletIndex* index_meta) const {
+    return InvertedIndexDescriptor::get_index_file_cache_key(
+            _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
 }
 
 std::string InvertedIndexFileReader::get_index_file_path(const TabletIndex* index_meta) const {
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
-        return InvertedIndexDescriptor::get_index_file_name(_index_file_dir / _segment_file_name,
-                                                            index_meta->index_id(),
-                                                            index_meta->get_index_suffix());
+        return InvertedIndexDescriptor::get_index_file_path_v1(
+                _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
     }
-    return _index_file_dir / _index_file_name;
+    return InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
 }
 
 Status InvertedIndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* res) const {
     if (_storage_format == InvertedIndexStorageFormatPB::V1) {
-        auto index_file_path = _index_file_dir / InvertedIndexDescriptor::get_index_file_name(
-                                                         _segment_file_name, index_meta->index_id(),
-                                                         index_meta->get_index_suffix());
+        auto index_file_path = InvertedIndexDescriptor::get_index_file_path_v1(
+                _index_path_prefix, index_meta->index_id(), index_meta->get_index_suffix());
         return _fs->exists(index_file_path, res);
     } else {
         std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
         if (_stream == nullptr) {
             *res = false;
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                    "idx file {} is not opened", (_index_file_dir / _index_file_name).native());
+                    "idx file {} is not opened",
+                    InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix));
         }
         // Check if the specified index exists
         auto index_it = _indices_entries.find(
@@ -240,7 +282,8 @@ Status InvertedIndexFileReader::has_null(const TabletIndex* index_meta, bool* re
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
     if (_stream == nullptr) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
-                "idx file {} is not opened", (_index_file_dir / _index_file_name).native());
+                "idx file {} is not opened",
+                InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix));
     }
     // Check if the specified index exists
     auto index_it = _indices_entries.find(
@@ -248,9 +291,9 @@ Status InvertedIndexFileReader::has_null(const TabletIndex* index_meta, bool* re
     if (index_it == _indices_entries.end()) {
         *res = false;
     } else {
-        auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         auto* entries = index_it->second.get();
-        ReaderFileEntry* e = entries->get((char*)(null_bitmap_file_name.c_str()));
+        ReaderFileEntry* e =
+                entries->get((char*)InvertedIndexDescriptor::get_temporary_null_bitmap_file_name());
         if (e == nullptr) {
             *res = false;
             return Status::OK();

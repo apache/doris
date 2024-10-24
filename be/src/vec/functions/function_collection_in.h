@@ -112,9 +112,8 @@ public:
             // FE should make element type consistent and
             // equalize the length of the elements in struct
             const auto& const_column_ptr = context->get_constant_col(i);
-            if (const_column_ptr == nullptr) {
-                break;
-            }
+            // Types like struct, array, and map only support constant expressions.
+            DCHECK(const_column_ptr != nullptr);
             const auto& [col, _] = unpack_if_const(const_column_ptr->column_ptr);
             if (col->is_nullable()) {
                 auto* null_col = vectorized::check_and_get_column<vectorized::ColumnNullable>(col);

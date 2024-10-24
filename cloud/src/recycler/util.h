@@ -19,10 +19,17 @@
 
 #include <fmt/core.h>
 #include <gen_cpp/cloud.pb.h>
+#include <glog/logging.h>
 
 #include <string>
 
 namespace doris::cloud {
+
+// The time unit is the same with BE: us
+#define SCOPED_BVAR_LATENCY(bvar_item)                     \
+    StopWatch sw;                                          \
+    std::unique_ptr<int, std::function<void(int*)>> defer( \
+            (int*)0x01, [&](int*) { bvar_item << sw.elapsed_us(); });
 
 class TxnKv;
 
@@ -56,9 +63,18 @@ inline std::string segment_path(int64_t tablet_id, const std::string& rowset_id,
     return fmt::format("data/{}/{}_{}.dat", tablet_id, rowset_id, segment_id);
 }
 
-inline std::string inverted_index_path(int64_t tablet_id, const std::string& rowset_id,
-                                       int64_t segment_id, int64_t index_id) {
-    return fmt::format("data/{}/{}_{}_{}.idx", tablet_id, rowset_id, segment_id, index_id);
+inline std::string inverted_index_path_v2(int64_t tablet_id, const std::string& rowset_id,
+                                          int64_t segment_id) {
+    return fmt::format("data/{}/{}_{}.idx", tablet_id, rowset_id, segment_id);
+}
+
+inline std::string inverted_index_path_v1(int64_t tablet_id, const std::string& rowset_id,
+                                          int64_t segment_id, int64_t index_id,
+                                          std::string_view index_path_suffix) {
+    std::string suffix =
+            index_path_suffix.empty() ? "" : std::string {"@"} + index_path_suffix.data();
+    return fmt::format("data/{}/{}_{}_{}{}.idx", tablet_id, rowset_id, segment_id, index_id,
+                       suffix);
 }
 
 inline std::string rowset_path_prefix(int64_t tablet_id, const std::string& rowset_id) {

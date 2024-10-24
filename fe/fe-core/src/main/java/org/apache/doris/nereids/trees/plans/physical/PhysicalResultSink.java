@@ -17,16 +17,21 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
+import org.apache.doris.qe.ResultSet;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
@@ -39,7 +44,8 @@ import java.util.Optional;
 /**
  * result sink
  */
-public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
+public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE>
+        implements Sink, ComputeResultSet {
 
     public PhysicalResultSink(List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
@@ -51,10 +57,6 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
             Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_RESULT_SINK, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
-    }
-
-    public List<NamedExpression> getOutputExprs() {
-        return outputExprs;
     }
 
     @Override
@@ -124,5 +126,16 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
     public PhysicalResultSink<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalResultSink<>(outputExprs, groupExpression,
                 null, physicalProperties, statistics, child());
+    }
+
+    @Override
+    public Optional<ResultSet> computeResultInFe(
+            CascadesContext cascadesContext, Optional<SqlCacheContext> sqlCacheContext, List<Slot> outputSlots) {
+        CHILD_TYPE child = child();
+        if (child instanceof ComputeResultSet) {
+            return ((ComputeResultSet) child).computeResultInFe(cascadesContext, sqlCacheContext, outputSlots);
+        } else {
+            return Optional.empty();
+        }
     }
 }

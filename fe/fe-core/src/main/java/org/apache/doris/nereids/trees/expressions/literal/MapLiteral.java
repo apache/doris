@@ -48,7 +48,10 @@ public class MapLiteral extends Literal {
         this(keys, values, computeDataType(keys, values));
     }
 
-    private MapLiteral(List<Literal> keys, List<Literal> values, DataType dataType) {
+    /**
+     * create MAP Literal with keys, values and datatype
+     */
+    public MapLiteral(List<Literal> keys, List<Literal> values, DataType dataType) {
         super(dataType);
         this.keys = ImmutableList.copyOf(Objects.requireNonNull(keys, "keys should not be null"));
         this.values = ImmutableList.copyOf(Objects.requireNonNull(values, "values should not be null"));

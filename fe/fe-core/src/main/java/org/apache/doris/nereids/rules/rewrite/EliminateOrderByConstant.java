@@ -33,13 +33,19 @@ public class EliminateOrderByConstant extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalSort().then(sort -> {
-            List<OrderKey> orderKeysWithoutConst = sort
-                    .getOrderKeys()
-                    .stream()
-                    .filter(k -> !(k.getExpr().isConstant()))
-                    .collect(ImmutableList.toImmutableList());
+            List<OrderKey> orderKeys = sort.getOrderKeys();
+            ImmutableList.Builder<OrderKey> orderKeysWithoutConstBuilder
+                    = ImmutableList.builderWithExpectedSize(orderKeys.size());
+            for (OrderKey orderKey : orderKeys) {
+                if (!orderKey.getExpr().isConstant()) {
+                    orderKeysWithoutConstBuilder.add(orderKey);
+                }
+            }
+            List<OrderKey> orderKeysWithoutConst = orderKeysWithoutConstBuilder.build();
             if (orderKeysWithoutConst.isEmpty()) {
                 return sort.child();
+            } else if (orderKeysWithoutConst.size() == orderKeys.size()) {
+                return sort;
             }
             return sort.withOrderKeys(orderKeysWithoutConst);
         }).toRule(RuleType.ELIMINATE_ORDER_BY_CONSTANT);

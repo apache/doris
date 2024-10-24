@@ -23,15 +23,13 @@ import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 
 public class HudiPartitionMgr {
-    private static volatile HudiPartitionMgr partitionMgr = null;
+    private final Map<Long, HudiPartitionProcessor> partitionProcessors = Maps.newConcurrentMap();
+    private final ExecutorService executor;
 
-    private static final Map<Long, HudiPartitionProcessor> partitionProcessors = Maps.newConcurrentMap();
-    private final Executor executor;
-
-    private HudiPartitionMgr(Executor executor) {
+    public HudiPartitionMgr(ExecutorService executor) {
         this.executor = executor;
     }
 
@@ -71,16 +69,5 @@ public class HudiPartitionMgr {
         if (processor != null) {
             processor.cleanTablePartitions(dbName, tblName);
         }
-    }
-
-    public static HudiPartitionMgr get(Executor executor) {
-        if (partitionMgr == null) {
-            synchronized (HudiPartitionMgr.class) {
-                if (partitionMgr == null) {
-                    partitionMgr = new HudiPartitionMgr(executor);
-                }
-            }
-        }
-        return partitionMgr;
     }
 }

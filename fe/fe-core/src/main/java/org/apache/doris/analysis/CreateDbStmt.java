@@ -18,31 +18,46 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
 import java.util.Map;
 
-public class CreateDbStmt extends DdlStmt {
+public class CreateDbStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifNotExists;
+    private String ctlName;
     private String dbName;
     private Map<String, String> properties;
 
-    public CreateDbStmt(boolean ifNotExists, String dbName, Map<String, String> properties) {
+    public CreateDbStmt(boolean ifNotExists, DbName dbName, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
-        this.dbName = dbName;
+        this.ctlName = dbName.getCtl();
+        this.dbName = dbName.getDb();
         this.properties = properties == null ? new HashMap<>() : properties;
+
+        if (Config.force_enable_feature_binlog
+                && !this.properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
+            this.properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, "true");
+        }
     }
 
     public String getFullDbName() {
         return dbName;
+    }
+
+    public String getCtlName() {
+        return ctlName;
     }
 
     public boolean isSetIfNotExists() {
@@ -56,9 +71,14 @@ public class CreateDbStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
+        if (StringUtils.isEmpty(ctlName)) {
+            ctlName = Env.getCurrentEnv().getCurrentCatalog().getName();
+        }
+        FeNameFormat.checkCatalogName(ctlName);
         FeNameFormat.checkDbName(dbName);
         InternalDatabaseUtil.checkDatabase(dbName, ConnectContext.get());
-        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.CREATE)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), ctlName, dbName, PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_DBACCESS_DENIED_ERROR, analyzer.getQualifiedUser(), dbName);
         }
@@ -79,5 +99,10 @@ public class CreateDbStmt extends DdlStmt {
             stringBuilder.append("\n)");
         }
         return stringBuilder.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 }

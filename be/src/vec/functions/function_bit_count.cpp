@@ -23,7 +23,6 @@
 #include "common/exception.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
-#include "util/radix_sort.h"
 #include "vec/core/types.h"
 #include "vec/functions/function_unary_arithmetic.h"
 #include "vec/functions/simple_function_factory.h"

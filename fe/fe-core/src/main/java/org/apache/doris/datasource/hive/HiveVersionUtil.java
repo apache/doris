@@ -31,6 +31,9 @@ public class HiveVersionUtil {
 
     private static final HiveVersion DEFAULT_HIVE_VERSION = HiveVersion.V2_3;
 
+    /**
+     * HiveVersion
+     */
     public enum HiveVersion {
         V1_0,   // [1.0.0 - 1.2.2]
         V2_0,   // [2.0.0 - 2.2.0]
@@ -38,6 +41,12 @@ public class HiveVersionUtil {
         V3_0    // [3.0.0 - 3.1.2]
     }
 
+    /**
+     * get the compatible HiveVersion
+     *
+     * @param version the version string
+     * @return HiveVersion
+     */
     public static HiveVersion getVersion(String version) {
         if (Strings.isNullOrEmpty(version)) {
             return DEFAULT_HIVE_VERSION;
@@ -62,7 +71,7 @@ public class HiveVersionUtil {
                     return DEFAULT_HIVE_VERSION;
                 }
             } else if (major >= 3) {
-                return HiveVersion.V2_3;
+                return HiveVersion.V3_0;
             } else {
                 LOG.warn("invalid hive version: " + version);
                 return DEFAULT_HIVE_VERSION;
@@ -70,28 +79,6 @@ public class HiveVersionUtil {
         } catch (NumberFormatException e) {
             LOG.warn("invalid hive version: " + version);
             return DEFAULT_HIVE_VERSION;
-        }
-    }
-
-    public static boolean isHive1(String version) {
-        if (Strings.isNullOrEmpty(version)) {
-            return false;
-        }
-        String[] parts = version.split("\\.");
-        if (parts.length < 2) {
-            LOG.warn("invalid hive version: " + version);
-            return false;
-        }
-        try {
-            int major = Integer.parseInt(parts[0]);
-            if (major == 1) {
-                return true;
-            } else {
-                return false;
-            }
-        } catch (NumberFormatException e) {
-            LOG.warn("invalid hive version: " + version);
-            return false;
         }
     }
 }

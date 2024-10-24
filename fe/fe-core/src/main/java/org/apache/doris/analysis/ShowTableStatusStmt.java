@@ -34,7 +34,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 // SHOW TABLE STATUS
-public class ShowTableStatusStmt extends ShowStmt {
+public class ShowTableStatusStmt extends ShowStmt implements NotFallbackInParser {
 
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
             .addColumn(new Column("Name", ScalarType.createVarchar(64)))

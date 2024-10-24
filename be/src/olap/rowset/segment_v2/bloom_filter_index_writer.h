@@ -50,7 +50,7 @@ public:
     BloomFilterIndexWriter() = default;
     virtual ~BloomFilterIndexWriter() = default;
 
-    virtual void add_values(const void* values, size_t count) = 0;
+    virtual Status add_values(const void* values, size_t count) = 0;
 
     virtual void add_nulls(uint32_t count) = 0;
 
@@ -76,9 +76,18 @@ public:
               _has_null(false),
               _bf_buffer_size(0) {}
 
-    ~PrimaryKeyBloomFilterIndexWriterImpl() override = default;
+    ~PrimaryKeyBloomFilterIndexWriterImpl() override {
+        for (auto& bf : _bfs) {
+            g_pk_total_bloom_filter_num << -1;
+            g_pk_total_bloom_filter_total_bytes << -static_cast<int64_t>(bf->size());
+            g_pk_write_bloom_filter_decrease_num << 1;
+            g_pk_write_bloom_filter_decrease_bytes << bf->size();
+        }
+    };
 
-    void add_values(const void* values, size_t count) override;
+    // This method may allocate large memory for bf, will return error
+    // when memory is exhaused to prevent oom.
+    Status add_values(const void* values, size_t count) override;
 
     void add_nulls(uint32_t count) override { _has_null = true; }
 
@@ -107,7 +116,7 @@ public:
 
     NGramBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options, uint8_t gram_size,
                                     uint16_t bf_size);
-    void add_values(const void* values, size_t count) override;
+    Status add_values(const void* values, size_t count) override;
     void add_nulls(uint32_t) override {}
     Status flush() override;
     Status finish(io::FileWriter* file_writer, ColumnIndexMetaPB* index_meta) override;

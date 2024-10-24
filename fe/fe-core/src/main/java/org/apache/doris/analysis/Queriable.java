@@ -17,6 +17,8 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.mysql.FieldInfo;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -35,6 +37,10 @@ public interface Queriable {
     List<Expr> getResultExprs();
 
     ArrayList<String> getColLabels();
+
+    default List<FieldInfo> getFieldInfos() {
+        return null;
+    }
 
     String toDigest();
 }

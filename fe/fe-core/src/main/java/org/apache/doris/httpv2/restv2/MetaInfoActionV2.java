@@ -27,6 +27,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.exception.BadRequestException;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -85,27 +86,29 @@ public class MetaInfoActionV2 extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response) {
         checkWithCookie(request, response, false);
 
-        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
+        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER) && !ns.equalsIgnoreCase(
+                InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            return ResponseEntityBuilder.badRequest("Only support 'default_cluster/internal' now");
         }
 
         // 1. get all database with privilege
         List<String> dbNames = Env.getCurrentInternalCatalog().getDbNames();
-        List<String> dbNameSet = Lists.newArrayList();
+        List<String> filteredDbNames = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), fullName,
-                    PrivPredicate.SHOW)) {
+            if (!Env.getCurrentEnv().getAccessManager()
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
+                            PrivPredicate.SHOW)) {
                 continue;
             }
-            dbNameSet.add(db);
+            filteredDbNames.add(db);
         }
 
-        Collections.sort(dbNames);
+        Collections.sort(filteredDbNames);
 
         // handle limit offset
-        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, dbNames.size());
-        return ResponseEntityBuilder.ok(dbNames.subList(fromToIndex.first, fromToIndex.second));
+        Pair<Integer, Integer> fromToIndex = getFromToIndex(request, filteredDbNames.size());
+        return ResponseEntityBuilder.ok(filteredDbNames.subList(fromToIndex.first, fromToIndex.second));
     }
 
     /** Get all tables of a database
@@ -127,8 +130,9 @@ public class MetaInfoActionV2 extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response) {
         checkWithCookie(request, response, false);
 
-        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
+        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER) && !ns.equalsIgnoreCase(
+                InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            return ResponseEntityBuilder.badRequest("Only support 'default_cluster/internal' now");
         }
 
         String fullDbName = getFullDbName(dbName);
@@ -144,7 +148,8 @@ public class MetaInfoActionV2 extends RestBaseController {
         try {
             for (Table tbl : db.getTables()) {
                 if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(), PrivPredicate.SHOW)) {
+                        .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+                                tbl.getName(), PrivPredicate.SHOW)) {
                     continue;
                 }
                 tblNames.add(tbl.getName());
@@ -196,8 +201,9 @@ public class MetaInfoActionV2 extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response) throws UserException {
         checkWithCookie(request, response, false);
 
-        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
-            return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
+        if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER) && !ns.equalsIgnoreCase(
+                InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            return ResponseEntityBuilder.badRequest("Only support 'default_cluster/internal' now");
         }
 
         String fullDbName = getFullDbName(dbName);

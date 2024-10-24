@@ -25,6 +25,8 @@ namespace doris {
 
 class TabletSchemaCache : public LRUCachePolicy {
 public:
+    using LRUCachePolicy::insert;
+
     TabletSchemaCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::TABLET_SCHEMA_CACHE, capacity,
                              LRUCacheType::NUMBER, config::tablet_schema_cache_recycle_interval) {}
@@ -45,7 +47,6 @@ public:
 private:
     class CacheValue : public LRUCacheValueBase {
     public:
-        CacheValue() : LRUCacheValueBase(CachePolicy::CacheType::TABLET_SCHEMA_CACHE) {}
         ~CacheValue() override;
 
         TabletSchemaSPtr tablet_schema;

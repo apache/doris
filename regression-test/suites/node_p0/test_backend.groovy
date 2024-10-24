@@ -24,28 +24,34 @@ suite("test_backend", "nonConcurrent") {
         logger.info("result:${result}")
 
         sql """ALTER SYSTEM ADD BACKEND "${address}:${notExistPort}";"""
+        waitAddBeFinished(address, notExistPort)
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
 
-        sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
-        sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
+        if (!isCloudMode()) {
+            sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
+            sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
+        }
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
 
         sql """ALTER SYSTEM DROPP BACKEND "${address}:${notExistPort}";"""
+        waitDropBeFinished(address, notExistPort)
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
     }
 
-    if (context.config.jdbcUser.equals("root")) {
+    // Cancel decommission backend is not supported in cloud mode.
+    if (context.config.jdbcUser.equals("root") && !isCloudMode()) {
+        def beId1 = null
         try {
+            GetDebugPoint().enableDebugPointForAllFEs("SystemHandler.decommission_no_check_replica_num");
             try_sql """admin set frontend config("drop_backend_after_decommission" = "false")"""
             def result = sql_return_maparray """SHOW BACKENDS;"""
             logger.info("show backends result:${result}")
-            def beId1 = null
             for (def res : result) {
                 beId1 = res.BackendId
                 break
@@ -58,16 +64,23 @@ suite("test_backend", "nonConcurrent") {
                     assertTrue(res.SystemDecommissioned.toBoolean())
                 }
             }
-            result = sql """CANCEL DECOMMISSION BACKEND "${beId1}" """
-            logger.info("CANCEL DECOMMISSION BACKEND ${result}")
-            result = sql_return_maparray """SHOW BACKENDS;"""
-            for (def res : result) {
-                if (res.BackendId == "${beId1}") {
-                    assertFalse(res.SystemDecommissioned.toBoolean())
-                }
-            }
         } finally {
-            try_sql """admin set frontend config("drop_backend_after_decommission" = "true")"""
+            try {
+                if (beId1 != null) {
+                    def result = sql """CANCEL DECOMMISSION BACKEND "${beId1}" """
+                    logger.info("CANCEL DECOMMISSION BACKEND ${result}")
+
+                    result = sql_return_maparray """SHOW BACKENDS;"""
+                    for (def res : result) {
+                        if (res.BackendId == "${beId1}") {
+                            assertFalse(res.SystemDecommissioned.toBoolean())
+                        }
+                    }
+                }
+            } finally {
+                GetDebugPoint().disableDebugPointForAllFEs('SystemHandler.decommission_no_check_replica_num');
+                try_sql """admin set frontend config("drop_backend_after_decommission" = "true")"""
+            }
         }
     }
 }

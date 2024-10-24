@@ -21,11 +21,7 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::pipeline {
-
-OperatorPtr AssertNumRowsOperatorBuilder::build_operator() {
-    return std::make_shared<AssertNumRowsOperator>(this, _node);
-}
-
+#include "common/compile_check_begin.h"
 AssertNumRowsOperatorX::AssertNumRowsOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
         : StreamingOperatorX<AssertNumRowsLocalState>(pool, tnode, operator_id, descs),
@@ -118,9 +114,8 @@ Status AssertNumRowsOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         return Status::Cancelled("Expected {} {} to be returned by expression {}",
                                  to_string_lambda(_assertion), _desired_num_rows, _subquery_string);
     }
-    COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
-    COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
-    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+    RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                           block->columns()));
     return Status::OK();
 }
 

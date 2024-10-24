@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class BDBHA implements HAProtocol {
     private static final Logger LOG = LogManager.getLogger(BDBHA.class);
@@ -168,11 +169,11 @@ public class BDBHA implements HAProtocol {
             LOG.info("remove electable node: {}", nodeName);
             replicationGroupAdmin.removeMember(nodeName);
         } catch (MemberNotFoundException e) {
-            LOG.error("the deleting electable node is not found {}", nodeName, e);
+            LOG.warn("the electable node is not found {}", nodeName, e);
             return false;
-        } catch (MasterStateException e) {
-            LOG.error("the deleting electable node is master {}", nodeName, e);
-            return false;
+        } catch (Exception e) {
+            LOG.error("remove electable node {} meeting unkown exception:", nodeName, e);
+            System.exit(-1);
         }
         return true;
     }
@@ -243,6 +244,28 @@ public class BDBHA implements HAProtocol {
                         override, totalFollowerCount, nodeName);
                 replicatedEnvironment.setRepMutableConfig(new ReplicationMutableConfig()
                         .setElectableGroupSizeOverride(override));
+            }
+        }
+    }
+
+    public void removeDroppedMember(ConcurrentLinkedQueue<String> removedFrontends) {
+        ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
+        if (replicationGroupAdmin == null) {
+            return;
+        }
+        Set<ReplicationNode> replicationNodes = replicationGroupAdmin.getGroup().getElectableNodes();
+        LOG.debug("removedFrontends:{}", removedFrontends);
+        for (ReplicationNode replicationNode : replicationNodes) {
+            LOG.debug("node:{}", replicationNode.toString());
+            if (removedFrontends.contains(replicationNode.getName())) {
+                try {
+                    replicationGroupAdmin.removeMember(replicationNode.getName());
+                } catch (MemberNotFoundException e) {
+                    LOG.warn("the electable node is not found {}", replicationNode.getName());
+                } catch (Exception e) {
+                    LOG.error("remove electable node {} meeting unknown exception:", replicationNode.getName(), e);
+                    System.exit(-1);
+                }
             }
         }
     }

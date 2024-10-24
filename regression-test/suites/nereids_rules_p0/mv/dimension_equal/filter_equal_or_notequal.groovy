@@ -19,10 +19,6 @@ suite("filter_equal_or_notequal_case") {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists orders_1
@@ -41,7 +37,6 @@ suite("filter_equal_or_notequal_case") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`o_orderdate`, 'day') ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -71,7 +66,6 @@ suite("filter_equal_or_notequal_case") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    AUTO PARTITION BY range date_trunc(`l_shipdate`, 'day') ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -105,34 +99,6 @@ suite("filter_equal_or_notequal_case") {
     sql """analyze table orders_1 with sync;"""
     sql """analyze table lineitem_1 with sync;"""
 
-    def create_mv_lineitem = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(l_shipdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1')  
-        AS  
-        ${mv_sql}
-        """
-    }
-
-    def create_mv_orders = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        partition by(o_orderdate) 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
-
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -158,9 +124,7 @@ suite("filter_equal_or_notequal_case") {
         where l_shipdate = '2023-10-17'
         """
 
-    create_mv_lineitem(mv_name, mtmv_sql)
-    def job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     // mv equal and sql equal
     def query_sql = """
@@ -172,10 +136,7 @@ suite("filter_equal_or_notequal_case") {
         """
     def res_tmp = sql """explain ${query_sql}"""
     logger.info("res_temp:" + res_tmp)
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv equal and sql not equal
@@ -186,10 +147,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate != '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv equal and sql equal and number is difference
     query_sql = """
@@ -199,10 +157,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey 
@@ -212,9 +167,7 @@ suite("filter_equal_or_notequal_case") {
         where l_shipdate != '2023-10-17'
         """
 
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     // mv not equal and sql equal
     query_sql = """
@@ -224,10 +177,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv not equal and sql not equal
     query_sql = """
@@ -237,10 +187,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate != '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
 
@@ -252,9 +199,7 @@ suite("filter_equal_or_notequal_case") {
         where l_shipdate > '2023-10-17'
         """
 
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     // mv is range and sql equal and filter not in mv range
     query_sql = """
@@ -264,10 +209,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-16'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql equal and filter in mv range
     query_sql = """
@@ -277,10 +219,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql equal and filter in mv range
     query_sql = """
@@ -290,10 +229,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate = '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is range and sql is range and sql range is bigger than mv
@@ -304,10 +240,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-16'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
@@ -317,10 +250,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate < '2023-10-16'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
@@ -330,10 +260,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is range and sql is range and sql range is not in mv range
@@ -344,10 +271,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate < '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
@@ -357,10 +281,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-18'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is range and sql is range and sql range is not in mv range
@@ -371,10 +292,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate < '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is bigger than mv
     query_sql = """
@@ -384,10 +302,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-17'
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // mv is range and sql is range and sql range is not in mv range
     query_sql = """
@@ -397,10 +312,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-17' and l_shipdate < '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // sql range is not in mv range
@@ -411,10 +323,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate in ('2023-10-17')
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // sql range is in mv range
     // single value
@@ -425,10 +334,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate in ('2023-10-18')
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // multi value
@@ -439,10 +345,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate in ('2023-10-18', '2023-11-18')
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // sql range like mv range
@@ -453,10 +356,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate like "%2023-10-18%"
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // sql range is null
     query_sql = """
@@ -466,10 +366,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate is null
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     // sql range is not null
     query_sql = """
@@ -479,10 +376,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate is not null
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
@@ -492,9 +386,7 @@ suite("filter_equal_or_notequal_case") {
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-19'
         """
 
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     // mv is range and sql is range and filter not in mv range
     query_sql = """
@@ -504,10 +396,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-16' and l_shipdate < '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
 
@@ -518,10 +407,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate > '2023-10-17' and l_shipdate < '2023-10-19'
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     //
@@ -533,9 +419,7 @@ suite("filter_equal_or_notequal_case") {
         where l_shipdate in ('2023-10-17', '2023-10-18', '2023-10-19')
         """
 
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     // mv is in range and sql is in range and filter is in mv range
     query_sql = """
@@ -545,10 +429,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate in ('2023-10-17', '2023-10-18', '2023-10-19')
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is in range and sql is in range and filter is not in mv range
@@ -559,10 +440,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate not in ('2023-10-17', '2023-10-18', '2023-10-19')
         """
-    explain {
-        sql("${query_sql}")
-        notContains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_fail(query_sql, mv_name)
 
     mtmv_sql = """
         select l_shipdate, o_orderdate, l_partkey, l_suppkey, o_orderkey  
@@ -572,9 +450,7 @@ suite("filter_equal_or_notequal_case") {
         where l_shipdate like "%2023-10-17%"
         """
 
-    create_mv_lineitem(mv_name, mtmv_sql)
-    job_name = getJobName(db, mv_name)
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, mv_name, mtmv_sql)
 
     // mv is like filter and sql is like filter and filter number is equal
     query_sql = """
@@ -584,10 +460,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate like "%2023-10-17%"
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // mv is like filter and sql is not like filter
@@ -598,10 +471,7 @@ suite("filter_equal_or_notequal_case") {
         on lineitem_1.l_orderkey = orders_1.o_orderkey
         where l_shipdate like "%2023-10-17%"
         """
-    explain {
-        sql("${query_sql}")
-        contains "${mv_name}(${mv_name})"
-    }
+    mv_rewrite_success(query_sql, mv_name)
     compare_res(query_sql + " order by 1,2,3,4")
 
     // Todo: It is not currently supported and is expected to be
@@ -614,9 +484,7 @@ suite("filter_equal_or_notequal_case") {
 //        where l_shipdate between '2023-10-16' and '2023-10-19'
 //        """
 //
-//    create_mv_lineitem(mv_name, mtmv_sql)
-//    job_name = getJobName(db, mv_name)
-//    waitingMTMVTaskFinished(job_name)
+//    create_async_mv(db, mv_name, mtmv_sql)
 //
 //    query_sql = """
 //        select l_shipdate, o_orderdate, l_partkey, l_suppkey

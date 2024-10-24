@@ -27,13 +27,14 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * count(1) ==> count(*)
@@ -50,21 +51,31 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
                         return agg;
                     }
 
-                    Map<Boolean, List<NamedExpression>> projectsAndAggFunc = newExprs.stream()
-                            .collect(Collectors.partitioningBy(Expression::isConstant));
+                    List<NamedExpression> projectFuncs = Lists.newArrayListWithCapacity(newExprs.size());
+                    Builder<NamedExpression> aggFuncsBuilder
+                            = ImmutableList.builderWithExpectedSize(newExprs.size());
+                    for (NamedExpression newExpr : newExprs) {
+                        if (newExpr.isConstant()) {
+                            projectFuncs.add(newExpr);
+                        } else {
+                            aggFuncsBuilder.add(newExpr);
+                        }
+                    }
 
-                    if (projectsAndAggFunc.get(false).isEmpty()) {
+                    List<NamedExpression> aggFuncs = aggFuncsBuilder.build();
+                    if (aggFuncs.isEmpty()) {
                         // if there is no group by keys and other agg func, don't rewrite
                         return null;
                     } else {
                         // if there is group by keys, put count(null) in projects, such as
                         // project(0 as count(null))
                         // --Aggregate(k1, group by k1)
-                        Plan plan = agg.withAggOutput(projectsAndAggFunc.get(false));
-                        if (!projectsAndAggFunc.get(true).isEmpty()) {
-                            projectsAndAggFunc.get(false).stream().map(NamedExpression::toSlot)
-                                    .forEach(projectsAndAggFunc.get(true)::add);
-                            plan = new LogicalProject<>(projectsAndAggFunc.get(true), plan);
+                        Plan plan = agg.withAggOutput(aggFuncs);
+                        if (!projectFuncs.isEmpty()) {
+                            for (NamedExpression aggFunc : aggFuncs) {
+                                projectFuncs.add(aggFunc.toSlot());
+                            }
+                            plan = new LogicalProject<>(projectFuncs, plan);
                         }
                         return plan;
                     }
@@ -77,9 +88,11 @@ public class CountLiteralRewrite extends OneRewriteRuleFactory {
         for (Expression expr : oldExprs) {
             Map<Expression, Expression> replaced = new HashMap<>();
             Set<AggregateFunction> oldAggFuncSet = expr.collect(AggregateFunction.class::isInstance);
-            oldAggFuncSet.stream()
-                    .filter(this::isCountLiteral)
-                    .forEach(c -> replaced.put(c, rewrite((Count) c)));
+            for (AggregateFunction aggFun : oldAggFuncSet) {
+                if (isCountLiteral(aggFun)) {
+                    replaced.put(aggFun, rewrite((Count) aggFun));
+                }
+            }
             expr = expr.rewriteUp(s -> replaced.getOrDefault(s, s));
             changed |= !replaced.isEmpty();
             newExprs.add((NamedExpression) expr);

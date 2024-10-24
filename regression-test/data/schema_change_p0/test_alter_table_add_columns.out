@@ -18,14 +18,14 @@
 6	6	yyy	6	6	6
 
 -- !sql --
-siteid	INT	Yes	true	10	
-citycode	SMALLINT	Yes	true	\N	
-username	VARCHAR(32)	Yes	true	test	
-new_k1	INT	Yes	true	1	
-new_k2	INT	Yes	true	2	
-pv	BIGINT	Yes	false	0	SUM
-new_v1	INT	Yes	false	1	MAX
-new_v2	INT	Yes	false	2	MAX
+siteid	int	Yes	true	10	
+citycode	smallint	Yes	true	\N	
+username	varchar(32)	Yes	true	test	
+new_k1	int	Yes	true	1	
+new_k2	int	Yes	true	2	
+pv	bigint	Yes	false	0	SUM
+new_v1	int	Yes	false	1	MAX
+new_v2	int	Yes	false	2	MAX
 
 -- !order --
 1	1	xxx	1	2	1	1	2

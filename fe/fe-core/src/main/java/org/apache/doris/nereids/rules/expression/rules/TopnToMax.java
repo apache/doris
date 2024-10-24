@@ -17,39 +17,38 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
+import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.TopN;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+
+import com.google.common.collect.ImmutableList;
+
+import java.util.List;
 
 /**
  * Convert topn(x, 1) to max(x)
  */
-public class TopnToMax extends DefaultExpressionRewriter<ExpressionRewriteContext> implements
-        ExpressionRewriteRule<ExpressionRewriteContext> {
+public class TopnToMax implements ExpressionPatternRuleFactory {
 
     public static final TopnToMax INSTANCE = new TopnToMax();
 
     @Override
-    public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return expr.accept(this, null);
+    public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
+        return ImmutableList.of(
+                matchesTopType(TopN.class).then(TopnToMax::rewrite)
+        );
     }
 
-    @Override
-    public Expression visitAggregateFunction(AggregateFunction aggregateFunction, ExpressionRewriteContext context) {
-        if (!(aggregateFunction instanceof TopN)) {
-            return aggregateFunction;
-        }
-        TopN topN = (TopN) aggregateFunction;
+    /** rewrite */
+    public static Expression rewrite(TopN topN) {
         if (topN.arity() == 2 && topN.child(1) instanceof IntegerLikeLiteral
                 && ((IntegerLikeLiteral) topN.child(1)).getIntValue() == 1) {
             return new Max(topN.child(0));
         } else {
-            return aggregateFunction;
+            return topN;
         }
     }
 }

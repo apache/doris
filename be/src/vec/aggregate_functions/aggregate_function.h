@@ -22,6 +22,8 @@
 
 #include "util/defer_op.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_string.h"
+#include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/core/block.h"
@@ -36,11 +38,17 @@ class Arena;
 class IColumn;
 class IDataType;
 
+struct AggregateFunctionAttr {
+    bool enable_decimal256 {false};
+};
+
 template <bool nullable, typename ColVecType>
 class AggregateFunctionBitmapCount;
 template <typename Op>
 class AggregateFunctionBitmapOp;
 struct AggregateFunctionBitmapUnionOp;
+class IAggregateFunction;
+using AggregateFunctionPtr = std::shared_ptr<IAggregateFunction>;
 
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
@@ -144,13 +152,12 @@ public:
                                  size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                           AggregateDataPtr rhs, const ColumnString* column,
+                                           AggregateDataPtr rhs, const IColumn* column,
                                            Arena* arena, const size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                                    AggregateDataPtr rhs,
-                                                    const ColumnString* column, Arena* arena,
-                                                    const size_t num_rows) const = 0;
+                                                    AggregateDataPtr rhs, const IColumn* column,
+                                                    Arena* arena, const size_t num_rows) const = 0;
 
     virtual void deserialize_from_column(AggregateDataPtr places, const IColumn& column,
                                          Arena* arena, size_t num_rows) const = 0;
@@ -167,20 +174,12 @@ public:
     virtual void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
                                                    const IColumn& column, Arena* arena) const = 0;
 
-    /// Returns true if a function requires Arena to handle own states (see add(), merge(), deserialize()).
-    virtual bool allocates_memory_in_arena() const { return false; }
-
     /// Inserts results into a column.
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
 
     virtual void insert_result_into_vec(const std::vector<AggregateDataPtr>& places,
                                         const size_t offset, IColumn& to,
                                         const size_t num_rows) const = 0;
-
-    /** Returns true for aggregate functions of type -State.
-      * They are executed as other aggregate functions, but not finalized (return an aggregation state that can be combined with another).
-      */
-    virtual bool is_state() const { return false; }
 
     /** Contains a loop with calls to "add" function. You can collect arguments into array "places"
       *  and do a single call to "add_batch" for devirtualization and inlining.
@@ -222,6 +221,8 @@ public:
 
     virtual void set_version(const int version_) { version = version_; }
 
+    virtual AggregateFunctionPtr transmit_to_stable() { return nullptr; }
+
 protected:
     DataTypes argument_types;
     int version {};
@@ -237,13 +238,16 @@ public:
     void destroy_vec(AggregateDataPtr __restrict place,
                      const size_t num_rows) const noexcept override {
         const size_t size_of_data_ = size_of_data();
+        const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = 0; i != num_rows; ++i) {
-            assert_cast<const Derived*>(this)->destroy(place + size_of_data_ * i);
+            derived->destroy(place + size_of_data_ * i);
         }
     }
 
     void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                    const IColumn** columns, Arena* arena, bool agg_many) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
+
         if constexpr (std::is_same_v<Derived, AggregateFunctionBitmapCount<false, ColumnBitmap>> ||
                       std::is_same_v<Derived, AggregateFunctionBitmapCount<true, ColumnBitmap>> ||
                       std::is_same_v<Derived,
@@ -262,8 +266,7 @@ public:
                 }
                 auto iter = place_rows.begin();
                 while (iter != place_rows.end()) {
-                    assert_cast<const Derived*>(this)->add_many(iter->first, columns, iter->second,
-                                                                arena);
+                    derived->add_many(iter->first, columns, iter->second, arena);
                     iter++;
                 }
                 return;
@@ -271,23 +274,25 @@ public:
         }
 
         for (size_t i = 0; i < batch_size; ++i) {
-            assert_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+            derived->add(places[i] + place_offset, columns, i, arena);
         }
     }
 
     void add_batch_selected(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
                             const IColumn** columns, Arena* arena) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = 0; i < batch_size; ++i) {
             if (places[i]) {
-                assert_cast<const Derived*>(this)->add(places[i] + place_offset, columns, i, arena);
+                derived->add(places[i] + place_offset, columns, i, arena);
             }
         }
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = 0; i < batch_size; ++i) {
-            assert_cast<const Derived*>(this)->add(place, columns, i, arena);
+            derived->add(place, columns, i, arena);
         }
     }
     //now this is use for sum/count/avg/min/max win function, other win function should override this function in class
@@ -295,31 +300,35 @@ public:
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
                                 Arena* arena) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
         frame_start = std::max<int64_t>(frame_start, partition_start);
         frame_end = std::min<int64_t>(frame_end, partition_end);
         for (int64_t i = frame_start; i < frame_end; ++i) {
-            assert_cast<const Derived*>(this)->add(place, columns, i, arena);
+            derived->add(place, columns, i, arena);
         }
     }
 
     void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
                          const IColumn** columns, Arena* arena, bool has_null) override {
+        const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = batch_begin; i <= batch_end; ++i) {
-            assert_cast<const Derived*>(this)->add(place, columns, i, arena);
+            derived->add(place, columns, i, arena);
         }
     }
 
     void insert_result_into_vec(const std::vector<AggregateDataPtr>& places, const size_t offset,
                                 IColumn& to, const size_t num_rows) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = 0; i != num_rows; ++i) {
-            assert_cast<const Derived*>(this)->insert_result_into(places[i] + offset, to);
+            derived->insert_result_into(places[i] + offset, to);
         }
     }
 
     void serialize_vec(const std::vector<AggregateDataPtr>& places, size_t offset,
                        BufferWritable& buf, const size_t num_rows) const override {
+        const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = 0; i != num_rows; ++i) {
-            assert_cast<const Derived*>(this)->serialize(places[i] + offset, buf);
+            derived->serialize(places[i] + offset, buf);
             buf.commit();
         }
     }
@@ -332,12 +341,13 @@ public:
 
     void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
                                  const size_t num_rows, Arena* arena) const override {
-        char place[size_of_data()];
+        std::vector<char> place(size_of_data());
+        const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = 0; i != num_rows; ++i) {
-            assert_cast<const Derived*>(this)->create(place);
-            DEFER({ assert_cast<const Derived*>(this)->destroy(place); });
-            assert_cast<const Derived*>(this)->add(place, columns, i, arena);
-            assert_cast<const Derived*>(this)->serialize(place, buf);
+            derived->create(place.data());
+            DEFER({ derived->destroy(place.data()); });
+            derived->add(place.data(), columns, i, arena);
+            derived->serialize(place.data(), buf);
             buf.commit();
         }
     }
@@ -357,17 +367,18 @@ public:
 
     void deserialize_vec(AggregateDataPtr places, const ColumnString* column, Arena* arena,
                          size_t num_rows) const override {
-        const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        const Derived* derived = assert_cast<const Derived*>(this);
+        const auto size_of_data = derived->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {
             try {
                 auto place = places + size_of_data * i;
                 VectorBufferReader buffer_reader(column->get_data_at(i));
-                assert_cast<const Derived*>(this)->create(place);
-                assert_cast<const Derived*>(this)->deserialize(place, buffer_reader, arena);
+                derived->create(place);
+                derived->deserialize(place, buffer_reader, arena);
             } catch (...) {
                 for (int j = 0; j < i; ++j) {
                     auto place = places + size_of_data * j;
-                    assert_cast<const Derived*>(this)->destroy(place);
+                    derived->destroy(place);
                 }
                 throw;
             }
@@ -375,48 +386,54 @@ public:
     }
 
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                   AggregateDataPtr rhs, const ColumnString* column, Arena* arena,
+                                   AggregateDataPtr rhs, const IColumn* column, Arena* arena,
                                    const size_t num_rows) const override {
-        const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        const Derived* derived = assert_cast<const Derived*>(this);
+        const auto size_of_data = derived->size_of_data();
+        const auto* column_string = assert_cast<const ColumnString*>(column);
+
         for (size_t i = 0; i != num_rows; ++i) {
             try {
                 auto rhs_place = rhs + size_of_data * i;
-                VectorBufferReader buffer_reader(column->get_data_at(i));
-                assert_cast<const Derived*>(this)->create(rhs_place);
-                assert_cast<const Derived*>(this)->deserialize_and_merge(
-                        places[i] + offset, rhs_place, buffer_reader, arena);
+                VectorBufferReader buffer_reader(column_string->get_data_at(i));
+                derived->create(rhs_place);
+                derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader, arena);
             } catch (...) {
                 for (int j = 0; j < i; ++j) {
                     auto place = rhs + size_of_data * j;
-                    assert_cast<const Derived*>(this)->destroy(place);
+                    derived->destroy(place);
                 }
                 throw;
             }
         }
-        assert_cast<const Derived*>(this)->destroy_vec(rhs, num_rows);
+
+        derived->destroy_vec(rhs, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                            AggregateDataPtr rhs, const ColumnString* column,
+                                            AggregateDataPtr rhs, const IColumn* column,
                                             Arena* arena, const size_t num_rows) const override {
-        const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        const auto* derived = assert_cast<const Derived*>(this);
+        const auto size_of_data = derived->size_of_data();
+        const auto* column_string = assert_cast<const ColumnString*>(column);
         for (size_t i = 0; i != num_rows; ++i) {
             try {
                 auto rhs_place = rhs + size_of_data * i;
-                VectorBufferReader buffer_reader(column->get_data_at(i));
-                assert_cast<const Derived*>(this)->create(rhs_place);
-                if (places[i])
-                    assert_cast<const Derived*>(this)->deserialize_and_merge(
-                            places[i] + offset, rhs_place, buffer_reader, arena);
+                VectorBufferReader buffer_reader(column_string->get_data_at(i));
+                derived->create(rhs_place);
+                if (places[i]) {
+                    derived->deserialize_and_merge(places[i] + offset, rhs_place, buffer_reader,
+                                                   arena);
+                }
             } catch (...) {
                 for (int j = 0; j < i; ++j) {
                     auto place = rhs + size_of_data * j;
-                    assert_cast<const Derived*>(this)->destroy(place);
+                    derived->destroy(place);
                 }
                 throw;
             }
         }
-        assert_cast<const Derived*>(this)->destroy_vec(rhs, num_rows);
+        derived->destroy_vec(rhs, num_rows);
     }
 
     void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena* arena,
@@ -426,21 +443,21 @@ public:
 
     void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
                    Arena* arena, const size_t num_rows) const override {
-        const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        const auto* derived = assert_cast<const Derived*>(this);
+        const auto size_of_data = derived->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {
-            assert_cast<const Derived*>(this)->merge(places[i] + offset, rhs + size_of_data * i,
-                                                     arena);
+            derived->merge(places[i] + offset, rhs + size_of_data * i, arena);
         }
     }
 
     void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                             ConstAggregateDataPtr rhs, Arena* arena,
                             const size_t num_rows) const override {
-        const auto size_of_data = assert_cast<const Derived*>(this)->size_of_data();
+        const auto* derived = assert_cast<const Derived*>(this);
+        const auto size_of_data = derived->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {
             if (places[i]) {
-                assert_cast<const Derived*>(this)->merge(places[i] + offset, rhs + size_of_data * i,
-                                                         arena);
+                derived->merge(places[i] + offset, rhs + size_of_data * i, arena);
             }
         }
     }
@@ -450,15 +467,17 @@ public:
                                                  Arena* arena) const override {
         DCHECK(end <= column.size() && begin <= end)
                 << ", begin:" << begin << ", end:" << end << ", column.size():" << column.size();
+        std::vector<char> deserialized_data(size_of_data());
+        auto* deserialized_place = (AggregateDataPtr)deserialized_data.data();
+        const ColumnString& column_string = assert_cast<const ColumnString&>(column);
+        const Derived* derived = assert_cast<const Derived*>(this);
         for (size_t i = begin; i <= end; ++i) {
-            VectorBufferReader buffer_reader(
-                    (assert_cast<const ColumnString&>(column)).get_data_at(i));
-            char deserialized_data[size_of_data()];
-            AggregateDataPtr deserialized_place = (AggregateDataPtr)deserialized_data;
-            assert_cast<const Derived*>(this)->create(deserialized_place);
-            DEFER({ assert_cast<const Derived*>(this)->destroy(deserialized_place); });
-            assert_cast<const Derived*>(this)->deserialize_and_merge(place, deserialized_place,
-                                                                     buffer_reader, arena);
+            VectorBufferReader buffer_reader(column_string.get_data_at(i));
+            derived->create(deserialized_place);
+
+            DEFER({ derived->destroy(deserialized_place); });
+
+            derived->deserialize_and_merge(place, deserialized_place, buffer_reader, arena);
         }
     }
 
@@ -472,8 +491,9 @@ public:
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
                                BufferReadable& buf, Arena* arena) const override {
-        assert_cast<const Derived*>(this)->deserialize(rhs, buf, arena);
-        assert_cast<const Derived*>(this)->merge(place, rhs, arena);
+        assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->deserialize(rhs, buf,
+                                                                                    arena);
+        assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->merge(place, rhs, arena);
     }
 };
 
@@ -510,12 +530,11 @@ public:
 
     void deserialize_and_merge(AggregateDataPtr __restrict place, AggregateDataPtr __restrict rhs,
                                BufferReadable& buf, Arena* arena) const override {
-        assert_cast<const Derived*>(this)->deserialize(rhs, buf, arena);
-        assert_cast<const Derived*>(this)->merge(place, rhs, arena);
+        assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->deserialize(rhs, buf,
+                                                                                    arena);
+        assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->merge(place, rhs, arena);
     }
 };
-
-using AggregateFunctionPtr = std::shared_ptr<IAggregateFunction>;
 
 class AggregateFunctionGuard {
 public:

@@ -20,9 +20,16 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.AggStateType;
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.TableAliasGenerator;
@@ -957,7 +964,8 @@ public class StmtRewriter {
      * query block (i.e. is not bound by the given 'tupleIds').
      */
     private static boolean isCorrelatedPredicate(Expr expr, List<TupleId> tupleIds) {
-        return (expr instanceof BinaryPredicate || expr instanceof SlotRef) && !expr.isBoundByTupleIds(tupleIds);
+        return (expr instanceof BinaryPredicate || expr instanceof SlotRef
+                || expr instanceof IsNullPredicate) && !expr.isBoundByTupleIds(tupleIds);
     }
 
     /**
@@ -1364,5 +1372,234 @@ public class StmtRewriter {
             reAnalyze = true;
         }
         return reAnalyze;
+    }
+
+    /**
+     *
+     * @param column the column of SlotRef
+     * @param selectList new selectList for selectStmt
+     * @param groupByExprs group by Exprs for selectStmt
+     * @return true if ref can be rewritten
+     */
+    private static boolean rewriteSelectList(Column column, SelectList selectList, ArrayList<Expr> groupByExprs) {
+        SlotRef slot = new SlotRef(null, column.getName());
+        if (column.isKey()) {
+            selectList.addItem(new SelectListItem(slot, column.getName()));
+            groupByExprs.add(slot);
+            return true;
+        } else if (column.isAggregated()) {
+            FunctionCallExpr func = generateAggFunction(slot, column);
+            if (func != null) {
+                selectList.addItem(new SelectListItem(func, column.getName()));
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * rewrite stmt for querying random distributed table, construct an aggregation node for pre-agg
+     * * CREATE TABLE `tbl` (
+     *   `k1` BIGINT NULL DEFAULT "10",
+     *   `k3` SMALLINT NULL,
+     *   `a` BIGINT SUM NULL DEFAULT "0"
+     * ) ENGINE=OLAP
+     * AGGREGATE KEY(`k1`, `k2`)
+     * DISTRIBUTED BY RANDOM BUCKETS 1
+     * PROPERTIES (
+     * "replication_allocation" = "tag.location.default: 1"
+     * )
+     * e.g.,
+     * original: select * from tbl
+     * rewrite: select * from (select k1, k2, sum(pv) from tbl group by k1, k2) t
+     * do not rewrite if no need two phase agg:
+     * e.g.,
+     *     1. select max(k1) from tbl
+     *     2. select sum(a) from tbl
+     *
+     * @param statementBase stmt to rewrite
+     * @param analyzer the analyzer
+     * @return true if rewritten
+     * @throws UserException
+     */
+    public static boolean rewriteForRandomDistribution(StatementBase statementBase, Analyzer analyzer)
+            throws UserException {
+        boolean reAnalyze = false;
+        if (!(statementBase instanceof SelectStmt)) {
+            return false;
+        }
+        SelectStmt selectStmt = (SelectStmt) statementBase;
+        for (int i = 0; i < selectStmt.fromClause.size(); i++) {
+            TableRef tableRef = selectStmt.fromClause.get(i);
+            // Recursively rewrite subquery
+            if (tableRef instanceof InlineViewRef) {
+                InlineViewRef viewRef = (InlineViewRef) tableRef;
+                if (rewriteForRandomDistribution(viewRef.getQueryStmt(), viewRef.getAnalyzer())) {
+                    reAnalyze = true;
+                }
+                continue;
+            }
+            TableIf table = tableRef.getTable();
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            // only rewrite random distributed AGG_KEY table
+            OlapTable olapTable = (OlapTable) table;
+            if (olapTable.getKeysType() != KeysType.AGG_KEYS) {
+                continue;
+            }
+            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+            if (distributionInfo.getType() != DistributionInfo.DistributionInfoType.RANDOM) {
+                continue;
+            }
+
+            // check agg function and column agg type
+            AggregateInfo aggInfo = selectStmt.getAggInfo();
+            GroupByClause groupByClause = selectStmt.getGroupByClause();
+            boolean aggTypeMatch = true;
+            if (aggInfo != null || groupByClause != null) {
+                if (aggInfo != null) {
+                    ArrayList<FunctionCallExpr> aggExprs = aggInfo.getAggregateExprs();
+                    if (aggExprs.stream().anyMatch(expr -> !aggTypeMatch(expr.getFnName().getFunction(), expr))) {
+                        aggTypeMatch = false;
+                    }
+                    List<Expr> groupExprs = aggInfo.getGroupingExprs();
+                    if (groupExprs.stream().anyMatch(expr -> !isKeyOrConstantExpr(expr))) {
+                        aggTypeMatch = false;
+                    }
+                }
+                if (groupByClause != null) {
+                    List<Expr> groupByExprs = groupByClause.getGroupingExprs();
+                    if (groupByExprs.stream().anyMatch(expr -> !isKeyOrConstantExpr(expr))) {
+                        aggTypeMatch = false;
+                    }
+                }
+                if (aggTypeMatch) {
+                    continue;
+                }
+            }
+            // construct a new InlineViewRef for pre-agg
+            boolean canRewrite = true;
+            SelectList selectList = new SelectList();
+            ArrayList<Expr> groupingExprs = new ArrayList<>();
+            List<Column> columns = olapTable.getBaseSchema();
+            for (Column col : columns) {
+                if (!rewriteSelectList(col, selectList, groupingExprs)) {
+                    canRewrite = false;
+                    break;
+                }
+            }
+            if (!canRewrite) {
+                continue;
+            }
+            Expr whereClause = selectStmt.getWhereClause() == null ? null : selectStmt.getWhereClause().clone();
+            SelectStmt newSelectSmt = new SelectStmt(selectList,
+                    new FromClause(Lists.newArrayList(tableRef)),
+                    whereClause,
+                    new GroupByClause(groupingExprs, GroupByClause.GroupingType.GROUP_BY),
+                    null,
+                    null,
+                    LimitElement.NO_LIMIT);
+            InlineViewRef inlineViewRef = new InlineViewRef(tableRef.getAliasAsName().getTbl(), newSelectSmt);
+            inlineViewRef.setJoinOp(tableRef.getJoinOp());
+            inlineViewRef.setLeftTblRef(tableRef.getLeftTblRef());
+            inlineViewRef.setOnClause(tableRef.getOnClause());
+            tableRef.setOnClause(null);
+            tableRef.setLeftTblRef(null);
+            tableRef.setOnClause(null);
+            if (selectStmt.fromClause.size() > i + 1) {
+                selectStmt.fromClause.get(i + 1).setLeftTblRef(inlineViewRef);
+            }
+            selectStmt.fromClause.set(i, inlineViewRef);
+            selectStmt.analyze(analyzer);
+            reAnalyze = true;
+        }
+        return reAnalyze;
+    }
+
+    /**
+     * check if the agg type of functionCall match the agg type of column
+     * @param functionName the functionName of functionCall
+     * @param expr FunctionCallExpr
+     * @return true if agg type match
+     */
+    private static boolean aggTypeMatch(String functionName, Expr expr) {
+        if (expr.getChildren().isEmpty()) {
+            if (expr instanceof SlotRef) {
+                Column col = ((SlotRef) expr).getDesc().getColumn();
+                if (col.isKey()) {
+                    return functionName.equalsIgnoreCase("MAX")
+                            || functionName.equalsIgnoreCase("MIN");
+                }
+                if (col.isAggregated()) {
+                    AggregateType aggType = col.getAggregationType();
+                    // agg type not mach
+                    if (aggType == AggregateType.GENERIC) {
+                        return col.getType().isAggStateType();
+                    }
+                    if (aggType == AggregateType.HLL_UNION) {
+                        return functionName.equalsIgnoreCase(FunctionSet.HLL_UNION)
+                                || functionName.equalsIgnoreCase(FunctionSet.HLL_UNION_AGG);
+                    }
+                    if (aggType == AggregateType.BITMAP_UNION) {
+                        return functionName.equalsIgnoreCase(FunctionSet.BITMAP_UNION)
+                                || functionName.equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)
+                                || functionName.equalsIgnoreCase(FunctionSet.BITMAP_INTERSECT);
+                    }
+                    return functionName.equalsIgnoreCase(aggType.name());
+                }
+            }
+            return false;
+        }
+        List<Expr> children = expr.getChildren();
+        return children.stream().allMatch(child -> aggTypeMatch(functionName, child));
+    }
+
+    /**
+     * check if the columns in expr is key column or constant, if group by clause contains value column, need rewrite
+     *
+     * @param expr expr to check
+     * @return true if all columns is key column or constant
+     */
+    private static boolean isKeyOrConstantExpr(Expr expr) {
+        if (expr instanceof SlotRef) {
+            Column col = ((SlotRef) expr).getDesc().getColumn();
+            return col.isKey();
+        } else if (expr.isConstant()) {
+            return true;
+        }
+        List<Expr> children = expr.getChildren();
+        return children.stream().allMatch(StmtRewriter::isKeyOrConstantExpr);
+    }
+
+    /**
+     * generate aggregation function according to the aggType of column
+     *
+     * @param slot slot of column
+     * @return aggFunction generated
+     */
+    private static FunctionCallExpr generateAggFunction(SlotRef slot, Column column) {
+        AggregateType aggregateType = column.getAggregationType();
+        switch (aggregateType) {
+            case SUM:
+            case MAX:
+            case MIN:
+            case HLL_UNION:
+            case BITMAP_UNION:
+            case QUANTILE_UNION:
+                FunctionName funcName = new FunctionName(aggregateType.toString().toLowerCase());
+                return new FunctionCallExpr(funcName, new FunctionParams(false, Lists.newArrayList(slot)));
+            case GENERIC:
+                Type type = column.getType();
+                if (!type.isAggStateType()) {
+                    return null;
+                }
+                AggStateType aggState = (AggStateType) type;
+                // use AGGREGATE_FUNCTION_UNION to aggregate multiple agg_state into one
+                FunctionName functionName = new FunctionName(aggState.getFunctionName() + "_union");
+                return new FunctionCallExpr(functionName, new FunctionParams(false, Lists.newArrayList(slot)));
+            default:
+                return null;
+        }
     }
 }

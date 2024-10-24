@@ -37,7 +37,7 @@ suite("test_pk_uk_index_change", "inverted_index") {
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
             if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
+                sleep(10000) // wait change table state to normal
                 logger.info(table_name + " latest alter job finished, detail: " + alter_res)
                 break
             }
@@ -60,6 +60,7 @@ suite("test_pk_uk_index_change", "inverted_index") {
                 }
             }
             if (finished_num == expected_finished_num) {
+                sleep(10000) // wait change table state to normal
                 logger.info(table_name + " all build index jobs finished, detail: " + alter_res)
                 break
             }
@@ -242,8 +243,10 @@ suite("test_pk_uk_index_change", "inverted_index") {
             wait_for_latest_op_on_table_finish(tableNamePk, timeout)
 
             // build inverted index
-            sql """ BUILD INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
-            wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+            if (!isCloudMode()) {
+                sql """ BUILD INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
+                wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+            }
         }
 
         sql "sync"
@@ -318,7 +321,10 @@ suite("test_pk_uk_index_change", "inverted_index") {
 
         // drop inverted index
         sql """ DROP INDEX L_ORDERKEY_idx ON ${tableNamePk}; """
-        wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+        wait_for_latest_op_on_table_finish(tableNamePk, timeout)
+        if (!isCloudMode()) {
+            wait_for_build_index_on_partition_finish(tableNamePk, timeout)
+        }
     }
 }
 

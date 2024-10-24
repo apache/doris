@@ -26,13 +26,16 @@
 #include <ostream>
 #include <string>
 
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "runtime/fragment_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
+#include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/thrift_server.h"
 #include "util/time.h"
@@ -83,10 +86,20 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_be_node_role(config::be_node_role);
         // If be is gracefully stop, then k_doris_exist is set to true
         heartbeat_result.backend_info.__set_is_shutdown(doris::k_doris_exit);
+        heartbeat_result.backend_info.__set_fragment_executing_count(
+                get_fragment_executing_count());
+        heartbeat_result.backend_info.__set_fragment_last_active_time(
+                get_fragment_last_active_time());
+        heartbeat_result.backend_info.__set_be_mem(MemInfo::physical_mem());
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {
-        LOG(WARNING) << "heartbeat consume too much time. time=" << watch.elapsed_time();
+        LOG(WARNING) << "heartbeat consume too much time. time=" << watch.elapsed_time()
+                     << ", host:" << master_info.network_address.hostname
+                     << ", port:" << master_info.network_address.port
+                     << ", cluster id:" << master_info.cluster_id
+                     << ", frontend_info:" << PrintFrontendInfos(master_info.frontend_infos)
+                     << ", counter:" << google::COUNTER << ", BE start time: " << _be_epoch;
     }
 }
 
@@ -225,6 +238,41 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 "Heartbeat from {}:{} does not have frontend_infos, this may because we are "
                 "upgrading cluster",
                 master_info.network_address.hostname, master_info.network_address.port);
+    }
+
+    if (master_info.__isset.meta_service_endpoint != config::is_cloud_mode()) {
+        LOG(WARNING) << "Detected mismatch in cloud mode configuration between FE and BE. "
+                     << "FE cloud mode: "
+                     << (master_info.__isset.meta_service_endpoint ? "true" : "false")
+                     << ", BE cloud mode: " << (config::is_cloud_mode() ? "true" : "false")
+                     << ". If fe is earlier than version 3.0.2, the message can be ignored.";
+    }
+
+    if (master_info.__isset.meta_service_endpoint) {
+        if (config::meta_service_endpoint.empty() && !master_info.meta_service_endpoint.empty()) {
+            auto st = config::set_config("meta_service_endpoint", master_info.meta_service_endpoint,
+                                         true);
+            LOG(INFO) << "set config meta_service_endpoing " << master_info.meta_service_endpoint
+                      << " " << st;
+        }
+
+        if (master_info.meta_service_endpoint != config::meta_service_endpoint) {
+            LOG(WARNING) << "Detected mismatch in meta_service_endpoint configuration between FE "
+                            "and BE. "
+                         << "FE meta_service_endpoint: " << master_info.meta_service_endpoint
+                         << ", BE meta_service_endpoint: " << config::meta_service_endpoint;
+            return Status::InvalidArgument<false>(
+                    "fe and be do not work in same mode, fe meta_service_endpoint: {},"
+                    " be meta_service_endpoint: {}",
+                    master_info.meta_service_endpoint, config::meta_service_endpoint);
+        }
+    }
+
+    if (master_info.__isset.cloud_unique_id &&
+        config::cloud_unique_id != master_info.cloud_unique_id &&
+        config::enable_use_cloud_unique_id_from_fe) {
+        auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
+        LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
     }
 
     if (need_report) {

@@ -17,10 +17,17 @@
 
 package org.apache.doris.common.classloader;
 
+import org.apache.doris.common.jni.utils.ExpiringMap;
+import org.apache.doris.common.jni.utils.Log4jOutputStream;
+import org.apache.doris.common.jni.utils.UdfClassCache;
+
 import com.google.common.collect.Streams;
+import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -40,7 +47,9 @@ import java.util.stream.Collectors;
  * BE will load scanners by JNI call, and then the JniConnector on BE will get scanner class by getLoadedClass.
  */
 public class ScannerLoader {
+    public static final Logger LOG = Logger.getLogger(ScannerLoader.class);
     private static final Map<String, Class<?>> loadedClasses = new HashMap<>();
+    private static final ExpiringMap<String, UdfClassCache> udfLoadedClasses = new ExpiringMap<>();
     private static final String CLASS_SUFFIX = ".class";
     private static final String LOAD_PACKAGE = "org.apache.doris";
 
@@ -48,6 +57,7 @@ public class ScannerLoader {
      * Load all classes from $DORIS_HOME/lib/java_extensions/*
      */
     public void loadAllScannerJars() {
+        redirectStdStreamsToLog4j();
         String basePath = System.getenv("DORIS_HOME");
         File library = new File(basePath, "/lib/java_extensions/");
         // TODO: add thread pool to load each scanner
@@ -58,6 +68,31 @@ public class ScannerLoader {
                 loadJarClassFromDir(sd, classLoader);
             }
         });
+    }
+
+    private void redirectStdStreamsToLog4j() {
+        Logger outLogger = Logger.getLogger("stdout");
+        PrintStream logPrintStream = new PrintStream(new Log4jOutputStream(outLogger, Level.INFO));
+        System.setOut(logPrintStream);
+
+        Logger errLogger = Logger.getLogger("stderr");
+        PrintStream errorPrintStream = new PrintStream(new Log4jOutputStream(errLogger, Level.ERROR));
+        System.setErr(errorPrintStream);
+    }
+
+    public static UdfClassCache getUdfClassLoader(String functionSignature) {
+        return udfLoadedClasses.get(functionSignature);
+    }
+
+    public static synchronized void cacheClassLoader(String functionSignature, UdfClassCache classCache,
+            long expirationTime) {
+        LOG.info("Cache UDF for: " + functionSignature);
+        udfLoadedClasses.put(functionSignature, classCache, expirationTime * 60 * 1000L);
+    }
+
+    public synchronized void cleanUdfClassLoader(String functionSignature) {
+        LOG.info("cleanUdfClassLoader for: " + functionSignature);
+        udfLoadedClasses.remove(functionSignature);
     }
 
     /**

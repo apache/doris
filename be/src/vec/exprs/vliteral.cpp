@@ -61,12 +61,6 @@ Status VLiteral::prepare(RuntimeState* state, const RowDescriptor& desc, VExprCo
     return Status::OK();
 }
 
-Status VLiteral::open(RuntimeState* state, VExprContext* context,
-                      FunctionContext::FunctionStateScope scope) {
-    RETURN_IF_ERROR(VExpr::open(state, context, scope));
-    return Status::OK();
-}
-
 Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* result_column_id) {
     // Literal expr should return least one row.
     // sometimes we just use a VLiteral without open or prepare. so can't check it at this moment
@@ -94,6 +88,27 @@ std::string VLiteral::debug_string() const {
     out << ", value = (" << value();
     out << "))";
     return out.str();
+}
+
+bool VLiteral::equals(const VExpr& other) {
+    const auto* other_ptr = dynamic_cast<const VLiteral*>(&other);
+    if (!other_ptr) {
+        return false;
+    }
+    if (this->_expr_name != other_ptr->_expr_name) {
+        return false;
+    }
+    if (this->_column_ptr->structure_equals(*other_ptr->_column_ptr)) {
+        if (this->_column_ptr->size() != other_ptr->_column_ptr->size()) {
+            return false;
+        }
+        for (size_t i = 0; i < this->_column_ptr->size(); i++) {
+            if (this->_column_ptr->compare_at(i, i, *other_ptr->_column_ptr, -1) != 0) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 } // namespace doris::vectorized

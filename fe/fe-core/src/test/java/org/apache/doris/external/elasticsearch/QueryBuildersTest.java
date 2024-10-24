@@ -86,6 +86,15 @@ public class QueryBuildersTest {
         Assertions.assertEquals("{\"term\":{\"k2\":\"2023-02-19T22:00:00.000+08:00\"}}",
                 QueryBuilders.toEsDsl(dateTimeEqExpr, new ArrayList<>(), new HashMap<>(),
                         BuilderOptions.builder().needCompatDateFields(Lists.newArrayList("k2")).build()).toJson());
+        SlotRef k3 = new SlotRef(null, "k3");
+        Expr stringLiteral = new StringLiteral("");
+        Expr stringNeExpr = new BinaryPredicate(Operator.NE, k3, stringLiteral);
+        Assertions.assertEquals("{\"bool\":{\"must\":{\"exists\":{\"field\":\"k3\"}},\"must_not\":{\"term\":{\"k3\":\"\"}}}}",
+                QueryBuilders.toEsDsl(stringNeExpr).toJson());
+        stringLiteral = new StringLiteral("message");
+        stringNeExpr = new BinaryPredicate(Operator.NE, k3, stringLiteral);
+        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k3\":\"message\"}}}}",
+                QueryBuilders.toEsDsl(stringNeExpr).toJson());
     }
 
     @Test
@@ -199,6 +208,33 @@ public class QueryBuildersTest {
         BinaryPredicate castDoublePredicate = new BinaryPredicate(Operator.GE, castDoubleExpr,
                 new FloatLiteral(3.0, Type.DOUBLE));
         QueryBuilders.toEsDsl(castDoublePredicate, notPushDownList, fieldsContext, builderOptions);
+        Assertions.assertEquals(3, notPushDownList.size());
+
+        SlotRef k4 = new SlotRef(null, "k4");
+        k4.setType(Type.FLOAT);
+        CastExpr castFloatExpr = new CastExpr(Type.FLOAT, k4);
+        BinaryPredicate castFloatPredicate = new BinaryPredicate(Operator.GE, new FloatLiteral(3.0, Type.FLOAT),
+                castFloatExpr);
+        QueryBuilders.QueryBuilder queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList, fieldsContext, builderOptions);
+        Assertions.assertEquals("{\"range\":{\"k4\":{\"lte\":3.0}}}", queryBuilder.toJson());
+        Assertions.assertEquals(3, notPushDownList.size());
+
+        castFloatPredicate = new BinaryPredicate(Operator.LE, new FloatLiteral(3.0, Type.FLOAT),
+            castFloatExpr);
+        queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList, fieldsContext, builderOptions);
+        Assertions.assertEquals("{\"range\":{\"k4\":{\"gte\":3.0}}}", queryBuilder.toJson());
+        Assertions.assertEquals(3, notPushDownList.size());
+
+        castFloatPredicate = new BinaryPredicate(Operator.LT, new FloatLiteral(3.0, Type.FLOAT),
+            castFloatExpr);
+        queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList, fieldsContext, builderOptions);
+        Assertions.assertEquals("{\"range\":{\"k4\":{\"gt\":3.0}}}", queryBuilder.toJson());
+        Assertions.assertEquals(3, notPushDownList.size());
+
+        castFloatPredicate = new BinaryPredicate(Operator.GT, new FloatLiteral(3.0, Type.FLOAT),
+            castFloatExpr);
+        queryBuilder = QueryBuilders.toEsDsl(castFloatPredicate, notPushDownList, fieldsContext, builderOptions);
+        Assertions.assertEquals("{\"range\":{\"k4\":{\"lt\":3.0}}}", queryBuilder.toJson());
         Assertions.assertEquals(3, notPushDownList.size());
     }
 

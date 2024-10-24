@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.ImmutableList;
@@ -36,7 +37,11 @@ public class ExpressionRuleExecutor {
     }
 
     public List<Expression> rewrite(List<Expression> exprs, ExpressionRewriteContext ctx) {
-        return exprs.stream().map(expr -> rewrite(expr, ctx)).collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<Expression> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (Expression expr : exprs) {
+            result.add(rewrite(expr, ctx));
+        }
+        return result.build();
     }
 
     /**
@@ -61,8 +66,15 @@ public class ExpressionRuleExecutor {
         return rule.rewrite(expr, ctx);
     }
 
+    /** normalize */
     public static Expression normalize(Expression expression) {
-        return NormalizeBinaryPredicatesRule.INSTANCE.rewrite(expression, null);
+        return expression.rewriteUp(expr -> {
+            if (expr instanceof ComparisonPredicate) {
+                return NormalizeBinaryPredicatesRule.normalize((ComparisonPredicate) expression);
+            } else {
+                return expr;
+            }
+        });
     }
 
 }

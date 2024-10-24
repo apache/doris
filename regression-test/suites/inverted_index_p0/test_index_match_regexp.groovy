@@ -16,7 +16,7 @@
 // under the License.
 
 
-suite("test_index_match_regexp", "p0"){
+suite("test_index_match_regexp", "nonConcurrent"){
     def indexTbName1 = "test_index_match_regexp"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
@@ -79,7 +79,10 @@ suite("test_index_match_regexp", "p0"){
         load_httplogs_data.call(indexTbName1, 'test_index_match_regexp', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true; """
+        GetDebugPoint().enableDebugPointForAllBEs("VMatchPredicate.execute")
 
+        qt_sql """ select count() from test_index_match_regexp where request match_regexp ''; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^h'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^team'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 's\$'; """
@@ -88,6 +91,6 @@ suite("test_index_match_regexp", "p0"){
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 'nonexistence'; """
 
     } finally {
-        //try_sql("DROP TABLE IF EXISTS ${testTable}")
+        GetDebugPoint().disableDebugPointForAllBEs("VMatchPredicate.execute")
     }
 }

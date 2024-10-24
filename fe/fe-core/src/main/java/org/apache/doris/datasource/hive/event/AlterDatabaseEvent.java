@@ -88,7 +88,7 @@ public class AlterDatabaseEvent extends MetastoreEvent {
             return;
         }
         Env.getCurrentEnv().getCatalogMgr().unregisterExternalDatabase(dbBefore.getName(), catalogName, true);
-        Env.getCurrentEnv().getCatalogMgr().registerExternalDatabase(dbAfter.getName(), catalogName, true);
+        Env.getCurrentEnv().getCatalogMgr().registerExternalDatabaseFromEvent(dbAfter.getName(), catalogName, true);
 
     }
 

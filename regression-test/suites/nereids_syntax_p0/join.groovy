@@ -260,7 +260,7 @@ suite("join") {
     );
     """
 
-    sql """
+    order_qt_test """
         select 
          ref_1.`c_long_decimal` as c0,
          ref_3.`c1` as c1
@@ -271,4 +271,44 @@ suite("join") {
         where
           ref_2.`id` is not NULL
     """
+
+    order_qt_test "SELECT * FROM lineorder RIGHT SEMI JOIN supplier ON lineorder.lo_suppkey = supplier.s_suppkey and s_name='Supplier#000000029';"
+
+    multi_sql """
+            drop table if exists table_test1;
+            drop table if exists table_test2;
+            
+            CREATE TABLE table_test1 (
+            id VARCHAR(20) NULL,
+            long1 BIGINT NULL,
+            long2 BIGINT NULL,
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id)
+            COMMENT 'olap'
+            DISTRIBUTED BY HASH(id) BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );
+            
+            CREATE TABLE table_test2 (
+            id VARCHAR(20) NULL,
+            re_long_4 BIGINT NULL,
+            ) ENGINE=OLAP
+            DUPLICATE KEY(id)
+            COMMENT 'olap'
+            DISTRIBUTED BY HASH(id) BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            ); 
+            
+            SELECT 1
+            from table_test1 b
+            WHERE (
+                CASE
+                WHEN b.long2=(SELECT re_long_4 FROM table_test2 limit 1) THEN (select long1 from table_test1 limit 1 )
+                WHEN b.long2=(SELECT re_long_4 FROM table_test2 limit 1) THEN (select long1 from table_test1 limit 1)
+                ELSE b.long2
+                END
+            )>0; 
+        """
 }

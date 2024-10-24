@@ -50,4 +50,12 @@ suite("sql_create_time_range_table") {
     assertTrue(result1.size() == 1)
     assertTrue(result1[0].size() == 1)
     assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
+
+    sql "SET enable_nereids_planner=true;"
+    sql "SET enable_fallback_to_original_planner=false;"
+    sql "drop table if exists varchar_0_char_0"
+    sql "create table varchar_0_char_0 (id int, a varchar(0), b char(0)) distributed by hash(id) properties(\"replication_num\"=\"1\")\n"
+    def res_show = sql "show create table varchar_0_char_0"
+    mustContain(res_show[0][1], "varchar(65533)")
+    mustContain(res_show[0][1], "char(1)")
 }

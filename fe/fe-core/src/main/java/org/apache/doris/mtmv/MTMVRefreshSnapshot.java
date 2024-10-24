@@ -17,7 +17,10 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.MTMV;
+
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.MapUtils;
 
@@ -46,13 +49,21 @@ public class MTMVRefreshSnapshot {
         return relatedPartitionSnapshot.equals(relatedPartitionCurrentSnapshot);
     }
 
-    public boolean equalsWithBaseTable(String mtmvPartitionName, long baseTableId,
+    public Set<String> getSnapshotPartitions(String mtmvPartitionName) {
+        MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
+        if (partitionSnapshot == null) {
+            return Sets.newHashSet();
+        }
+        return partitionSnapshot.getPartitions().keySet();
+    }
+
+    public boolean equalsWithBaseTable(String mtmvPartitionName, BaseTableInfo tableInfo,
             MTMVSnapshotIf baseTableCurrentSnapshot) {
         MTMVRefreshPartitionSnapshot partitionSnapshot = partitionSnapshots.get(mtmvPartitionName);
         if (partitionSnapshot == null) {
             return false;
         }
-        MTMVSnapshotIf relatedPartitionSnapshot = partitionSnapshot.getTables().get(baseTableId);
+        MTMVSnapshotIf relatedPartitionSnapshot = partitionSnapshot.getTableSnapshot(tableInfo);
         if (relatedPartitionSnapshot == null) {
             return false;
         }
@@ -70,6 +81,22 @@ public class MTMVRefreshSnapshot {
             if (!mvPartitionNames.contains(partitionName)) {
                 iterator.remove();
             }
+        }
+    }
+
+    @Override
+    public String toString() {
+        return "MTMVRefreshSnapshot{"
+                + "partitionSnapshots=" + partitionSnapshots
+                + '}';
+    }
+
+    public void compatible(MTMV mtmv) {
+        if (MapUtils.isEmpty(partitionSnapshots)) {
+            return;
+        }
+        for (MTMVRefreshPartitionSnapshot snapshot : partitionSnapshots.values()) {
+            snapshot.compatible(mtmv);
         }
     }
 }

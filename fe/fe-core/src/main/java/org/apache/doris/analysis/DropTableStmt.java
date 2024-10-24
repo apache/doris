@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.base.Strings;
 
 // DROP TABLE
-public class DropTableStmt extends DdlStmt {
+public class DropTableStmt extends DdlStmt implements NotFallbackInParser {
     private boolean ifExists;
     private final TableName tableName;
     private final boolean isView;
@@ -89,8 +89,9 @@ public class DropTableStmt extends DdlStmt {
         tableName.analyze(analyzer);
         InternalDatabaseUtil.checkDatabase(tableName.getDb(), ConnectContext.get());
         // check access
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                                                                tableName.getTbl(), PrivPredicate.DROP)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getCtl(), tableName.getDb(),
+                        tableName.getTbl(), PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "DROP");
         }
     }
@@ -105,5 +106,10 @@ public class DropTableStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.DROP;
     }
 }

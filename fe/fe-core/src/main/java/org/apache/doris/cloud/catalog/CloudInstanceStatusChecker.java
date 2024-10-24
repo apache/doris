@@ -17,13 +17,18 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class CloudInstanceStatusChecker extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudInstanceStatusChecker.class);
@@ -41,12 +46,23 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get from ms response {}", response);
             }
-            if (!response.hasStatus() || !response.getStatus().hasCode()
+            if (response == null || !response.hasStatus() || !response.getStatus().hasCode()
                     || response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("failed to get cloud instance due to incomplete response, "
                         + "cloud_unique_id={}, response={}", Config.cloud_unique_id, response);
             } else {
                 cloudSystemInfoService.setInstanceStatus(response.getInstance().getStatus());
+                Map<String, String> vaultMap = new HashMap<>();
+                int cnt = response.getInstance().getResourceIdsCount();
+                for (int i = 0; i < cnt; i++) {
+                    String name = response.getInstance().getStorageVaultNames(i);
+                    String id = response.getInstance().getResourceIds(i);
+                    vaultMap.put(name, id);
+                }
+                Env.getCurrentEnv().getStorageVaultMgr().refreshVaultMap(vaultMap);
+                Env.getCurrentEnv().getStorageVaultMgr().setDefaultStorageVault(
+                        Pair.of(response.getInstance().getDefaultStorageVaultName(),
+                                response.getInstance().getDefaultStorageVaultId()));
             }
         } catch (Exception e) {
             LOG.warn("get instance from ms exception", e);

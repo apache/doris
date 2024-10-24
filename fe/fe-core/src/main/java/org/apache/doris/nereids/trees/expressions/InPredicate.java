@@ -28,6 +28,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -42,13 +43,13 @@ public class InPredicate extends Expression {
     private final Expression compareExpr;
     private final List<Expression> options;
 
-    public InPredicate(Expression compareExpr, List<Expression> options) {
+    public InPredicate(Expression compareExpr, Collection<Expression> options) {
         super(new Builder<Expression>().add(compareExpr).addAll(options).build());
         this.compareExpr = Objects.requireNonNull(compareExpr, "Compare Expr cannot be null");
         this.options = ImmutableList.copyOf(Objects.requireNonNull(options, "In list cannot be null"));
     }
 
-    public InPredicate(Expression compareExpr, List<Expression> options, boolean inferred) {
+    public InPredicate(Expression compareExpr, Collection<Expression> options, boolean inferred) {
         super(new Builder<Expression>().add(compareExpr).addAll(options).build(), inferred);
         this.compareExpr = Objects.requireNonNull(compareExpr, "Compare Expr cannot be null");
         this.options = ImmutableList.copyOf(Objects.requireNonNull(options, "In list cannot be null"));

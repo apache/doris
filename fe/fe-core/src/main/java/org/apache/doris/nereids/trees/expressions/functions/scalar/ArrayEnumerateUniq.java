@@ -41,7 +41,8 @@ public class ArrayEnumerateUniq extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE)).varArgs(ArrayType.of(new AnyDataType(0)))
+            FunctionSignature.ret(ArrayType.of(BigIntType.INSTANCE))
+                    .varArgs(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX))
     );
 
     /**

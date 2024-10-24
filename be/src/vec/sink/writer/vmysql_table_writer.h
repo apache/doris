@@ -46,12 +46,14 @@ class Block;
 
 class VMysqlTableWriter final : public AsyncResultWriter {
 public:
-    VMysqlTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs);
+    VMysqlTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
+                      std::shared_ptr<pipeline::Dependency> dep,
+                      std::shared_ptr<pipeline::Dependency> fin_dep);
 
     // connect to mysql server
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(vectorized::Block& block) override;
+    Status write(RuntimeState* state, vectorized::Block& block) override;
 
     Status close(Status) override;
 

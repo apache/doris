@@ -61,7 +61,7 @@ suite("mv_ssb_test") {
 
             // relate to ${DORIS_HOME}/regression-test/data/demo/streamload_input.csv.
             // also, you can stream load a http stream, e.g. http://xxx/some.csv
-            file """${getS3Url()}/regression/ssb/sf1/${tableName}.tbl.gz"""
+            file """${getS3Url()}/regression/ssb/sf0.1/${tableName}.tbl.gz"""
 
             time 10000 // limit inflight 10s
 
@@ -86,11 +86,9 @@ suite("mv_ssb_test") {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
-    sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
     sql "SET enable_nereids_timeout = false"
+    sql "SET BATCH_SIZE = 4064"
 
     def mv1_1 = """
             SELECT SUM(lo_extendedprice*lo_discount) AS
@@ -111,7 +109,7 @@ suite("mv_ssb_test") {
             AND lo_quantity < 25;
     """
     order_qt_query1_1_before "${query1_1}"
-    check_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -135,7 +133,7 @@ suite("mv_ssb_test") {
             AND lo_quantity BETWEEN 26 AND 35;
     """
     order_qt_query1_2_before "${query1_2}"
-    check_mv_rewrite_success(db, mv1_2, query1_2, "mv1_2")
+    async_mv_rewrite_success(db, mv1_2, query1_2, "mv1_2")
     order_qt_query1_2_after "${query1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
 
@@ -160,7 +158,7 @@ suite("mv_ssb_test") {
             AND lo_quantity BETWEEN  26 AND 35;
     """
     order_qt_query1_3before "${query1_3}"
-    check_mv_rewrite_success(db, mv1_3, query1_3, "mv1_3")
+    async_mv_rewrite_success(db, mv1_3, query1_3, "mv1_3")
     order_qt_query1_3_after "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
@@ -188,7 +186,7 @@ suite("mv_ssb_test") {
             ORDER BY d_year, p_brand;
     """
     order_qt_query2_1before "${query2_1}"
-    check_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1")
+    async_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1")
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
@@ -218,7 +216,7 @@ suite("mv_ssb_test") {
             ORDER BY d_year, p_brand;
     """
     order_qt_query2_2before "${query2_2}"
-    check_mv_rewrite_success(db, mv2_2, query2_2, "mv2_2")
+    async_mv_rewrite_success(db, mv2_2, query2_2, "mv2_2")
     order_qt_query2_2_after "${query2_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
 
@@ -245,7 +243,7 @@ suite("mv_ssb_test") {
             ORDER BY d_year, p_brand;
     """
     order_qt_query2_3before "${query2_3}"
-    check_mv_rewrite_success(db, mv2_3, query2_3, "mv2_3")
+    async_mv_rewrite_success(db, mv2_3, query2_3, "mv2_3")
     order_qt_query2_3_after "${query2_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
 
@@ -276,7 +274,7 @@ suite("mv_ssb_test") {
             ORDER BY d_year ASC,  REVENUE DESC;
     """
     order_qt_query3_1before "${query3_1}"
-    check_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1")
+    async_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1")
     order_qt_query3_1_after "${query3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
@@ -308,7 +306,7 @@ suite("mv_ssb_test") {
             ORDER BY d_year ASC,  REVENUE DESC;
     """
     order_qt_query3_2before "${query3_2}"
-    check_mv_rewrite_success(db, mv3_2, query3_2, "mv3_2")
+    async_mv_rewrite_success(db, mv3_2, query3_2, "mv3_2")
     order_qt_query3_2_after "${query3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
@@ -344,7 +342,7 @@ suite("mv_ssb_test") {
             ORDER BY d_year ASC,  REVENUE DESC;
     """
     order_qt_query3_3before "${query3_3}"
-    check_mv_rewrite_success(db, mv3_3, query3_3, "mv3_3")
+    async_mv_rewrite_success(db, mv3_3, query3_3, "mv3_3")
     order_qt_query3_3_after "${query3_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_3"""
 
@@ -360,7 +358,7 @@ suite("mv_ssb_test") {
             OR c_city='UNITED KI5')
             AND (s_city='UNITED KI1'
             OR s_city='UNITED KI5')
-            AND d_yearmonth = 'Dec1997'
+            AND d_yearmonth = 'Jul1992'
             GROUP BY c_city, s_city, d_year
             ORDER BY d_year ASC,  REVENUE DESC;
     """
@@ -375,12 +373,12 @@ suite("mv_ssb_test") {
             OR c_city='UNITED KI5')
             AND (s_city='UNITED KI1'
             OR s_city='UNITED KI5')
-            AND d_yearmonth = 'Dec1997'
+            AND d_yearmonth = 'Jul1992'
             GROUP BY c_city, s_city, d_year
             ORDER BY d_year ASC,  REVENUE DESC;
     """
     order_qt_query3_4before "${query3_4}"
-    check_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
+    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
     order_qt_query3_4_after "${query3_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
 
@@ -416,7 +414,7 @@ suite("mv_ssb_test") {
             ORDER BY d_year, c_nation;
     """
     order_qt_query4_1before "${query4_1}"
-    check_mv_rewrite_success(db, mv4_1, query4_1, "mv4_1")
+    async_mv_rewrite_success(db, mv4_1, query4_1, "mv4_1")
     order_qt_query4_1_after "${query4_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_1"""
 
@@ -430,7 +428,7 @@ suite("mv_ssb_test") {
             AND lo_orderdate = d_datekey
             AND c_region = 'AMERICA'
             AND s_region = 'AMERICA'
-            AND (d_year = 1997 OR d_year = 1998)
+            AND (d_year = 1992 OR d_year = 1993)
             AND (p_mfgr = 'MFGR#1'
             OR p_mfgr = 'MFGR#2')
             GROUP BY d_year, s_nation, p_category
@@ -446,14 +444,14 @@ suite("mv_ssb_test") {
             AND lo_orderdate = d_datekey
             AND c_region = 'AMERICA'
             AND s_region = 'AMERICA'
-            AND (d_year = 1997 OR d_year = 1998)
+            AND (d_year = 1992 OR d_year = 1993)
             AND (p_mfgr = 'MFGR#1'
             OR p_mfgr = 'MFGR#2')
             GROUP BY d_year, s_nation, p_category
             ORDER BY d_year, s_nation, p_category;
     """
     order_qt_query4_2before "${query4_2}"
-    check_mv_rewrite_success(db, mv4_2, query4_2, "mv4_2")
+    async_mv_rewrite_success(db, mv4_2, query4_2, "mv4_2")
     order_qt_query4_2_after "${query4_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_2"""
 
@@ -467,7 +465,7 @@ suite("mv_ssb_test") {
             AND lo_partkey = p_partkey
             AND lo_orderdate = d_datekey
             AND s_nation = 'UNITED STATES'
-            AND (d_year = 1997 OR d_year = 1998)
+            AND (d_year = 1992 OR d_year = 1993)
             AND p_category = 'MFGR#14'
             GROUP BY d_year, s_city, p_brand
             ORDER BY d_year, s_city, p_brand;
@@ -481,13 +479,13 @@ suite("mv_ssb_test") {
             AND lo_partkey = p_partkey
             AND lo_orderdate = d_datekey
             AND s_nation = 'UNITED STATES'
-            AND (d_year = 1997 OR d_year = 1998)
+            AND (d_year = 1992 OR d_year = 1993)
             AND p_category = 'MFGR#14'
             GROUP BY d_year, s_city, p_brand
             ORDER BY d_year, s_city, p_brand;
     """
     order_qt_query4_3before "${query4_3}"
-    check_mv_rewrite_success(db, mv4_3, query4_3, "mv4_3")
+    async_mv_rewrite_success(db, mv4_3, query4_3, "mv4_3")
     order_qt_query4_3_after "${query4_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv4_3"""
 }

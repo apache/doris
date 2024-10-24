@@ -17,7 +17,6 @@
 
 suite("test_ifnull") {
 	def tbName = "test_ifnull"
-	sql "set enable_nereids_planner=false"
 	sql "DROP TABLE IF EXISTS ${tbName};"
 	sql"""
 		CREATE TABLE IF NOT EXISTS ${tbName} (

@@ -48,9 +48,10 @@ public interface ExternalMetadataOps {
     /**
      *
      * @param stmt
+     * @return if set isExists is true, return true if table exists, otherwise return false
      * @throws UserException
      */
-    void createTable(CreateTableStmt stmt) throws UserException;
+    boolean createTable(CreateTableStmt stmt) throws UserException;
 
     /**
      *
@@ -58,6 +59,14 @@ public interface ExternalMetadataOps {
      * @throws DdlException
      */
     void dropTable(DropTableStmt stmt) throws DdlException;
+
+    /**
+     *
+     * @param dbName
+     * @param tblName
+     * @param partitions
+     */
+    void truncateTable(String dbName, String tblName, List<String> partitions) throws DdlException;
 
     /**
      *
@@ -79,4 +88,11 @@ public interface ExternalMetadataOps {
      * @return
      */
     boolean tableExist(String dbName, String tblName);
+
+    boolean databaseExist(String dbName);
+
+    /**
+     * close the connection, eg, to hms
+     */
+    void close();
 }

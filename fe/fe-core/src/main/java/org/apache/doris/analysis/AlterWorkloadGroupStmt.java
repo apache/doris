@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import java.util.Map;
 
-public class AlterWorkloadGroupStmt extends DdlStmt {
+public class AlterWorkloadGroupStmt extends DdlStmt implements NotFallbackInParser {
     private final String workloadGroupName;
     private final Map<String, String> properties;
 
@@ -65,5 +65,10 @@ public class AlterWorkloadGroupStmt extends DdlStmt {
         sb.append("ALTER RESOURCE GROUP '").append(workloadGroupName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

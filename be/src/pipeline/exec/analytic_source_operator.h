@@ -21,30 +21,13 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
-#include "vec/exec/vanalytic_eval_node.h"
 
 namespace doris {
-class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
-class AnalyticSourceOperatorBuilder final : public OperatorBuilder<vectorized::VAnalyticEvalNode> {
-public:
-    AnalyticSourceOperatorBuilder(int32_t, ExecNode*);
-
-    bool is_source() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class AnalyticSourceOperator final : public SourceOperator<vectorized::VAnalyticEvalNode> {
-public:
-    AnalyticSourceOperator(OperatorBuilderBase*, ExecNode*);
-
-    Status open(RuntimeState*) override { return Status::OK(); }
-};
+#include "common/compile_check_begin.h"
+enum AnalyticFnScope { PARTITION, RANGE, ROWS };
 
 class AnalyticSourceOperatorX;
 class AnalyticLocalState final : public PipelineXLocalState<AnalyticSharedState> {
@@ -53,13 +36,14 @@ public:
     AnalyticLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     void init_result_columns();
 
     Status output_current_block(vectorized::Block* block);
 
-    bool init_next_partition(vectorized::BlockRowPos found_partition_end);
+    bool init_next_partition(BlockRowPos found_partition_end);
 
 private:
     Status _get_next_for_rows(size_t rows);
@@ -82,11 +66,10 @@ private:
         }
         return need_more_input;
     }
-    vectorized::BlockRowPos _get_partition_by_end();
-    vectorized::BlockRowPos _compare_row_to_find_end(int idx, vectorized::BlockRowPos start,
-                                                     vectorized::BlockRowPos end,
-                                                     bool need_check_first = false);
-    bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
+    BlockRowPos _get_partition_by_end();
+    BlockRowPos _compare_row_to_find_end(int64_t idx, BlockRowPos start, BlockRowPos end,
+                                         bool need_check_first = false);
+    bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
     void _reset_agg_status();
     void _create_agg_status();
@@ -106,9 +89,9 @@ private:
     bool _agg_functions_created;
     bool _current_window_empty = false;
 
-    vectorized::BlockRowPos _order_by_start;
-    vectorized::BlockRowPos _order_by_end;
-    vectorized::BlockRowPos _partition_by_start;
+    BlockRowPos _order_by_start;
+    BlockRowPos _order_by_end;
+    BlockRowPos _partition_by_start;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
@@ -139,7 +122,6 @@ public:
     bool is_source() const override { return true; }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
 private:
@@ -157,7 +139,7 @@ private:
 
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
-    vectorized::AnalyticFnScope _fn_scope;
+    AnalyticFnScope _fn_scope;
 
     TupleDescriptor* _intermediate_tuple_desc = nullptr;
     TupleDescriptor* _output_tuple_desc = nullptr;
@@ -174,3 +156,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

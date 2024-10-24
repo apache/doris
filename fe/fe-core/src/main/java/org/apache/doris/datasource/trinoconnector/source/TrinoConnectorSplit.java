@@ -17,20 +17,34 @@
 
 package org.apache.doris.datasource.trinoconnector.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.TableFormatType;
 
+import com.google.common.collect.Maps;
+import io.trino.connector.ConnectorName;
+import io.trino.spi.HostAddress;
 import io.trino.spi.connector.ConnectorSplit;
-import org.apache.hadoop.fs.Path;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 public class TrinoConnectorSplit extends FileSplit {
+    private static final Logger LOG = LogManager.getLogger(TrinoConnectorSplit.class);
+    private static final LocationPath DUMMY_PATH = new LocationPath("/dummyPath", Maps.newHashMap());
     private ConnectorSplit connectorSplit;
     private TableFormatType tableFormatType;
+    private final ConnectorName connectorName;
 
-    public TrinoConnectorSplit(ConnectorSplit connectorSplit) {
-        super(new Path("dummyPath"), 0, 0, 0, null, null);
+    public TrinoConnectorSplit(ConnectorSplit connectorSplit, ConnectorName connectorName) {
+        super(DUMMY_PATH, 0, 0, 0, 0, null, null);
         this.connectorSplit = connectorSplit;
         this.tableFormatType = TableFormatType.TRINO_CONNECTOR;
+        this.connectorName = connectorName;
+        initSplitInfo();
     }
 
     public ConnectorSplit getSplit() {
@@ -49,4 +63,34 @@ public class TrinoConnectorSplit extends FileSplit {
         this.tableFormatType = tableFormatType;
     }
 
+    private void initSplitInfo() {
+        // set hosts
+        List<HostAddress> addresses = connectorSplit.getAddresses();
+        this.hosts = new String[addresses.size()];
+        for (int i = 0; i < addresses.size(); i++) {
+            hosts[i] = addresses.get(0).getHostText();
+        }
+
+        switch (connectorName.toString()) {
+            case "hive":
+                initHiveSplitInfo();
+                break;
+            default:
+                LOG.debug("Unknow connector name: " + connectorName);
+                return;
+        }
+    }
+
+    private void initHiveSplitInfo() {
+        Object info = connectorSplit.getInfo();
+        if (info instanceof Map) {
+            Map<String, Object> splitInfo = (Map<String, Object>) info;
+            path = new LocationPath((String) splitInfo.getOrDefault("path", "dummyPath"), Maps.newHashMap());
+            start = (long) splitInfo.getOrDefault("start", 0);
+            length = (long) splitInfo.getOrDefault("length", 0);
+            fileLength  = (long) splitInfo.getOrDefault("estimatedFileSize", 0);
+            partitionValues = new ArrayList<>();
+            partitionValues.add((String) splitInfo.getOrDefault("partitionName", ""));
+        }
+    }
 }

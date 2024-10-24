@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
@@ -32,6 +33,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
+import org.apache.doris.cloud.load.CleanCopyJobScheduler;
 import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.load.CloudRoutineLoadManager;
@@ -41,6 +43,7 @@ import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.BrokerLoadJob;
@@ -160,8 +163,9 @@ public class CloudEnvFactory extends EnvFactory {
     @Override
     public Coordinator createCoordinator(Long jobId, TUniqueId queryId, DescriptorTable descTable,
                                          List<PlanFragment> fragments, List<ScanNode> scanNodes,
-                                         String timezone, boolean loadZeroTolerance) {
-        return new CloudCoordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance);
+                                         String timezone, boolean loadZeroTolerance, boolean enableProfile) {
+        return new CloudCoordinator(jobId, queryId, descTable, fragments, scanNodes, timezone, loadZeroTolerance,
+                                enableProfile);
     }
 
     @Override
@@ -175,8 +179,12 @@ public class CloudEnvFactory extends EnvFactory {
         return new CloudRoutineLoadManager();
     }
 
-    @Override
-    public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler) {
-        return new CloudLoadManager(loadJobScheduler);
+    public LoadManager createLoadManager(LoadJobScheduler loadJobScheduler,
+                                        CleanCopyJobScheduler cleanCopyJobScheduler) {
+        return new CloudLoadManager(loadJobScheduler, cleanCopyJobScheduler);
+    }
+
+    public MasterDaemon createTabletStatMgr() {
+        return new CloudTabletStatMgr();
     }
 }

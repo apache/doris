@@ -17,38 +17,13 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <cstdint>
 
 #include "operator.h"
-#include "pipeline/pipeline_x/operator.h"
+#include "pipeline/common/partition_sort_utils.h"
 #include "vec/common/sort/partition_sorter.h"
-#include "vec/exec/vpartition_sort_node.h"
 
-namespace doris {
-class ExecNode;
-
-namespace pipeline {
-
-class PartitionSortSinkOperatorBuilder final
-        : public OperatorBuilder<vectorized::VPartitionSortNode> {
-public:
-    PartitionSortSinkOperatorBuilder(int32_t id, ExecNode* sort_node)
-            : OperatorBuilder(id, "PartitionSortSinkOperator", sort_node) {}
-
-    bool is_sink() const override { return true; }
-
-    OperatorPtr build_operator() override;
-};
-
-class PartitionSortSinkOperator final : public StreamingOperator<vectorized::VPartitionSortNode> {
-public:
-    PartitionSortSinkOperator(OperatorBuilderBase* operator_builder, ExecNode* sort_node)
-            : StreamingOperator(operator_builder, sort_node) {};
-
-    bool can_write() override { return true; }
-};
+namespace doris::pipeline {
 
 class PartitionSortSinkOperatorX;
 class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortNodeSharedState> {
@@ -56,7 +31,9 @@ class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSort
 
 public:
     PartitionSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<PartitionSortNodeSharedState>(parent, state) {}
+            : PipelineXSinkLocalState<PartitionSortNodeSharedState>(parent, state),
+              _partitioned_data(std::make_unique<PartitionedHashMapVariants>()),
+              _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -66,21 +43,27 @@ private:
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
-    int64_t child_input_rows = 0;
-    std::vector<vectorized::PartitionDataPtr> _value_places;
+    int64_t _sorted_partition_input_rows = 0;
+    std::vector<PartitionDataPtr> _value_places;
     int _num_partition = 0;
     std::vector<const vectorized::IColumn*> _partition_columns;
-    std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
+    std::unique_ptr<PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
-    std::shared_ptr<vectorized::PartitionSortInfo> _partition_sort_info = nullptr;
+    std::shared_ptr<PartitionSortInfo> _partition_sort_info = nullptr;
+    TPartTopNPhase::type _topn_phase;
+    bool _is_need_passthrough = false;
 
     RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _emplace_key_timer = nullptr;
     RuntimeProfile::Counter* _selector_block_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _passthrough_rows_counter = nullptr;
-    void _init_hash_method();
+    RuntimeProfile::Counter* _sorted_partition_input_rows_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
+    Status _init_hash_method();
+    bool check_whether_need_passthrough();
 };
 
 class PartitionSortSinkOperatorX final : public DataSinkOperatorX<PartitionSortSinkLocalState> {
@@ -94,7 +77,6 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
     DataDistribution required_data_distribution() const override {
@@ -124,9 +106,8 @@ private:
     Status _split_block_by_partition(vectorized::Block* input_block,
                                      PartitionSortSinkLocalState& local_state, bool eos);
     Status _emplace_into_hash_table(const vectorized::ColumnRawPtrs& key_columns,
-                                    const vectorized::Block* input_block,
+                                    vectorized::Block* input_block,
                                     PartitionSortSinkLocalState& local_state, bool eos);
 };
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

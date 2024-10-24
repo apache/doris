@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -57,8 +58,13 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
     }
 
     @Override
-    public boolean canApply(List<? extends Object> arguments) {
-        if (combinatorSuffix.equals(STATE) || combinatorSuffix.equals(FOREACH)) {
+    public Class<? extends BoundFunction> functionClass() {
+        return nestedBuilder.functionClass();
+    }
+
+    @Override
+    public boolean canApply(List<?> arguments) {
+        if (combinatorSuffix.equalsIgnoreCase(STATE) || combinatorSuffix.equalsIgnoreCase(FOREACH)) {
             return nestedBuilder.canApply(arguments);
         } else {
             if (arguments.size() != 1) {
@@ -74,7 +80,7 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
     }
 
     private AggregateFunction buildState(String nestedName, List<? extends Object> arguments) {
-        return (AggregateFunction) nestedBuilder.build(nestedName, arguments);
+        return (AggregateFunction) nestedBuilder.build(nestedName, arguments).first;
     }
 
     private AggregateFunction buildForEach(String nestedName, List<? extends Object> arguments) {
@@ -91,7 +97,7 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
             DataType itemType = ((ArrayType) arrayType).getItemType();
             return new SlotReference("mocked", itemType, (((ArrayType) arrayType).containsNull()));
         }).collect(Collectors.toList());
-        return (AggregateFunction) nestedBuilder.build(nestedName, forEachargs);
+        return (AggregateFunction) nestedBuilder.build(nestedName, forEachargs).first;
     }
 
     private AggregateFunction buildMergeOrUnion(String nestedName, List<? extends Object> arguments) {
@@ -113,24 +119,28 @@ public class AggCombinerFunctionBuilder extends FunctionBuilder {
         Expression arg = (Expression) arguments.get(0);
         AggStateType type = (AggStateType) arg.getDataType();
 
-        return (AggregateFunction) nestedBuilder.build(nestedName, type.getMockedExpressions());
+        return (AggregateFunction) nestedBuilder.build(nestedName, type.getMockedExpressions()).first;
     }
 
     @Override
-    public BoundFunction build(String name, List<? extends Object> arguments) {
+    public Pair<BoundFunction, AggregateFunction> build(String name, List<?> arguments) {
         String nestedName = getNestedName(name);
-        if (combinatorSuffix.equals(STATE)) {
+        if (combinatorSuffix.equalsIgnoreCase(STATE)) {
             AggregateFunction nestedFunction = buildState(nestedName, arguments);
-            return new StateCombinator((List<Expression>) arguments, nestedFunction);
-        } else if (combinatorSuffix.equals(MERGE)) {
+            // distinct will be passed as 1st boolean true arg. remove it
+            if (!arguments.isEmpty() && arguments.get(0) instanceof Boolean && (Boolean) arguments.get(0)) {
+                arguments = arguments.subList(1, arguments.size());
+            }
+            return Pair.of(new StateCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
+        } else if (combinatorSuffix.equalsIgnoreCase(MERGE)) {
             AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
-            return new MergeCombinator((List<Expression>) arguments, nestedFunction);
-        } else if (combinatorSuffix.equals(UNION)) {
+            return Pair.of(new MergeCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
+        } else if (combinatorSuffix.equalsIgnoreCase(UNION)) {
             AggregateFunction nestedFunction = buildMergeOrUnion(nestedName, arguments);
-            return new UnionCombinator((List<Expression>) arguments, nestedFunction);
-        } else if (combinatorSuffix.equals(FOREACH)) {
+            return Pair.of(new UnionCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
+        } else if (combinatorSuffix.equalsIgnoreCase(FOREACH)) {
             AggregateFunction nestedFunction = buildForEach(nestedName, arguments);
-            return new ForEachCombinator((List<Expression>) arguments, nestedFunction);
+            return Pair.of(new ForEachCombinator((List<Expression>) arguments, nestedFunction), nestedFunction);
         }
         return null;
     }

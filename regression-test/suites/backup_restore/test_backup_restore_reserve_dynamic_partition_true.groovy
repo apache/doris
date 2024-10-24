@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_backup_restore_dynamic_partition_reserve_true", "backup_restore") {
-    String repoName = "test_backup_restore_dynamic_partition_reserve_true_repo"
+    String repoName = "repo_" + UUID.randomUUID().toString().replace("-", "")
     String dbName = "backup_restore_dynamic_partition_reserve_true_db"
     String tableName = "dynamic_partition_reserve_true_table"
 
@@ -78,9 +78,7 @@ suite("test_backup_restore_dynamic_partition_reserve_true", "backup_restore") {
         ON (${tableName})
     """    
 
-    while (!syncer.checkSnapshotFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitSnapshotFinish(dbName)
     def snapshot = syncer.getSnapshotTimestamp(repoName, snapshotName)
     assertTrue(snapshot != null)
 
@@ -97,10 +95,7 @@ suite("test_backup_restore_dynamic_partition_reserve_true", "backup_restore") {
             "reserve_replica" = "true"
         )
     """
-    
-    while (!syncer.checkAllRestoreFinish(dbName)) {
-        Thread.sleep(3000)
-    }
+    syncer.waitAllRestoreFinish(dbName)
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), 20);
 

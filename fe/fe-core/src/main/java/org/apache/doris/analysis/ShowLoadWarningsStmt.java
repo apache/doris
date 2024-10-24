@@ -33,7 +33,7 @@ import java.net.MalformedURLException;
 import java.net.URL;
 
 // SHOW LOAD WARNINGS statement used to get error detail of src data.
-public class ShowLoadWarningsStmt extends ShowStmt {
+public class ShowLoadWarningsStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowLoadWarningsStmt.class);
 
     private static final ShowResultSetMetaData META_DATA =

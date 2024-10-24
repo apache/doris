@@ -56,7 +56,7 @@ public class ListPartitionDesc extends PartitionDesc {
 
     public static ListPartitionDesc createListPartitionDesc(ArrayList<Expr> exprs,
             List<AllPartitionDesc> allPartitionDescs) throws AnalysisException {
-        List<String> colNames = getColNamesFromExpr(exprs, true);
+        List<String> colNames = getColNamesFromExpr(exprs, true, true);
         return new ListPartitionDesc(exprs, colNames, allPartitionDescs);
     }
 

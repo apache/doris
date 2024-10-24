@@ -30,14 +30,16 @@ import java.util.Optional;
 import java.util.Set;
 
 public class MTMVPropertyUtil {
-    public static final Set<String> mvPropertyKeys = Sets.newHashSet(
+    public static final Set<String> MV_PROPERTY_KEYS = Sets.newHashSet(
             PropertyAnalyzer.PROPERTIES_GRACE_PERIOD,
             PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES,
             PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM,
             PropertyAnalyzer.PROPERTIES_WORKLOAD_GROUP,
             PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT,
             PropertyAnalyzer.PROPERTIES_PARTITION_TIME_UNIT,
-            PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT
+            PropertyAnalyzer.PROPERTIES_PARTITION_DATE_FORMAT,
+            PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION,
+            PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE
     );
 
     public static void analyzeProperty(String key, String value) {
@@ -62,6 +64,12 @@ public class MTMVPropertyUtil {
                 break;
             case PropertyAnalyzer.PROPERTIES_PARTITION_SYNC_LIMIT:
                 analyzePartitionSyncLimit(value);
+                break;
+            case PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION:
+                analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_ENABLE_NONDETERMINISTIC_FUNCTION);
+                break;
+            case PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE:
+                analyzeBooleanProperty(value, PropertyAnalyzer.PROPERTIES_USE_FOR_REWRITE);
                 break;
             default:
                 throw new AnalysisException("illegal key:" + key);
@@ -135,4 +143,12 @@ public class MTMVPropertyUtil {
         }
     }
 
+    private static void analyzeBooleanProperty(String propertyValue, String propertyName) {
+        if (StringUtils.isEmpty(propertyValue)) {
+            return;
+        }
+        if (!"true".equalsIgnoreCase(propertyValue) && !"false".equalsIgnoreCase(propertyValue)) {
+            throw new AnalysisException(String.format("valid property %s fail", propertyName));
+        }
+    }
 }

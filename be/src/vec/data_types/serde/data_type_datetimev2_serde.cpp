@@ -20,7 +20,6 @@
 #include <arrow/builder.h>
 
 #include <chrono> // IWYU pragma: keep
-#include <type_traits>
 
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
@@ -32,10 +31,7 @@ enum {
     DIVISOR_FOR_NANO = 1000000000
 };
 
-namespace doris {
-namespace vectorized {
-static const int64_t timestamp_threshold = -2177481943;
-static const int64_t timestamp_diff = 343;
+namespace doris::vectorized {
 static const int64_t micr_to_nano_second = 1000;
 
 Status DataTypeDateTimeV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
@@ -51,14 +47,17 @@ Status DataTypeDateTimeV2SerDe::serialize_one_cell_to_json(const IColumn& column
     ColumnPtr ptr = result.first;
     row_num = result.second;
 
-    UInt64 int_val = assert_cast<const ColumnUInt64&>(*ptr).get_element(row_num);
+    UInt64 int_val =
+            assert_cast<const ColumnUInt64&, TypeCheckOnRelease::DISABLE>(*ptr).get_element(
+                    row_num);
     DateV2Value<DateTimeV2ValueType> val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(int_val);
 
     if (options.date_olap_format) {
         std::string format = "%Y-%m-%d %H:%i:%s.%f";
-        char buf[30];
-        val.to_format_string(format.c_str(), format.size(), buf);
+        char buf[30 + SAFE_FORMAT_STRING_MARGIN];
+        val.to_format_string_conservative(format.c_str(), format.size(), buf,
+                                          30 + SAFE_FORMAT_STRING_MARGIN);
         std::string s = std::string(buf);
         bw.write(s.c_str(), s.length());
     } else {
@@ -77,7 +76,7 @@ Status DataTypeDateTimeV2SerDe::deserialize_column_from_json_vector(
 }
 Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                                const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnUInt64&>(column);
+    auto& column_data = assert_cast<ColumnUInt64&, TypeCheckOnRelease::DISABLE>(column);
     UInt64 val = 0;
     if (options.date_olap_format) {
         DateV2Value<DateTimeV2ValueType> datetimev2_value;
@@ -100,19 +99,27 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
 
 void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                     arrow::ArrayBuilder* array_builder, int start,
-                                                    int end) const {
-    auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
-    auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+                                                    int end, const cctz::time_zone& ctz) const {
+    const auto& col_data = static_cast<const ColumnVector<UInt64>&>(column).get_data();
+    auto& timestamp_builder = assert_cast<arrow::TimestampBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
-        char buf[64];
-        const DateV2Value<DateTimeV2ValueType>* time_val =
-                (const DateV2Value<DateTimeV2ValueType>*)(&col_data[i]);
-        int len = time_val->to_buffer(buf);
         if (null_map && (*null_map)[i]) {
-            checkArrowStatus(string_builder.AppendNull(), column.get_name(),
+            checkArrowStatus(timestamp_builder.AppendNull(), column.get_name(),
                              array_builder->type()->name());
         } else {
-            checkArrowStatus(string_builder.Append(buf, len), column.get_name(),
+            int64_t timestamp = 0;
+            DateV2Value<DateTimeV2ValueType> datetime_val =
+                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[i]);
+            datetime_val.unix_timestamp(&timestamp, ctz);
+
+            if (scale > 3) {
+                uint32_t microsecond = datetime_val.microsecond();
+                timestamp = (timestamp * 1000000) + microsecond;
+            } else if (scale > 0) {
+                uint32_t millisecond = datetime_val.microsecond() / 1000;
+                timestamp = (timestamp * 1000) + millisecond;
+            }
+            checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
                              array_builder->type()->name());
         }
     }
@@ -121,10 +128,10 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
 void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int start,
                                                      int end, const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
+    auto& col_data = static_cast<ColumnDateTimeV2&>(column).get_data();
     int64_t divisor = 1;
     if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
-        auto concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
+        const auto* concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
         const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
         switch (type->unit()) {
         case arrow::TimeUnit::type::SECOND: {
@@ -167,25 +174,24 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
 template <bool is_binary_format>
 Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
                                                        MysqlRowBuffer<is_binary_format>& result,
-                                                       int row_idx, bool col_const) const {
-    auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
+                                                       int row_idx, bool col_const,
+                                                       const FormatOptions& options) const {
+    const auto& data = assert_cast<const ColumnVector<UInt64>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
-    char buf[64];
     DateV2Value<DateTimeV2ValueType> date_val =
             binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(data[col_index]);
-    char* pos = date_val.to_string(buf, scale);
     // _nesting_level >= 2 means this datetimev2 is in complex type
     // and we should add double quotes
-    if (_nesting_level >= 2) {
-        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+    if (_nesting_level >= 2 && options.wrapper_len > 0) {
+        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
-    if (UNLIKELY(0 != result.push_string(buf, pos - buf - 1))) {
+    if (UNLIKELY(0 != result.push_vec_datetime(date_val, scale))) {
         return Status::InternalError("pack mysql buffer failed.");
     }
-    if (_nesting_level >= 2) {
-        if (UNLIKELY(0 != result.push_string("\"", 1))) {
+    if (_nesting_level >= 2 && options.wrapper_len > 0) {
+        if (UNLIKELY(0 != result.push_string(options.nested_string_wrapper, options.wrapper_len))) {
             return Status::InternalError("pack mysql buffer failed.");
         }
     }
@@ -194,14 +200,16 @@ Status DataTypeDateTimeV2SerDe::_write_column_to_mysql(const IColumn& column,
 
 Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
                                                       MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                      bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                      bool col_const,
+                                                      const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeDateTimeV2SerDe::write_column_to_mysql(const IColumn& column,
                                                       MysqlRowBuffer<false>& row_buffer,
-                                                      int row_idx, bool col_const) const {
-    return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+                                                      int row_idx, bool col_const,
+                                                      const FormatOptions& options) const {
+    return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
@@ -224,14 +232,6 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
             return Status::InternalError("get unix timestamp error.");
         }
 
-        // -2177481943 represent '1900-12-31 23:54:17'
-        // but -2177481944 represent '1900-12-31 23:59:59'
-        // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
-        // Reference: https://www.timeanddate.com/time/change/china/shanghai?year=1900
-        if (timezone == TimezoneUtils::default_time_zone && timestamp < timestamp_threshold) {
-            timestamp -= timestamp_diff;
-        }
-
         cur_batch->data[row_id] = timestamp;
         cur_batch->nanoseconds[row_id] = datetime_val.microsecond() * micr_to_nano_second;
     }
@@ -239,5 +239,31 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
-} // namespace vectorized
-} // namespace doris
+Status DataTypeDateTimeV2SerDe::deserialize_column_from_fixed_json(
+        IColumn& column, Slice& slice, int rows, int* num_deserialized,
+        const FormatOptions& options) const {
+    if (rows < 1) [[unlikely]] {
+        return Status::OK();
+    }
+    Status st = deserialize_one_cell_from_json(column, slice, options);
+    if (!st.ok()) {
+        return st;
+    }
+
+    DataTypeDateTimeV2SerDe::insert_column_last_value_multiple_times(column, rows - 1);
+    *num_deserialized = rows;
+    return Status::OK();
+}
+
+void DataTypeDateTimeV2SerDe::insert_column_last_value_multiple_times(IColumn& column,
+                                                                      int times) const {
+    if (times < 1) [[unlikely]] {
+        return;
+    }
+    auto& col = static_cast<ColumnVector<UInt64>&>(column);
+    auto sz = col.size();
+    UInt64 val = col.get_element(sz - 1);
+    col.insert_many_vals(val, times);
+}
+
+} // namespace doris::vectorized

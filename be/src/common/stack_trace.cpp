@@ -439,7 +439,8 @@ static StackTraceCache& cacheInstance() {
 
 static std::mutex stacktrace_cache_mutex;
 
-std::string toStringCached(const StackTrace::FramePointers& pointers, size_t offset, size_t size) {
+std::string toStringCached(const StackTrace::FramePointers& pointers, size_t offset, size_t size,
+                           const std::string& dwarf_location_info_mode) {
     /// Calculation of stack trace text is extremely slow.
     /// We use simple cache because otherwise the server could be overloaded by trash queries.
     /// Note that this cache can grow unconditionally, but practically it should be small.
@@ -452,29 +453,32 @@ std::string toStringCached(const StackTrace::FramePointers& pointers, size_t off
         return it->second;
     } else {
         std::stringstream out;
-        toStringEveryLineImpl(doris::config::dwarf_location_info_mode, key,
+        toStringEveryLineImpl(dwarf_location_info_mode, key,
                               [&](std::string_view str) { out << str << '\n'; });
 
         return cache.emplace(StackTraceTriple {pointers, offset, size}, out.str()).first->second;
     }
 }
 
-std::string StackTrace::toString(int start_pointers_index) const {
+std::string StackTrace::toString(int start_pointers_index,
+                                 const std::string& dwarf_location_info_mode) const {
     // Default delete the first three frame pointers, which are inside the stack_trace.cpp.
     start_pointers_index += 3;
     StackTrace::FramePointers frame_pointers_raw {};
     std::copy(frame_pointers.begin() + start_pointers_index, frame_pointers.end(),
               frame_pointers_raw.begin());
-    return toStringCached(frame_pointers_raw, offset, size - start_pointers_index);
+    return toStringCached(frame_pointers_raw, offset, size - start_pointers_index,
+                          dwarf_location_info_mode);
 }
 
-std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_t size) {
+std::string StackTrace::toString(void** frame_pointers_raw, size_t offset, size_t size,
+                                 const std::string& dwarf_location_info_mode) {
     __msan_unpoison(frame_pointers_raw, size * sizeof(*frame_pointers_raw));
 
     StackTrace::FramePointers frame_pointers {};
     std::copy_n(frame_pointers_raw, size, frame_pointers.begin());
 
-    return toStringCached(frame_pointers, offset, size);
+    return toStringCached(frame_pointers, offset, size, dwarf_location_info_mode);
 }
 
 void StackTrace::createCache() {

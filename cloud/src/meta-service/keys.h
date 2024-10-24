@@ -26,46 +26,50 @@
 // clang-format off
 // Key encoding schemes:
 //
-// 0x01 "instance" ${instance_id}                                                            -> InstanceInfoPB
+// 0x01 "instance" ${instance_id}                                               -> InstanceInfoPB
 //
-// 0x01 "txn" ${instance_id} "txn_label" ${db_id} ${label}                                   -> TxnLabelPB ${version_timestamp}
-// 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}                                   -> TxnInfoPB
-// 0x01 "txn" ${instance_id} "txn_db_tbl" ${txn_id}                                          -> TxnIndexPB
-// 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${txn_id}                                -> TxnRunningPB
+// 0x01 "txn" ${instance_id} "txn_label" ${db_id} ${label}                      -> TxnLabelPB ${version_timestamp}
+// 0x01 "txn" ${instance_id} "txn_info" ${db_id} ${txn_id}                      -> TxnInfoPB
+// 0x01 "txn" ${instance_id} "txn_db_tbl" ${txn_id}                             -> TxnIndexPB
+// 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${txn_id}                   -> TxnRunningPB
 //
-// 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id}              -> VersionPB
+// 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id} -> VersionPB
+// 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}                     -> int64
 //
-// 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version}                               -> RowsetMetaCloudPB
-// 0x01 "meta" ${instance_id} "rowset_tmp" ${txn_id} ${tablet_id}                            -> RowsetMetaCloudPB
-// 0x01 "meta" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}  -> TabletMetaCloudPB
-// 0x01 "meta" ${instance_id} "tablet_index" ${tablet_id}                                    -> TabletIndexPB
-// 0x01 "meta" ${instance_id} "schema" ${index_id} ${schema_version}                         -> TabletSchemaCloudPB
-// 0x01 "meta" ${instance_id} "delete_bitmap_lock" ${table_id} ${partition_id}               -> DeleteBitmapUpdateLockPB
-// 0x01 "meta" ${instance_id} "delete_bitmap_pending" ${table_id}                            -> PendingDeleteBitmapPB 
+// 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version}                                   -> RowsetMetaCloudPB
+// 0x01 "meta" ${instance_id} "rowset_tmp" ${txn_id} ${tablet_id}                                -> RowsetMetaCloudPB
+// 0x01 "meta" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}      -> TabletMetaCloudPB
+// 0x01 "meta" ${instance_id} "tablet_index" ${tablet_id}                                        -> TabletIndexPB
+// 0x01 "meta" ${instance_id} "schema" ${index_id} ${schema_version}                             -> TabletSchemaCloudPB
+// 0x01 "meta" ${instance_id} "delete_bitmap_lock" ${table_id} ${partition_id}                   -> DeleteBitmapUpdateLockPB
+// 0x01 "meta" ${instance_id} "delete_bitmap_pending" ${table_id}                                -> PendingDeleteBitmapPB 
 // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
+// 0x01 "meta" ${instance_id} "tablet_schema_pb_dict" ${index_id}                                -> SchemaCloudDictionary
 //
-// 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletStatsPB
+// 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}               -> TabletStatsPB
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"   -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_rows"    -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_rowsets" -> int64
 // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_segs"    -> int64
 //
-// 0x01 "recycle" ${instance_id} "index" ${index_id}                                         -> RecycleIndexPB
-// 0x01 "recycle" ${instance_id} "partition" ${partition_id}                                 -> RecyclePartitionPB
-// 0x01 "recycle" ${instance_id} "rowset" ${tablet_id} ${rowset_id}                          -> RecycleRowsetPB
-// 0x01 "recycle" ${instance_id} "txn" ${db_id} ${txn_id}                                    -> RecycleTxnPB
-// 0x01 "recycle" ${instance_id} "stage" ${stage_id}                                         -> RecycleStagePB
+// 0x01 "recycle" ${instance_id} "index" ${index_id}                                       -> RecycleIndexPB
+// 0x01 "recycle" ${instance_id} "partition" ${partition_id}                               -> RecyclePartitionPB
+// 0x01 "recycle" ${instance_id} "rowset" ${tablet_id} ${rowset_id}                        -> RecycleRowsetPB
+// 0x01 "recycle" ${instance_id} "txn" ${db_id} ${txn_id}                                  -> RecycleTxnPB
+// 0x01 "recycle" ${instance_id} "stage" ${stage_id}                                       -> RecycleStagePB
 //
-// 0x01 "job" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}   -> TabletJobInfoPB
-// 0x01 "job" ${instance_id} "recycle"                                                       -> JobRecyclePB
-// 0x01 "job" ${instance_id} "check"                                                         -> JobRecyclePB
+// 0x01 "job" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} -> TabletJobInfoPB
+// 0x01 "job" ${instance_id} "recycle"                                                     -> JobRecyclePB
+// 0x01 "job" ${instance_id} "check"                                                       -> JobRecyclePB
 //
-// 0x02 "system" "meta-service" "registry"                                                   -> MetaServiceRegistryPB
-// 0x02 "system" "meta-service" "arn_info"                                                   -> RamUserPB
-// 0x02 "system" "meta-service" "encryption_key_info"                                        -> EncryptionKeyInfoPB
+// 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}         -> CopyJobPB
+// 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}   -> CopyFilePB
 //
-// 0x01 "copy" ${instance_id} "job" ${stage_id} ${table_id} ${copy_id} ${group_id}           -> CopyJobPB
-// 0x01 "copy" ${instance_id} "loading_file" ${stage_id} ${table_id} ${obj_name} ${etag}    -> CopyFilePB
+// 0x01 "storage_vault" ${instance_id} "vault" ${resource_id}                              -> StorageVaultPB
+//
+// 0x02 "system" "meta-service" "registry"                                                 -> MetaServiceRegistryPB
+// 0x02 "system" "meta-service" "arn_info"                                                 -> RamUserPB
+// 0x02 "system" "meta-service" "encryption_key_info"                                      -> EncryptionKeyInfoPB
 // clang-format on
 
 namespace doris::cloud {
@@ -115,7 +119,7 @@ using TxnIndexKeyInfo      = BasicKeyInfo<3 , std::tuple<std::string,  int64_t>>
 using TxnRunningKeyInfo    = BasicKeyInfo<5 , std::tuple<std::string,  int64_t, int64_t>>;
 
 //                                                      0:instance_id  1:db_id  2:tbl_id  3:partition_id
-using VersionKeyInfo       = BasicKeyInfo<6 , std::tuple<std::string,  int64_t, int64_t,  int64_t>>;
+using PartitionVersionKeyInfo     = BasicKeyInfo<6 , std::tuple<std::string,  int64_t, int64_t,  int64_t>>;
 
 //                                                      0:instance_id  1:tablet_id  2:version
 using MetaRowsetKeyInfo    = BasicKeyInfo<7 , std::tuple<std::string,  int64_t,     int64_t>>;
@@ -162,9 +166,6 @@ using JobRecycleKeyInfo    = BasicKeyInfo<20 , std::tuple<std::string>>;
 //                                                      0:instance_id  1:index_id  2:schema_version
 using MetaSchemaKeyInfo    = BasicKeyInfo<21, std::tuple<std::string,  int64_t,    int64_t>>;
 
-//                                                      0:instance_id  1:tablet_id       2:rowset_id
-using MetaRowsetSchemaKeyInfo    = BasicKeyInfo<21, std::tuple<std::string,  int64_t,    std::string>>;
-
 //                                                      0:instance_id  1:tablet_id  2:rowest_id  3:version  4:seg_id 
 using MetaDeleteBitmapInfo = BasicKeyInfo<22 , std::tuple<std::string, int64_t,     std::string, int64_t, int64_t>>;
 
@@ -180,6 +181,12 @@ using RLJobProgressKeyInfo = BasicKeyInfo<25, std::tuple<std::string, int64_t, i
 
 //                                                      0:instance_id 1:vault_id
 using StorageVaultKeyInfo = BasicKeyInfo<26, std::tuple<std::string, std::string>>;
+
+//                                                      0:instance_id 1:db_id 2:table_id
+using TableVersionKeyInfo = BasicKeyInfo<27, std::tuple<std::string, int64_t, int64_t>>;
+//                                                      0:instance_id  1:index_id
+using MetaSchemaPBDictionaryInfo = BasicKeyInfo<28 , std::tuple<std::string,  int64_t>>;
+
 
 void instance_key(const InstanceKeyInfo& in, std::string* out);
 static inline std::string instance_key(const InstanceKeyInfo& in) { std::string s; instance_key(in, &s); return s; }
@@ -197,8 +204,11 @@ static inline std::string txn_info_key(const TxnInfoKeyInfo& in) { std::string s
 static inline std::string txn_index_key(const TxnIndexKeyInfo& in) { std::string s; txn_index_key(in, &s); return s; }
 static inline std::string txn_running_key(const TxnRunningKeyInfo& in) { std::string s; txn_running_key(in, &s); return s; }
 
-void version_key(const VersionKeyInfo& in, std::string* out);
-static inline std::string version_key(const VersionKeyInfo& in) { std::string s; version_key(in, &s); return s; }
+std::string version_key_prefix(std::string_view instance_id);
+void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
+static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }
+void table_version_key(const TableVersionKeyInfo& in, std::string* out);
+static inline std::string table_version_key(const TableVersionKeyInfo& in) { std::string s; table_version_key(in, &s); return s; }
 
 std::string meta_key_prefix(std::string_view instance_id);
 void meta_rowset_key(const MetaRowsetKeyInfo& in, std::string* out);
@@ -206,19 +216,19 @@ void meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in, std::string* out);
 void meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in, std::string* out);
 void meta_tablet_key(const MetaTabletKeyInfo& in, std::string* out);
 void meta_schema_key(const MetaSchemaKeyInfo& in, std::string* out);
-void meta_rowset_schema_key(const MetaRowsetSchemaKeyInfo& in, std::string* out);
 void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out);
 void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in, std::string* out);
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out);
+void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out);
 static inline std::string meta_rowset_key(const MetaRowsetKeyInfo& in) { std::string s; meta_rowset_key(in, &s); return s; }
 static inline std::string meta_rowset_tmp_key(const MetaRowsetTmpKeyInfo& in) { std::string s; meta_rowset_tmp_key(in, &s); return s; }
 static inline std::string meta_tablet_idx_key(const MetaTabletIdxKeyInfo& in) { std::string s; meta_tablet_idx_key(in, &s); return s; }
 static inline std::string meta_tablet_key(const MetaTabletKeyInfo& in) { std::string s; meta_tablet_key(in, &s); return s; }
 static inline std::string meta_schema_key(const MetaSchemaKeyInfo& in) { std::string s; meta_schema_key(in, &s); return s; }
-static inline std::string meta_rowset_schema_key(const MetaRowsetSchemaKeyInfo& in) { std::string s; meta_rowset_schema_key(in, &s); return s; }
 static inline std::string meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in) { std::string s; meta_delete_bitmap_key(in, &s); return s; }
 static inline std::string meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in) { std::string s; meta_delete_bitmap_update_lock_key(in, &s); return s; }
 static inline std::string meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in) { std::string s; meta_pending_delete_bitmap_key(in, &s); return s; }
+static inline std::string meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in) { std::string s; meta_schema_pb_dictionary_key(in, &s); return s; }
 
 std::string recycle_key_prefix(std::string_view instance_id);
 void recycle_index_key(const RecycleIndexKeyInfo& in, std::string* out);

@@ -83,10 +83,10 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
-          _file_system(nullptr),
           _file_reader(nullptr),
           _line_reader(nullptr),
           _reader_eof(false),
+          _decompressor(nullptr),
           _skip_first_line(false),
           _next_row(0),
           _total_rows(0),
@@ -99,6 +99,12 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
+    if (_range.__isset.compress_type) {
+        // for compatibility
+        _file_compress_type = _range.compress_type;
+    } else {
+        _file_compress_type = _params.compress_type;
+    }
     _init_system_properties();
     _init_file_description();
 }
@@ -115,6 +121,7 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _file_slot_descs(file_slot_descs),
           _line_reader(nullptr),
           _reader_eof(false),
+          _decompressor(nullptr),
           _skip_first_line(false),
           _next_row(0),
           _total_rows(0),
@@ -122,6 +129,12 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _io_ctx(io_ctx) {
+    if (_range.__isset.compress_type) {
+        // for compatibility
+        _file_compress_type = _range.compress_type;
+    } else {
+        _file_compress_type = _params.compress_type;
+    }
     _init_system_properties();
     _init_file_description();
 }
@@ -155,6 +168,10 @@ Status NewJsonReader::init_reader(
     // generate _col_default_value_map
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, col_default_value_ctx));
 
+    // create decompressor.
+    // _decompressor may be nullptr if this is not a compressed file
+    RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
+
 #ifdef __AVX2__
     if (config::enable_simdjson_reader) {
         RETURN_IF_ERROR(_simdjson_init_reader());
@@ -184,6 +201,9 @@ Status NewJsonReader::init_reader(
     }
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
+        if (_file_slot_descs[i]->is_skip_bitmap_col()) {
+            skip_bitmap_col_idx = i;
+        }
     }
     return Status::OK();
 }
@@ -384,9 +404,9 @@ Status NewJsonReader::_open_file_reader(bool need_schema) {
         _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        RETURN_IF_ERROR(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options, &_file_system,
-                &_file_reader, io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
+        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                _profile, _system_properties, _file_description, reader_options,
+                io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                 io::PrefetchRange(_range.start_offset, _range.size)));
     }
     return Status::OK();
@@ -402,9 +422,10 @@ Status NewJsonReader::_open_line_reader() {
         _skip_first_line = false;
     }
     _line_reader = NewPlainTextLineReader::create_unique(
-            _profile, _file_reader, nullptr,
-            std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length), size,
-            _current_offset);
+            _profile, _file_reader, _decompressor.get(),
+            std::make_shared<PlainTextLineReaderCtx>(_line_delimiter, _line_delimiter_length,
+                                                     false),
+            size, _current_offset);
     return Status::OK();
 }
 
@@ -479,7 +500,9 @@ Status NewJsonReader::_vhandle_simple_json(RuntimeState* /*state*/, Block& block
                 objectValue = _json_doc;
             }
             _next_row = 0;
-            if (_fuzzy_parse) {
+            // Here we expect the incoming `objectValue` to be a Json Object, such as {"key" : "value"}
+            // If a Json Array comes here, it maybe crashed in it->name.GetString()
+            if (_fuzzy_parse && objectValue->IsObject()) {
                 for (auto* v : slot_descs) {
                     for (int i = 0; i < objectValue->MemberCount(); ++i) {
                         auto it = objectValue->MemberBegin() + i;
@@ -727,8 +750,17 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 
     int ctx_idx = 0;
     bool has_valid_value = false;
+    size_t cur_row_count = block.rows();
+
+    if (_should_process_skip_bitmap_col()) {
+        _append_empty_skip_bitmap_value(block, cur_row_count);
+    }
+
     for (auto* slot_desc : slot_descs) {
         if (!slot_desc->is_materialized()) {
+            continue;
+        }
+        if (slot_desc->is_skip_bitmap_col()) {
             continue;
         }
 
@@ -754,10 +786,33 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
             }
             has_valid_value = true;
         } else {
-            // not found, filling with default value
-            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
-            if (!(*valid)) {
-                return Status::OK();
+            if (_should_process_skip_bitmap_col()) {
+                // not found, skip this column in flexible partial update
+                if (slot_desc->is_key() && !slot_desc->is_auto_increment()) {
+                    RETURN_IF_ERROR(
+                            _append_error_msg(objectValue,
+                                              "The key columns can not be ommited in flexible "
+                                              "partial update, missing key column: {}",
+                                              slot_desc->col_name(), valid));
+                    // remove this line in block
+                    for (int i = 0; i < block.columns(); ++i) {
+                        auto column = block.get_by_position(i).column->assume_mutable();
+                        if (column->size() != cur_row_count) {
+                            DCHECK(column->size() == cur_row_count + 1);
+                            column->pop_back(1);
+                            DCHECK(column->size() == cur_row_count);
+                        }
+                    }
+                    return Status::OK();
+                }
+                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
+                column_ptr->insert_default();
+            } else {
+                // not found, filling with default value
+                RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+                if (!(*valid)) {
+                    return Status::OK();
+                }
             }
         }
     }
@@ -1004,6 +1059,9 @@ Status NewJsonReader::_simdjson_init_reader() {
     _ondemand_json_parser = std::make_unique<simdjson::ondemand::parser>();
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
+        if (_file_slot_descs[i]->is_skip_bitmap_col()) {
+            skip_bitmap_col_idx = i;
+        }
     }
     _simdjson_ondemand_padding_buffer.resize(_padded_size);
     _simdjson_ondemand_unscape_padding_buffer.resize(_padded_size);
@@ -1053,7 +1111,7 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
             return Status::OK();
         }
         RETURN_IF_ERROR(st);
-        if (*is_empty_row) {
+        if (*is_empty_row || *eof) {
             return Status::OK();
         }
 
@@ -1195,7 +1253,7 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json_write_columns(
         while (true) {
             cur = (*_array_iter).get_object();
             // extract root
-            if (!_parsed_json_root.empty()) {
+            if (!_parsed_from_json_root && !_parsed_json_root.empty()) {
                 simdjson::ondemand::value val;
                 Status st = JsonFunctions::extract_from_object(cur, _parsed_json_root, &val);
                 if (UNLIKELY(!st.ok())) {
@@ -1329,6 +1387,12 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             // This key is not exist in slot desc, just ignore
             continue;
         }
+        if (_seen_columns[column_index]) {
+            continue;
+        }
+        if (column_index == skip_bitmap_col_idx) {
+            continue;
+        }
         simdjson::ondemand::value val = field.value();
         auto* column_ptr = block.get_by_position(column_index).column->assume_mutable().get();
         RETURN_IF_ERROR(
@@ -1353,28 +1417,61 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         return Status::OK();
     }
 
+    if (_should_process_skip_bitmap_col()) {
+        _append_empty_skip_bitmap_value(block, cur_row_count);
+    }
+
     // fill missing slot
     int nullcount = 0;
     for (size_t i = 0; i < slot_descs.size(); ++i) {
         if (_seen_columns[i]) {
             continue;
         }
+        if (i == skip_bitmap_col_idx) {
+            continue;
+        }
+
         auto* slot_desc = slot_descs[i];
+        auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
+
         // Quick path to insert default value, instead of using default values in the value map.
-        if (_col_default_value_map.empty() ||
-            _col_default_value_map.find(slot_desc->col_name()) == _col_default_value_map.end()) {
-            block.get_by_position(i).column->assume_mutable()->insert_default();
+        if (!_should_process_skip_bitmap_col() &&
+            (_col_default_value_map.empty() ||
+             _col_default_value_map.find(slot_desc->col_name()) == _col_default_value_map.end())) {
+            column_ptr->insert_default();
             continue;
         }
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        auto* column_ptr = block.get_by_position(i).column->assume_mutable().get();
         if (column_ptr->size() < cur_row_count + 1) {
             DCHECK(column_ptr->size() == cur_row_count);
-            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
-            if (!(*valid)) {
-                return Status::OK();
+            if (_should_process_skip_bitmap_col()) {
+                // not found, skip this column in flexible partial update
+                if (slot_desc->is_key() && !slot_desc->is_auto_increment()) {
+                    RETURN_IF_ERROR(
+                            _append_error_msg(value,
+                                              "The key columns can not be ommited in flexible "
+                                              "partial update, missing key column: {}",
+                                              slot_desc->col_name(), valid));
+                    // remove this line in block
+                    for (int i = 0; i < block.columns(); ++i) {
+                        auto column = block.get_by_position(i).column->assume_mutable();
+                        if (column->size() != cur_row_count) {
+                            DCHECK(column->size() == cur_row_count + 1);
+                            column->pop_back(1);
+                            DCHECK(column->size() == cur_row_count);
+                        }
+                    }
+                    return Status::OK();
+                }
+                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
+                column_ptr->insert_default();
+            } else {
+                RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+                if (!(*valid)) {
+                    return Status::OK();
+                }
             }
             ++nullcount;
         }
@@ -1588,6 +1685,7 @@ Status NewJsonReader::_get_json_value(size_t* size, bool* eof, simdjson::error_c
                 fmt::format_to(error_msg, "{}", st.to_string());
                 return return_quality_error(error_msg, std::string((char*)_json_str, *size));
             }
+            _parsed_from_json_root = true;
         } catch (simdjson::simdjson_error& e) {
             fmt::memory_buffer error_msg;
             fmt::format_to(error_msg, "Encounter error while extract_from_object, error: {}",
@@ -1634,7 +1732,19 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
                 return st;
             }
         }
-        if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
+        if (i < _parsed_jsonpaths.size() && JsonFunctions::is_root_path(_parsed_jsonpaths[i])) {
+            // Indicate that the jsonpath is "$.", read the full root json object, insert the original doc directly
+            ColumnNullable* nullable_column = nullptr;
+            IColumn* target_column_ptr = nullptr;
+            if (slot_desc->is_nullable()) {
+                nullable_column = assert_cast<ColumnNullable*>(column_ptr);
+                target_column_ptr = &nullable_column->get_nested_column();
+            }
+            auto* column_string = assert_cast<ColumnString*>(target_column_ptr);
+            column_string->insert_data(_simdjson_ondemand_padding_buffer.data(),
+                                       _original_doc_size);
+            has_valid_value = true;
+        } else if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
             // not match in jsondata, filling with default value
             RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
             if (!(*valid)) {
@@ -1721,6 +1831,36 @@ Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, IColumn* c
 
     *valid = true;
     return Status::OK();
+}
+
+void NewJsonReader::_append_empty_skip_bitmap_value(Block& block, size_t cur_row_count) {
+    auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
+            block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
+    auto* skip_bitmap_col_ptr =
+            assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
+    DCHECK(skip_bitmap_nullable_col_ptr->size() == cur_row_count);
+    // should append an empty bitmap for every row wheather this line misses columns
+    skip_bitmap_nullable_col_ptr->get_null_map_data().push_back(0);
+    skip_bitmap_col_ptr->insert_default();
+    DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
+}
+
+void NewJsonReader::_process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr,
+                                              Block& block, size_t cur_row_count, bool* valid) {
+    // we record the missing column's column unique id in skip bitmap
+    // to indicate which columns need to do the alignment process
+    auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
+            block.get_by_position(skip_bitmap_col_idx).column->assume_mutable().get());
+    auto* skip_bitmap_col_ptr =
+            assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
+    DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
+    auto& skip_bitmap = skip_bitmap_col_ptr->get_data().back();
+    if (!slot_desc->is_auto_increment()) {
+        // For auto-increment column, it will always have a valid value when in SegmentWriter.
+        // Either the row specifies it, or its value is filled with generated value. So never mark the
+        // auto-increment column in skip bitmap
+        skip_bitmap.add(slot_desc->col_unique_id());
+    }
 }
 
 void NewJsonReader::_collect_profile_before_close() {

@@ -29,7 +29,6 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
-#include "vec/functions/cast_type_to_either.h"
 #include "vec/functions/function.h"
 #include "vec/utils/util.hpp"
 
@@ -323,7 +322,6 @@ public:
         for (int i = 0; i < 2; ++i) {
             std::tie(argument_columns[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
-            check_set_nullable(argument_columns[i], null_map, col_const[i]);
         }
 
         using ResultDataType = typename Impl<LeftDataType, RightDataType, ResultDateType,
@@ -402,7 +400,6 @@ public:
         for (int i = 0; i < 2; ++i) {
             std::tie(argument_columns[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
-            check_set_nullable(argument_columns[i], null_map, col_const[i]);
         }
 
         auto res = Impl::ColumnType::create();

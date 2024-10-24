@@ -28,7 +28,7 @@ suite("regression_test_variant_complexjson", "variant_type_complex_json") {
             properties("replication_num" = "1", "disable_auto_compaction" = "true");
         """
     }
-    table_name = "complexjson"
+    def table_name = "complexjson"
     create_table table_name
     sql """insert into ${table_name} values (1, '{
     "id": 1,

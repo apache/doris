@@ -27,6 +27,10 @@ namespace doris {
 
 class CgroupCpuCtl;
 
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace pipeline {
 class TaskScheduler;
 class MultiCoreTaskQueue;
@@ -46,6 +50,8 @@ public:
 
     WorkloadGroupPtr get_task_group_by_id(uint64_t tg_id);
 
+    void do_sweep();
+
     void stop();
 
     std::atomic<bool> _enable_cpu_hard_limit = false;
@@ -54,13 +60,15 @@ public:
 
     bool enable_cpu_hard_limit() { return _enable_cpu_hard_limit.load(); }
 
+    void refresh_wg_weighted_memory_limit();
+
+    void get_wg_resource_usage(vectorized::Block* block);
+
 private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, WorkloadGroupPtr> _workload_groups;
 
-    std::shared_mutex _init_cg_ctl_lock;
-    std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;
-    bool _is_init_succ = false;
+    std::shared_mutex _clear_cgroup_lock;
 };
 
 } // namespace doris

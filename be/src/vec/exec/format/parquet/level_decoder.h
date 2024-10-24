@@ -56,6 +56,8 @@ public:
 
     inline void rewind_one() { _rle_decoder.RewindOne(); }
 
+    const RleDecoder<level_t>& rle_decoder() const { return _rle_decoder; }
+
 private:
     tparquet::Encoding::type _encoding;
     level_t _bit_width = 0;

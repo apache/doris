@@ -41,23 +41,10 @@ template <typename TAllocator>
 class PageBase : private TAllocator, public LRUCacheValueBase {
 public:
     PageBase() = default;
-
-    PageBase(size_t b, const std::shared_ptr<MemTrackerLimiter>& mem_tracker)
-            : LRUCacheValueBase(mem_tracker), _size(b), _capacity(b) {
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
-        _data = reinterpret_cast<char*>(TAllocator::alloc(_capacity, ALLOCATOR_ALIGNMENT_16));
-    }
-
+    PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type);
     PageBase(const PageBase&) = delete;
     PageBase& operator=(const PageBase&) = delete;
-
-    ~PageBase() override {
-        if (_data != nullptr) {
-            DCHECK(_capacity != 0 && _size != 0);
-            SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
-            TAllocator::free(_data, _capacity);
-        }
-    }
+    ~PageBase() override;
 
     char* data() { return _data; }
     size_t size() { return _size; }
@@ -73,6 +60,7 @@ private:
     // Effective size, smaller than capacity, such as data page remove checksum suffix.
     size_t _size = 0;
     size_t _capacity = 0;
+    std::shared_ptr<MemTrackerLimiter> _mem_tracker_by_allocator;
 };
 
 using DataPage = PageBase<Allocator<false>>;
@@ -189,6 +177,7 @@ private:
         }
         default:
             LOG(FATAL) << "get error type page cache";
+            __builtin_unreachable();
         }
         LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();

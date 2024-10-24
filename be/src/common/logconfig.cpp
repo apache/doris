@@ -21,6 +21,7 @@
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -48,6 +49,47 @@ static bool iequals(const std::string& a, const std::string& b) {
     return true;
 }
 
+// if custom_date_time_format = false, same format as in be.log
+// The following is same as default log format. eg:
+// I20240605 15:25:15.677153 1763151 wal_manager.cpp:481] msg...
+template <bool add_runtime_logger_prefix = false, bool custom_date_time_format = false>
+void custom_prefix(std::ostream& s, const google::LogMessageInfo& l, void* arg) {
+    if constexpr (add_runtime_logger_prefix) {
+        // Add prefix "RuntimeLogger ".
+        s << "RuntimeLogger ";
+    }
+    s << l.severity[0];
+
+    // Add a space if custom_date_time_format.
+    if constexpr (custom_date_time_format) {
+        s << ' ';
+    }
+
+    std::tm tm_time = {};
+    tm_time.tm_year = l.time.year();
+    tm_time.tm_mon = l.time.month();
+    tm_time.tm_mday = l.time.day();
+    tm_time.tm_hour = l.time.hour();
+    tm_time.tm_min = l.time.min();
+    tm_time.tm_sec = l.time.sec();
+
+    if constexpr (custom_date_time_format) {
+        s << std::put_time(&tm_time, config::sys_log_custom_date_time_format.c_str());
+        if (!config::sys_log_custom_date_time_ms_format.empty()) {
+            s << fmt::format(config::sys_log_custom_date_time_ms_format, l.time.usec() / 1000);
+        }
+    } else {
+        s << std::put_time(&tm_time, "%Y%m%d %H:%M:%S");
+        s << "." << std::setw(6) << l.time.usec();
+    }
+
+    s << ' ';
+    s << std::setfill(' ') << std::setw(5);
+    s << l.thread_id << std::setfill('0');
+    s << ' ';
+    s << l.filename << ':' << l.line_number << "]";
+}
+
 bool init_glog(const char* basename) {
     std::lock_guard<std::mutex> logging_lock(logging_mutex);
 
@@ -55,15 +97,25 @@ bool init_glog(const char* basename) {
         return true;
     }
 
-    if (getenv("DORIS_LOG_TO_STDERR") != nullptr) {
-        FLAGS_alsologtostderr = true;
+    bool log_to_console = (getenv("DORIS_LOG_TO_STDERR") != nullptr);
+    if (log_to_console) {
+        if (config::enable_file_logger) {
+            FLAGS_alsologtostderr = true;
+        } else {
+            FLAGS_logtostderr = true;
+        }
     }
 
     // don't log to stderr except fatal level
     // so fatal log can output to be.out .
     FLAGS_stderrthreshold = google::FATAL;
     // set glog log dir
-    FLAGS_log_dir = config::sys_log_dir;
+    // ATTN: sys_log_dir is deprecated, this is just for compatibility
+    std::string log_dir = config::sys_log_dir;
+    if (log_dir == "") {
+        log_dir = getenv("LOG_DIR");
+    }
+    FLAGS_log_dir = log_dir;
     // 0 means buffer INFO only
     FLAGS_logbuflevel = 0;
     // buffer log messages for at most this many seconds
@@ -139,7 +191,20 @@ bool init_glog(const char* basename) {
         }
     }
 
-    google::InitGoogleLogging(basename);
+    if (log_to_console) {
+        // Add prefix if log output to stderr
+        if (config::sys_log_enable_custom_date_time_format) {
+            google::InitGoogleLogging(basename, &custom_prefix<true, true>);
+        } else {
+            google::InitGoogleLogging(basename, &custom_prefix<true, false>);
+        }
+    } else {
+        if (config::sys_log_enable_custom_date_time_format) {
+            google::InitGoogleLogging(basename, &custom_prefix<false, true>);
+        } else {
+            google::InitGoogleLogging(basename);
+        }
+    }
 
     logging_initialized = true;
 

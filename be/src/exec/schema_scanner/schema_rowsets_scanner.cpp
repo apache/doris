@@ -56,8 +56,9 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         {"END_VERSION", TYPE_BIGINT, sizeof(int64_t), true},
         {"INDEX_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
         {"DATA_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
-        {"CREATION_TIME", TYPE_BIGINT, sizeof(int64_t), true},
-        {"NEWEST_WRITE_TIMESTAMP", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CREATION_TIME", TYPE_DATETIME, sizeof(int64_t), true},
+        {"NEWEST_WRITE_TIMESTAMP", TYPE_DATETIME, sizeof(int64_t), true},
+        {"SCHEMA_VERSION", TYPE_INT, sizeof(int32_t), true},
 
 };
 
@@ -96,7 +97,7 @@ Status SchemaRowsetsScanner::_get_all_rowsets() {
     return Status::OK();
 }
 
-Status SchemaRowsetsScanner::get_next_block(vectorized::Block* block, bool* eos) {
+Status SchemaRowsetsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -114,7 +115,7 @@ Status SchemaRowsetsScanner::get_next_block(vectorized::Block* block, bool* eos)
 
 Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
-    size_t fill_rowsets_num = std::min(1000ul, rowsets_.size() - _rowsets_idx);
+    size_t fill_rowsets_num = std::min(1000UL, rowsets_.size() - _rowsets_idx);
     auto fill_idx_begin = _rowsets_idx;
     auto fill_idx_end = _rowsets_idx + fill_rowsets_num;
     std::vector<void*> datas(fill_rowsets_num);
@@ -128,117 +129,131 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // ROWSET_ID
     {
-        std::string rowset_ids[fill_rowsets_num];
-        StringRef strs[fill_rowsets_num];
+        std::vector<std::string> rowset_ids(fill_rowsets_num);
+        std::vector<StringRef> strs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             rowset_ids[i - fill_idx_begin] = rowset->rowset_id().to_string();
             strs[i - fill_idx_begin] = StringRef(rowset_ids[i - fill_idx_begin].c_str(),
                                                  rowset_ids[i - fill_idx_begin].size());
-            datas[i - fill_idx_begin] = strs + i - fill_idx_begin;
+            datas[i - fill_idx_begin] = strs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // TABLET_ID
     {
-        int64_t srcs[fill_rowsets_num];
+        std::vector<int64_t> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->rowset_meta()->tablet_id();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // ROWSET_NUM_ROWS
     {
-        int64_t srcs[fill_rowsets_num];
+        std::vector<int64_t> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->num_rows();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // TXN_ID
     {
-        int64_t srcs[fill_rowsets_num];
+        std::vector<int64_t> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->txn_id();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // NUM_SEGMENTS
     {
-        int64_t srcs[fill_rowsets_num];
+        std::vector<int64_t> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->num_segments();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, datas));
     }
     // START_VERSION
     {
-        int64_t srcs[fill_rowsets_num];
+        std::vector<int64_t> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->start_version();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, datas));
     }
     // END_VERSION
     {
-        int64_t srcs[fill_rowsets_num];
+        std::vector<int64_t> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->end_version();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
     }
     // INDEX_DISK_SIZE
     {
-        size_t srcs[fill_rowsets_num];
+        std::vector<int64_t> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->index_disk_size();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
     }
     // DATA_DISK_SIZE
     {
-        size_t srcs[fill_rowsets_num];
+        std::vector<int64_t> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             srcs[i - fill_idx_begin] = rowset->data_disk_size();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
     }
     // CREATION_TIME
     {
-        size_t srcs[fill_rowsets_num];
+        std::vector<VecDateTimeValue> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            srcs[i - fill_idx_begin] = rowset->creation_time();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            int64_t creation_time = rowset->creation_time();
+            srcs[i - fill_idx_begin].from_unixtime(creation_time, TimezoneUtils::default_time_zone);
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, datas));
     }
     // NEWEST_WRITE_TIMESTAMP
     {
-        size_t srcs[fill_rowsets_num];
+        std::vector<VecDateTimeValue> srcs(fill_rowsets_num);
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
-            srcs[i - fill_idx_begin] = rowset->newest_write_timestamp();
-            datas[i - fill_idx_begin] = srcs + i - fill_idx_begin;
+            int64_t newest_write_timestamp = rowset->newest_write_timestamp();
+            srcs[i - fill_idx_begin].from_unixtime(newest_write_timestamp,
+                                                   TimezoneUtils::default_time_zone);
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
         }
         RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, datas));
     }
+    // SCHEMA_VERSION
+    {
+        std::vector<int32_t> srcs(fill_rowsets_num);
+        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
+            RowsetSharedPtr rowset = rowsets_[i];
+            srcs[i - fill_idx_begin] = rowset->tablet_schema()->schema_version();
+            datas[i - fill_idx_begin] = srcs.data() + i - fill_idx_begin;
+        }
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, datas));
+    }
+
     _rowsets_idx += fill_rowsets_num;
     return Status::OK();
 }

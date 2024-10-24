@@ -27,8 +27,10 @@
 
 #include <memory>
 #include <ostream>
+#include <sstream>
 #include <string>
 
+#include "common/status.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/types.h"
 #include "serde/data_type_object_serde.h"
@@ -73,7 +75,8 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     Field get_default() const override { return VariantMap(); }
 
     Field get_field(const TExprNode& node) const override {
@@ -83,7 +86,9 @@ public:
         if (node.node_type == TExprNodeType::NULL_LITERAL) {
             return Field();
         }
-        LOG(FATAL) << "Unkown literal " << node;
+        std::stringstream error_string;
+        node.printTo(error_string);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unkown literal {}", error_string.str());
         return {};
     }
 

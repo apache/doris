@@ -22,9 +22,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <parallel_hashmap/phmap.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -47,71 +47,53 @@ using InstanceLoId = int64_t;
 
 namespace pipeline {
 class Dependency;
+class ExchangeSinkLocalState;
 } // namespace pipeline
 
 namespace vectorized {
-class VDataStreamSender;
-template <typename>
-class PipChannel;
-
-template <typename T>
-struct AtomicWrapper {
-    std::atomic<T> _value;
-
-    AtomicWrapper() : _value() {}
-
-    AtomicWrapper(const std::atomic<T>& a) : _value(a.load()) {}
-
-    AtomicWrapper(const AtomicWrapper& other) : _value(other._value.load()) {}
-
-    AtomicWrapper& operator=(const AtomicWrapper& other) { _value.store(other._a.load()); }
-};
+class Channel;
 
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
 // will be shared between different channel, so we have to use a ref count to mark if this
 // PBlock is available for next serialization.
-class BroadcastPBlockHolderQueue;
+class BroadcastPBlockHolderMemLimiter;
 class BroadcastPBlockHolder {
     ENABLE_FACTORY_CREATOR(BroadcastPBlockHolder);
 
 public:
     BroadcastPBlockHolder() { _pblock = std::make_unique<PBlock>(); }
-    BroadcastPBlockHolder(std::unique_ptr<PBlock>&& pblock) { _pblock = std::move(pblock); }
     ~BroadcastPBlockHolder();
 
     PBlock* get_block() { return _pblock.get(); }
 
+    void reset_block() { _pblock->Clear(); }
+
 private:
-    friend class BroadcastPBlockHolderQueue;
+    friend class BroadcastPBlockHolderMemLimiter;
     std::unique_ptr<PBlock> _pblock;
-    std::weak_ptr<BroadcastPBlockHolderQueue> _parent_creator;
-    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderQueue> parent_creator) {
+    std::weak_ptr<BroadcastPBlockHolderMemLimiter> _parent_creator;
+    void set_parent_creator(std::shared_ptr<BroadcastPBlockHolderMemLimiter> parent_creator) {
         _parent_creator = parent_creator;
     }
 };
 
-// Use a stack inside to ensure that the PBlock is in cpu cache
-class BroadcastPBlockHolderQueue : public std::enable_shared_from_this<BroadcastPBlockHolderQueue> {
-    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderQueue);
+class BroadcastPBlockHolderMemLimiter
+        : public std::enable_shared_from_this<BroadcastPBlockHolderMemLimiter> {
+    ENABLE_FACTORY_CREATOR(BroadcastPBlockHolderMemLimiter);
 
 public:
-    BroadcastPBlockHolderQueue() = default;
+    BroadcastPBlockHolderMemLimiter() = delete;
 
-    BroadcastPBlockHolderQueue(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
+    BroadcastPBlockHolderMemLimiter(std::shared_ptr<pipeline::Dependency>& broadcast_dependency) {
         _broadcast_dependency = broadcast_dependency;
     }
 
-    void push(std::shared_ptr<BroadcastPBlockHolder> holder);
-
-    bool empty() {
-        std::unique_lock l(_holders_lock);
-        return _holders.empty();
-    }
-
-    std::shared_ptr<BroadcastPBlockHolder> pop();
+    void acquire(BroadcastPBlockHolder& holder);
+    void release(const BroadcastPBlockHolder& holder);
 
 private:
-    std::stack<std::shared_ptr<BroadcastPBlockHolder>> _holders;
+    std::atomic_int64_t _total_queue_buffer_size {0};
+    std::atomic_int64_t _total_queue_blocks_count {0};
     std::shared_ptr<pipeline::Dependency> _broadcast_dependency;
     std::mutex _holders_lock;
 };
@@ -119,17 +101,15 @@ private:
 } // namespace vectorized
 
 namespace pipeline {
-template <typename Parent>
 struct TransmitInfo {
-    vectorized::PipChannel<Parent>* channel = nullptr;
+    vectorized::Channel* channel = nullptr;
     std::unique_ptr<PBlock> block;
     bool eos;
     Status exec_status;
 };
 
-template <typename Parent>
 struct BroadcastTransmitInfo {
-    vectorized::PipChannel<Parent>* channel = nullptr;
+    vectorized::Channel* channel = nullptr;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
     bool eos;
 };
@@ -177,6 +157,7 @@ public:
             LOG(FATAL) << "brpc callback error: " << exp.what();
         } catch (...) {
             LOG(FATAL) << "brpc callback error.";
+            __builtin_unreachable();
         }
     }
     int64_t start_rpc_time;
@@ -188,24 +169,16 @@ private:
     bool _eos;
 };
 
-struct ExchangeRpcContext {
-    std::shared_ptr<ExchangeSendCallback<PTransmitDataResult>> _send_callback;
-    bool is_cancelled = false;
-};
-
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
-template <typename Parent>
-class ExchangeSinkBuffer : public HasTaskExecutionCtx {
+class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
     ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state);
-    ~ExchangeSinkBuffer();
+                       RuntimeState* state, ExchangeSinkLocalState* parent);
+    ~ExchangeSinkBuffer() override = default;
     void register_sink(TUniqueId);
 
-    Status add_block(TransmitInfo<Parent>&& request);
-    Status add_block(BroadcastTransmitInfo<Parent>&& request);
-    bool can_write() const;
-    bool is_pending_finish();
+    Status add_block(TransmitInfo&& request);
+    Status add_block(BroadcastTransmitInfo&& request);
     void close();
     void set_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
@@ -216,9 +189,8 @@ public:
         _finish_dependency = finish_dependency;
     }
 
-    void set_should_stop() {
-        _should_stop = true;
-        _set_ready_to_finish(_busy_channels == 0);
+    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
+        _broadcast_dependency = broadcast_dependency;
     }
 
 private:
@@ -228,13 +200,12 @@ private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
     // store data in non-broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId,
-                         std::queue<TransmitInfo<Parent>, std::list<TransmitInfo<Parent>>>>
+    phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
             _instance_to_package_queue;
     size_t _queue_capacity;
     // store data in broadcast shuffle
-    phmap::flat_hash_map<InstanceLoId, std::queue<BroadcastTransmitInfo<Parent>,
-                                                  std::list<BroadcastTransmitInfo<Parent>>>>
+    phmap::flat_hash_map<InstanceLoId,
+                         std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
             _instance_to_broadcast_package_queue;
     using PackageSeq = int64_t;
     // must init zero
@@ -243,11 +214,9 @@ private:
     phmap::flat_hash_map<InstanceLoId, std::shared_ptr<PTransmitDataParams>> _instance_to_request;
     // One channel is corresponding to a downstream instance.
     phmap::flat_hash_map<InstanceLoId, bool> _rpc_channel_is_idle;
-    // Number of busy channels;
-    std::atomic<int> _busy_channels = 0;
+
     phmap::flat_hash_map<InstanceLoId, bool> _instance_to_receiver_eof;
     phmap::flat_hash_map<InstanceLoId, int64_t> _instance_to_rpc_time;
-    phmap::flat_hash_map<InstanceLoId, ExchangeRpcContext> _instance_to_rpc_ctx;
 
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;
@@ -266,13 +235,15 @@ private:
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
+    inline void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    std::shared_ptr<Dependency> _queue_dependency;
-    std::shared_ptr<Dependency> _finish_dependency;
-    std::atomic<bool> _should_stop {false};
+    std::shared_ptr<Dependency> _queue_dependency = nullptr;
+    std::shared_ptr<Dependency> _finish_dependency = nullptr;
+    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
+    ExchangeSinkLocalState* _parent = nullptr;
 };
 
 } // namespace pipeline

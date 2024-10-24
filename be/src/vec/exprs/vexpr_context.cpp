@@ -25,6 +25,7 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "udf/udf.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -42,7 +43,11 @@ VExprContext::~VExprContext() {
     if (!_prepared || !_opened) {
         return;
     }
-    close();
+    try {
+        close();
+    } catch (const Exception& e) {
+        LOG(WARNING) << "Exception occurs when expr context deconstruct: " << e.to_string();
+    }
 }
 
 Status VExprContext::execute(vectorized::Block* block, int* result_column_id) {
@@ -116,7 +121,17 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
     return _fn_contexts.size() - 1;
 }
 
-Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep) {
+Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->evaluate_inverted_index(this, segment_num_rows); });
+    return st;
+}
+
+bool VExprContext::all_expr_inverted_index_evaluated() {
+    return _inverted_index_context->has_inverted_index_result_for_expr(_root.get());
+}
+
+Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, size_t column_to_keep) {
     if (vexpr_ctx == nullptr || block->rows() == 0) {
         return Status::OK();
     }
@@ -126,7 +141,7 @@ Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int col
 }
 
 Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
-                                  int column_to_keep) {
+                                  size_t column_to_keep) {
     if (expr_contexts.empty() || block->rows() == 0) {
         return Status::OK();
     }
@@ -134,7 +149,7 @@ Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block*
     std::vector<uint32_t> columns_to_filter(column_to_keep);
     std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
 
-    return execute_conjuncts_and_filter_block(expr_contexts, nullptr, block, columns_to_filter,
+    return execute_conjuncts_and_filter_block(expr_contexts, block, columns_to_filter,
                                               column_to_keep);
 }
 
@@ -149,10 +164,13 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters,
                                        bool accept_null, Block* block,
                                        IColumn::Filter* result_filter, bool* can_filter_all) {
-    DCHECK(result_filter->size() == block->rows());
+    int rows = block->rows();
+    DCHECK_EQ(result_filter->size(), rows);
     *can_filter_all = false;
     auto* __restrict result_filter_data = result_filter->data();
     for (const auto& ctx : ctxs) {
+        // Statistics are only required when an rf wrapper exists in the expr.
+        bool is_rf_wrapper = ctx->root()->is_rf_wrapper();
         int result_column_id = -1;
         RETURN_IF_ERROR(ctx->execute(block, &result_column_id));
         ColumnPtr& filter_column = block->get_by_position(result_column_id).column;
@@ -166,20 +184,32 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 const IColumn::Filter& filter =
                         assert_cast<const ColumnUInt8&>(*nested_column).get_data();
                 const auto* __restrict filter_data = filter.data();
-                const size_t size = filter.size();
                 const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
+                int input_rows =
+                        rows -
+                        (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
+
                 if (accept_null) {
-                    for (size_t i = 0; i < size; ++i) {
+                    for (size_t i = 0; i < rows; ++i) {
                         result_filter_data[i] &= (null_map_data[i]) || filter_data[i];
                     }
                 } else {
-                    for (size_t i = 0; i < size; ++i) {
+                    for (size_t i = 0; i < rows; ++i) {
                         result_filter_data[i] &= (!null_map_data[i]) & filter_data[i];
                     }
                 }
 
-                if (memchr(result_filter_data, 0x1, size) == nullptr) {
+                int output_rows =
+                        rows -
+                        (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
+
+                if (is_rf_wrapper) {
+                    ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
+                }
+
+                if ((is_rf_wrapper && output_rows == 0) ||
+                    (!is_rf_wrapper && memchr(result_filter_data, 0x1, rows) == nullptr)) {
                     *can_filter_all = true;
                     return Status::OK();
                 }
@@ -196,12 +226,24 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                     assert_cast<const ColumnUInt8&>(*filter_column).get_data();
             const auto* __restrict filter_data = filter.data();
 
-            const size_t size = filter.size();
-            for (size_t i = 0; i < size; ++i) {
+            int input_rows =
+                    rows -
+                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
+
+            for (size_t i = 0; i < rows; ++i) {
                 result_filter_data[i] &= filter_data[i];
             }
 
-            if (memchr(result_filter_data, 0x1, size) == nullptr) {
+            int output_rows =
+                    rows -
+                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
+
+            if (is_rf_wrapper) {
+                ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
+            }
+
+            if ((is_rf_wrapper && output_rows == 0) ||
+                (!is_rf_wrapper && memchr(result_filter_data, 0x1, rows) == nullptr)) {
                 *can_filter_all = true;
                 return Status::OK();
             }
@@ -269,13 +311,13 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
 
 // TODO Performance Optimization
 // need exception safety
-Status VExprContext::execute_conjuncts_and_filter_block(
-        const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters, Block* block,
-        std::vector<uint32_t>& columns_to_filter, int column_to_keep) {
+Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
+                                                        std::vector<uint32_t>& columns_to_filter,
+                                                        int column_to_keep) {
     IColumn::Filter result_filter(block->rows(), 1);
     bool can_filter_all;
     RETURN_IF_ERROR(
-            execute_conjuncts(ctxs, filters, false, block, &result_filter, &can_filter_all));
+            execute_conjuncts(ctxs, nullptr, false, block, &result_filter, &can_filter_all));
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();

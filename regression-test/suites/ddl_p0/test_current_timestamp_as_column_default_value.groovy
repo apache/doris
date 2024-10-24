@@ -15,8 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_current_timestamp_as_column_default_value") {
-    sql "SET enable_nereids_planner=true"
-    sql "SET enable_fallback_to_original_planner=false"
     sql "DROP TABLE IF EXISTS test_default4"
     sql """create table test_default4(a int, b int) distributed by hash(a) properties('replication_num'="1");"""
 
@@ -32,8 +30,6 @@ suite("test_current_timestamp_as_column_default_value") {
         exception "Types other than DATETIME and DATETIMEV2 cannot use current_timestamp as the default value"
     }
 
-    sql "SET enable_nereids_planner=false"
-    sql "DROP TABLE IF EXISTS test_default10"
     test {
         sql """create table test_default10(a int, b varchar(100) default current_timestamp) 
         distributed by hash(a) properties('replication_num'="1");"""

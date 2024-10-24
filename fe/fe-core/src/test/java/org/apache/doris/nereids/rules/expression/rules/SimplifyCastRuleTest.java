@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteTestHelper;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -31,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
@@ -41,7 +41,6 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.ImmutableList;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -50,25 +49,27 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
 
     @Test
     public void testSimplify() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyCastRule.INSTANCE));
-        assertRewriteAfterSimplify("CAST('1' AS STRING)", "'1'", StringType.INSTANCE);
-        assertRewriteAfterSimplify("CAST('1' AS VARCHAR)", "'1'",
-                VarcharType.createVarcharType(-1));
-        assertRewriteAfterSimplify("CAST(1 AS DECIMAL)", "1",
-                DecimalV3Type.createDecimalV3Type(9, 0));
-        assertRewriteAfterSimplify("CAST(1000 AS DECIMAL)", "1000",
-                DecimalV3Type.createDecimalV3Type(9, 0));
-        assertRewriteAfterSimplify("CAST(1 AS DECIMALV3)", "1",
-                DecimalV3Type.createDecimalV3Type(9, 0));
-        assertRewriteAfterSimplify("CAST(1000 AS DECIMALV3)", "1000",
-                DecimalV3Type.createDecimalV3Type(9, 0));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                ExpressionRewrite.bottomUp(SimplifyCastRule.INSTANCE))
+        );
+
+        assertRewrite(new Cast(new VarcharLiteral("1"), StringType.INSTANCE),
+                new StringLiteral("1"));
+        assertRewrite(new Cast(new VarcharLiteral("1"), VarcharType.SYSTEM_DEFAULT),
+                new VarcharLiteral("1", -1));
+        assertRewrite(new Cast(new TinyIntLiteral((byte) 1), DecimalV3Type.SYSTEM_DEFAULT),
+                new DecimalV3Literal(DecimalV3Type.SYSTEM_DEFAULT, new BigDecimal("1.000000000")));
+        assertRewrite(new Cast(new SmallIntLiteral((short) 1000), DecimalV3Type.SYSTEM_DEFAULT),
+                new DecimalV3Literal(DecimalV3Type.SYSTEM_DEFAULT, new BigDecimal("1000.000000000")));
+        assertRewrite(new Cast(new VarcharLiteral("1"), VarcharType.SYSTEM_DEFAULT), new VarcharLiteral("1", -1));
+        assertRewrite(new Cast(new VarcharLiteral("1"), VarcharType.SYSTEM_DEFAULT), new VarcharLiteral("1", -1));
 
         Expression tinyIntLiteral = new TinyIntLiteral((byte) 12);
         // cast tinyint as tinyint
         assertRewrite(new Cast(tinyIntLiteral, TinyIntType.INSTANCE), tinyIntLiteral);
         // cast tinyint as decimalv2(3,0)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.forType(TinyIntType.INSTANCE)),
-                new DecimalLiteral(new BigDecimal(12)));
+                new DecimalLiteral(DecimalV2Type.forType(TinyIntType.INSTANCE), new BigDecimal(12)));
 
         assertRewrite(new Cast(tinyIntLiteral, DecimalV2Type.createDecimalV2Type(5, 1)),
                 new DecimalLiteral(DecimalV2Type.createDecimalV2Type(5, 1),
@@ -76,7 +77,7 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
 
         // cast tinyint as decimalv3(3,0)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV3Type.forType(TinyIntType.INSTANCE)),
-                new DecimalV3Literal(new BigDecimal(12)));
+                new DecimalV3Literal(DecimalV3Type.forType(TinyIntType.INSTANCE), new BigDecimal(12)));
         // cast tinyint as decimalv3(5,1)
         assertRewrite(new Cast(tinyIntLiteral, DecimalV3Type.createDecimalV3Type(5, 1)),
                 new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(5, 1),
@@ -105,20 +106,20 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         assertRewrite(new Cast(intLiteral, IntegerType.INSTANCE), intLiteral);
         // cast int as decimalv2
         assertRewrite(new Cast(intLiteral, DecimalV2Type.forType(IntegerType.INSTANCE)),
-                new DecimalLiteral(new BigDecimal(30000000)));
+                new DecimalLiteral(DecimalV2Type.forType(IntegerType.INSTANCE), new BigDecimal(30000000)));
         // cast int as decimalv3
         assertRewrite(new Cast(intLiteral, DecimalV3Type.forType(IntegerType.INSTANCE)),
-                new DecimalV3Literal(new BigDecimal(30000000)));
+                new DecimalV3Literal(DecimalV3Type.forType(IntegerType.INSTANCE), new BigDecimal(30000000)));
 
         Expression bigIntLiteral = new BigIntLiteral(30000000000L);
         // cast bigint as bigint
         assertRewrite(new Cast(bigIntLiteral, BigIntType.INSTANCE), bigIntLiteral);
         // cast bigint as decimalv2
         assertRewrite(new Cast(bigIntLiteral, DecimalV2Type.forType(BigIntType.INSTANCE)),
-                new DecimalLiteral(new BigDecimal(30000000000L)));
+                new DecimalLiteral(DecimalV2Type.forType(BigIntType.INSTANCE), new BigDecimal(30000000000L)));
         // cast bigint as decimalv3
         assertRewrite(new Cast(bigIntLiteral, DecimalV3Type.forType(BigIntType.INSTANCE)),
-                new DecimalV3Literal(new BigDecimal(30000000000L)));
+                new DecimalV3Literal(DecimalV3Type.forType(BigIntType.INSTANCE), new BigDecimal(30000000000L)));
 
         Expression varcharLiteral = new VarcharLiteral("12345");
         // cast varchar(5) as varchar(3)
@@ -140,17 +141,20 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
         // cast char(5) as string
         assertRewrite(new Cast(charLiteral, StringType.INSTANCE), new StringLiteral("12345"));
 
-        Expression decimalV3Literal = new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(3, 1),
-                new BigDecimal("12.0"));
+        Expression decimalV3Literal = new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(5, 3),
+                new BigDecimal("12.000"));
         // cast decimalv3(3,1) as decimalv3(5,1)
-        assertRewrite(new Cast(decimalV3Literal, DecimalV3Type.createDecimalV3Type(5, 1)),
-                new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(5, 1),
+        assertRewrite(new Cast(decimalV3Literal, DecimalV3Type.createDecimalV3Type(7, 3)),
+                new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(7, 3),
+                        new BigDecimal("12.000")));
+        assertRewrite(new Cast(decimalV3Literal, DecimalV3Type.createDecimalV3Type(3, 1)),
+                new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(3, 1),
                         new BigDecimal("12.0")));
 
         assertRewrite(new Cast(decimalV3Literal, DecimalV3Type.createDecimalV3Type(2, 1)),
                 new Cast(decimalV3Literal, DecimalV3Type.createDecimalV3Type(2, 1)));
 
-        // TODO unsupported but should?
+        // TODO unsupported, supported by org.apache.doris.nereids.trees.expressions.literal.Literal.uncheckedCastTo
         // cast tinyint as smallint
         assertRewrite(new Cast(tinyIntLiteral, SmallIntType.INSTANCE),
                 new Cast(tinyIntLiteral, SmallIntType.INSTANCE));
@@ -183,13 +187,4 @@ class SimplifyCastRuleTest extends ExpressionRewriteTestHelper {
                 new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(6, 1),
                         new BigDecimal("12.0")));
     }
-
-    private void assertRewriteAfterSimplify(String expr, String expected, DataType expectedType) {
-        Expression needRewriteExpression = PARSER.parseExpression(expr);
-        Expression rewritten = SimplifyCastRule.INSTANCE.rewrite(needRewriteExpression, context);
-        Expression expectedExpression = PARSER.parseExpression(expected);
-        Assertions.assertEquals(expectedExpression.toSql(), rewritten.toSql());
-        Assertions.assertEquals(expectedType, rewritten.getDataType());
-    }
-
 }

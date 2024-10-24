@@ -42,7 +42,10 @@
 
 #include <cstdint>
 #include <initializer_list>
+#include <iomanip>
+#include <iostream>
 #include <limits>
+#include <string>
 #include <type_traits>
 
 // NOLINTBEGIN(*)
@@ -76,7 +79,12 @@ public:
     // ctors
     constexpr integer() noexcept = default;
 
+    template <size_t Bits2, typename Signed2>
+    constexpr integer(const integer<Bits2, Signed2> rhs) noexcept;
+
     template <typename T>
+        requires(std::is_arithmetic_v<T> || std::is_same_v<T, __int128> ||
+                 std::is_same_v<T, unsigned __int128>)
     constexpr integer(T rhs) noexcept;
 
     template <typename T>
@@ -134,9 +142,27 @@ public:
     constexpr operator double() const noexcept;
     constexpr operator float() const noexcept;
 
+    std::string to_hex_string() const {
+        std::ostringstream os;
+        os << std::setw(16) << std::setfill('0') << std::hex;
+        for (size_t i = 0; i < _impl::item_count; i++) {
+            os << items[i];
+        }
+        return os.str();
+    }
+
     struct _impl;
 
     base_type items[_impl::item_count];
+
+    uint64_t low() const {
+        static_assert(_impl::item_count == 2);
+        return items[0];
+    }
+    uint64_t high() const {
+        static_assert(_impl::item_count == 2);
+        return items[1];
+    }
 
 private:
     template <size_t Bits2, typename Signed2>
@@ -146,6 +172,7 @@ private:
     friend class std::numeric_limits<integer<Bits, unsigned>>;
 };
 
+using UInt128 = integer<128, unsigned>;
 using Int256 = integer<256, signed>;
 using UInt256 = integer<256, unsigned>;
 

@@ -18,14 +18,14 @@
 package org.apache.doris.load.routineload;
 
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
-public abstract class RoutineLoadProgress implements Writable {
-
+public abstract class RoutineLoadProgress {
+    @SerializedName(value = "ldst")
     protected LoadDataSourceType loadDataSourceType;
     protected boolean isTypeRead = false;
 
@@ -55,12 +55,7 @@ public abstract class RoutineLoadProgress implements Writable {
         return progress;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // ATTN: must write type first
-        Text.writeString(out, loadDataSourceType.name());
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         if (!isTypeRead) {
             loadDataSourceType = LoadDataSourceType.valueOf(Text.readString(in));

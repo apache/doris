@@ -51,21 +51,22 @@ public:
         if (arguments.size() == 1) {
             if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
                 !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
-                LOG(FATAL) << fmt::format(
-                        "Illegal type {} of argument of function {}. Should be a date or a date "
-                        "with time",
-                        arguments[0].type->get_name(), get_name());
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Illegal type {} of argument of function {}. Should be a "
+                                       "date or a date with time",
+                                       arguments[0].type->get_name(), get_name());
             }
         } else if (arguments.size() == 2) {
             if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
                 !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
-                LOG(FATAL) << fmt::format(
-                        "Illegal type {} of argument of function {}. Should be a date or a date "
-                        "with time",
-                        arguments[0].type->get_name(), get_name());
+                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                       "Illegal type {} of argument of function {}. Should be a "
+                                       "date or a date with time",
+                                       arguments[0].type->get_name(), get_name());
             }
             if (!is_string(remove_nullable(arguments[1].type))) {
-                LOG(FATAL) << fmt::format(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "Function {} supports 1 or 2 arguments. The 1st argument must be of type "
                         "Date or DateTime. The 2nd argument (optional) must be a constant string "
                         "with timezone name",
@@ -73,16 +74,17 @@ public:
             }
             if (is_date(remove_nullable(arguments[0].type)) &&
                 std::is_same_v<ToDataType, DataTypeDate>) {
-                LOG(FATAL) << fmt::format(
+                throw doris::Exception(
+                        ErrorCode::INVALID_ARGUMENT,
                         "The timezone argument of function {} is allowed only when the 1st "
                         "argument has the type DateTime",
                         get_name());
             }
         } else {
-            LOG(FATAL) << fmt::format(
-                    "Number of arguments for function {} doesn't match: passed {}, should be 1 or "
-                    "2",
-                    get_name(), arguments.size());
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "Number of arguments for function {} doesn't match: passed {}, "
+                                   "should be 1 or 2",
+                                   get_name(), arguments.size());
         }
 
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(ToDataType);

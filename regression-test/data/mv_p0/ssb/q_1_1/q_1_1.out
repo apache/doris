@@ -6,6 +6,389 @@
 -- !select_mv --
 4
 
+-- !abc --
+root:Group[@4]
+  logical expressions:
+    id:349#4 cost=null estRows=1 children=[@3 ] (plan=LogicalResultSink[350] ( outputExprs=[revenue#38] ))
+  physical expressions:
+    id:354#4 cost=0 [0/0/0/] estRows=-1 children=[@3 ] (plan=PhysicalResultSink[355] ( outputExprs=[revenue#38] ))
+  enforcers:
+  chosen expression id: 354
+  chosen properties: GATHER
+  stats
+    rows=1.0
+    tupleSize=4.0
+    width=1
+    revenue#38 -> ndv=0.0204, min=2.000000(null), max=6.000000(null), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    4.046506802721089 ANY
+     id:354#4 cost=0 [0/0/0/] estRows=-1 children=[@3 ] (plan=PhysicalResultSink[355] ( outputExprs=[revenue#38] ))
+     [GATHER]
+
+    4.046506802721089 GATHER
+     id:354#4 cost=0 [0/0/0/] estRows=-1 children=[@3 ] (plan=PhysicalResultSink[355] ( outputExprs=[revenue#38] ))
+     [GATHER]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@0]
+  logical expressions:
+    id:337#0 cost=null estRows=2 children=[ ] (plan=LogicalOlapScan ( qualified=internal.regression_test_mv_p0_ssb_q_1_1.lineorder_flat, indexName=<index_not_selected>, selectedIndexId=346536, preAgg=ON ))
+  physical expressions:
+    id:383#0 cost=2 [2/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineorder_flat]@0 ( stats=null ))
+  enforcers:
+  stats
+    rows=2.0
+    tupleSize=170.0
+    width=1
+    LO_ORDERDATE#0 -> ndv=1.0000, min=19930101.000000(19930101), max=19930101.000000(19930101), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_ORDERKEY#1 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_LINENUMBER#2 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=1.000000
+    LO_CUSTKEY#3 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_PARTKEY#4 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_SUPPKEY#5 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_ORDERPRIORITY#6 -> ndv=2.0000, min=13792273858822144.000000(1), max=14073748835532800.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=1.000000
+    LO_SHIPPRIORITY#7 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=1.000000
+    LO_QUANTITY#8 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=1.000000
+    LO_EXTENDEDPRICE#9 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_ORDTOTALPRICE#10 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_DISCOUNT#11 -> ndv=2.0000, min=2.000000(2), max=100.000000(100), count=2.0000, numNulls=0.0000, avgSizeByte=1.000000
+    LO_REVENUE#12 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_SUPPLYCOST#13 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_TAX#14 -> ndv=2.0000, min=1.000000(1), max=2.000000(2), count=2.0000, numNulls=0.0000, avgSizeByte=1.000000
+    LO_COMMITDATE#15 -> ndv=1.0000, min=20230609000000.000000(2023-06-09), max=20230609000000.000000(2023-06-09), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    LO_SHIPMODE#16 -> ndv=1.0000, min=32484424388800356.000000(shipmode), max=32484424388800356.000000(shipmode), count=2.0000, numNulls=0.0000, avgSizeByte=8.000000
+    C_NAME#17 -> ndv=1.0000, min=31069369912000512.000000(name), max=31069369912000512.000000(name), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    C_ADDRESS#18 -> ndv=1.0000, min=27413455319692148.000000(address), max=27413455319692148.000000(address), count=2.0000, numNulls=0.0000, avgSizeByte=7.000000
+    C_CITY#19 -> ndv=1.0000, min=27981971661520896.000000(city), max=27981971661520896.000000(city), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    C_NATION#20 -> ndv=1.0000, min=31069400051183104.000000(nation), max=31069400051183104.000000(nation), count=2.0000, numNulls=0.0000, avgSizeByte=6.000000
+    C_REGION#21 -> ndv=2.0000, min=18380833614807872.000000(AMERICA), max=32199642169961984.000000(region), count=2.0000, numNulls=0.0000, avgSizeByte=6.500000
+    C_PHONE#22 -> ndv=1.0000, min=31640025194364928.000000(phone), max=31640025194364928.000000(phone), count=2.0000, numNulls=0.0000, avgSizeByte=5.000000
+    C_MKTSEGMENT#23 -> ndv=1.0000, min=30798920357865324.000000(mktsegment), max=30798920357865324.000000(mktsegment), count=2.0000, numNulls=0.0000, avgSizeByte=10.000000
+    S_NAME#24 -> ndv=1.0000, min=31069369912000512.000000(name), max=31069369912000512.000000(name), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    S_ADDRESS#25 -> ndv=1.0000, min=27413455319692148.000000(address), max=27413455319692148.000000(address), count=2.0000, numNulls=0.0000, avgSizeByte=7.000000
+    S_CITY#26 -> ndv=1.0000, min=27981971661520896.000000(city), max=27981971661520896.000000(city), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    S_NATION#27 -> ndv=1.0000, min=31069400051183104.000000(nation), max=31069400051183104.000000(nation), count=2.0000, numNulls=0.0000, avgSizeByte=6.000000
+    S_REGION#28 -> ndv=2.0000, min=18380833614807872.000000(AMERICA), max=32199642169961984.000000(region), count=2.0000, numNulls=0.0000, avgSizeByte=6.500000
+    S_PHONE#29 -> ndv=1.0000, min=31640025194364928.000000(phone), max=31640025194364928.000000(phone), count=2.0000, numNulls=0.0000, avgSizeByte=5.000000
+    P_NAME#30 -> ndv=1.0000, min=31069369912000512.000000(name), max=31069369912000512.000000(name), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    P_MFGR#31 -> ndv=2.0000, min=21750845341380864.000000(MFGR#1), max=30793366941728768.000000(mfgr), count=2.0000, numNulls=0.0000, avgSizeByte=5.000000
+    P_CATEGORY#32 -> ndv=1.0000, min=27973175239733104.000000(category), max=27973175239733104.000000(category), count=2.0000, numNulls=0.0000, avgSizeByte=8.000000
+    P_BRAND#33 -> ndv=1.0000, min=27710310507085824.000000(brand), max=27710310507085824.000000(brand), count=2.0000, numNulls=0.0000, avgSizeByte=5.000000
+    P_COLOR#34 -> ndv=1.0000, min=27988534211248128.000000(color), max=27988534211248128.000000(color), count=2.0000, numNulls=0.0000, avgSizeByte=5.000000
+    P_TYPE#35 -> ndv=1.0000, min=32784620936232960.000000(type), max=32784620936232960.000000(type), count=2.0000, numNulls=0.0000, avgSizeByte=4.000000
+    P_SIZE#36 -> ndv=1.0000, min=4.000000(4), max=4.000000(4), count=2.0000, numNulls=0.0000, avgSizeByte=1.000000
+    P_CONTAINER#37 -> ndv=1.0000, min=27988542883981680.000000(container), max=27988542883981680.000000(container), count=2.0000, numNulls=0.0000, avgSizeByte=9.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    2.0 ANY
+     id:383#0 cost=2 [2/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineorder_flat]@0 ( stats=null ))
+     []
+
+    2.0 DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])
+     id:383#0 cost=2 [2/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineorder_flat]@0 ( stats=null ))
+     []
+  struct info map
+StructInfoMap{ groupExpressionMap = {{0}=id:337#0 cost=null estRows=2 children=[ ] (plan=LogicalOlapScan ( qualified=internal.regression_test_mv_p0_ssb_q_1_1.lineorder_flat, indexName=<index_not_selected>, selectedIndexId=346536, preAgg=ON )):[]}, infoMap = {}}
+
+
+Group[@1]
+  logical expressions:
+    id:340#1 cost=null estRows=0.02 children=[@0 ] (plan=LogicalFilter[341] ( predicates=(((((LO_QUANTITY#8 < 25) AND (LO_ORDERDATE#0 >= 19930101)) AND (LO_DISCOUNT#11 >= 1)) AND (LO_ORDERDATE#0 <= 19931231)) AND (LO_DISCOUNT#11 <= 3)) ))
+  physical expressions:
+    id:380#1 cost=0 [0/0/0/] estRows=-1 children=[@0 ] (plan=PhysicalFilter[381]@1 ( stats=null, predicates=(((((LO_QUANTITY#8 < 25) AND (LO_ORDERDATE#0 >= 19930101)) AND (LO_DISCOUNT#11 >= 1)) AND (LO_ORDERDATE#0 <= 19931231)) AND (LO_DISCOUNT#11 <= 3)) ))
+  enforcers:
+  stats
+    rows=0.02040816326530612
+    tupleSize=170.0
+    width=1
+    LO_ORDERDATE#0 -> ndv=0.0204, min=19930101.000000(19930101), max=19930101.000000(19930101), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_ORDERKEY#1 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_LINENUMBER#2 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=1.000000
+    LO_CUSTKEY#3 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_PARTKEY#4 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_SUPPKEY#5 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_ORDERPRIORITY#6 -> ndv=0.0204, min=13792273858822144.000000(1), max=14073748835532800.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=1.000000
+    LO_SHIPPRIORITY#7 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=1.000000
+    LO_QUANTITY#8 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=1.000000
+    LO_EXTENDEDPRICE#9 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_ORDTOTALPRICE#10 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_DISCOUNT#11 -> ndv=0.0204, min=2.000000(2), max=3.000000(3), count=0.0204, numNulls=0.0000, avgSizeByte=1.000000
+    LO_REVENUE#12 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_SUPPLYCOST#13 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_TAX#14 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=1.000000
+    LO_COMMITDATE#15 -> ndv=0.0204, min=20230609000000.000000(2023-06-09), max=20230609000000.000000(2023-06-09), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_SHIPMODE#16 -> ndv=0.0204, min=32484424388800356.000000(shipmode), max=32484424388800356.000000(shipmode), count=0.0204, numNulls=0.0000, avgSizeByte=8.000000
+    C_NAME#17 -> ndv=0.0204, min=31069369912000512.000000(name), max=31069369912000512.000000(name), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    C_ADDRESS#18 -> ndv=0.0204, min=27413455319692148.000000(address), max=27413455319692148.000000(address), count=0.0204, numNulls=0.0000, avgSizeByte=7.000000
+    C_CITY#19 -> ndv=0.0204, min=27981971661520896.000000(city), max=27981971661520896.000000(city), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    C_NATION#20 -> ndv=0.0204, min=31069400051183104.000000(nation), max=31069400051183104.000000(nation), count=0.0204, numNulls=0.0000, avgSizeByte=6.000000
+    C_REGION#21 -> ndv=0.0204, min=18380833614807872.000000(AMERICA), max=32199642169961984.000000(region), count=0.0204, numNulls=0.0000, avgSizeByte=6.500000
+    C_PHONE#22 -> ndv=0.0204, min=31640025194364928.000000(phone), max=31640025194364928.000000(phone), count=0.0204, numNulls=0.0000, avgSizeByte=5.000000
+    C_MKTSEGMENT#23 -> ndv=0.0204, min=30798920357865324.000000(mktsegment), max=30798920357865324.000000(mktsegment), count=0.0204, numNulls=0.0000, avgSizeByte=10.000000
+    S_NAME#24 -> ndv=0.0204, min=31069369912000512.000000(name), max=31069369912000512.000000(name), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    S_ADDRESS#25 -> ndv=0.0204, min=27413455319692148.000000(address), max=27413455319692148.000000(address), count=0.0204, numNulls=0.0000, avgSizeByte=7.000000
+    S_CITY#26 -> ndv=0.0204, min=27981971661520896.000000(city), max=27981971661520896.000000(city), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    S_NATION#27 -> ndv=0.0204, min=31069400051183104.000000(nation), max=31069400051183104.000000(nation), count=0.0204, numNulls=0.0000, avgSizeByte=6.000000
+    S_REGION#28 -> ndv=0.0204, min=18380833614807872.000000(AMERICA), max=32199642169961984.000000(region), count=0.0204, numNulls=0.0000, avgSizeByte=6.500000
+    S_PHONE#29 -> ndv=0.0204, min=31640025194364928.000000(phone), max=31640025194364928.000000(phone), count=0.0204, numNulls=0.0000, avgSizeByte=5.000000
+    P_NAME#30 -> ndv=0.0204, min=31069369912000512.000000(name), max=31069369912000512.000000(name), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    P_MFGR#31 -> ndv=0.0204, min=21750845341380864.000000(MFGR#1), max=30793366941728768.000000(mfgr), count=0.0204, numNulls=0.0000, avgSizeByte=5.000000
+    P_CATEGORY#32 -> ndv=0.0204, min=27973175239733104.000000(category), max=27973175239733104.000000(category), count=0.0204, numNulls=0.0000, avgSizeByte=8.000000
+    P_BRAND#33 -> ndv=0.0204, min=27710310507085824.000000(brand), max=27710310507085824.000000(brand), count=0.0204, numNulls=0.0000, avgSizeByte=5.000000
+    P_COLOR#34 -> ndv=0.0204, min=27988534211248128.000000(color), max=27988534211248128.000000(color), count=0.0204, numNulls=0.0000, avgSizeByte=5.000000
+    P_TYPE#35 -> ndv=0.0204, min=32784620936232960.000000(type), max=32784620936232960.000000(type), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    P_SIZE#36 -> ndv=0.0204, min=4.000000(4), max=4.000000(4), count=0.0204, numNulls=0.0000, avgSizeByte=1.000000
+    P_CONTAINER#37 -> ndv=0.0204, min=27988542883981680.000000(container), max=27988542883981680.000000(container), count=0.0204, numNulls=0.0000, avgSizeByte=9.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    2.00058 ANY
+     id:380#1 cost=0 [0/0/0/] estRows=-1 children=[@0 ] (plan=PhysicalFilter[381]@1 ( stats=null, predicates=(((((LO_QUANTITY#8 < 25) AND (LO_ORDERDATE#0 >= 19930101)) AND (LO_DISCOUNT#11 >= 1)) AND (LO_ORDERDATE#0 <= 19931231)) AND (LO_DISCOUNT#11 <= 3)) ))
+     [DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])]
+
+    2.00058 DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])
+     id:380#1 cost=0 [0/0/0/] estRows=-1 children=[@0 ] (plan=PhysicalFilter[381]@1 ( stats=null, predicates=(((((LO_QUANTITY#8 < 25) AND (LO_ORDERDATE#0 >= 19930101)) AND (LO_DISCOUNT#11 >= 1)) AND (LO_ORDERDATE#0 <= 19931231)) AND (LO_DISCOUNT#11 <= 3)) ))
+     [DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {{0}=id:340#1 cost=null estRows=0.02 children=[@0 ] (plan=LogicalFilter[341] ( predicates=(((((LO_QUANTITY#8 < 25) AND (LO_ORDERDATE#0 >= 19930101)) AND (LO_DISCOUNT#11 >= 1)) AND (LO_ORDERDATE#0 <= 19931231)) AND (LO_DISCOUNT#11 <= 3)) )):[{0}]}, infoMap = {}}
+
+
+Group[@2]
+  logical expressions:
+    id:343#2 cost=null estRows=0.02 children=[@1 ] (plan=LogicalProject[344] ( distinct=false, projects=[LO_EXTENDEDPRICE#9, LO_DISCOUNT#11], excepts=[] ))
+  physical expressions:
+    id:375#2 cost=1 [1/0/0/] estRows=-1 children=[@1 ] (plan=PhysicalProject[376]@2 ( stats=null, projects=[LO_EXTENDEDPRICE#9, LO_DISCOUNT#11] ))
+  enforcers:
+  stats
+    rows=0.02040816326530612
+    tupleSize=5.0
+    width=1
+    LO_EXTENDEDPRICE#9 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    LO_DISCOUNT#11 -> ndv=0.0204, min=2.000000(2), max=3.000000(3), count=0.0204, numNulls=0.0000, avgSizeByte=1.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    3.00058 ANY
+     id:375#2 cost=1 [1/0/0/] estRows=-1 children=[@1 ] (plan=PhysicalProject[376]@2 ( stats=null, projects=[LO_EXTENDEDPRICE#9, LO_DISCOUNT#11] ))
+     [DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])]
+
+    3.00058 DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])
+     id:375#2 cost=1 [1/0/0/] estRows=-1 children=[@1 ] (plan=PhysicalProject[376]@2 ( stats=null, projects=[LO_EXTENDEDPRICE#9, LO_DISCOUNT#11] ))
+     [DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {{0}=id:343#2 cost=null estRows=0.02 children=[@1 ] (plan=LogicalProject[344] ( distinct=false, projects=[LO_EXTENDEDPRICE#9, LO_DISCOUNT#11], excepts=[] )):[{0}]}, infoMap = {}}
+
+
+Group[@3]
+  logical expressions:
+    id:346#3 cost=null estRows=1 children=[@2 ] (plan=LogicalAggregate[347] ( groupByExpr=[], outputExpr=[sum((LO_EXTENDEDPRICE#9 * LO_DISCOUNT#11)) AS `revenue`#38], hasRepeat=false ))
+    id:541#3 cost=null estRows=1 children=[@8 ] (plan=LogicalProject[542] ( distinct=false, projects=[sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#82 AS `revenue`#38], excepts=[] ))
+  physical expressions:
+    id:370#3 cost=2 [1/1/0/] estRows=1 children=[@5 ] (plan=PhysicalHashAggregate[371]@3 ( aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[sum(partial_sum((LO_EXTENDEDPRICE * LO_DISCOUNT))#81) AS `revenue`#38], partitionExpr=Optional[[]], requireProperties=[GATHER], topnOpt=false, stats=null ))
+    id:546#3 cost=1 [1/0/0/] estRows=-1 children=[@8 ] (plan=PhysicalProject[547]@3 ( stats=null, projects=[sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#82 AS `revenue`#38] ))
+  enforcers:
+  chosen expression id: 546
+  chosen properties: GATHER
+  stats
+    rows=1.0
+    tupleSize=4.0
+    width=1
+    revenue#38 -> ndv=0.0204, min=2.000000(null), max=6.000000(null), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    4.046506802721089 ANY
+     id:546#3 cost=1 [1/0/0/] estRows=-1 children=[@8 ] (plan=PhysicalProject[547]@3 ( stats=null, projects=[sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#82 AS `revenue`#38] ))
+     [GATHER]
+
+    4.046506802721089 GATHER
+     id:546#3 cost=1 [1/0/0/] estRows=-1 children=[@8 ] (plan=PhysicalProject[547]@3 ( stats=null, projects=[sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#82 AS `revenue`#38] ))
+     [GATHER]
+  struct info map
+StructInfoMap{ groupExpressionMap = {{0}=id:346#3 cost=null estRows=1 children=[@2 ] (plan=LogicalAggregate[347] ( groupByExpr=[], outputExpr=[sum((LO_EXTENDEDPRICE#9 * LO_DISCOUNT#11)) AS `revenue`#38], hasRepeat=false )):[{0}]}, infoMap = {{0}=StructInfo{ originalPlanId = ObjectId#346, relations = [LogicalOlapScan ( qualified=internal.regression_test_mv_p0_ssb_q_1_1.lineorder_flat, indexName=<index_not_selected>, selectedIndexId=346536, preAgg=ON )]}}}
+
+
+Group[@4]
+  logical expressions:
+    id:349#4 cost=null estRows=1 children=[@3 ] (plan=LogicalResultSink[350] ( outputExprs=[revenue#38] ))
+  physical expressions:
+    id:354#4 cost=0 [0/0/0/] estRows=-1 children=[@3 ] (plan=PhysicalResultSink[355] ( outputExprs=[revenue#38] ))
+  enforcers:
+  chosen expression id: 354
+  chosen properties: GATHER
+  stats
+    rows=1.0
+    tupleSize=4.0
+    width=1
+    revenue#38 -> ndv=0.0204, min=2.000000(null), max=6.000000(null), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    4.046506802721089 ANY
+     id:354#4 cost=0 [0/0/0/] estRows=-1 children=[@3 ] (plan=PhysicalResultSink[355] ( outputExprs=[revenue#38] ))
+     [GATHER]
+
+    4.046506802721089 GATHER
+     id:354#4 cost=0 [0/0/0/] estRows=-1 children=[@3 ] (plan=PhysicalResultSink[355] ( outputExprs=[revenue#38] ))
+     [GATHER]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@5]
+  logical expressions:
+  physical expressions:
+    id:367#5 cost=0 [0/0/0/] estRows=1 children=[@2 ] (plan=PhysicalHashAggregate[368]@5 ( aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_sum((LO_EXTENDEDPRICE#9 * LO_DISCOUNT#11)) AS `partial_sum((LO_EXTENDEDPRICE * LO_DISCOUNT))`#81], partitionExpr=Optional[[]], requireProperties=[ANY], topnOpt=false, stats=null ))
+  enforcers:
+    id:469#5 cost=0 [0/0/0/] estRows=1 children=[@5 ] (plan=PhysicalDistribute[470]@5 ( stats=null, distributionSpec=DistributionSpecGather ))
+  stats
+    rows=1.0
+    tupleSize=1.0
+    width=1
+    partial_sum((LO_EXTENDEDPRICE * LO_DISCOUNT))#81 -> ndv=0.0204, min=2.000000(null), max=6.000000(null), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    3.0113827210884354 ANY
+     id:367#5 cost=0 [0/0/0/] estRows=1 children=[@2 ] (plan=PhysicalHashAggregate[368]@5 ( aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_sum((LO_EXTENDEDPRICE#9 * LO_DISCOUNT#11)) AS `partial_sum((LO_EXTENDEDPRICE * LO_DISCOUNT))`#81], partitionExpr=Optional[[]], requireProperties=[ANY], topnOpt=false, stats=null ))
+     [DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])]
+
+    3.0113827210884354 DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])
+     id:367#5 cost=0 [0/0/0/] estRows=1 children=[@2 ] (plan=PhysicalHashAggregate[368]@5 ( aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_sum((LO_EXTENDEDPRICE#9 * LO_DISCOUNT#11)) AS `partial_sum((LO_EXTENDEDPRICE * LO_DISCOUNT))`#81], partitionExpr=Optional[[]], requireProperties=[ANY], topnOpt=false, stats=null ))
+     [DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])]
+
+    3.0188827210884353 GATHER
+     id:469#5 cost=0 [0/0/0/] estRows=1 children=[@5 ] (plan=PhysicalDistribute[470]@5 ( stats=null, distributionSpec=DistributionSpecGather ))
+     [DistributionSpecHash ( orderedShuffledColumns=[1], shuffleType=NATURAL, tableId=346535, selectedIndexId=346536, partitionIds=[346534], equivalenceExprIds=[[1]], exprIdToEquivalenceSet={1=0} ) Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+Group[@6]
+  logical expressions:
+    id:532#6 cost=null estRows=0.02 children=[ ] (plan=LogicalOlapScan ( qualified=regression_test_mv_p0_ssb_q_1_1.lineorder_flat, indexName=lineorder_q_1_1, selectedIndexId=346636, preAgg=ON ))
+  physical expressions:
+    id:571#6 cost=0 [0/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineorder_flat]@6 ( stats=null ))
+  enforcers:
+  chosen expression id: 571
+  chosen properties: DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])
+  stats
+    rows=0.02040816326530612
+    tupleSize=8.0
+    width=1
+    mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80 -> ndv=0.0204, min=2.000000(null), max=6.000000(null), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+    mv_LO_ORDERKEY#79 -> ndv=0.0204, min=1.000000(1), max=2.000000(2), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    0.01020408163265306 ANY
+     id:571#6 cost=0 [0/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineorder_flat]@6 ( stats=null ))
+     []
+
+    0.01020408163265306 DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])
+     id:571#6 cost=0 [0/0/0/] estRows=-1 children=[ ] (plan=PhysicalOlapScan[lineorder_flat]@6 ( stats=null ))
+     []
+  struct info map
+StructInfoMap{ groupExpressionMap = {{0}=id:532#6 cost=null estRows=0.02 children=[ ] (plan=LogicalOlapScan ( qualified=regression_test_mv_p0_ssb_q_1_1.lineorder_flat, indexName=lineorder_q_1_1, selectedIndexId=346636, preAgg=ON )):[]}, infoMap = {}}
+
+
+Group[@7]
+  logical expressions:
+    id:535#7 cost=null estRows=0.02 children=[@6 ] (plan=LogicalProject[536] ( distinct=false, projects=[mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80], excepts=[] ))
+  physical expressions:
+    id:568#7 cost=1 [1/0/0/] estRows=-1 children=[@6 ] (plan=PhysicalProject[569]@7 ( stats=null, projects=[mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80] ))
+  enforcers:
+  chosen expression id: 568
+  chosen properties: DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])
+  stats
+    rows=0.02040816326530612
+    tupleSize=4.0
+    width=1
+    mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80 -> ndv=0.0204, min=2.000000(null), max=6.000000(null), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    1.010204081632653 ANY
+     id:568#7 cost=1 [1/0/0/] estRows=-1 children=[@6 ] (plan=PhysicalProject[569]@7 ( stats=null, projects=[mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80] ))
+     [DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])]
+
+    1.010204081632653 DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])
+     id:568#7 cost=1 [1/0/0/] estRows=-1 children=[@6 ] (plan=PhysicalProject[569]@7 ( stats=null, projects=[mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80] ))
+     [DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {{0}=id:535#7 cost=null estRows=0.02 children=[@6 ] (plan=LogicalProject[536] ( distinct=false, projects=[mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80], excepts=[] )):[{0}]}, infoMap = {}}
+
+
+Group[@8]
+  logical expressions:
+    id:538#8 cost=null estRows=1 children=[@7 ] (plan=LogicalAggregate[539] ( groupByExpr=[], outputExpr=[sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80) AS `sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#82], hasRepeat=false ))
+  physical expressions:
+    id:562#8 cost=2 [1/1/0/] estRows=1 children=[@9 ] (plan=PhysicalHashAggregate[563]@8 ( aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[sum(partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#85) AS `sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#82], partitionExpr=Optional[[]], requireProperties=[GATHER], topnOpt=false, stats=null ))
+  enforcers:
+  chosen expression id: 562
+  chosen properties: GATHER
+  stats
+    rows=1.0
+    tupleSize=4.0
+    width=1
+    sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#82 -> ndv=0.0204, min=2.000000(null), max=6.000000(null), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    3.046506802721088 ANY
+     id:562#8 cost=2 [1/1/0/] estRows=1 children=[@9 ] (plan=PhysicalHashAggregate[563]@8 ( aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[sum(partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#85) AS `sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#82], partitionExpr=Optional[[]], requireProperties=[GATHER], topnOpt=false, stats=null ))
+     [GATHER]
+
+    3.046506802721088 GATHER
+     id:562#8 cost=2 [1/1/0/] estRows=1 children=[@9 ] (plan=PhysicalHashAggregate[563]@8 ( aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[sum(partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#85) AS `sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#82], partitionExpr=Optional[[]], requireProperties=[GATHER], topnOpt=false, stats=null ))
+     [GATHER]
+  struct info map
+StructInfoMap{ groupExpressionMap = {{0}=id:538#8 cost=null estRows=1 children=[@7 ] (plan=LogicalAggregate[539] ( groupByExpr=[], outputExpr=[sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80) AS `sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#82], hasRepeat=false )):[{0}]}, infoMap = {{0}=StructInfo{ originalPlanId = ObjectId#538, relations = [LogicalOlapScan ( qualified=regression_test_mv_p0_ssb_q_1_1.lineorder_flat, indexName=lineorder_q_1_1, selectedIndexId=346636, preAgg=ON )]}}}
+
+
+Group[@9]
+  logical expressions:
+  physical expressions:
+    id:559#9 cost=0 [0/0/0/] estRows=1 children=[@7 ] (plan=PhysicalHashAggregate[560]@9 ( aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80) AS `partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#85], partitionExpr=Optional[[]], requireProperties=[ANY], topnOpt=false, stats=null ))
+  enforcers:
+    id:595#9 cost=0 [0/0/0/] estRows=1 children=[@9 ] (plan=PhysicalDistribute[596]@9 ( stats=null, distributionSpec=DistributionSpecGather ))
+  chosen enforcer(id, requiredProperties):
+      (0)595,  GATHER
+  chosen expression id: 559
+  chosen properties: DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])
+  stats
+    rows=1.0
+    tupleSize=1.0
+    width=1
+    partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#85 -> ndv=0.0204, min=2.000000(null), max=6.000000(null), count=0.0204, numNulls=0.0000, avgSizeByte=4.000000
+  lowest Plan(cost, properties, plan, childrenRequires)
+
+    1.0190068027210881 ANY
+     id:559#9 cost=0 [0/0/0/] estRows=1 children=[@7 ] (plan=PhysicalHashAggregate[560]@9 ( aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80) AS `partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#85], partitionExpr=Optional[[]], requireProperties=[ANY], topnOpt=false, stats=null ))
+     [DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])]
+
+    1.0190068027210881 DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])
+     id:559#9 cost=0 [0/0/0/] estRows=1 children=[@7 ] (plan=PhysicalHashAggregate[560]@9 ( aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80) AS `partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#85], partitionExpr=Optional[[]], requireProperties=[ANY], topnOpt=false, stats=null ))
+     [DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])]
+
+    1.0265068027210882 GATHER
+     id:595#9 cost=0 [0/0/0/] estRows=1 children=[@9 ] (plan=PhysicalDistribute[596]@9 ( stats=null, distributionSpec=DistributionSpecGather ))
+     [DistributionSpecHash ( orderedShuffledColumns=[79], shuffleType=NATURAL, tableId=346535, selectedIndexId=346636, partitionIds=[346534], equivalenceExprIds=[[79]], exprIdToEquivalenceSet={79=0} ) Order: ([])]
+  struct info map
+StructInfoMap{ groupExpressionMap = {}, infoMap = {}}
+
+
+========== OPTIMIZED PLAN ==========
+PhysicalResultSink[657] ( outputExprs=[revenue#38] )
++--PhysicalProject[654]@3 ( stats=1, projects=[sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#82 AS `revenue`#38] )
+   +--PhysicalHashAggregate[651]@8 ( aggPhase=GLOBAL, aggMode=BUFFER_TO_RESULT, maybeUseStreaming=false, groupByExpr=[], outputExpr=[sum(partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))#85) AS `sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#82], partitionExpr=Optional[[]], requireProperties=[GATHER], topnOpt=false, stats=1 )
+      +--PhysicalDistribute[648]@9 ( stats=1, distributionSpec=DistributionSpecGather )
+         +--PhysicalHashAggregate[645]@9 ( aggPhase=LOCAL, aggMode=INPUT_TO_BUFFER, maybeUseStreaming=false, groupByExpr=[], outputExpr=[partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80) AS `partial_sum(mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`))`#85], partitionExpr=Optional[[]], requireProperties=[ANY], topnOpt=false, stats=1 )
+            +--PhysicalProject[642]@7 ( stats=0.02, projects=[mva_SUM__(`LO_EXTENDEDPRICE` * `LO_DISCOUNT`)#80] )
+               +--PhysicalOlapScan[lineorder_flat]@6 ( stats=0.02 )
+
+========== MATERIALIZATIONS ==========
+materializationContexts:
+
+MaterializationContext[[internal, regression_test_mv_p0_ssb_q_1_1, lineorder_flat, lineorder_q_1_1]] ( rewriteSuccess=true, failReason=[
+
+] )
+
 -- !select --
 4
 

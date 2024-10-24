@@ -64,11 +64,11 @@ static TSlotDescriptor make_slot_descriptor(int id, int parent_id, const TypeDes
     return slot_desc;
 }
 
-static TTupleDescriptor make_tuple_descriptor(int id, int num_null_bytes) {
+static TTupleDescriptor make_tuple_descriptor(int id) {
     TTupleDescriptor tuple_desc;
     tuple_desc.__set_id(id);
     tuple_desc.__set_byteSize(0);
-    tuple_desc.__set_numNullBytes(num_null_bytes);
+    tuple_desc.__set_numNullBytes(0);
     return tuple_desc;
 }
 
@@ -98,7 +98,6 @@ TTupleDescriptor DescriptorTblBuilder::build_tuple(const vector<TypeDescriptor>&
         return build_tuple(slot_types[0].children, thrift_desc_tbl, next_tuple_id, slot_id);
     }
 
-    int num_null_bytes = BitUtil::ceil(slot_types.size(), 8);
     int tuple_id = *next_tuple_id;
     ++(*next_tuple_id);
 
@@ -117,7 +116,7 @@ TTupleDescriptor DescriptorTblBuilder::build_tuple(const vector<TypeDescriptor>&
         ++(*slot_id);
     }
 
-    TTupleDescriptor result = make_tuple_descriptor(tuple_id, num_null_bytes);
+    TTupleDescriptor result = make_tuple_descriptor(tuple_id);
     thrift_desc_tbl->tupleDescriptors.push_back(result);
     return result;
 }

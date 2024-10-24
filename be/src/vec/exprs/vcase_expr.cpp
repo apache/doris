@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
@@ -66,8 +67,9 @@ Status VCaseExpr::prepare(RuntimeState* state, const RowDescriptor& desc, VExprC
         arguments.emplace_back(child->data_type());
     }
 
-    _function = SimpleFunctionFactory::instance().get_function(_function_name, argument_template,
-                                                               _data_type);
+    _function = SimpleFunctionFactory::instance().get_function(
+            _function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         return Status::NotSupported("vcase_expr Function {} is not implemented",
                                     _fn.name.function_name);
@@ -84,7 +86,7 @@ Status VCaseExpr::open(RuntimeState* state, VExprContext* context,
     for (auto& i : _children) {
         RETURN_IF_ERROR(i->open(state, context, scope));
     }
-    RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }

@@ -30,11 +30,12 @@ public class JdbcDataSourceConfig {
     private int batchSize;
     private TJdbcOperation op;
     private TOdbcTableType tableType;
-    private int connectionPoolMinSize;
-    private int connectionPoolMaxSize;
-    private int connectionPoolMaxWaitTime;
-    private int connectionPoolMaxLifeTime;
-    private boolean connectionPoolKeepAlive;
+    private int connectionPoolMinSize = 1;
+    private int connectionPoolMaxSize = 30;
+    private int connectionPoolMaxWaitTime = 5000;
+    private int connectionPoolMaxLifeTime = 1800000;
+    private boolean connectionPoolKeepAlive = false;
+    private boolean enableConnectionPool = false;
 
     public String createCacheKey() {
         return catalogId + jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass
@@ -165,6 +166,15 @@ public class JdbcDataSourceConfig {
 
     public JdbcDataSourceConfig setConnectionPoolKeepAlive(boolean connectionPoolKeepAlive) {
         this.connectionPoolKeepAlive = connectionPoolKeepAlive;
+        return this;
+    }
+
+    public boolean isEnableConnectionPool() {
+        return enableConnectionPool;
+    }
+
+    public JdbcDataSourceConfig setEnableConnectionPool(boolean enableConnectionPool) {
+        this.enableConnectionPool = enableConnectionPool;
         return this;
     }
 }

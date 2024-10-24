@@ -32,7 +32,9 @@ import org.junit.jupiter.api.Test;
 class TopnToMaxTest extends ExpressionRewriteTestHelper {
     @Test
     void testSimplifyComparisonPredicateRule() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(TopnToMax.INSTANCE));
+        executor = new ExpressionRuleExecutor(ImmutableList.of(
+                bottomUp(TopnToMax.INSTANCE)
+        ));
 
         Slot slot = new SlotReference("a", StringType.INSTANCE);
         assertRewrite(new TopN(slot, Literal.of(1)), new Max(slot));

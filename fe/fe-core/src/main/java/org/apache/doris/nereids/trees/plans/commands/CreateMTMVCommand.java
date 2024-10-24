@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
@@ -32,7 +33,7 @@ import java.util.Objects;
 /**
  * create multi table materialized view
  */
-public class CreateMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class CreateMTMVCommand extends Command implements ForwardWithSync {
 
     public static final Logger LOG = LogManager.getLogger(CreateMTMVCommand.class);
     private final CreateMTMVInfo createMTMVInfo;
@@ -54,6 +55,11 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync, NotAl
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitCreateMTMVCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.CREATE;
     }
 
 }

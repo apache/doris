@@ -296,15 +296,15 @@ else
         -T "${SSB_DATA_DIR}"/part.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/part/_stream_load
 fi
 
-echo 'Loading data for table: date'
+echo 'Loading data for table: dates'
 if [[ -z ${TXN_ID} ]]; then
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "label:${TXN_ID}_date" -H "column_separator:|" \
+        -H "column_separator:|" \
         -H "columns:d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy" \
         -T "${SSB_DATA_DIR}"/date.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/dates/_stream_load
 else
     curl --location-trusted -u "${USER}":"${PASSWORD}" \
-        -H "column_separator:|" \
+        -H "label:${TXN_ID}_date" -H "column_separator:|" \
         -H "columns:d_datekey,d_date,d_dayofweek,d_month,d_year,d_yearmonthnum,d_yearmonth,d_daynuminweek,d_daynuminmonth,d_daynuminyear,d_monthnuminyear,d_weeknuminyear,d_sellingseason,d_lastdayinweekfl,d_lastdayinmonthfl,d_holidayfl,d_weekdayfl,d_dummy" \
         -T "${SSB_DATA_DIR}"/date.tbl http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/dates/_stream_load
 fi
@@ -376,21 +376,9 @@ wait
 date
 
 echo "==========Start to insert data into ssb flat table=========="
-echo "change some session variables before load, and then restore after load."
-origin_parallel=$(
-    set -e
-    run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p'
-)
-# set parallel_fragment_exec_instance_num=1, loading maybe slow but stable.
-run_sql "set global insert_timeout=7200;"
-run_sql "set global parallel_fragment_exec_instance_num=1;"
-echo '============================================'
 date
 load_lineitem_flat
 date
-echo '============================================'
-echo "restore session variables"
-run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel};"
 echo '============================================'
 
 end_time=$(date +%s)

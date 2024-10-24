@@ -24,9 +24,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.stream.Collectors;
 
@@ -36,6 +38,25 @@ import java.util.stream.Collectors;
 public class AggStateType extends DataType {
 
     public static final int WIDTH = 16;
+
+    private static final Map<String, String> aliasToName = ImmutableMap.<String, String>builder()
+            .put("substr", "substring")
+            .put("ifnull", "nvl")
+            .put("rand", "random")
+            .put("add_months", "months_add")
+            .put("curdate", "current_date")
+            .put("ucase", "upper")
+            .put("lcase", "lower")
+            .put("hll_raw_agg", "hll_union")
+            .put("approx_count_distinct", "ndv")
+            .put("any", "any_value")
+            .put("char_length", "character_length")
+            .put("stddev_pop", "stddev")
+            .put("var_pop", "variance")
+            .put("variance_pop", "variance")
+            .put("var_samp", "variance_samp")
+            .put("hist", "histogram")
+            .build();
 
     private final List<DataType> subTypes;
     private final List<Boolean> subTypeNullables;
@@ -53,7 +74,7 @@ public class AggStateType extends DataType {
                 .copyOf(Objects.requireNonNull(subTypeNullables, "subTypeNullables should not be null"));
         Preconditions.checkState(subTypes.size() == subTypeNullables.size(),
                 "AggStateType' subTypes.size()!=subTypeNullables.size()");
-        this.functionName = functionName;
+        this.functionName = aliasToName.getOrDefault(functionName, functionName);
     }
 
     public List<Expression> getMockedExpressions() {
@@ -78,7 +99,7 @@ public class AggStateType extends DataType {
 
     @Override
     public Type toCatalogDataType() {
-        List<Type> types = subTypes.stream().map(t -> t.toCatalogDataType()).collect(Collectors.toList());
+        List<Type> types = subTypes.stream().map(DataType::toCatalogDataType).collect(Collectors.toList());
         return Expr.createAggStateType(functionName, types, subTypeNullables);
     }
 

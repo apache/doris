@@ -1944,11 +1944,12 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     }
 
     public void execHost(ParserRuleContext ctx, String cmd) {
+        Process p = null;
         try {
             if (trace) {
                 trace(ctx, "HOST Command: " + cmd);
             }
-            Process p = Runtime.getRuntime().exec(cmd);
+            p = Runtime.getRuntime().exec(cmd);
             new StreamGobbler(p.getInputStream(), console).start();
             new StreamGobbler(p.getErrorStream(), console).start();
             int rc = p.waitFor();
@@ -1959,6 +1960,10 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
         } catch (Exception e) {
             setHostCode(1);
             signal(Signal.Type.SQLEXCEPTION);
+        } finally {
+            if (p != null) {
+                p.destroy();
+            }
         }
     }
 
@@ -2085,12 +2090,6 @@ public class Exec extends org.apache.doris.nereids.PLParserBaseVisitor<Integer> 
     public Integer visitLabel_stmt(Label_stmtContext ctx) {
         if (ctx.IDENTIFIER() != null) {
             exec.labels.push(ctx.IDENTIFIER().toString());
-        } else {
-            String label = ctx.LABEL_PL().getText();
-            if (label.endsWith(":")) {
-                label = label.substring(0, label.length() - 1);
-            }
-            exec.labels.push(label);
         }
         return 0;
     }

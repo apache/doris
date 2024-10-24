@@ -20,6 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.StorageVault.StorageVaultType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -43,6 +45,7 @@ public class CreateStorageVaultStmtTest {
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
         vaultName = "hdfs";
+        FeConstants.runningUnitTest = true;
     }
 
     @Test
@@ -57,6 +60,7 @@ public class CreateStorageVaultStmtTest {
             }
         };
 
+        Config.cloud_unique_id = "not_empty";
         Map<String, String> properties = Maps.newHashMap();
         properties.put("type", "hdfs");
         CreateStorageVaultStmt stmt = new CreateStorageVaultStmt(true, vaultName, properties);
@@ -64,6 +68,7 @@ public class CreateStorageVaultStmtTest {
         Assert.assertEquals(vaultName, stmt.getStorageVaultName());
         Assert.assertEquals(StorageVaultType.HDFS, stmt.getStorageVaultType());
         Assert.assertEquals("CREATE STORAGE VAULT 'hdfs' PROPERTIES(\"type\"  =  \"hdfs\")", stmt.toSql());
+        Config.cloud_unique_id = "";
 
     }
 
@@ -79,9 +84,11 @@ public class CreateStorageVaultStmtTest {
             }
         };
 
+        Config.cloud_unique_id = "not_empty";
         Map<String, String> properties = Maps.newHashMap();
         properties.put("type", "hadoop");
         CreateStorageVaultStmt stmt = new CreateStorageVaultStmt(true, vaultName, properties);
         stmt.analyze(analyzer);
+        Config.cloud_unique_id = "";
     }
 }

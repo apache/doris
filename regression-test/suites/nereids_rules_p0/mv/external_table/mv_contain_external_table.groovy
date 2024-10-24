@@ -25,6 +25,8 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     def hive_database = "test_mv_contain_external_table_rewrite_db"
     def hive_table = "orders"
 
+    def autogather_off_str = """ set hive.stats.column.autogather = false; """
+    def autogather_on_str = """ set hive.stats.column.autogather = true; """
     def drop_table_str = """ drop table if exists ${hive_database}.${hive_table} """
     def drop_database_str = """ drop database if exists ${hive_database}"""
     def create_database_str = """ create database ${hive_database}"""
@@ -60,6 +62,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     def insert_str3 = """ insert into ${hive_database}.${hive_table} 
     PARTITION(o_orderdate='2023-10-19') values(3, 3, 'ok', 99.5, 'a', 'b', 1, 'yy')"""
 
+    hive_docker """ ${autogather_off_str} """
     hive_docker """ ${drop_table_str} """
     hive_docker """ ${drop_database_str} """
     hive_docker """ ${create_database_str}"""
@@ -73,7 +76,7 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
 
 
     // prepare catalog
-    String hms_port = context.config.otherConfigs.get("hms_port")
+    String hms_port = context.config.otherConfigs.get("hive2HmsPort")
     String catalog_name = "hive_test_mv_rewrite"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
@@ -90,9 +93,6 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     sql "SET enable_nereids_planner=true"
     sql "set runtime_filter_mode=OFF";
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
-    sql "SET enable_fallback_to_original_planner=false"
-    sql "SET enable_materialized_view_rewrite=true"
-    sql "SET enable_nereids_timeout = false"
 
     sql """
     drop table if exists lineitem
@@ -160,33 +160,21 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
 
     // test query rewrite by mv, should fail ,because materialized_view_rewrite_enable_contain_external_table
     // switch is false default
-    explain {
-        sql(""" ${query_sql}""")
-        notContains("${mv_name}(${mv_name})")
-    }
+    mv_not_part_in(query_sql, mv_name)
     sql "SET materialized_view_rewrite_enable_contain_external_table=true"
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
 
     // data change in external table doesn't influence query rewrite,
     // if want to use new data in external table should be refresh manually
     hive_docker """ ${insert_str3} """
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_query_rewritten_with_old_data """ ${query_sql}"""
 
     // refresh manually
     sql """REFRESH catalog ${catalog_name}"""
     sql """REFRESH MATERIALIZED VIEW ${mv_name} complete"""
     waitingMTMVTaskFinished(getJobName(db, mv_name))
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_query_rewritten_with_new_data """ ${query_sql}"""
 
 
@@ -196,21 +184,16 @@ suite("mv_contain_external_table", "p0,external,hive,external_docker,external_do
     def insert_str4 = """ insert into ${hive_database}.${hive_table} 
     PARTITION(o_orderdate='2023-10-20') values(3, 3, 'ok', 100.5, 'f', 'h', 3, 'ss')"""
     hive_docker """ ${insert_str4} """
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_query_rewritten_with_old_data_after_add_partition """ ${query_sql}"""
 
     sql """REFRESH catalog ${catalog_name}"""
     sql """REFRESH MATERIALIZED VIEW ${mv_name} complete"""
     waitingMTMVTaskFinished(getJobName(db, mv_name))
-    explain {
-        sql(""" ${query_sql}""")
-        contains("${mv_name}(${mv_name})")
-    }
+    mv_rewrite_success(query_sql, mv_name)
     order_qt_query_rewritten_with_new_data """ ${query_sql}"""
 
+    hive_docker """ ${autogather_on_str} """
     sql """drop materialized view if exists ${mv_name};"""
     sql """drop catalog if exists ${catalog_name}"""
 }

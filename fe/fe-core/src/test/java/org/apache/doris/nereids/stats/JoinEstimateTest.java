@@ -20,7 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupId;
-import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -55,15 +55,13 @@ public class JoinEstimateTest {
         EqualTo eq = new EqualTo(a, b);
         Statistics leftStats = new StatisticsBuilder().setRowCount(100).build();
         leftStats.addColumnStats(a,
-                new ColumnStatisticBuilder()
-                        .setCount(100)
+                new ColumnStatisticBuilder(100)
                         .setNdv(10)
                         .build()
         );
         Statistics rightStats = new StatisticsBuilder().setRowCount(80).build();
         rightStats.addColumnStats(b,
-                new ColumnStatisticBuilder()
-                        .setCount(80)
+                new ColumnStatisticBuilder(80)
                         .setNdv(5)
                         .build()
         );
@@ -74,14 +72,14 @@ public class JoinEstimateTest {
                     public List<Slot> get() {
                         return Lists.newArrayList(a);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
+                }, () -> DataTrait.EMPTY_TRAIT)));
         GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
                 new Supplier<List<Slot>>() {
                     @Override
                     public List<Slot> get() {
                         return Lists.newArrayList(b);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
+                }, () -> DataTrait.EMPTY_TRAIT)));
         LogicalJoin join = new LogicalJoin(JoinType.INNER_JOIN, Lists.newArrayList(eq),
                 left, right, null);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);
@@ -101,20 +99,17 @@ public class JoinEstimateTest {
         EqualTo eq = new EqualTo(a, b);
         Statistics leftStats = new StatisticsBuilder().setRowCount(100).build();
         leftStats.addColumnStats(a,
-                new ColumnStatisticBuilder()
-                        .setCount(100)
+                new ColumnStatisticBuilder(100)
                         .setNdv(10)
                         .build()
         );
         Statistics rightStats = new StatisticsBuilder().setRowCount(80).build();
         rightStats.addColumnStats(b,
-                new ColumnStatisticBuilder()
-                        .setCount(80)
+                new ColumnStatisticBuilder(80)
                         .setNdv(0)
                         .build()
         ).addColumnStats(c,
-                new ColumnStatisticBuilder()
-                        .setCount(80)
+                new ColumnStatisticBuilder(80)
                         .setNdv(20)
                         .build()
         );
@@ -125,14 +120,14 @@ public class JoinEstimateTest {
                     public List<Slot> get() {
                         return Lists.newArrayList(a);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
+                }, () -> DataTrait.EMPTY_TRAIT)));
         GroupPlan right = new GroupPlan(new Group(idGenerator.getNextId(), new LogicalProperties(
                 new Supplier<List<Slot>>() {
                     @Override
                     public List<Slot> get() {
                         return Lists.newArrayList(b, c);
                     }
-                }, () -> FunctionalDependencies.EMPTY_FUNC_DEPS)));
+                }, () -> DataTrait.EMPTY_TRAIT)));
         LogicalJoin join = new LogicalJoin(JoinType.LEFT_OUTER_JOIN, Lists.newArrayList(eq),
                 left, right, null);
         Statistics outputStats = JoinEstimation.estimate(leftStats, rightStats, join);

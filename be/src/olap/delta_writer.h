@@ -43,7 +43,6 @@ namespace doris {
 
 class FlushToken;
 class MemTable;
-class MemTracker;
 class StorageEngine;
 class TupleDescriptor;
 class SlotDescriptor;
@@ -65,10 +64,7 @@ public:
 
     virtual ~BaseDeltaWriter();
 
-    virtual Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                         bool is_append = false) = 0;
-
-    Status append(const vectorized::Block* block);
+    virtual Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) = 0;
 
     // flush the last memtable to flush queue, must call it before build_rowset()
     virtual Status close() = 0;
@@ -127,8 +123,7 @@ public:
 
     ~DeltaWriter() override;
 
-    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
-                 bool is_append = false) override;
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs) override;
 
     Status close() override;
 

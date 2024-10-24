@@ -76,4 +76,18 @@ public interface ExpressionTrait extends TreeNode<Expression> {
     default boolean foldable() {
         return true;
     }
+
+    /**
+     * Identify the expression itself is deterministic or not, default true
+     */
+    default boolean isDeterministic() {
+        return true;
+    }
+
+    /**
+     * Identify the expression is containing deterministic expr or not
+     */
+    default boolean containsNondeterministic() {
+        return anyMatch(expr -> !((ExpressionTrait) expr).isDeterministic());
+    }
 }

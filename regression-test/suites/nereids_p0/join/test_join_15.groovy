@@ -83,10 +83,11 @@ suite("test_join_15", "nereids_p0") {
     check2_doris(res83, res84)
 
     // join multi table
-    sql"drop view if exists nullable"
-    sql"""create view nullable(n1, n2) as select a.k1, b.k2 from baseall 
+    String null_name = "nullable_15"
+    sql"drop view if exists ${null_name}"
+    sql"""create view ${null_name}(n1, n2) as select a.k1, b.k2 from baseall 
             a left join bigtable b on a.k1 = b.k1 + 10 where b.k2 is null"""
-    String null_name = "nullable"
+
 
     for (t in join_types){
         qt_join_multi_table1"""select * from ${tbName2} a ${t} join ${null_name} b on a.k1 = b.n1 order by 
@@ -208,11 +209,9 @@ suite("test_join_15", "nereids_p0") {
         select * from join_null_safe_equal_1 a left join join_null_safe_equal_1 b on  b.k3<=>a.k3 and b.k1 > a.k1 order by a.k1, b.k1;
     """
     //  windows
-    // Nereids does't support window function
-    // def res97 = sql"""select * from (select k1, k2, sum(k2) over (partition by k1) as ss from ${null_table_2})a
-    //    left join ${null_table_1} b on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
+     def res97 = sql"""select * from (select k1, k2, sum(k2) over (partition by k1) as ss from ${null_table_2})a
+        left join ${null_table_1} b on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
     def res98 = sql"""select * from (select k1, k2, k5 from ${null_table_2}) a left join ${null_table_1} b
       on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
-    // Nereids does't support window function
-    // check2_doris(res97, res98)
+     check2_doris(res97, res98)
 }

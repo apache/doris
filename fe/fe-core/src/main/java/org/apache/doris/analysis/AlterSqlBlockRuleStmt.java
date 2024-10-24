@@ -32,7 +32,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.Map;
 
-public class AlterSqlBlockRuleStmt extends DdlStmt {
+public class AlterSqlBlockRuleStmt extends DdlStmt implements NotFallbackInParser {
 
     public static final Long LONG_NOT_SET = SqlBlockUtil.LONG_MINUS_ONE;
 
@@ -137,5 +137,10 @@ public class AlterSqlBlockRuleStmt extends DdlStmt {
                 .append(new PrintableMap<>(properties, " = ", true, true, true))
                 .append(")");
         return sb.toString();
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.ALTER;
     }
 }

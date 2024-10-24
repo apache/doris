@@ -18,7 +18,6 @@
 package org.apache.doris.common.security.authentication;
 
 import lombok.Data;
-import org.apache.commons.lang3.StringUtils;
 
 @Data
 public class SimpleAuthenticationConfig extends AuthenticationConfig {
@@ -26,6 +25,6 @@ public class SimpleAuthenticationConfig extends AuthenticationConfig {
 
     @Override
     public boolean isValid() {
-        return StringUtils.isNotEmpty(username);
+        return true;
     }
 }

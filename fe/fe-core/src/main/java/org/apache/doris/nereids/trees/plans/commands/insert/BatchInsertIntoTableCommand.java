@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
@@ -29,11 +31,13 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.NoForward;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
@@ -41,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
@@ -49,16 +54,18 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
  * insert into values with in txn model.
  */
-public class BatchInsertIntoTableCommand extends Command implements ForwardWithSync, Explainable {
+public class BatchInsertIntoTableCommand extends Command implements NoForward, Explainable {
 
     public static final Logger LOG = LogManager.getLogger(BatchInsertIntoTableCommand.class);
 
@@ -81,15 +88,6 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
-            try {
-                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
-            } catch (Exception e) {
-                throw new AnalysisException("failed to set fallback to original planner to true", e);
-            }
-            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
-        }
-
         UnboundTableSink<? extends Plan> unboundTableSink = (UnboundTableSink<? extends Plan>) logicalQuery;
         Plan query = unboundTableSink.child();
         if (!(query instanceof LogicalInlineTable)) {
@@ -100,20 +98,30 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
         TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
         targetTableIf.readLock();
         try {
-            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf);
+            this.logicalQuery = (LogicalPlan) InsertUtils.normalizePlan(logicalQuery, targetTableIf, Optional.empty());
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
             executor.checkBlockRules();
-            if (ctx.getMysqlChannel() != null) {
+            if (ctx.getConnectType() == ConnectType.MYSQL && ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
 
             Optional<TreeNode<?>> plan = planner.getPhysicalPlan()
-                    .<Set<TreeNode<?>>>collect(PhysicalOlapTableSink.class::isInstance).stream().findAny();
+                    .<TreeNode<?>>collect(PhysicalOlapTableSink.class::isInstance).stream().findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
             sink = ((PhysicalOlapTableSink<?>) plan.get());
             Table targetTable = sink.getTargetTable();
+            if (ctx.getTxnEntry().isFirstTxnInsert()) {
+                ctx.getTxnEntry().setTxnSchemaVersion(((OlapTable) targetTable).getBaseSchemaVersion());
+                ctx.getTxnEntry().setFirstTxnInsert(false);
+            } else {
+                if (((OlapTable) targetTable).getBaseSchemaVersion() != ctx.getTxnEntry().getTxnSchemaVersion()) {
+                    throw new AnalysisException("There are schema changes in one transaction, "
+                            + "you can commit this transaction with formal data or rollback "
+                            + "this whole transaction.");
+                }
+            }
             // should set columns of sink since we maybe generate some invisible columns
             List<Column> fullSchema = sink.getTargetTable().getFullSchema();
             List<Column> targetSchema = Lists.newArrayList();
@@ -127,11 +135,12 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
                     }
                 }
             } else {
-                targetSchema = fullSchema;
+                targetSchema = removeSkipBitmapCol(fullSchema);
             }
             // check auth
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), targetTable.getQualifiedDbName(), targetTable.getName(),
+                    .checkTblPriv(ConnectContext.get(), targetTable.getDatabase().getCatalog().getName(),
+                            targetTable.getQualifiedDbName(), targetTable.getName(),
                             PrivPredicate.LOAD)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                         ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -139,17 +148,21 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
             }
 
             Optional<PhysicalUnion> union = planner.getPhysicalPlan()
-                    .<Set<PhysicalUnion>>collect(PhysicalUnion.class::isInstance).stream().findAny();
+                    .<PhysicalUnion>collect(PhysicalUnion.class::isInstance).stream().findAny();
             if (union.isPresent()) {
-                InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
-                        targetTable.getName(), targetSchema, union.get().getConstantExprsList());
+                InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(), targetTable.getName(),
+                        targetSchema, reorderUnionData(removeSkipBitmapExpr(sink.getOutputExprs()),
+                                union.get().getOutputs(), union.get().getConstantExprsList()));
                 return;
             }
             Optional<PhysicalOneRowRelation> oneRowRelation = planner.getPhysicalPlan()
-                    .<Set<PhysicalOneRowRelation>>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
+                    .<PhysicalOneRowRelation>collect(PhysicalOneRowRelation.class::isInstance).stream().findAny();
             if (oneRowRelation.isPresent()) {
                 InsertUtils.executeBatchInsertTransaction(ctx, targetTable.getQualifiedDbName(),
-                        targetTable.getName(), targetSchema, ImmutableList.of(oneRowRelation.get().getProjects()));
+                        targetTable.getName(), targetSchema,
+                        ImmutableList.of(
+                                reorderOneRowData(removeSkipBitmapExpr(sink.getOutputExprs()),
+                                        oneRowRelation.get().getProjects())));
                 return;
             }
             // TODO: update error msg
@@ -157,5 +170,57 @@ public class BatchInsertIntoTableCommand extends Command implements ForwardWithS
         } finally {
             targetTableIf.readUnlock();
         }
+    }
+
+    private List<NamedExpression> removeSkipBitmapExpr(List<NamedExpression> sinkExprs) {
+        return sinkExprs.stream().filter(expr -> !Column.SKIP_BITMAP_COL.equals(expr.getName()))
+                .collect(Collectors.toList());
+    }
+
+    private List<Column> removeSkipBitmapCol(List<Column> columns) {
+        return columns.stream().filter(col -> !Column.SKIP_BITMAP_COL.equals(col.getName()))
+                .collect(Collectors.toList());
+    }
+
+    // If table schema is c1, c2, c3, we do insert into table (c3, c2, c1) values(v3, v2, v1).
+    // The oneRowExprts are [v3#c1, v2#c2, v1#c3], which is wrong sequence. The sinkExprs are
+    // [v1#c3, v2#c2, v3#c1]. However, sinkExprs are SlotRefrence rather than Alias. We need to
+    // extract right sequence alias from oneRowExprs.
+    private List<NamedExpression> reorderOneRowData(List<NamedExpression> sinkExprs,
+            List<NamedExpression> oneRowExprs) {
+        List<NamedExpression> sequenceData = new ArrayList<>();
+        for (NamedExpression expr : sinkExprs) {
+            for (NamedExpression project : oneRowExprs) {
+                if (expr.getExprId().equals(project.getExprId())) {
+                    sequenceData.add(project);
+                    break;
+                }
+            }
+        }
+        return sequenceData;
+    }
+
+    private List<List<NamedExpression>> reorderUnionData(List<NamedExpression> sinkExprs,
+            List<NamedExpression> unionOutputs, List<List<NamedExpression>> unionExprs) {
+        Map<ExprId, Integer> indexMap = new HashMap<>();
+        for (int i = 0; i < unionOutputs.size(); i++) {
+            indexMap.put(unionOutputs.get(i).getExprId(), i);
+        }
+
+        List<List<NamedExpression>> reorderedExprs = new ArrayList<>();
+        for (List<NamedExpression> exprList : unionExprs) {
+            List<NamedExpression> reorderedList = new ArrayList<>();
+            for (NamedExpression expr : sinkExprs) {
+                int index = indexMap.get(expr.getExprId());
+                reorderedList.add(exprList.get(index));
+            }
+            reorderedExprs.add(reorderedList);
+        }
+        return reorderedExprs;
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.INSERT;
     }
 }

@@ -17,14 +17,17 @@
 
 package org.apache.doris.datasource.es;
 
+import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.util.JsonUtil;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.google.common.collect.ImmutableList;
 import okhttp3.Credentials;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 import org.apache.http.HttpHeaders;
 import org.apache.logging.log4j.LogManager;
@@ -126,11 +129,26 @@ public class EsRestClient {
     }
 
     /**
+     * Search specific index
+     */
+    public String searchIndex(String indexName, String body) throws DorisEsException {
+        String path = indexName + "/_search";
+        RequestBody requestBody = null;
+        if (Strings.isNotEmpty(body)) {
+            requestBody = RequestBody.create(
+                body,
+                MediaType.get("application/json")
+            );
+        }
+        return executeWithRequestBody(path, requestBody);
+    }
+
+    /**
      * Check whether index exist.
      **/
     public boolean existIndex(OkHttpClient httpClient, String indexName) {
         String path = indexName + "/_mapping";
-        try (Response response = executeResponse(httpClient, path)) {
+        try (Response response = executeResponse(httpClient, path, null)) {
             if (response.isSuccessful()) {
                 return true;
             }
@@ -227,7 +245,7 @@ public class EsRestClient {
         return sslNetworkClient;
     }
 
-    private Response executeResponse(OkHttpClient httpClient, String path) throws IOException {
+    private Response executeResponse(OkHttpClient httpClient, String path, RequestBody requestBody) throws IOException {
         currentNode = currentNode.trim();
         if (!(currentNode.startsWith("http://") || currentNode.startsWith("https://"))) {
             currentNode = "http://" + currentNode;
@@ -235,11 +253,28 @@ public class EsRestClient {
         if (!currentNode.endsWith("/")) {
             currentNode = currentNode + "/";
         }
-        Request request = builder.get().url(currentNode + path).build();
-        if (LOG.isInfoEnabled()) {
-            LOG.info("es rest client request URL: {}", request.url().toString());
+        String url = currentNode + path;
+        try {
+            SecurityChecker.getInstance().startSSRFChecking(url);
+            Request request;
+            if (requestBody != null) {
+                request = builder.post(requestBody).url(currentNode + path).build();
+            } else {
+                request = builder.get().url(currentNode + path).build();
+            }
+            if (LOG.isInfoEnabled()) {
+                LOG.info("es rest client request URL: {}", request.url().toString());
+            }
+            return httpClient.newCall(request).execute();
+        } catch (Exception e) {
+            throw new IOException(e);
+        } finally {
+            SecurityChecker.getInstance().stopSSRFChecking();
         }
-        return httpClient.newCall(request).execute();
+    }
+
+    private String execute(String path) throws DorisEsException {
+        return executeWithRequestBody(path, null);
     }
 
     /**
@@ -248,7 +283,7 @@ public class EsRestClient {
      * @param path the path must not leading with '/'
      * @return response
      */
-    private String execute(String path) throws DorisEsException {
+    private String executeWithRequestBody(String path, RequestBody requestBody) throws DorisEsException {
         // try 3 times for every node
         int retrySize = nodes.length * 3;
         DorisEsException scratchExceptionForThrow = null;
@@ -268,7 +303,7 @@ public class EsRestClient {
             if (LOG.isTraceEnabled()) {
                 LOG.trace("es rest client request URL: {}", currentNode + "/" + path);
             }
-            try (Response response = executeResponse(httpClient, path)) {
+            try (Response response = executeResponse(httpClient, path, requestBody)) {
                 if (response.isSuccessful()) {
                     return response.body().string();
                 } else {

@@ -31,7 +31,9 @@ class ExplainAction implements SuiteAction {
     private boolean verbose = false
     private SuiteContext context
     private Set<String> containsStrings = new LinkedHashSet<>()
+    private Set<String> containsAnyStrings = new LinkedHashSet<>()
     private Set<String> notContainsStrings = new LinkedHashSet<>()
+    private Map<String, Integer> multiContainsStrings = new HashMap<>()
     private String coonType
     private Closure checkFunction
 
@@ -54,6 +56,14 @@ class ExplainAction implements SuiteAction {
 
     void contains(String subString) {
         containsStrings.add(subString)
+    }
+
+    void containsAny(String subString) {
+        containsAnyStrings.add(subString)
+    }
+
+    void multiContains(String subString, int n) {
+        multiContainsStrings.put(subString, n);
     }
 
     void notContains(String subString) {
@@ -97,8 +107,7 @@ class ExplainAction implements SuiteAction {
             for (String string : containsStrings) {
                 if (!explainString.contains(string)) {
                     String msg = ("Explain and check failed, expect contains '${string}',"
-                            + "but actual explain string is:\n${explainString}").toString()
-                    log.info(msg)
+                            + " but actual explain string is:\n${explainString}").toString()
                     def t = new IllegalStateException(msg)
                     throw t
                 }
@@ -106,11 +115,31 @@ class ExplainAction implements SuiteAction {
             for (String string : notContainsStrings) {
                 if (explainString.contains(string)) {
                     String msg = ("Explain and check failed, expect not contains '${string}',"
-                            + "but actual explain string is:\n${explainString}").toString()
-                    log.info(msg)
+                            + " but actual explain string is:\n${explainString}").toString()
                     def t = new IllegalStateException(msg)
                     throw t
                 }
+            }
+            for (Map.Entry entry : multiContainsStrings) {
+                int count = explainString.count(entry.key);
+                if (count != entry.value) {
+                    String msg = ("Explain and check failed, expect multiContains '${string}' , '${entry.value}' times, actural '${count}' times."
+                            + "Actual explain string is:\n${explainString}").toString()
+                    def t = new IllegalStateException(msg)
+                    throw t
+                }
+            }
+            boolean any = false;
+            for (String string : containsAnyStrings) {
+                if (explainString.contains(string)) {
+                    any = true;
+                }
+            }
+            if (!containsAnyStrings.isEmpty() && !any) {
+                    String msg = ("Explain and check failed, expect contains any '${containsAnyStrings}',"
+                            + " but actual explain string is:\n${explainString}").toString()
+                    def t = new IllegalStateException(msg)
+                    throw t
             }
         }
     }

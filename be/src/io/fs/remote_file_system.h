@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <memory>
 #include <string>
 #include <utility>
@@ -28,13 +26,12 @@
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
 class RemoteFileSystem : public FileSystem {
 public:
     RemoteFileSystem(Path&& root_path, std::string&& id, FileSystemType type)
-            : FileSystem(std::move(root_path), std::move(id), type) {}
+            : FileSystem(std::move(id), type), _root_path(std::move(root_path)) {}
     ~RemoteFileSystem() override = default;
 
     Status upload(const Path& local_file, const Path& dest_file);
@@ -42,12 +39,10 @@ public:
                         const std::vector<Path>& remote_files);
     Status download(const Path& remote_file, const Path& local);
 
-    Status connect();
+    // the root path of this fs.
+    const Path& root_path() const { return _root_path; }
 
 protected:
-    /// connect to remote file system
-    virtual Status connect_impl() = 0;
-
     Status open_file_impl(const Path& file, FileReaderSPtr* reader,
                           const FileReaderOptions* opts) override;
     /// upload load_file to remote remote_file
@@ -68,9 +63,17 @@ protected:
     // if file_size < 0, the file size should be fetched from file system
     virtual Status open_file_internal(const Path& file, FileReaderSPtr* reader,
                                       const FileReaderOptions& opts) = 0;
+
+    Path absolute_path(const Path& path) const override {
+        if (path.is_absolute()) {
+            return path;
+        }
+        return _root_path / path;
+    }
+
+    Path _root_path;
 };
 
 using RemoteFileSystemSPtr = std::shared_ptr<RemoteFileSystem>;
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

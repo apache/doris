@@ -24,28 +24,62 @@
 #include <ostream>
 #include <utility>
 
+#include "bvar/latency_recorder.h"
+#include "bvar/reducer.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
+#include "cpp/sync_point.h"
 #include "io/fs/err_utils.h"
-// #include "io/fs/hdfs_file_system.h"
+#include "io/hdfs_util.h"
+#include "runtime/thread_context.h"
+#include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
-#include "util/hdfs_util.h"
 
-namespace doris {
-namespace io {
+namespace doris::io {
 
-HdfsFileReader::HdfsFileReader(Path path, const std::string& name_node,
-                               FileHandleCache::Accessor accessor, RuntimeProfile* profile)
+bvar::Adder<uint64_t> hdfs_bytes_read_total("hdfs_file_reader", "bytes_read");
+bvar::LatencyRecorder hdfs_bytes_per_read("hdfs_file_reader", "bytes_per_read"); // also QPS
+bvar::PerSecond<bvar::Adder<uint64_t>> hdfs_read_througthput("hdfs_file_reader",
+                                                             "hdfs_read_throughput",
+                                                             &hdfs_bytes_read_total);
+
+namespace {
+
+Result<FileHandleCache::Accessor> get_file(const hdfsFS& fs, const Path& file, int64_t mtime,
+                                           int64_t file_size) {
+    static FileHandleCache cache(config::max_hdfs_file_handle_cache_num, 16,
+                                 config::max_hdfs_file_handle_cache_time_sec * 1000L);
+    bool cache_hit;
+    FileHandleCache::Accessor accessor;
+    RETURN_IF_ERROR_RESULT(cache.get_file_handle(fs, file.native(), mtime, file_size, false,
+                                                 &accessor, &cache_hit));
+    return accessor;
+}
+
+} // namespace
+
+Result<FileReaderSPtr> HdfsFileReader::create(Path full_path, const hdfsFS& fs, std::string fs_name,
+                                              const FileReaderOptions& opts,
+                                              RuntimeProfile* profile) {
+    auto path = convert_path(full_path, fs_name);
+    return get_file(fs, path, opts.mtime, opts.file_size).transform([&](auto&& accessor) {
+        return std::make_shared<HdfsFileReader>(std::move(path), std::move(fs_name),
+                                                std::move(accessor), profile);
+    });
+}
+
+HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::Accessor accessor,
+                               RuntimeProfile* profile)
         : _path(std::move(path)),
-          _name_node(name_node),
+          _fs_name(std::move(fs_name)),
           _accessor(std::move(accessor)),
           _profile(profile) {
     _handle = _accessor.get();
 
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
-    if (_profile != nullptr && is_hdfs(_name_node)) {
+    if (_profile != nullptr && is_hdfs(_fs_name)) {
 #ifdef USE_HADOOP_HDFS
         const char* hdfs_profile_name = "HdfsIO";
         ADD_TIMER(_profile, hdfs_profile_name);
@@ -83,7 +117,10 @@ Status HdfsFileReader::close() {
 #ifdef USE_HADOOP_HDFS
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
-    DCHECK(!closed());
+    if (closed()) [[unlikely]] {
+        return Status::InternalError("read closed file: {}", _path.native());
+    }
+
     if (offset > _handle->file_size()) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
                                offset, _handle->file_size(), _path.native());
@@ -97,10 +134,16 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
+
     size_t has_read = 0;
     while (has_read < bytes_req) {
         tSize loop_read = hdfsPread(_handle->fs(), _handle->file(), offset + has_read,
                                     to + has_read, bytes_req - has_read);
+        {
+            [[maybe_unused]] Status error_ret;
+            TEST_INJECTION_POINT_RETURN_WITH_VALUE("HdfsFileReader:read_error", error_ret);
+        }
         if (loop_read < 0) {
             // invoker maybe just skip Status.NotFound and continue
             // so we need distinguish between it and other kinds of errors
@@ -110,7 +153,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
             }
             return Status::InternalError(
                     "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                    BackendOptions::get_localhost(), _name_node, _path.string(), _err_msg);
+                    BackendOptions::get_localhost(), _fs_name, _path.string(), _err_msg);
         }
         if (loop_read == 0) {
             break;
@@ -118,6 +161,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         has_read += loop_read;
     }
     *bytes_read = has_read;
+    hdfs_bytes_read_total << *bytes_read;
+    hdfs_bytes_per_read << *bytes_read;
     return Status::OK();
 }
 
@@ -126,7 +171,10 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
 // TODO: rethink here to see if there are some difference between hdfsPread() and hdfsRead()
 Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                     const IOContext* /*io_ctx*/) {
-    DCHECK(!closed());
+    if (closed()) [[unlikely]] {
+        return Status::InternalError("read closed file: ", _path.native());
+    }
+
     if (offset > _handle->file_size()) {
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
                                offset, _handle->file_size(), _path.native());
@@ -152,6 +200,8 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         return Status::OK();
     }
 
+    LIMIT_REMOTE_SCAN_IO(bytes_read);
+
     size_t has_read = 0;
     while (has_read < bytes_req) {
         int64_t loop_read =
@@ -165,7 +215,7 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
             }
             return Status::InternalError(
                     "Read hdfs file failed. (BE: {}) namenode:{}, path:{}, err: {}",
-                    BackendOptions::get_localhost(), _name_node, _path.string(), _err_msg);
+                    BackendOptions::get_localhost(), _fs_name, _path.string(), _err_msg);
         }
         if (loop_read == 0) {
             break;
@@ -173,18 +223,20 @@ Status HdfsFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         has_read += loop_read;
     }
     *bytes_read = has_read;
+    hdfs_bytes_read_total << *bytes_read;
+    hdfs_bytes_per_read << *bytes_read;
     return Status::OK();
 }
 #endif
 
 void HdfsFileReader::_collect_profile_before_close() {
-    if (_profile != nullptr && is_hdfs(_name_node)) {
+    if (_profile != nullptr && is_hdfs(_fs_name)) {
 #ifdef USE_HADOOP_HDFS
         struct hdfsReadStatistics* hdfs_statistics = nullptr;
         auto r = hdfsFileGetReadStatistics(_handle->file(), &hdfs_statistics);
         if (r != 0) {
             LOG(WARNING) << "Failed to run hdfsFileGetReadStatistics(): " << r
-                         << ", name node: " << _name_node;
+                         << ", name node: " << _fs_name;
             return;
         }
         COUNTER_UPDATE(_hdfs_profile.total_bytes_read, hdfs_statistics->totalBytesRead);
@@ -199,7 +251,7 @@ void HdfsFileReader::_collect_profile_before_close() {
         r = hdfsGetHedgedReadMetrics(_handle->fs(), &hdfs_hedged_read_statistics);
         if (r != 0) {
             LOG(WARNING) << "Failed to run hdfsGetHedgedReadMetrics(): " << r
-                         << ", name node: " << _name_node;
+                         << ", name node: " << _fs_name;
             return;
         }
 
@@ -215,5 +267,4 @@ void HdfsFileReader::_collect_profile_before_close() {
     }
 }
 
-} // namespace io
-} // namespace doris
+} // namespace doris::io

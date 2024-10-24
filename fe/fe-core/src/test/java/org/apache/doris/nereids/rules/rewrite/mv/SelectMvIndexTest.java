@@ -77,6 +77,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         createDatabase(HR_DB_NAME);
         useDatabase(HR_DB_NAME);
         connectContext.getSessionVariable().enableNereidsTimeout = false;
+        connectContext.getSessionVariable().setEnableSyncMvCostBasedRewrite(false);
     }
 
     @BeforeEach
@@ -780,7 +781,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         String uniqueTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, k2 int, v1 int) UNIQUE KEY (k1, k2) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1','enable_unique_key_merge_on_write' = 'false');";
         createTable(uniqueTable);
-        String createK1MV = "create materialized view only_k1 as select k2 from " + TEST_TABLE_NAME;
+        String createK1MV = "create materialized view only_k1 as select k2,k1 from " + TEST_TABLE_NAME;
         createMv(createK1MV);
         String query = "select * from " + TEST_TABLE_NAME + ";";
         singleTableTest(query, TEST_TABLE_NAME, false);
@@ -1224,7 +1225,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
     private void assertOneAggFuncType(LogicalAggregate<? extends Plan> agg, Class<?> aggFuncType) {
         Set<AggregateFunction> aggFuncs = agg.getOutputExpressions()
                 .stream()
-                .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance)
+                .flatMap(e -> e.<AggregateFunction>collect(AggregateFunction.class::isInstance)
                         .stream())
                 .collect(Collectors.toSet());
         Assertions.assertEquals(1, aggFuncs.size());
@@ -1239,7 +1240,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
             Assertions.assertEquals(2, scans.size());
 
             ScanNode scanNode0 = scans.get(0);
-            Assertions.assertTrue(scanNode0 instanceof OlapScanNode);
+            Assertions.assertInstanceOf(OlapScanNode.class, scanNode0);
             OlapScanNode scan0 = (OlapScanNode) scanNode0;
             Assertions.assertTrue(scan0.isPreAggregation());
             Assertions.assertEquals(firstTableIndexName, scan0.getSelectedIndexName());

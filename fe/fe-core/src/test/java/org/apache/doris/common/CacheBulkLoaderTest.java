@@ -19,15 +19,14 @@ package org.apache.doris.common;
 
 import org.apache.doris.common.util.CacheBulkLoader;
 
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.LoadingCache;
+import com.github.benmanes.caffeine.cache.Caffeine;
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.commons.collections.MapUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -41,7 +40,7 @@ public class CacheBulkLoaderTest {
         ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
                 10, 10, "TestThreadPool", 120, true);
 
-        LoadingCache<String, String> testCache = CacheBuilder.newBuilder().maximumSize(100)
+        LoadingCache<String, String> testCache = Caffeine.newBuilder().maximumSize(100)
                 .expireAfterAccess(1, TimeUnit.MINUTES)
                 .build(new CacheBulkLoader<String, String>() {
                     @Override
@@ -63,15 +62,10 @@ public class CacheBulkLoaderTest {
 
         List<String> testKeys = IntStream.range(1, 101).boxed()
                     .map(i -> String.format("k%d", i)).collect(Collectors.toList());
-        try {
-            Map<String, String> vMap = testCache.getAll(testKeys);
-            Assertions.assertTrue(MapUtils.isNotEmpty(vMap) && vMap.size() == testKeys.size());
-            for (String key : vMap.keySet()) {
-                Assertions.assertTrue(key.replace("k", "v").equals(vMap.get(key)));
-            }
-        } catch (ExecutionException e) {
-            e.printStackTrace();
-            Assertions.fail();
+        Map<String, String> vMap = testCache.getAll(testKeys);
+        Assertions.assertTrue(MapUtils.isNotEmpty(vMap) && vMap.size() == testKeys.size());
+        for (String key : vMap.keySet()) {
+            Assertions.assertTrue(key.replace("k", "v").equals(vMap.get(key)));
         }
 
         try {

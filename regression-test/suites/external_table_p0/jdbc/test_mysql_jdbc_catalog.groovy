@@ -23,6 +23,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
     String s3_endpoint = getS3Endpoint()
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+    // String driver_url = "mysql-connector-java-8.0.25.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String user = "test_jdbc_user";
         String pwd = '123456';
@@ -133,103 +134,89 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         qt_sql """select current_catalog()"""
         sql """switch ${catalog_name}"""
         qt_sql """select current_catalog()"""
-        def res_dbs_log = sql "show databases;"
-		for(int i = 0;i < res_dbs_log.size();i++) {
-			def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-			log.info( "database = ${res_dbs_log[i][0]} => tables = "+tbs.toString())
-		}
-        try {
-        
-            sql """ use ${ex_db_name}"""
+        sql """ use ${ex_db_name}"""
 
-            order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
-            sql  """ insert into internal.${internal_db_name}.${inDorisTable} select id, name from ${ex_tb0}; """
-            order_qt_in_tb  """ select id, name from internal.${internal_db_name}.${inDorisTable} order by id; """
+        order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
+        sql  """ insert into internal.${internal_db_name}.${inDorisTable} select id, name from ${ex_tb0}; """
+        order_qt_in_tb  """ select id, name from internal.${internal_db_name}.${inDorisTable} order by id; """
 
-            order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
-            order_qt_ex_tb2  """ select * from ${ex_tb2} order by id; """
-            order_qt_ex_tb3  """ select * from ${ex_tb3} order by game_code; """
-            order_qt_ex_tb4  """ select * from ${ex_tb4} order by products_id; """
-            order_qt_ex_tb5  """ select * from ${ex_tb5} order by id; """
-            order_qt_ex_tb6  """ select * from ${ex_tb6} order by id; """
-            order_qt_ex_tb7  """ select * from ${ex_tb7} order by id; """
-            order_qt_ex_tb8  """ select * from ${ex_tb8} order by uid; """
-            order_qt_ex_tb9  """ select * from ${ex_tb9} order by c_date; """
-            order_qt_ex_tb10  """ select * from ${ex_tb10} order by aa; """
-            order_qt_ex_tb11  """ select * from ${ex_tb11} order by aa; """
-            order_qt_ex_tb12  """ select * from ${ex_tb12} order by cc; """
-            order_qt_ex_tb13  """ select * from ${ex_tb13} order by name; """
-            order_qt_ex_tb14  """ select * from ${ex_tb14} order by tid; """
-            order_qt_ex_tb15  """ select * from ${ex_tb15} order by col1; """
-            order_qt_ex_tb16  """ select * from ${ex_tb16} order by id; """
-            order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
-            order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
-            order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
-            order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
-            order_qt_ex_tb21_1  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
-            order_qt_ex_tb21_2  """ select `key`, `id` from ${ex_tb21} where `key` like 2 order by id;"""
-            order_qt_ex_tb21_3  """ select `key`, `id` from ${ex_tb21} where `key` in (1,2) order by id;"""
-            order_qt_ex_tb21_4  """ select `key`, `id` from ${ex_tb21} where abs(`key`) = 2 order by id;"""
-            order_qt_ex_tb21_5  """ select `key`, `id` from ${ex_tb21} where `key` between 1 and 2 order by id;"""
-            order_qt_ex_tb21_6  """ select `key`, `id` from ${ex_tb21} where `key` = case when id = 1 then 1 else 0 end order by id;"""
-            order_qt_ex_tb21_7  """ select (`key` +1) as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
-            order_qt_ex_tb21_8  """ select `key` as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
-            order_qt_information_schema """ show tables from information_schema; """
-            order_qt_dt """select * from ${dt}; """
-            order_qt_dt_null """select * from ${dt_null} order by 1; """
-            order_qt_test_dz """select * from ${test_zd} order by 1; """
-            order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
-            order_qt_test_filter_not_old_plan """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${ex_tb13} where name not like '%张三0%' order by 1; """
-            explain {
-                sql("select `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
-                contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""
+        order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
+        order_qt_ex_tb2  """ select * from ${ex_tb2} order by id; """
+        order_qt_ex_tb3  """ select * from ${ex_tb3} order by game_code; """
+        order_qt_ex_tb4  """ select * from ${ex_tb4} order by products_id; """
+        order_qt_ex_tb5  """ select * from ${ex_tb5} order by id; """
+        order_qt_ex_tb6  """ select * from ${ex_tb6} order by id; """
+        order_qt_ex_tb7  """ select * from ${ex_tb7} order by id; """
+        order_qt_ex_tb8  """ select * from ${ex_tb8} order by uid; """
+        order_qt_ex_tb9  """ select * from ${ex_tb9} order by c_date; """
+        order_qt_ex_tb10  """ select * from ${ex_tb10} order by aa; """
+        order_qt_ex_tb11  """ select * from ${ex_tb11} order by aa; """
+        order_qt_ex_tb12  """ select * from ${ex_tb12} order by cc; """
+        order_qt_ex_tb13  """ select * from ${ex_tb13} order by name; """
+        order_qt_ex_tb14  """ select * from ${ex_tb14} order by tid; """
+        order_qt_ex_tb15  """ select * from ${ex_tb15} order by col1; """
+        order_qt_ex_tb16  """ select * from ${ex_tb16} order by id; """
+        order_qt_ex_tb17  """ select * from ${ex_tb17} order by id; """
+        order_qt_ex_tb18  """ select * from ${ex_tb18} order by num_tinyint; """
+        order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
+        order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
+        order_qt_ex_tb21_1  """ select `key`, `id` from ${ex_tb21} where `key` = 2 order by id;"""
+        order_qt_ex_tb21_2  """ select `key`, `id` from ${ex_tb21} where `key` like 2 order by id;"""
+        order_qt_ex_tb21_3  """ select `key`, `id` from ${ex_tb21} where `key` in (1,2) order by id;"""
+        order_qt_ex_tb21_4  """ select `key`, `id` from ${ex_tb21} where abs(`key`) = 2 order by id;"""
+        order_qt_ex_tb21_5  """ select `key`, `id` from ${ex_tb21} where `key` between 1 and 2 order by id;"""
+        order_qt_ex_tb21_6  """ select `key`, `id` from ${ex_tb21} where `key` = case when id = 1 then 1 else 0 end order by id;"""
+        order_qt_ex_tb21_7  """ select (`key` +1) as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
+        order_qt_ex_tb21_8  """ select `key` as k, `id` from ${ex_tb21} having abs(k) = 2 order by id;"""
+        order_qt_information_schema """ show tables from information_schema like "processlist"; """
+        order_qt_dt """select * from ${dt}; """
+        order_qt_dt_null """select * from ${dt_null} order by 1; """
+        order_qt_test_dz """select * from ${test_zd} order by 1; """
+        order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
+        explain {
+            sql("select `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
+            contains """ SELECT `datetime` FROM `doris_test`.`all_types` WHERE (date(`datetime`) = '2012-10-25')"""
+        }
+
+        explain {
+            sql("select /*+ SET_VAR(enable_ext_func_pred_pushdown = false) */ `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
+            contains """SELECT `datetime` FROM `doris_test`.`all_types`"""
+        }
+
+        // test insert
+        String uuid1 = UUID.randomUUID().toString();
+        connect(user=user, password="${pwd}", url=url) {
+            try {
+                sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
+                fail()
+            } catch (Exception e) {
+                log.info(e.getMessage())
             }
+        }
 
-            explain {
-                sql("select /*+ SET_VAR(enable_ext_func_pred_pushdown = false) */ `datetime` from all_types where to_date(`datetime`) = '2012-10-25';")
-                contains """SELECT `datetime` FROM `doris_test`.`all_types`"""
+        sql """GRANT LOAD_PRIV ON ${catalog_name}.${ex_db_name}.${test_insert} TO ${user}"""
+
+        connect(user=user, password="${pwd}", url=url) {
+            try {
+                sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
+            } catch (Exception e) {
+                fail();
             }
+        }
+        order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
 
-            // test insert
-            String uuid1 = UUID.randomUUID().toString();
-            connect(user=user, password="${pwd}", url=url) {
-                try {
-                    sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
-                    fail()
-                } catch (Exception e) {
-                    log.info(e.getMessage())
-                }
-            }
+        String uuid2 = UUID.randomUUID().toString();
+        sql """ insert into ${test_insert} values ('${uuid2}', 'doris2', 19), ('${uuid2}', 'doris3', 20) """
+        order_qt_test_insert2 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
 
-            sql """GRANT LOAD_PRIV ON ${catalog_name}.${ex_db_name}.${test_insert} TO ${user}"""
+        sql """ insert into ${test_insert} select * from ${test_insert} where id = '${uuid2}' """
+        order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
 
-            connect(user=user, password="${pwd}", url=url) {
-                try {
-                    sql """ insert into ${catalog_name}.${ex_db_name}.${test_insert} values ('${uuid1}', 'doris1', 18) """
-                } catch (Exception e) {
-                    fail();
-                }
-            }
-            order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
+        String uuid3 = UUID.randomUUID().toString();
+        sql """ INSERT INTO ${test_insert2} VALUES
+                ('${uuid3}', true, 'abcHa1.12345', '1.123450xkalowadawd', '2022-10-01', 3.14159, 1, 2, 0, 100000, 1.2345678, 24.000, '07:09:51', '2022', '2022-11-27 07:09:51', '2022-11-27 07:09:51'); """
+        order_qt_test_insert4 """ select k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11,k12,k13,k14,k15 from ${test_insert2} where id = '${uuid3}' """
 
-            String uuid2 = UUID.randomUUID().toString();
-            sql """ insert into ${test_insert} values ('${uuid2}', 'doris2', 19), ('${uuid2}', 'doris3', 20) """
-            order_qt_test_insert2 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
-
-            sql """ insert into ${test_insert} select * from ${test_insert} where id = '${uuid2}' """
-            order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
-
-            String uuid3 = UUID.randomUUID().toString();
-            sql """ INSERT INTO ${test_insert2} VALUES
-                    ('${uuid3}', true, 'abcHa1.12345', '1.123450xkalowadawd', '2022-10-01', 3.14159, 1, 2, 0, 100000, 1.2345678, 24.000, '07:09:51', '2022', '2022-11-27 07:09:51', '2022-11-27 07:09:51'); """
-            order_qt_test_insert4 """ select k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11,k12,k13,k14,k15 from ${test_insert2} where id = '${uuid3}' """
-        } finally {
-			res_dbs_log = sql "show databases;"
-			for(int i = 0;i < res_dbs_log.size();i++) {
-				def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-				log.info( "database = ${res_dbs_log[i][0]} => tables = "+tbs.toString())
-			}
-		}
         sql """ drop catalog if exists ${catalog_name} """
 
         // test only_specified_database argument
@@ -314,41 +301,30 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
         """
         sql """ switch ${catalog_name} """
-        
-        res_dbs_log = sql "show databases;"
-		for(int i = 0;i < res_dbs_log.size();i++) {
-			def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-			log.info( "database = ${res_dbs_log[i][0]} => tables = "+tbs.toString())
-		}
-        try {
-            sql """ use ${ex_db_name} """
-            order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
 
-            // test all types supported by MySQL
-            sql """use doris_test;"""
-            qt_mysql_all_types """select * from all_types order by tinyint_u;"""
+        sql """ use ${ex_db_name} """
+        order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
 
-            // test insert into internal.db.table select * from all_types
-            sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from all_types; """
-            order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by tinyint_u; """
+        // test all types supported by MySQL
+        sql """use doris_test;"""
+        qt_mysql_all_types_count """select count(*) from all_types;"""
+        qt_mysql_all_types """select * from all_types order by tinyint_u;"""
 
-            // test CTAS
-            sql  """ drop table if exists internal.${internal_db_name}.${test_ctas} """
-            sql """ create table internal.${internal_db_name}.${test_ctas}
-                    PROPERTIES("replication_num" = "1")
-                    AS select * from all_types;
-                """
+        // test insert into internal.db.table select * from all_types
+        sql """ insert into internal.${internal_db_name}.${test_insert_all_types} select * from all_types; """
+        order_qt_select_insert_all_types """ select * from internal.${internal_db_name}.${test_insert_all_types} order by tinyint_u; """
 
-            order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas} order by tinyint_u;"""
+        // test CTAS
+        sql  """ drop table if exists internal.${internal_db_name}.${test_ctas} """
+        sql """ create table internal.${internal_db_name}.${test_ctas}
+                PROPERTIES("replication_num" = "1")
+                AS select * from all_types;
+            """
 
-            order_qt_ctas_desc """desc internal.${internal_db_name}.${test_ctas};"""
-        } finally {
-			res_dbs_log = sql "show databases;"
-			for(int i = 0;i < res_dbs_log.size();i++) {
-				def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-				log.info( "database = ${res_dbs_log[i][0]} => tables = "+tbs.toString())
-			}
-		}
+        order_qt_ctas """select * from internal.${internal_db_name}.${test_ctas} order by tinyint_u;"""
+
+        order_qt_ctas_desc """desc internal.${internal_db_name}.${test_ctas};"""
+
         sql """ drop catalog if exists ${catalog_name} """
 
         // test mysql view
@@ -375,147 +351,137 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         """
 
         sql """switch mysql_fun_push_catalog"""
-        res_dbs_log = sql "show databases;"
-		for(int i = 0;i < res_dbs_log.size();i++) {
-			def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-			log.info( "database = ${res_dbs_log[i][0]} => tables = "+tbs.toString())
-		}
-        try {
-            sql """ use ${ex_db_name}"""
-            sql """ set enable_ext_func_pred_pushdown = "true"; """
-            order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
-            order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
-            order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
-            order_qt_date_trunc """ SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05'; """
-            order_qt_money_format """ select k8 from test1 where money_format(k8) = '1.00'; """
-            explain {
-                sql("select k8 from test1 where money_format(k8) = '1.00';")
+        sql """ use ${ex_db_name}"""
+        sql """ set enable_ext_func_pred_pushdown = "true"; """
+        order_qt_filter1 """select * from ${ex_tb17} where id = 1; """
+        order_qt_filter2 """select * from ${ex_tb17} where 1=1 order by 1; """
+        order_qt_filter3 """select * from ${ex_tb17} where id = 1 and 1 = 1; """
+        order_qt_date_trunc """ SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05'; """
+        order_qt_money_format """ select k8 from test1 where money_format(k8) = '1.00'; """
+        explain {
+            sql("select k8 from test1 where money_format(k8) = '1.00';")
 
-                contains "QUERY: SELECT `k8` FROM `doris_test`.`test1`"
-            }
-            explain {
-                sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05';")
+            contains "QUERY: SELECT `k8` FROM `doris_test`.`test1`"
+        }
+        explain {
+            sql("select k12 from test1 where negative(k12) = 1;")
 
-                contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"
-            }
-            explain {
-                sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
+            contains "QUERY: SELECT `k12` FROM `doris_test`.`test1`"
+        }
+        explain {
+            sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05';")
 
-                contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
-            }
-            explain {
-                sql ("select k6, k8 from test1 where nvl(k6, null) = 1;")
+            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt`"
+        }
+        explain {
+            sql ("SELECT timestamp0  from dt where DATE_TRUNC(date_sub(timestamp0,INTERVAL 9 HOUR),'hour') > '2011-03-03 17:39:05' and timestamp0 > '2022-01-01';")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, NULL) = 1))"
-            }
-            explain {
-                sql ("select k6, k8 from test1 where nvl(nvl(k6, null),null) = 1;")
+            contains "QUERY: SELECT `timestamp0` FROM `doris_test`.`dt` WHERE (`timestamp0` > '2022-01-01 00:00:00')"
+        }
+        explain {
+            sql ("select k6, k8 from test1 where nvl(k6, null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(ifnull(`k6`, NULL), NULL) = 1))"
-            }
-            sql """ set enable_ext_func_pred_pushdown = "false"; """
-            explain {
-                sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(`k6`, NULL) = 1))"
+        }
+        explain {
+            sql ("select k6, k8 from test1 where nvl(nvl(k6, null),null) = 1;")
 
-                contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
-            }
-            sql """ set enable_ext_func_pred_pushdown = "true"; """
-            // test date_add
-            sql """ set disable_nereids_rules='NORMALIZE_REWRITE_RULES'; """
-            order_qt_date_add_year """ select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1; """
-            explain {
-                sql("select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1;")
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((ifnull(ifnull(`k6`, NULL), NULL) = 1))"
+        }
+        sql """ set enable_ext_func_pred_pushdown = "false"; """
+        explain {
+            sql ("select k6, k8 from test1 where nvl(k6, null) = 1 and k8 = 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 year) = '2023-01-01')"
-            }
-            order_qt_date_add_month """ select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1; """
-            explain {
-                sql("select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1;")
+            contains "QUERY: SELECT `k6`, `k8` FROM `doris_test`.`test1` WHERE ((`k8` = 1))"
+        }
+        sql """ set enable_ext_func_pred_pushdown = "true"; """
+        // test date_add
+        order_qt_date_add_year """ select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1; """
+        explain {
+            sql("select * from test_zd where date_add(d_z,interval 1 year) = '2023-01-01' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 month) = '2022-02-01')"
-            }
-            order_qt_date_add_week """ select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1; """
-            explain {
-                sql("select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_add_month """ select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1; """
+        explain {
+            sql("select * from test_zd where date_add(d_z,interval 1 month) = '2022-02-01' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 week) = '2022-01-08')"
-            }
-            order_qt_date_add_day """ select * from test_zd where date_add(d_z,interval 1 day) = '2022-01-02' order by 1; """
-            explain {
-                sql("select * from test_zd where date_add(d_z,interval 1 day) = '2022-01-02' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_add_week """ select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1; """
+        explain {
+            sql("select * from test_zd where date_add(d_z,interval 1 week) = '2022-01-08' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 day) = '2022-01-02')"
-            }
-            order_qt_date_add_hour """ select * from test_zd where date_add(d_z,interval 1 hour) = '2022-01-01 01:00:00' order by 1; """
-            explain {
-                sql("select * from test_zd where date_add(d_z,interval 1 hour) = '2022-01-01 01:00:00' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_add_day """ select * from test_zd where date_add(d_z,interval 1 day) = '2022-01-02' order by 1; """
+        explain {
+            sql("select * from test_zd where date_add(d_z,interval 1 day) = '2022-01-02' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 hour) = '2022-01-01 01:00:00')"
-            }
-            order_qt_date_add_min """ select * from test_zd where date_add(d_z,interval 1 minute) = '2022-01-01 00:01:00' order by 1; """
-            explain {
-                sql("select * from test_zd where date_add(d_z,interval 1 minute) = '2022-01-01 00:01:00' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_add_hour """ select * from test_zd where date_add(d_z,interval 1 hour) = '2022-01-01 01:00:00' order by 1; """
+        explain {
+            sql("select * from test_zd where date_add(d_z,interval 1 hour) = '2022-01-01 01:00:00' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 minute) = '2022-01-01 00:01:00')"
-            }
-            order_qt_date_add_sec """ select * from test_zd where date_add(d_z,interval 1 second) = '2022-01-01 00:00:01' order by 1; """
-            explain {
-                sql("select * from test_zd where date_add(d_z,interval 1 second) = '2022-01-01 00:00:01' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_add_min """ select * from test_zd where date_add(d_z,interval 1 minute) = '2022-01-01 00:01:00' order by 1; """
+        explain {
+            sql("select * from test_zd where date_add(d_z,interval 1 minute) = '2022-01-01 00:01:00' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_add(`d_z`, INTERVAL 1 second) = '2022-01-01 00:00:01')"
-            }
-            // date_sub
-            order_qt_date_sub_year """ select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1; """
-            explain {
-                sql("select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_add_sec """ select * from test_zd where date_add(d_z,interval 1 second) = '2022-01-01 00:00:01' order by 1; """
+        explain {
+            sql("select * from test_zd where date_add(d_z,interval 1 second) = '2022-01-01 00:00:01' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 year) = '2021-01-01')"
-            }
-            order_qt_date_sub_month """ select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1; """
-            explain {
-                sql("select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        // date_sub
+        order_qt_date_sub_year """ select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1; """
+        explain {
+            sql("select * from test_zd where date_sub(d_z,interval 1 year) = '2021-01-01' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 month) = '2021-12-01')"
-            }
-            order_qt_date_sub_week """ select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1; """
-            explain {
-                sql("select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_sub_month """ select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1; """
+        explain {
+            sql("select * from test_zd where date_sub(d_z,interval 1 month) = '2021-12-01' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 week) = '2021-12-25')"
-            }
-            order_qt_date_sub_day """ select * from test_zd where date_sub(d_z,interval 1 day) = '2021-12-31' order by 1; """
-            explain {
-                sql("select * from test_zd where date_sub(d_z,interval 1 day) = '2021-12-31' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_sub_week """ select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1; """
+        explain {
+            sql("select * from test_zd where date_sub(d_z,interval 1 week) = '2021-12-25' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 day) = '2021-12-31')"
-            }
-            order_qt_date_sub_hour """ select * from test_zd where date_sub(d_z,interval 1 hour) = '2021-12-31 23:00:00' order by 1; """
-            explain {
-                sql("select * from test_zd where date_sub(d_z,interval 1 hour) = '2021-12-31 23:00:00' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_sub_day """ select * from test_zd where date_sub(d_z,interval 1 day) = '2021-12-31' order by 1; """
+        explain {
+            sql("select * from test_zd where date_sub(d_z,interval 1 day) = '2021-12-31' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 hour) = '2021-12-31 23:00:00')"
-            }
-            order_qt_date_sub_min """ select * from test_zd where date_sub(d_z,interval 1 minute) = '2021-12-31 23:59:00' order by 1; """
-            explain {
-                sql("select * from test_zd where date_sub(d_z,interval 1 minute) = '2021-12-31 23:59:00' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_sub_hour """ select * from test_zd where date_sub(d_z,interval 1 hour) = '2021-12-31 23:00:00' order by 1; """
+        explain {
+            sql("select * from test_zd where date_sub(d_z,interval 1 hour) = '2021-12-31 23:00:00' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 minute) = '2021-12-31 23:59:00')"
-            }
-            order_qt_date_sub_sec """ select * from test_zd where date_sub(d_z,interval 1 second) = '2021-12-31 23:59:59' order by 1; """
-            explain {
-                sql("select * from test_zd where date_sub(d_z,interval 1 second) = '2021-12-31 23:59:59' order by 1;")
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_sub_min """ select * from test_zd where date_sub(d_z,interval 1 minute) = '2021-12-31 23:59:00' order by 1; """
+        explain {
+            sql("select * from test_zd where date_sub(d_z,interval 1 minute) = '2021-12-31 23:59:00' order by 1;")
 
-                contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (date_sub(`d_z`, INTERVAL 1 second) = '2021-12-31 23:59:59')"
-            }
-            sql """ set disable_nereids_rules=''; """
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+        order_qt_date_sub_sec """ select * from test_zd where date_sub(d_z,interval 1 second) = '2021-12-31 23:59:59' order by 1; """
+        explain {
+            sql("select * from test_zd where date_sub(d_z,interval 1 second) = '2021-12-31 23:59:59' order by 1;")
 
-        } finally {
-			res_dbs_log = sql "show databases;"
-			for(int i = 0;i < res_dbs_log.size();i++) {
-				def tbs = sql "show tables from  `${res_dbs_log[i][0]}`"
-				log.info( "database = ${res_dbs_log[i][0]} => tables = "+tbs.toString())
-			}
-		}
+            contains " QUERY: SELECT `id`, `d_z` FROM `doris_test`.`test_zd` WHERE (`d_z` = '2022-01-01')"
+        }
+
         sql """ drop catalog if exists mysql_fun_push_catalog; """
 
         // test insert null
@@ -601,6 +567,69 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                     );
                 """
         sql """ drop catalog if exists mysql_lower_case_catalog3; """
+
+        sql """drop catalog if exists mysql_refresh_property;"""
+
+        sql """create catalog if not exists mysql_refresh_property properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "metadata_refresh_interval_sec" = "5"
+        );"""
+
+        sql """drop catalog if exists mysql_rename1;"""
+
+        sql """create catalog if not exists mysql_rename1 properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver"
+        );"""
+
+        qt_sql """select count(*) from mysql_rename1.doris_test.ex_tb1;"""
+
+        sql """alter catalog mysql_rename1 rename mysql_rename2"""
+
+        qt_sql """select count(*) from mysql_rename2.doris_test.ex_tb1;"""
+
+        sql """drop catalog if exists mysql_rename2;"""
+
+        sql """drop catalog if exists mysql_conjuncts;"""
+
+        sql """create catalog if not exists mysql_conjuncts properties(
+            "type"="jdbc",
+            "user"="root",
+            "password"="123456",
+            "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "com.mysql.cj.jdbc.Driver"
+        );"""
+
+        order_qt_sql """SELECT * FROM mysql_conjuncts.doris_test.compoundpredicate_test WHERE (pk > 4) OR ((pk < 6 OR pk > 7) AND col_int_undef_signed < 1);"""
+
+        order_qt_sql """select * from mysql_conjuncts.doris_test.text_push where pk <=7;"""
+
+        // test create table as select
+        sql """use internal.${internal_db_name}"""
+        sql """drop table if exists ctas_partition_text_1"""
+        sql """drop table if exists ctas_partition_text_2"""
+        sql """drop table if exists ctas_partition_text_3"""
+        sql """drop table if exists ctas_partition_text_4"""
+        sql """set enable_nereids_planner=true"""
+        // 1. test text type column as distribution col
+        sql """create table ctas_partition_text_1 distributed by hash(text) buckets 1 properties("replication_num" = "1") as select int_u, text, text as t2 from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_1"""
+        // 2. test varchar type column as first col
+        sql """create table ctas_partition_text_2 distributed by hash(int_u) buckets 1 properties("replication_num" = "1") as select varchar, int_u from mysql_conjuncts.doris_test.all_types;"""
+        qt_sql """desc ctas_partition_text_2"""
+        // ctas logic is different between new and old planner.
+        // so need to test both.
+        sql """drop catalog if exists mysql_conjuncts;"""
     }
 }
 
