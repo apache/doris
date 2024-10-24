@@ -814,7 +814,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MEM_OVERCOMMIT, needForward = true, description = {
             "是否通过硬限的方式来计算每个Query的内存资源",
             "Whether to calculate the memory resources of each query by hard limit"})
-    public boolean enableMemOvercommit = false;
+    public boolean enableMemOvercommit = true;
 
     @VariableMgr.VarAttr(name = MAX_COLUMN_READER_NUM)
     public int maxColumnReaderNum = 20000;
