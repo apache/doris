@@ -30,6 +30,7 @@
 
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/case_conv.hpp>
+#include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <string>
@@ -106,7 +107,33 @@ void TimezoneUtils::load_timezones_to_cache() {
     }
 
     lower_zone_cache_->erase("lmt"); // local mean time for every timezone
-    LOG(INFO) << "Read " << lower_zone_cache_->size() << " timezones.";
+
+    load_offsets_to_cache();
+    LOG(INFO) << "Preloaded" << lower_zone_cache_->size() << " timezones.";
+}
+
+static std::string to_hour_string(int arg) {
+    if (arg < 0 && arg > -10) { // -9 to -1
+        return std::string {"-0"} + std::to_string(std::abs(arg));
+    } else if (arg >= 0 && arg < 10) { //0 to 9
+        return std::string {"0"} + std::to_string(arg);
+    }
+    return std::to_string(arg);
+}
+
+void TimezoneUtils::load_offsets_to_cache() {
+    for (int hour = -12; hour <= +14; hour++) {
+        for (int minute = 0; minute <= 30; minute += 30) {
+            std::string offset_str = (hour >= 0 ? "+" : "") + to_hour_string(hour) + ':' +
+                                     (minute == 0 ? "00" : "30");
+            cctz::time_zone result;
+            if (parse_tz_offset_string(offset_str, result)) [[likely]] {
+                lower_zone_cache_->emplace(offset_str, result);
+            } else {
+                LOG(FATAL) << "parse timezone " << offset_str << " failed!";
+            }
+        }
+    }
 }
 
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
