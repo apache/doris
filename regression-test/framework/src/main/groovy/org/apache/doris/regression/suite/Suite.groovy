@@ -968,6 +968,23 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
+    String cmd(String cmd, int timeoutSecond = 0) {
+        def proc = cmd.execute()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        proc.consumeProcessOutput(outBuf, errBuf)
+        if (timeoutSecond > 0) {
+            proc.waitForOrKill(timeoutSecond * 1000)
+        } else {
+            proc.waitFor()
+        }
+        if (proc.exitValue() != 0) {
+            println outBuf
+            throw new RuntimeException(errBuf.toString())
+        }
+        return outBuf.toString()
+    }
+
     void sshExec(String username, String host, String cmd, boolean alert=true) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
