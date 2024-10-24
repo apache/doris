@@ -197,7 +197,7 @@ public:
     }
     int64_t get_remote_scan_bytes_per_second();
 
-    int64_t load_buffer_limit() { return _memory_limit * _load_buffer_ratio / 100; }
+    int64_t load_buffer_limit() const { return _memory_limit * _load_buffer_ratio / 100; }
 
     int64_t free_overcommited_memory(int64_t need_free_mem, RuntimeProfile* profile);
 
