@@ -60,6 +60,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.ReadLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock.WriteLock;
@@ -142,6 +143,27 @@ public class ProfileManager extends MasterDaemon {
     // execution profile's query id is not related with Profile's query id.
     private Map<TUniqueId, ExecutionProfile> queryIdToExecutionProfiles;
 
+    // Begin metrics of profile manager
+    public AtomicInteger profileNum = new AtomicInteger(0);
+    public AtomicInteger executionProfileNum = new AtomicInteger(0);
+    public AtomicInteger profileOnStorage = new AtomicInteger(0);
+    public AtomicInteger sizeOfProfileOnStorageBytes = new AtomicInteger(0);
+    // How many times does profile manage fetch real time profile from BE
+    public AtomicInteger fetchRealTimeProfileCounter = new AtomicInteger(0);
+    public AtomicInteger fetchRealTimeProfileFailedCounter = new AtomicInteger(0);
+    
+    // How many running tasks for profile delete/write/read/fetching
+    public AtomicInteger profileDeleteTaskGuage = new AtomicInteger(0);
+    public AtomicInteger profileWritingTaskGuage = new AtomicInteger(0);
+    public AtomicInteger profileReadingTaskGuage = new AtomicInteger(0);
+    public AtomicInteger profileFetchingTaskGuage = new AtomicInteger(0);
+    public AtomicInteger profileUpdatingTaskGuage = new AtomicInteger(0);
+
+    // How many times does profile backend report profile to FE
+    public AtomicInteger profileReportCounter = new AtomicInteger(0);
+    public AtomicInteger profileReportErrorCounter = new AtomicInteger(0);
+    // End metrics of profile manager
+
     private final ExecutorService fetchRealTimeProfileExecutor;
     private final ExecutorService profileIOExecutor;
 
@@ -190,6 +212,7 @@ public class ProfileManager extends MasterDaemon {
                 return;
             }
             queryIdToExecutionProfiles.put(executionProfile.getQueryId(), executionProfile);
+            this.executionProfileNum.set(queryIdToExecutionProfiles.size());
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Add execution profile {} to profile manager",
                         DebugUtil.printId(executionProfile.getQueryId()));
@@ -220,9 +243,8 @@ public class ProfileManager extends MasterDaemon {
 
         writeLock.lock();
         try {
-            // a profile may be updated multiple times in queryIdToProfileMap,
-            // and only needs to be inserted into the queryIdDeque for the first time.
             queryIdToProfileMap.put(key, element);
+            this.profileNum.set(queryIdToProfileMap.size());
         } finally {
             writeLock.unlock();
         }
@@ -362,7 +384,14 @@ public class ProfileManager extends MasterDaemon {
 
         for (QueryIdAndAddress idAndAddress : involvedBackends) {
             Callable<TGetRealtimeExecStatusResponse> task = () -> {
-                return getRealtimeQueryProfile(idAndAddress.id, idAndAddress.beAddress);
+                try {
+                    fetchRealTimeProfileCounter.getAndIncrement();
+                    profileFetchingTaskGuage.getAndIncrement();
+                    return getRealtimeQueryProfile(idAndAddress.id, idAndAddress.beAddress);
+                } finally {
+                    profileFetchingTaskGuage.decrementAndGet();
+                }
+                
             };
             Future<TGetRealtimeExecStatusResponse> future = fetchRealTimeProfileExecutor.submit(task);
             futures.add(future);
@@ -381,8 +410,11 @@ public class ProfileManager extends MasterDaemon {
                 TGetRealtimeExecStatusResponse resp = future.get(5, TimeUnit.SECONDS);
                 if (resp != null) {
                     QeProcessorImpl.INSTANCE.reportExecStatus(resp.getReportExecStatusParams(), dummyAddr);
+                } else {
+                    this.fetchRealTimeProfileFailedCounter.getAndIncrement();
                 }
             } catch (Exception e) {
+                this.fetchRealTimeProfileFailedCounter.getAndIncrement();
                 LOG.warn("Failed to get real-time profile, id {}, error: {}", id, e.getMessage(), e);
             }
         }
@@ -398,7 +430,16 @@ public class ProfileManager extends MasterDaemon {
                 return null;
             }
 
-            return element.getProfileContent();
+            if (element.profile.profileHasBeenStored()) {
+                try {
+                    profileReadingTaskGuage.getAndIncrement();
+                    return element.getProfileContent();
+                } finally {
+                    profileReadingTaskGuage.decrementAndGet();
+                }
+            } else {
+                return element.getProfileContent();
+            }
         } finally {
             readLock.unlock();
         }
@@ -530,6 +571,8 @@ public class ProfileManager extends MasterDaemon {
         try {
             queryIdToProfileMap.clear();
             queryIdToExecutionProfiles.clear();
+            this.profileNum.set(0);
+            this.executionProfileNum.set(0);
         } finally {
             writeLock.unlock();
         }
@@ -562,6 +605,7 @@ public class ProfileManager extends MasterDaemon {
                     res.add(file.getAbsolutePath());
                 }
             }
+            this.profileOnStorage.set(files.length);
         } catch (Exception e) {
             LOG.error("Failed to get profile meta from storage", e);
         }
@@ -584,7 +628,7 @@ public class ProfileManager extends MasterDaemon {
             List<Profile> profiles = Collections.synchronizedList(new ArrayList<>());
             // List of profile io futures
             List<Future<?>> profileIOfutures = Lists.newArrayList();
-            // Creatre and add task to executor
+            // Create and add task to executor
             for (String profileDirAbsPath : profileDirAbsPaths) {
                 Thread thread = new Thread(() -> {
                     Profile profile = Profile.read(profileDirAbsPath);
@@ -670,7 +714,14 @@ public class ProfileManager extends MasterDaemon {
 
             for (ProfileElement profileElement : profilesToBeStored) {
                 Thread thread = new Thread(() -> {
-                    profileElement.writeToStorage(PROFILE_STORAGE_PATH);
+                    try {
+                        profileWritingTaskGuage.getAndIncrement();
+                        profileElement.writeToStorage(PROFILE_STORAGE_PATH);
+                    } finally {
+                        profileWritingTaskGuage.decrementAndGet();
+                    }
+                    
+                    
                 });
                 profileWriteFutures.add(profileIOExecutor.submit(thread));
             }
@@ -718,6 +769,8 @@ public class ProfileManager extends MasterDaemon {
             }
         }
 
+        this.sizeOfProfileOnStorageBytes.set((int) totalProfileSize);
+
         if (LOG.isDebugEnabled()) {
             LOG.debug("{} profiles size on storage: {}", profileDeque.size(),
                         DebugUtil.printByteWithUnit(totalProfileSize));
@@ -753,7 +806,12 @@ public class ProfileManager extends MasterDaemon {
 
             for (ProfileElement profileElement : queryIdToBeRemoved) {
                 Thread thread = new Thread(() -> {
-                    profileElement.deleteFromStorage();
+                    try {
+                        profileDeleteTaskGuage.getAndIncrement();
+                        profileElement.deleteFromStorage();
+                    } finally {
+                        profileDeleteTaskGuage.decrementAndGet();
+                    }
                 });
                 thread.start();
                 iothreads.add(thread);
@@ -842,6 +900,7 @@ public class ProfileManager extends MasterDaemon {
         for (String brokenProfile : brokenProfiles) {
             Thread iothread = new Thread(() -> {
                 try {
+                    profileDeleteTaskGuage.getAndIncrement();
                     File profileFile = new File(brokenProfile);
                     if (!profileFile.isFile()) {
                         LOG.warn("Profile path {} is not a file, can not delete.", brokenProfile);
@@ -852,6 +911,8 @@ public class ProfileManager extends MasterDaemon {
                     LOG.debug("Delete broken profile: {}", brokenProfile);
                 } catch (Exception e) {
                     LOG.error("Failed to delete broken profile: {}", brokenProfile, e);
+                } finally {
+                    profileDeleteTaskGuage.decrementAndGet();
                 }
             });
             profileDeleteFutures.add(profileIOExecutor.submit(iothread));
@@ -957,7 +1018,6 @@ public class ProfileManager extends MasterDaemon {
 
     private void deleteOutdatedProfilesFromMemory() {
         StringBuilder stringBuilder = new StringBuilder();
-        int profileNum = 0;
         writeLock.lock();
 
         try {
@@ -996,13 +1056,58 @@ public class ProfileManager extends MasterDaemon {
                 stringBuilder.append(profileElement.profile.getSummaryProfile().getProfileId()).append(",");
             }
         } finally {
-            profileNum = queryIdToProfileMap.size();
             writeLock.unlock();
-
+            profileNum.set(queryIdToProfileMap.size());
+            executionProfileNum.set(queryIdToExecutionProfiles.size());
             if (stringBuilder.length() != 0) {
                 LOG.info("Remove outdated profiles {} from memoy, current profile map size {}",
-                        stringBuilder.toString(), profileNum);
+                        stringBuilder.toString(), profileNum.intValue());
             }
         }
+    }
+
+    public String getMetircs() {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(counterToPrometheus("profile_number", "", profileNum.intValue()));
+        stringBuilder.append(counterToPrometheus("execution_profile_number", "", executionProfileNum.intValue()));
+        stringBuilder.append(counterToPrometheus("profile_on_storage", "", profileOnStorage.intValue()));
+        stringBuilder.append(
+                counterToPrometheus("profile_on_storage_bytes", "", sizeOfProfileOnStorageBytes.intValue()));
+        stringBuilder.append(
+                counterToPrometheus("fetch_real_time_profile_counter", "", fetchRealTimeProfileCounter.intValue()));
+        stringBuilder.append(
+                counterToPrometheus("fetch_real_time_profile_failed_counter", "",
+                                        fetchRealTimeProfileFailedCounter.intValue()));
+        stringBuilder.append(
+                counterToPrometheus("profile_report_counter", "", profileReportCounter.intValue()));
+        stringBuilder.append(
+                counterToPrometheus("profile_report_error_counter", "", profileReportErrorCounter.intValue()));
+        stringBuilder.append(
+                gaugeToPrometheus("profile_delete_task_guage", "", profileDeleteTaskGuage.intValue()));
+        stringBuilder.append(
+                gaugeToPrometheus("profile_writing_task_guage", "", profileWritingTaskGuage.intValue()));
+        stringBuilder.append(
+                gaugeToPrometheus("profile_reading_task_guage", "", profileReadingTaskGuage.intValue()));
+        stringBuilder.append(
+                gaugeToPrometheus("profile_fetching_task_guage", "", profileFetchingTaskGuage.intValue()));
+        stringBuilder.append(
+                gaugeToPrometheus("profile_updating_task_guage", "", profileUpdatingTaskGuage.intValue()));
+        return stringBuilder.toString();
+    }
+
+    private String counterToPrometheus(String counterTitle, String help, Integer value) {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("# HELP " + counterTitle + " " + help + "\n");
+        stringBuilder.append("# TYPE " + counterTitle + " counter\n");
+        stringBuilder.append(counterTitle + " {} " + value + "\n");
+        return stringBuilder.toString();
+    }
+
+    private String gaugeToPrometheus(String gaugeTitle, String help, Integer value) {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append("# HELP " + gaugeTitle + " " + help + "\n");
+        stringBuilder.append("# TYPE " + gaugeTitle + " gauge\n");
+        stringBuilder.append(gaugeTitle + " {} " + value + "\n");
+        return stringBuilder.toString();
     }
 }
