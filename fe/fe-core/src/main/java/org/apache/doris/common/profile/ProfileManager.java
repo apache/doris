@@ -15,21 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.common.profile;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.profile.ExecutionProfile;
-import org.apache.doris.common.profile.MultiProfileTreeBuilder;
-import org.apache.doris.common.profile.Profile;
-import org.apache.doris.common.profile.ProfileTreeBuilder;
-import org.apache.doris.common.profile.ProfileTreeNode;
-import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.qe.CoordInterface;
@@ -90,7 +85,6 @@ public class ProfileManager extends MasterDaemon {
 
         private final Profile profile;
         public Map<String, String> infoStrings = Maps.newHashMap();
-        public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
 
         public StatsErrorEstimator statsErrorEstimator;

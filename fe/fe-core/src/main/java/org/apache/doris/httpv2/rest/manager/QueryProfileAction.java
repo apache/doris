@@ -25,9 +25,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
 import org.apache.doris.common.proc.ProcResult;
+import org.apache.doris.common.profile.ProfileManager;
+import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.common.util.ProfileManager.ProfileElement;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.Auth;
@@ -251,7 +251,7 @@ public class QueryProfileAction extends RestBaseController {
      * 1. Text: return the entire profile of the specified query id
      * eg: {"profile": "text_xxx"}
      * <p>
-     * 2. Json: return the profile in json. 
+     * 2. Json: return the profile in json.
      * Json format is mainly used for front-end UI drawing.
      * eg: {"profile" : "json_xxx"}
      */
