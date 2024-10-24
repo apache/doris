@@ -144,3 +144,10 @@ Used: [broadcast]_1
 UnUsed:
 SyntaxError:
 
+-- !10 --
+PhysicalResultSink
+--hashJoin[INNER_JOIN] hashCondition=((g1.id = g2.id)) otherCondition=()
+----PhysicalOlapScan[github_events1]
+----filter(( not actor IS NULL) and (cast(actor['id'] as INT) > 34259300))
+------PhysicalOlapScan[github_events2]
+

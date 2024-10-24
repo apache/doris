@@ -20,7 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
+import org.apache.doris.nereids.trees.expressions.functions.PropagatableAlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -35,7 +35,7 @@ import java.util.List;
 /**
  * Divide Expression.
  */
-public class Divide extends BinaryArithmetic implements AlwaysNullable {
+public class Divide extends BinaryArithmetic implements PropagatableAlwaysNullable {
 
     public Divide(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.DIVIDE);

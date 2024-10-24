@@ -201,4 +201,55 @@ suite("eliminate_outer_join") {
             full join [broadcast]  partsupp on ps_suppkey=s_suppkey  --left
         where r_name = "";
         '''
+
+    sql '''
+        drop table if exists github_events1;
+    '''
+    sql """
+        CREATE TABLE IF NOT EXISTS github_events1 (
+                id BIGINT NOT NULL,
+                type VARCHAR(30) NULL,
+        actor VARIANT NULL,
+        repo VARIANT NULL,
+        payload VARIANT NULL,
+        public BOOLEAN NULL,
+                       created_at DATETIME NULL,
+                                           INDEX idx_payload (`payload`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for payload'
+        )
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(id) BUCKETS 10
+        properties("replication_num" = "1");
+    """
+
+    sql '''
+        drop table if exists github_events2;
+    '''
+    sql """
+        CREATE TABLE IF NOT EXISTS github_events2 (
+                id BIGINT NOT NULL,
+                type VARCHAR(30) NULL,
+        actor VARIANT NULL,
+        repo VARIANT NULL,
+        payload VARIANT NULL,
+        public BOOLEAN NULL,
+                       created_at DATETIME NULL,
+                                           INDEX idx_payload (`payload`) USING INVERTED PROPERTIES("parser" = "english") COMMENT 'inverted index for payload'
+        )
+        DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(id) BUCKETS 10
+        properties("replication_num" = "1");
+    """
+
+    qt_10 '''
+        explain shape plan
+          SELECT
+            g1.id,
+            g2.type,
+            floor(cast(g1.actor['id'] as int) + 100.5),
+            g1.actor['display_login'],
+            g2.payload['issue']['href']
+            FROM github_events1 g1
+            left join github_events2 g2 on g1.id = g2.id
+            where g2.actor['id'] > 34259300;
+    '''
 }

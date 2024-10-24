@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.PropagatableAlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -718,7 +719,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         if (expression instanceof AggregateFunction || expression instanceof TableGeneratingFunction) {
             return Optional.of(expression);
         }
-        if (expression instanceof PropagateNullable && ExpressionUtils.hasNullLiteral(expression.getArguments())) {
+        if (ExpressionUtils.hasNullLiteral(expression.getArguments())
+                && (expression instanceof PropagateNullable || expression instanceof PropagatableAlwaysNullable)) {
             return Optional.of(new NullLiteral(expression.getDataType()));
         }
         if (!ExpressionUtils.isAllLiteral(expression.getArguments())) {
