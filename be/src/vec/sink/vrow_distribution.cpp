@@ -190,7 +190,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
         // record new partitions
         for (const auto& part : result.partitions) {
             _new_partition_ids.insert(part.id);
-            LOG(WARNING) << "record new id: " << part.id;
+            VLOG_TRACE << "record new id: " << part.id;
         }
         // replace data in _partitions
         RETURN_IF_ERROR(_vpartition->replace_partitions(request_part_ids, result.partitions));
