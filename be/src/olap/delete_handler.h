@@ -104,8 +104,7 @@ public:
     //     * Status::Error<DELETE_INVALID_PARAMETERS>(): input parameters are not valid
     //     * Status::Error<MEM_ALLOC_FAILED>(): alloc memory failed
     Status init(TabletSchemaSPtr tablet_schema,
-                const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version,
-                bool with_sub_pred_v2 = false);
+                const std::vector<RowsetMetaSharedPtr>& delete_preds, int64_t version);
 
     [[nodiscard]] bool empty() const { return _del_conds.empty(); }
 
