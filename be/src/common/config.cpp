@@ -1352,6 +1352,9 @@ DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
 
+DEFINE_String(brpc_connection_type, "single");
+
+DEFINE_mBool(enable_brpc_failed_reconnected, "true");
 // clang-format off
 #ifdef BE_TEST
 // test s3
