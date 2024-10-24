@@ -21,5 +21,6 @@ public enum JobPriority {
     HIGH,
     MID,
     LOW,
+    LONG_TIME,
     MANUAL;
 }

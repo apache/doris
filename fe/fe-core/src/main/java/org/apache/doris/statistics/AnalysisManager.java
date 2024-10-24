@@ -110,6 +110,7 @@ import java.util.Set;
 import java.util.StringJoiner;
 import java.util.TreeMap;
 import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CountDownLatch;
@@ -129,6 +130,9 @@ public class AnalysisManager implements Writable {
     public final Map<TableName, Set<Pair<String, String>>> highPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<Pair<String, String>>> midPriorityJobs = new LinkedHashMap<>();
     public final Map<TableName, Set<Pair<String, String>>> lowPriorityJobs = new LinkedHashMap<>();
+
+    public static final int LONG_TIME_JOB_QUEUE_LIMIT = 10;
+    private final BlockingQueue<TableIf> longTimeJobs = new ArrayBlockingQueue<>(LONG_TIME_JOB_QUEUE_LIMIT);
 
     // Tracking running manually submitted async tasks, keep in mem only
     protected final ConcurrentMap<Long, Map<Long, BaseAnalysisTask>> analysisJobIdToTaskMap = new ConcurrentHashMap<>();
@@ -381,7 +385,7 @@ public class AnalysisManager implements Writable {
         }
         infoBuilder.setColName(stringJoiner.toString());
         infoBuilder.setTaskIds(Lists.newArrayList());
-        infoBuilder.setTblUpdateTime(System.currentTimeMillis());
+        infoBuilder.setTblUpdateTime(table.getUpdateTime());
         // Empty table row count is 0. Call fetchRowCount() when getRowCount() returns <= 0,
         // because getRowCount may return <= 0 if cached is not loaded. This is mainly for external table.
         long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 :
@@ -547,14 +551,34 @@ public class AnalysisManager implements Writable {
             result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
             result.addAll(getPendingJobs(midPriorityJobs, JobPriority.MID, tblName));
             result.addAll(getPendingJobs(lowPriorityJobs, JobPriority.LOW, tblName));
+            showLongTimeJobs(result);
         } else if (priority.equals(JobPriority.HIGH.name())) {
             result.addAll(getPendingJobs(highPriorityJobs, JobPriority.HIGH, tblName));
         } else if (priority.equals(JobPriority.MID.name())) {
             result.addAll(getPendingJobs(midPriorityJobs, JobPriority.MID, tblName));
         } else if (priority.equals(JobPriority.LOW.name())) {
             result.addAll(getPendingJobs(lowPriorityJobs, JobPriority.LOW, tblName));
+        } else if (priority.equals(JobPriority.LONG_TIME.name())) {
+            showLongTimeJobs(result);
         }
         return result;
+    }
+
+    protected void showLongTimeJobs(List<AutoAnalysisPendingJob> result) {
+        Object[] objects = longTimeJobs.toArray();
+        for (Object object : objects) {
+            TableIf table = (TableIf) object;
+            Set<Pair<String, String>> columnIndexPairs = table.getColumnIndexPairs(
+                    table.getSchemaAllIndexes(false).stream()
+                        .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                        .map(Column::getName).collect(Collectors.toSet()))
+                    .stream()
+                    .filter(p -> !StatisticsUtil.needAnalyzeColumn(table, p))
+                    .filter(p -> StatisticsUtil.columnNotAnalyzedForTooLong(table, p))
+                    .collect(Collectors.toSet());
+            result.add(new AutoAnalysisPendingJob(table.getDatabase().getCatalog().getName(),
+                    table.getDatabase().getFullName(), table.getName(), columnIndexPairs, JobPriority.LONG_TIME));
+        }
     }
 
     protected List<AutoAnalysisPendingJob> getPendingJobs(Map<TableName, Set<Pair<String, String>>> jobMap,
@@ -1481,5 +1505,37 @@ public class AnalysisManager implements Writable {
                 break;
             }
         }
+    }
+
+    public boolean appendToLongTimeJobs(TableIf table) throws InterruptedException {
+        Object[] objects = longTimeJobs.toArray();
+        String catalogName = table.getDatabase().getCatalog().getName();
+        String dbName = table.getDatabase().getFullName();
+        String tableName = table.getName();
+        for (Object o : objects) {
+            TableIf queuedTbl = (TableIf) o;
+            try {
+                if (catalogName.equals(queuedTbl.getDatabase().getCatalog().getName())
+                        && dbName.equals(queuedTbl.getDatabase().getFullName())
+                        && tableName.equals(queuedTbl.getName())) {
+                    LOG.debug("Table {}.{}.{} already added to long time job queue, skip it.",
+                            catalogName, dbName, tableName);
+                    return false;
+                }
+            } catch (Exception e) {
+                LOG.warn("Failed to compare long time job for table {}, id {}", table.getName(), table.getId());
+            }
+        }
+        longTimeJobs.put(table);
+        return true;
+    }
+
+    public TableIf getLongTimeJob() {
+        try {
+            return longTimeJobs.poll(1, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 }
