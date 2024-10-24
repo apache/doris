@@ -354,12 +354,12 @@ Status CloudCumulativeCompaction::modify_rowsets() {
     if (config::enable_delete_bitmap_merge_on_compaction &&
         _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write() && _input_rowsets.size() != 1) {
-        process_old_version_delete_bitmap();
+        RETURN_IF_ERROR(process_old_version_delete_bitmap());
     }
     return Status::OK();
 }
 
-void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
+Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
     // agg previously rowset old version delete bitmap
     std::vector<RowsetSharedPtr> pre_rowsets {};
     std::vector<std::string> pre_rowset_ids {};
@@ -393,10 +393,11 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                 if (d->isEmpty()) {
                     continue;
                 }
-                LOG(INFO) << "tablet_id=" << _tablet->tablet_meta()->tablet_id()
-                          << " get_agg result:key=" << rowset->rowset_id().to_string() << "|"
-                          << seg_id << "|" << pre_max_version << ",bitmap size=" << d->cardinality()
-                          << ",bitmap byte=" << d->getSizeInBytes();
+                VLOG_DEBUG << "tablet_id=" << _tablet->tablet_meta()->tablet_id()
+                           << " get_agg result:key=" << rowset->rowset_id().to_string() << "|"
+                           << seg_id << "|" << pre_max_version
+                           << ",bitmap size=" << d->cardinality()
+                           << ",bitmap byte=" << d->getSizeInBytes();
                 new_delete_bitmap->set(end, *d);
             }
         }
@@ -410,6 +411,20 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                                         cloud_tablet()->tablet_id());
                             });
             if (update_st.ok()) {
+                std::vector<std::tuple<std::string, uint64_t, uint64_t>> to_delete;
+                for (auto it = new_delete_bitmap->delete_bitmap.begin();
+                     it != new_delete_bitmap->delete_bitmap.end(); it++) {
+                    to_delete.emplace_back(std::make_tuple(std::get<0>(it->first).to_string(),
+                                                           std::get<2>(it->first),
+                                                           std::get<2>(it->first)));
+                }
+                auto st = _engine.meta_mgr().remove_old_version_delete_bitmap(_tablet->tablet_id(),
+                                                                              to_delete);
+                if (!st.ok()) {
+                    LOG(WARNING) << "fail to remove_old_version_delete_bitmap for tablet="
+                                 << _tablet->tablet_id() << ",st=" << st;
+                    return st;
+                }
                 update_st = _engine.meta_mgr().update_delete_bitmap_without_lock(
                         *cloud_tablet(), new_delete_bitmap.get());
             }
@@ -419,17 +434,24 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                    << " st=" << update_st.to_string();
                 std::string msg = ss.str();
                 LOG(WARNING) << msg;
+                return update_st;
             } else {
                 Version version(_input_rowsets.front()->start_version(),
                                 _input_rowsets.back()->end_version());
                 for (auto it = new_delete_bitmap->delete_bitmap.begin();
                      it != new_delete_bitmap->delete_bitmap.end(); it++) {
-                    LOG(INFO) << "tablet_id=" << _tablet->tablet_meta()->tablet_id()
-                              << " set key=" << std::get<0>(it->first).to_string() << "|"
-                              << std::get<1>(it->first) << "|" << std::get<2>(it->first)
-                              << ",size=" << it->second.cardinality()
-                              << ",byte=" << it->second.getSizeInBytes();
-                    _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
+                    VLOG_DEBUG << "tablet_id=" << _tablet->tablet_meta()->tablet_id()
+                               << " set key=" << std::get<0>(it->first).to_string() << "|"
+                               << std::get<1>(it->first) << "|" << std::get<2>(it->first)
+                               << ",size=" << it->second.cardinality()
+                               << ",byte=" << it->second.getSizeInBytes();
+                    int ret = _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
+                    if (ret == 0) {
+                        return Status::InternalError(
+                                "fail to set delete bitmap for tablet {} key {}|{}|{}",
+                                _tablet->tablet_id(), std::get<0>(it->first).to_string(),
+                                std::get<1>(it->first), std::get<2>(it->first));
+                    }
                 }
                 _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
                                                                             to_remove_vec);
@@ -441,6 +463,7 @@ void CloudCumulativeCompaction::process_old_version_delete_bitmap() {
             }
         }
     }
+    return Status::OK();
 }
 
 void CloudCumulativeCompaction::garbage_collection() {
