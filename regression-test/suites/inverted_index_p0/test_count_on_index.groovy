@@ -337,6 +337,44 @@ suite("test_count_on_index_httplogs", "p0") {
                 contains "pushAggOp=NONE"
         }
         qt_sql_bad2 "${bad_sql2}"
+
+        // case 6: test select count() from table where a or b;
+        def tableName6 = 'test_count_where_or'
+        sql "DROP TABLE IF EXISTS ${tableName6}"
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName6} (
+            `key_id` varchar(20) NULL COMMENT '',
+            `value1` int NULL,
+            `value2` bigint NULL,
+            INDEX idx_key (`key_id`) USING INVERTED PROPERTIES("parser" = "english"),
+            INDEX idx_v1 (`value1`) USING INVERTED,
+            INDEX idx_v2 (`value2`) USING INVERTED
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`key_id`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`key_id`) BUCKETS 3
+        PROPERTIES("replication_num" = "1");
+        """
+
+        sql "INSERT INTO ${tableName6} values ('dt_bjn001', 100, 200);"
+        sql "INSERT INTO ${tableName6} values ('dt_bjn002', 300, 400);"
+        sql "INSERT INTO ${tableName6} values ('dt_bjn003', 500, 600);"
+
+        sql "sync"
+        sql "analyze table  ${tableName6} with sync;"
+        explain {
+            sql("select COUNT() from ${tableName6} where value1 > 20 or value2 < 10")
+            contains "pushAggOp=COUNT_ON_INDEX"
+        }
+        explain {
+            sql("select COUNT(value1) from ${tableName6} where value1 > 20 and value2 > 5")
+            contains "pushAggOp=COUNT_ON_INDEX"
+        }
+        explain {
+            sql("select COUNT(value1) from ${tableName6} where value1 > 20 or value2 < 10")
+            contains "pushAggOp=NONE"
+        }
+
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
