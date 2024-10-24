@@ -68,9 +68,13 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
                                             TabletStats& detached_stats);
 // clang-format on
 
-MetaServiceResponseStatus fix_tablet_stats_parse_param(
+MetaServiceResponseStatus parse_fix_tablet_stats_param(
         std::shared_ptr<ResourceManager> resource_mgr, const std::string& table_id_str,
         const std::string& cloud_unique_id_str, int64_t& table_id, std::string& instance_id);
+
+MetaServiceResponseStatus get_batch_tablet_stats(
+        std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id, int64_t table_id,
+        std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch);
 
 MetaServiceResponseStatus fix_tablet_stats_data(
         std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id, int64_t table_id,

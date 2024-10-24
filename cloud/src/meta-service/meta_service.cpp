@@ -2195,8 +2195,15 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
     // step 1: parse params
     int64_t table_id;
     std::string instance_id;
-    MetaServiceResponseStatus st = fix_tablet_stats_parse_param(
+    MetaServiceResponseStatus st = parse_fix_tablet_stats_param(
             resource_mgr_, table_id_str, cloud_unique_id_str, table_id, instance_id);
+    if (st.code() != MetaServiceCode::OK) {
+        return st;
+    }
+
+    std::vector<std::shared_ptr<TabletStatsPB>> tablet_stat_shared_ptr_vec_batch;
+    MetaServiceResponseStatus st = get_batch_tablet_stats(txn_kv_, instance_id, table_id,
+                                                          tablet_stat_shared_ptr_vec_batch);
     if (st.code() != MetaServiceCode::OK) {
         return st;
     }
