@@ -1184,7 +1184,9 @@ Status OrcReader::_decode_string_non_dict_encoded_column(const std::string& col_
             }
         }
     }
-    data_column->insert_many_strings(&string_values[0], num_values);
+    if (!string_values.empty()) {
+        data_column->insert_many_strings(&string_values[0], num_values);
+    }
     return Status::OK();
 }
 
@@ -1288,8 +1290,10 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
             }
         }
     }
-    data_column->insert_many_strings_overflow(&string_values[0], string_values.size(),
-                                              max_value_length);
+    if (!string_values.empty()) {
+        data_column->insert_many_strings_overflow(&string_values[0], string_values.size(),
+                                                  max_value_length);
+    }
     return Status::OK();
 }
 
@@ -2018,9 +2022,9 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
         //  the implementation of NULL values because the dictionary itself does not contain
         //  NULL value encoding. As a result, many NULL-related functions or expressions
         //  cannot work properly, such as is null, is not null, coalesce, etc.
-        //  Here we first disable dictionary filtering when predicate contains functions.
+        //  Here we first disable dictionary filtering when predicate expr is not slot.
         //  Implementation of NULL value dictionary filtering will be carried out later.
-        if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
+        if (expr->node_type() != TExprNodeType::SLOT_REF) {
             return false;
         }
         for (auto& child : expr->children()) {
@@ -2402,7 +2406,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
             }
         }
     }
-    res->insert_many_strings_overflow(&string_values[0], num_values, max_value_length);
+    if (!string_values.empty()) {
+        res->insert_many_strings_overflow(&string_values[0], num_values, max_value_length);
+    }
     return res;
 }
 

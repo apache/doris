@@ -23,6 +23,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "pipeline/common/distinct_agg_utils.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -32,7 +33,7 @@ class ExecNode;
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class DistinctStreamingAggOperatorX;
 
 class DistinctStreamingAggLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -65,7 +66,6 @@ private:
         _cache_block = block->clone_empty();
     }
 
-    std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
     vectorized::Arena _arena;
     size_t _input_num_rows = 0;
@@ -73,7 +73,7 @@ private:
     bool _stop_emplace_flag = false;
     const int batch_size;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool = nullptr;
-    AggregatedDataVariantsUPtr _agg_data = nullptr;
+    std::unique_ptr<DistinctDataVariants> _agg_data = nullptr;
     std::vector<vectorized::AggFnEvaluator*> _aggregate_evaluators;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
@@ -140,3 +140,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

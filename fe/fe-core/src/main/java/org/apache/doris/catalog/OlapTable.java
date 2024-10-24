@@ -138,6 +138,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         WAITING_STABLE
     }
 
+    public static long ROW_COUNT_BEFORE_REPORT = -1;
+
     @SerializedName(value = "tst", alternate = {"state"})
     private volatile OlapTableState state;
 
@@ -1155,6 +1157,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                             partitionInfo.getReplicaAllocation(partition.getId()),
                             partitionInfo.getIsInMemory(partition.getId()),
                             partitionInfo.getIsMutable(partition.getId()));
+                } else {
+                    // unpartition
+                    // construct a dummy range and dummy list.
+                    List<Column> dummyColumns = new ArrayList<>();
+                    dummyColumns.add(new Column("dummy", PrimitiveType.INT));
+                    PartitionKey dummyKey = null;
+                    try {
+                        dummyKey = PartitionKey.createInfinityPartitionKey(dummyColumns, false);
+                    } catch (AnalysisException e) {
+                        LOG.warn("should not happen", e);
+                    }
+                    Range<PartitionKey> dummyRange = Range.open(new PartitionKey(), dummyKey);
+                    Env.getCurrentRecycleBin().recyclePartition(dbId, id, name, partition,
+                            dummyRange,
+                            new ListPartitionItem(Lists.newArrayList(new PartitionKey())),
+                            partitionInfo.getDataProperty(partition.getId()),
+                            partitionInfo.getReplicaAllocation(partition.getId()),
+                            partitionInfo.getIsInMemory(partition.getId()),
+                            partitionInfo.getIsMutable(partition.getId()));
                 }
             } else if (!reserveTablets) {
                 Env.getCurrentEnv().onErasePartition(partition);
@@ -1596,10 +1617,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             if (index == null) {
                 LOG.warn("Index {} not exist in partition {}, table {}, {}",
                         indexId, entry.getValue().getName(), id, name);
-                return -1;
+                return ROW_COUNT_BEFORE_REPORT;
             }
             if (strict && !index.getRowCountReported()) {
-                return -1;
+                return ROW_COUNT_BEFORE_REPORT;
             }
             rowCount += index.getRowCount() == -1 ? 0 : index.getRowCount();
         }
@@ -3260,7 +3281,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) {
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
         long visibleVersion = tableVersions.containsKey(id) ? tableVersions.get(id) : getVisibleVersion();
-        return new MTMVVersionSnapshot(visibleVersion);
+        return new MTMVVersionSnapshot(visibleVersion, id);
     }
 
     @Override

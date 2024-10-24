@@ -138,4 +138,26 @@ suite("test_need_read_data", "p0"){
     sql "INSERT INTO ${indexTblName3} VALUES (1, 1),(1, -2),(1, -1);"
     qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=false,inverted_index_skip_threshold=100) */ id FROM ${indexTblName3} WHERE value<0 and abs(value)>1;"
     qt_sql "SELECT /*+SET_VAR(enable_common_expr_pushdown=true,inverted_index_skip_threshold=100) */ id FROM ${indexTblName3} WHERE value<0 and abs(value)>1;"
+
+    sql "DROP TABLE IF EXISTS tt"
+    sql """
+        CREATE TABLE `tt` (
+            `a` int NULL,
+            `b` varchar(20) NULL,
+            `c` int NULL,
+            INDEX idx_source (`b`) USING INVERTED,
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`a`, `b`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY RANDOM BUCKETS 1
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """ insert into tt values (20, 'aa', 30); """
+    sql """ insert into tt values (20, null, 30); """
+
+    qt_sql_11 """ select /*+SET_VAR(enable_count_on_index_pushdown=true) */  count(b) from tt where c = 30; """
+    sql """ DROP TABLE IF EXISTS tt """
+
 }

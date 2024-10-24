@@ -58,7 +58,8 @@ AggregateFunctionPtr type_dispatch_for_aggregate_function_regr(const DataTypes& 
 template <template <typename> class StatFunctionTemplate>
 AggregateFunctionPtr create_aggregate_function_regr(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
     if (argument_types.size() != 2) {
         LOG(WARNING) << "aggregate function " << name << " requires exactly 2 arguments";
         return nullptr;
