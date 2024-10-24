@@ -86,7 +86,7 @@ suite("test_full_compaction_status") {
                 backendId_to_backendHttpPort.get(backend_id), 
                 tablet_id
             )
-            logger.info("Trigger compaction: code=" + code + ", out=" + out + ", err=" + err)
+            logger.info("Trigger full compaction: code=" + code + ", out=" + out + ", err=" + err)
             assertEquals(code, 0)
             def triggerJson = parseJson(out.trim())
             assertEquals("success", triggerJson.status.toLowerCase())
