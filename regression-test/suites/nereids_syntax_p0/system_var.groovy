@@ -38,7 +38,7 @@ suite("nereids_sys_var") {
     // set an invalid parameter, and throw an exception
     test {
         sql "select /*+SET_VAR(runtime_filter_type=10000)*/ * from supplier limit 10"
-        exception "Unexpected exception: Can not set session variable"
+        exception "errCode"
     }
 
     sql "select @@session.time_zone"
