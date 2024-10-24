@@ -107,6 +107,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                            "file_cache_hit_ratio_5m", 0.0);
     _hit_ratio_1h = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                            "file_cache_hit_ratio_1h", 0.0);
+    _disk_limit_mode_metrics = std::make_shared<bvar::Status<size_t>>(
+            _cache_base_path.c_str(), "disk_limit_mode", 0);
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
@@ -1522,6 +1524,7 @@ std::string BlockFileCache::reset_capacity(size_t new_capacity) {
                 ss << " ttl_queue released " << queue_released;
             }
             _disk_resource_limit_mode = true;
+            _disk_limit_mode_metrics->set_value(1);
             _async_clear_file_cache = true;
             ss << " total_space_released=" << space_released;
         }
@@ -1542,6 +1545,7 @@ void BlockFileCache::check_disk_resource_limit() {
     }
     if (_capacity > _cur_cache_size) {
         _disk_resource_limit_mode = false;
+        _disk_limit_mode_metrics->set_value(0);
     }
     std::pair<int, int> percent;
     int ret = disk_used_percentage(_cache_base_path, &percent);
@@ -1567,10 +1571,12 @@ void BlockFileCache::check_disk_resource_limit() {
     if (capacity_percentage >= config::file_cache_enter_disk_resource_limit_mode_percent ||
         inode_is_insufficient(inode_percentage)) {
         _disk_resource_limit_mode = true;
+        _disk_limit_mode_metrics->set_value(1);
     } else if (_disk_resource_limit_mode &&
                (capacity_percentage < config::file_cache_exit_disk_resource_limit_mode_percent) &&
                (inode_percentage < config::file_cache_exit_disk_resource_limit_mode_percent)) {
         _disk_resource_limit_mode = false;
+        _disk_limit_mode_metrics->set_value(0);
     }
     if (_disk_resource_limit_mode) {
         // log per mins
