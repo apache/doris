@@ -374,6 +374,7 @@ public class HeartbeatMgr extends MasterDaemon {
             try {
                 client = ClientPool.frontendHeartbeatPool.borrowObject(addr);
                 TFrontendPingFrontendRequest request = new TFrontendPingFrontendRequest(clusterId, token);
+                request.setDeployMode(Env.getCurrentEnv().getDeployMode());
                 TFrontendPingFrontendResult result = client.ping(request);
                 ok = true;
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {

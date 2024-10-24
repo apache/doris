@@ -950,6 +950,7 @@ enum TFrontendPingFrontendStatusCode {
 struct TFrontendPingFrontendRequest {
    1: required i32 clusterId
    2: required string token
+   3: optional string deployMode
 }
 
 struct TDiskInfo {
