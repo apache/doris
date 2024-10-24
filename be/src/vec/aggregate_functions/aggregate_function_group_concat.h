@@ -43,20 +43,27 @@ class IColumn;
 namespace doris::vectorized {
 
 struct AggregateFunctionGroupConcatData {
-    std::string data;
+    ColumnString::Chars data;
     std::string separator;
     bool inited = false;
 
     void add(StringRef ref, StringRef sep) {
+        auto delta_size = ref.size;
         if (!inited) {
-            inited = true;
             separator.assign(sep.data, sep.data + sep.size);
         } else {
-            data += separator;
+            delta_size += separator.size();
         }
+        auto offset = data.size();
+        data.resize(data.size() + delta_size);
 
-        data.resize(data.length() + ref.size);
-        memcpy(data.data() + data.length() - ref.size, ref.data, ref.size);
+        if (!inited) {
+            inited = true;
+        } else {
+            memcpy(data.data() + offset, separator.data(), separator.size());
+            offset += separator.size();
+        }
+        memcpy(data.data() + offset, ref.data, ref.size);
     }
 
     void merge(const AggregateFunctionGroupConcatData& rhs) {
@@ -67,17 +74,23 @@ struct AggregateFunctionGroupConcatData {
         if (!inited) {
             inited = true;
             separator = rhs.separator;
-            data = rhs.data;
+            data.assign(rhs.data);
         } else {
-            data += separator;
-            data += rhs.data;
+            auto offset = data.size();
+
+            auto delta_size = separator.size() + rhs.data.size();
+            data.resize(data.size() + delta_size);
+
+            memcpy(data.data() + offset, separator.data(), separator.size());
+            offset += separator.size();
+            memcpy(data.data() + offset, rhs.data.data(), rhs.data.size());
         }
     }
 
-    const std::string& get() const { return data; }
+    StringRef get() const { return StringRef {data.data(), data.size()}; }
 
     void write(BufferWritable& buf) const {
-        write_binary(data, buf);
+        write_binary(StringRef {data.data(), data.size()}, buf);
         write_binary(separator, buf);
         write_binary(inited, buf);
     }
@@ -89,7 +102,7 @@ struct AggregateFunctionGroupConcatData {
     }
 
     void reset() {
-        data = "";
+        data.clear();
         separator = "";
         inited = false;
     }
@@ -150,8 +163,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        const std::string& result = this->data(place).get();
-        assert_cast<ColumnString&>(to).insert_data(result.c_str(), result.length());
+        const auto result = this->data(place).get();
+        assert_cast<ColumnString&>(to).insert_data(result.data, result.size);
     }
 };
 
