@@ -99,11 +99,27 @@ echo "DB: $DB"
 run_sql() {
   echo $@
   mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+  if [[ $? -ne 0 ]]; then
+    echo "Error: Failed to execute the SQL command"
+    exit 1
+  fi
 }
 
 get_session_variable() {
   k="$1"
   v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+
+  if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+    echo "Error: Failed to execute SQL command: show variables like '${k}'\G"
+    exit 1
+  fi
+  if [[ ${PIPESTATUS[1]} -eq 1 ]]; then
+    echo "Warning: No lines containing ' Value: ' were found."
+    exit 1
+  elif [[ ${PIPESTATUS[1]} -eq 2 ]]; then
+    echo "Error: An error occurred while running grep."
+    exit 1
+  fi
   echo "${v/*Value: /}"
 }
 
@@ -129,6 +145,13 @@ cat ${QUERIES_FILE} | while read query; do
   echo -n "query${QUERY_NUM}," | tee -a result.csv
   for i in $(seq 1 $TRIES); do
     RES=$(mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "${query}" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+      echo "Error: Failed to execute SQL command: ${query}"
+      exit 1
+    elif [[ ${PIPESTATUS[1]} -ne 0 ]]; then
+      echo "Error: Perl processing failed"
+      exit 1
+    fi
 
     echo -n "${RES}" | tee -a result.csv
     [[ "$i" != $TRIES ]] && echo -n "," | tee -a result.csv

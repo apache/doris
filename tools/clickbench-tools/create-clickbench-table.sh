@@ -92,7 +92,19 @@ echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
 mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
+if [[ $? -ne 0 ]]; then
+  echo "Error: Failed to create database: $DB"
+  exit 1
+fi
 mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/sql/create-clickbench-table.sql
+if [[ $? -ne 0 ]]; then
+  echo "Error:  Failed to execute the SQL script"
+  exit 1
+fi
 mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "show create table hits;"
+if [[ $? -ne 0 ]]; then
+  echo "Error:  Failed to execute 'show create table hits;' in database $DB."
+  exit 1
+fi
 
 echo "DONE."

@@ -106,11 +106,43 @@ echo "DB: $DB"
 
 function check_doris_conf() {
     cv=$(mysql -h$FE_HOST -P$FE_QUERY_PORT -u$USER -e 'admin show frontend config' | grep 'stream_load_default_timeout_second' | awk '{print $2}')
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+        echo "Error: Failed to execute 'admin show frontend config' on MySQL server."
+        exit 1
+    fi
+    if [[ ${PIPESTATUS[1]} -eq 1 ]]; then
+        echo "Warning: No lines containing 'stream_load_default_timeout_second' were found."
+        exit 1
+    elif [[ ${PIPESTATUS[1]} -eq 2 ]]; then
+        echo "Error: An error occurred while running grep."
+        exit 1
+    fi
+    if [[ ${PIPESTATUS[2]} -ne 0 ]]; then
+        echo "Error: Failed to extract the value using awk."
+        exit 1
+    fi
+
     if (($cv < 3600)); then
         echo "advise: revise your Doris FE's conf to set 'stream_load_default_timeout_second=3600' or above"
     fi
 
     cv=$(curl "${BE_HOST}:${BE_WEBSERVER_PORT}/varz" 2>/dev/null | grep 'streaming_load_max_mb' | awk -F'=' '{print $2}')
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+        echo "Error: Failed to execute curl command to fetch BE's configuration."
+        exit 1
+    fi
+    if [[ ${PIPESTATUS[1]} -eq 1 ]]; then
+        echo "Warning: No lines containing 'streaming_load_max_mb' were found."
+        exit 1
+    elif [[ ${PIPESTATUS[1]} -eq 2 ]]; then
+        echo "Error: An error occurred while running grep."
+        exit 1
+    fi
+    if [[ ${PIPESTATUS[2]} -ne 0 ]]; then
+        echo "Error: Failed to extract the value using awk."
+        exit 1
+    fi
+    
     if (($cv < 16000)); then
         echo -e "advise: revise your Doris BE's conf to set 'streaming_load_max_mb=16000' or above and 'flush_thread_num_per_store=5' to speed up load."
     fi
@@ -173,6 +205,10 @@ echo "load cost time: $((end - start)) seconds"
 run_sql() {
   echo $@
   mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
+  if [[ $? -ne 0 ]]; then
+    echo "Error: Failed to execute the SQL command"
+    exit 1
+fi
 }
 
 echo '============================================'
