@@ -21,6 +21,7 @@
 
 #include <cstdint>
 #include <string>
+#include <type_traits>
 
 #include "common/factory_creator.h"
 #include "common/status.h"
@@ -115,6 +116,8 @@ public:
 
 private:
     template <typename SubPredType>
+        requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
+                 std::is_same_v<SubPredType, std::string>)
     Status _parse_column_pred(
             TabletSchemaSPtr complete_schema, TabletSchemaSPtr delete_pred_related_schema,
             const ::google::protobuf::RepeatedPtrField<SubPredType>& sub_pred_list,

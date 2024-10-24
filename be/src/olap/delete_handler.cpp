@@ -346,6 +346,8 @@ Status DeleteHandler::parse_condition(const std::string& condition_str, TConditi
 }
 
 template <typename SubPredType>
+    requires(std::is_same_v<SubPredType, DeleteSubPredicatePB> or
+             std::is_same_v<SubPredType, std::string>)
 Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
                                          TabletSchemaSPtr delete_pred_related_schema,
                                          const RepeatedPtrField<SubPredType>& sub_pred_list,
@@ -354,8 +356,8 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
         TCondition condition;
         RETURN_IF_ERROR(parse_condition(sub_predicate, &condition));
         int32_t col_unique_id;
-        if constexpr (std::is_same_v<SubPredType, DeletePredicatePB>) {
-            col_unique_id = sub_predicate.col_unique_id;
+        if constexpr (std::is_same_v<SubPredType, DeleteSubPredicatePB>) {
+            col_unique_id = sub_predicate.column_unique_id();
         } else {
             const auto& column =
                     *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
