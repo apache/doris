@@ -1630,7 +1630,7 @@ visible_functions = {
 
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
         [['strcmp'], 'INT', ['VARCHAR', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
-
+        [['count_substrings'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['strleft', 'left'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
