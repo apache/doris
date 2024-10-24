@@ -155,6 +155,14 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
 
+    if (compaction_type == PARAM_COMPACTION_BASE) {
+        tablet->set_last_base_compaction_schedule_time(UnixMillis());
+    } else if (compaction_type == PARAM_COMPACTION_CUMULATIVE) {
+        tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
+    } else if (compaction_type == PARAM_COMPACTION_FULL) {
+        tablet->set_last_full_compaction_schedule_time(UnixMillis());
+    }
+
     LOG(INFO) << "manual submit compaction task, tablet id: " << tablet_id
               << " table id: " << table_id;
     // 3. submit compaction task
@@ -196,16 +204,10 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
         std::string compaction_type;
         bool run_status = false;
 
-        CloudTabletSPtr cloud_tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
-        if (cloud_tablet == nullptr) {
-            return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
-        }
-
         if (_engine.has_cumu_compaction(tablet_id)) {
             msg = "compaction task for this tablet is running";
             compaction_type = "cumulative";
             run_status = true;
-            cloud_tablet->set_last_cumu_compaction_schedule_time(UnixMillis());
             *json_result =
                     strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
             return Status::OK();
@@ -215,7 +217,6 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
             msg = "compaction task for this tablet is running";
             compaction_type = "base";
             run_status = true;
-            cloud_tablet->set_last_base_compaction_schedule_time(UnixMillis());
             *json_result =
                     strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
             return Status::OK();
@@ -225,7 +226,6 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
             msg = "compaction task for this tablet is running";
             compaction_type = "full";
             run_status = true;
-            cloud_tablet->set_last_full_compaction_schedule_time(UnixMillis());
             *json_result =
                     strings::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
             return Status::OK();
