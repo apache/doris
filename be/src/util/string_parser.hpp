@@ -102,7 +102,7 @@ public:
     // In the case of overflow, the max/min value for the data type will be returned.
     // Assumes s represents a decimal number.
     template <typename T>
-    static inline T string_to_int(const char* __restrict s, int len, ParseResult* result) {
+    static inline T string_to_int(const char* __restrict s, size_t len, ParseResult* result) {
         T ans = string_to_int_internal<T>(s, len, result);
         if (LIKELY(*result == PARSE_SUCCESS)) {
             return ans;
@@ -140,7 +140,7 @@ public:
     }
 
     template <typename T>
-    static inline T string_to_float(const char* __restrict s, int len, ParseResult* result) {
+    static inline T string_to_float(const char* __restrict s, size_t len, ParseResult* result) {
         return string_to_float_internal<T>(s, len, result);
     }
 
