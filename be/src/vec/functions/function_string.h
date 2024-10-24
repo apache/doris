@@ -2453,6 +2453,122 @@ private:
     }
 };
 
+class FunctionCountSubString : public IFunction {
+public:
+    static constexpr auto name = "count_substrings";
+
+    static FunctionPtr create() { return std::make_shared<FunctionCountSubString>(); }
+    using NullMapType = PaddedPODArray<UInt8>;
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DCHECK(is_string(arguments[0]))
+                << "first argument for function: " << name << " should be string"
+                << " and arguments[0] is " << arguments[0]->get_name();
+        DCHECK(is_string(arguments[1]))
+                << "second argument for function: " << name << " should be string"
+                << " and arguments[1] is " << arguments[1]->get_name();
+        return std::make_shared<DataTypeInt32>();
+    }
+
+    Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 2);
+        const auto& [src_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
+        if (!col_left) {
+            return Status::InternalError("Left operator of function {} can not be {}", get_name(),
+                                         block.get_by_position(arguments[0]).type->get_name());
+        }
+
+        const auto* col_right = check_and_get_column<ColumnString>(right_column.get());
+        if (!col_right) {
+            return Status::InternalError("Right operator of function {} can not be {}", get_name(),
+                                         block.get_by_position(arguments[1]).type->get_name());
+        }
+
+        auto dest_column_ptr = ColumnInt32::create(input_rows_count, 0);
+        // count_substring(ColumnString, "xxx")
+        if (right_const) {
+            _execute_constant_pattern(*col_left, col_right->get_data_at(0),
+                                      dest_column_ptr->get_data(), input_rows_count);
+        } else if (left_const) {
+            // count_substring("xxx", ColumnString)
+            _execute_constant_src_string(col_left->get_data_at(0), *col_right,
+                                         dest_column_ptr->get_data(), input_rows_count);
+        } else {
+            // count_substring(ColumnString, ColumnString)
+            _execute_vector(*col_left, *col_right, dest_column_ptr->get_data(), input_rows_count);
+        }
+
+        block.replace_by_position(result, std::move(dest_column_ptr));
+        return Status::OK();
+    }
+
+private:
+    void _execute_constant_pattern(const ColumnString& src_column_string,
+                                   const StringRef& pattern_ref,
+                                   ColumnInt32::Container& dest_column_data,
+                                   size_t input_rows_count) const {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            const StringRef str_ref = src_column_string.get_data_at(i);
+            dest_column_data[i] = find_str_count(str_ref, pattern_ref);
+        }
+    }
+
+    void _execute_vector(const ColumnString& src_column_string, const ColumnString& pattern_column,
+                         ColumnInt32::Container& dest_column_data, size_t input_rows_count) const {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            const StringRef pattern_ref = pattern_column.get_data_at(i);
+            const StringRef str_ref = src_column_string.get_data_at(i);
+            dest_column_data[i] = find_str_count(str_ref, pattern_ref);
+        }
+    }
+
+    void _execute_constant_src_string(const StringRef& str_ref, const ColumnString& pattern_col,
+                                      ColumnInt32::Container& dest_column_data,
+                                      size_t input_rows_count) const {
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const StringRef pattern_ref = pattern_col.get_data_at(i);
+            dest_column_data[i] = find_str_count(str_ref, pattern_ref);
+        }
+    }
+
+    size_t find_pos(size_t pos, const StringRef str_ref, const StringRef pattern_ref) const {
+        size_t old_size = pos;
+        size_t str_size = str_ref.size;
+        while (pos < str_size && memcmp_small_allow_overflow15(str_ref.data + pos, pattern_ref.data,
+                                                               pattern_ref.size)) {
+            pos++;
+        }
+        return pos - old_size;
+    }
+
+    int find_str_count(const StringRef str_ref, StringRef pattern_ref) const {
+        int count = 0;
+        if (str_ref.size == 0 || pattern_ref.size == 0) {
+            return 0;
+        } else {
+            for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                const size_t res_pos = find_pos(str_pos, str_ref, pattern_ref);
+                if (res_pos == (str_ref.size - str_pos)) {
+                    break; // not find
+                }
+                count++;
+                str_pos = str_pos + res_pos + pattern_ref.size;
+            }
+        }
+        return count;
+    }
+};
+
 struct SM3Sum {
     static constexpr auto name = "sm3sum";
     using ObjectData = SM3Digest;
