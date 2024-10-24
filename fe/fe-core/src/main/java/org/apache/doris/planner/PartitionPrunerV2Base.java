@@ -28,6 +28,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.RangeMap;
+import com.google.common.collect.Sets;
+import com.google.common.collect.TreeRangeMap;
 
 import java.util.Collection;
 import java.util.Collections;
@@ -47,6 +49,19 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     protected boolean isHive = false;
     // currently only used for list partition
     private Map.Entry<Long, PartitionItem> defaultPartition;
+
+    /*
+     * This map maintains the relationship between partition columns and their corresponding partition IDs.
+     * For example, if the partition columns are (k1, k2, k3), and there is a partition `p0` with the range
+     * [(1, 5, 10), (5, 10, 20)), then the `partitionCol2PartitionID` map should be:
+     * k1 -> [1, 5) -> p0
+     * Map structure:
+     * - Key: String, representing the name of a partition column (e.g., k1).
+     * - Value: RangeMap<ColumnBound, List<Long>>, where each range of column bounds is mapped to a list of
+     *          partition IDs. For instance, the range [1, 5) for column `k1` would map to partition ID `p0`.
+     */
+    // todo: `List<Long>` is not neccessary, `Long` is enough
+    protected Map<String, RangeMap<ColumnBound, List<Long>>> partitionCol2PartitionID = Maps.newHashMap();
 
     // Only called in PartitionPruneV2ByShortCircuitPlan constructor
     PartitionPrunerV2Base() {
@@ -74,6 +89,10 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
         this.columnNameToRange = columnNameToRange;
         this.singleColumnRangeMap = singleColumnRangeMap;
         findDefaultPartition(idToPartitionItem);
+    }
+
+    public Map<String, RangeMap<ColumnBound, List<Long>>> getPartitionCol2PartitionID() {
+        return partitionCol2PartitionID;
     }
 
     private Collection<Long> handleDefaultPartition(Collection<Long> result) {
@@ -107,11 +126,12 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     @Override
     public Collection<Long> prune() throws AnalysisException {
         Map<Column, FinalFilters> columnToFilters = Maps.newHashMap();
-        for (Column column : partitionColumns) {
+        for (Column column : partitionColumns) {    // partition col is key
             ColumnRange columnRange = columnNameToRange.get(column.getName());
             if (columnRange == null) {
                 columnToFilters.put(column, FinalFilters.noFilters());
             } else {
+                // add the partiton&key col
                 columnToFilters.put(column, getFinalFilters(columnRange, column));
             }
         }
@@ -160,22 +180,32 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
      * partitions.
      */
     private Collection<Long> pruneSingleColumnPartition(Map<Column, FinalFilters> columnToFilters) {
-        FinalFilters finalFilters = columnToFilters.get(partitionColumns.get(0));
+        Column partitionCol = partitionColumns.get(0);
+        FinalFilters finalFilters = columnToFilters.get(partitionCol);
         switch (finalFilters.type) {
             case CONSTANT_FALSE_FILTERS:
                 return Collections.emptySet();
             case HAVE_FILTERS:
                 genSingleColumnRangeMap();
                 Preconditions.checkNotNull(singleColumnRangeMap);
-                return finalFilters.filters.stream()
-                        .map(filter -> {
-                            RangeMap<ColumnBound, UniqueId> filtered = singleColumnRangeMap.subRangeMap(filter);
-                            return filtered.asMapOfRanges().values().stream()
-                                    .map(UniqueId::getPartitionId)
-                                    .collect(Collectors.toSet());
-                        })
-                        .flatMap(Set::stream)
-                        .collect(Collectors.toSet());
+                partitionCol2PartitionID.put(partitionCol.getName(), TreeRangeMap.create());
+                Set<Long> resultPartID = Sets.newHashSet();
+                finalFilters.filters.forEach(filter -> {
+                    RangeMap<ColumnBound, UniqueId> filtered = singleColumnRangeMap.subRangeMap(filter);
+
+                    filtered.asMapOfRanges().forEach((range, partID) -> {
+                        RangeMap<ColumnBound, List<Long>> rangeMap =
+                                partitionCol2PartitionID.get(partitionCol.getName());
+                        List<Long> partitionIds = rangeMap.get(range.lowerEndpoint());
+                        if (partitionIds == null) {
+                            partitionIds = Lists.newArrayList();
+                            rangeMap.put(range, partitionIds);
+                        }
+                        partitionIds.add(partID.getPartitionId());
+                        resultPartID.add(partID.getPartitionId());
+                    });
+                });
+                return resultPartID;
             case NO_FILTERS:
             default:
                 return idToPartitionItem.keySet();

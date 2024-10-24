@@ -204,14 +204,26 @@ suite("test_rowstore", "p0,nonConcurrent") {
             assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
             qe_point_select stmt
         }
+        def prep_in_sql = { sql_str, in_list ->
+            def stmt = prepareStatement sql_str
+            for (int i = 0; i < in_list.size(); i++) {
+                stmt.setInt(i + 1, in_list[i])
+            }
+            assertEquals(stmt.class, com.mysql.cj.jdbc.ServerPreparedStatement);
+            order_qe_point_in_select stmt
+        }
         def sql_str = "select v1, v2 from table_with_column_group where k1 = ?"
+        def sql_in_str = "select v1, v2 from table_with_column_group where k1 in (?, ?, ?, ?)"
         prep_sql sql_str, 1
         prep_sql sql_str, 2 
         prep_sql sql_str, 3
+        prep_in_sql sql_in_str, [1, 2, 3, 10]
         sql_str = "select v2 from table_with_column_group where k1 = ?"
+        sql_in_str = "select v2 from table_with_column_group where k1 in (?, ?, ?, ?)"
         prep_sql sql_str, 1
         prep_sql sql_str, 2 
         prep_sql sql_str, 3
+        prep_in_sql sql_in_str, [1, 2, 3, 10]
         sql_str = "select v1 from table_with_column_group where k1 = ?"
         prep_sql sql_str, 3
         sql_str = "select v2, v1 from table_with_column_group where k1 = ?"
@@ -222,14 +234,18 @@ suite("test_rowstore", "p0,nonConcurrent") {
         prep_sql sql_str, 1
 
         sql_str = "select v2 from table_with_column_group2 where k1 = ?"
+        sql_in_str = "select v2 from table_with_column_group2 where k1 in (?, ?, ?, ?)"
         prep_sql sql_str, 1
         prep_sql sql_str, 2
         prep_sql sql_str, 3
+        prep_in_sql sql_in_str, [1, 2, 3, 10]
 
         sql_str = "select v4 from table_with_column_group3 where k1 = ?"
+        sql_in_str = "select v4 from table_with_column_group3 where k1 in (?, ?, ?, ?)"
         prep_sql sql_str, 1
         prep_sql sql_str, 2
         prep_sql sql_str, 3
+        prep_in_sql sql_in_str, [1, 2, 3, 10]
 
         def setPrepareStmtArgs = {stmt, user_id, date, datev2, datetimev2_1, datetimev2_2, city, age, sex ->
             java.text.SimpleDateFormat formater = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SS");
@@ -241,6 +257,39 @@ suite("test_rowstore", "p0,nonConcurrent") {
             stmt.setString(6, city)
             stmt.setInt(7, age)
             stmt.setInt(8, sex)
+        }
+        def setInPrepareStmtArgs = {stmt, user_id_list, date_list, datev2_list,
+                                    datetimev2_1_list, datetimev2_2_list, city_list, age_list, sex_list ->
+            java.text.SimpleDateFormat formater = new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SS");
+            def total_size = user_id_list.size() + date_list.size() + datev2_list.size() +
+                             datetimev2_1_list.size() + datetimev2_2_list.size() + city_list.size() +
+                             age_list.size() + sex_list.size()
+            def idx = 0
+            for (int i = 0; i < user_id_list.size(); i++) {
+                stmt.setInt(++idx, user_id_list[i])
+            }
+            for (int i = 0; i < date_list.size(); i++) {
+                stmt.setDate(++idx, java.sql.Date.valueOf(date_list[i]))
+            }
+            for (int i = 0; i < datev2_list.size(); i++) {
+                stmt.setDate(++idx, java.sql.Date.valueOf(datev2_list[i]))
+            }
+            for (int i = 0; i < datetimev2_1_list.size(); i++) {
+                stmt.setTimestamp(++idx, new java.sql.Timestamp(formater.parse(datetimev2_1_list[i]).getTime()))
+            }
+            for (int i = 0; i < datetimev2_2_list.size(); i++) {
+                stmt.setTimestamp(++idx, new java.sql.Timestamp(formater.parse(datetimev2_2_list[i]).getTime()))
+            }
+            for (int i = 0; i < city_list.size(); i++) {
+                stmt.setString(++idx, city_list[i])
+            }
+            for (int i = 0; i < age_list.size(); i++) {
+                stmt.setInt(++idx, age_list[i])
+            }
+            for (int i = 0; i < sex_list.size(); i++) {
+                stmt.setInt(++idx, sex_list[i])
+            }
+            assertEquals(idx, total_size)
         }
 
         def stmt = prepareStatement """ SELECT datetimev2_1,datetime_val1,datetime_val2,max_dwell_time FROM table_with_column_group_xxx t where user_id = ? and date = ? and datev2 = ? and datetimev2_1 = ? and datetimev2_2 = ? and city = ? and age = ? and sex = ?; """
@@ -260,6 +309,27 @@ suite("test_rowstore", "p0,nonConcurrent") {
         qe_point_select stmt
         setPrepareStmtArgs stmt, 4, '2017-10-01', '2017-10-01', '2017-10-01 11:11:11.28', '2017-10-01 11:11:11.18', 'Beijing', 10, 1
         qe_point_select stmt
+
+        def in_stmt = prepareStatement """ 
+            SELECT 
+                datetimev2_1,datetime_val1,datetime_val2,max_dwell_time 
+            FROM 
+                table_with_column_group_xxx t 
+            WHERE 
+                user_id IN (?, ?, ?, ?, ?) AND 
+                date IN (?, ?) AND 
+                datev2 IN (?, ?) AND 
+                datetimev2_1 IN (?, ?, ?, ?, ?, ?, ?, ?) AND 
+                datetimev2_2 IN (?, ?, ?, ?, ?, ?, ?, ?) AND 
+                city IN (?, ?) AND 
+                age IN (?, ?, ?, ?, ?) AND 
+                sex IN (?, ?); 
+        """
+        setInPrepareStmtArgs in_stmt , [1, 2, 3, 4, 5], ['2017-10-01', '2017-10-02'], ['2017-10-01', '2017-10-03'], 
+            ['2017-10-01 11:11:11.21', '2017-10-01 11:11:11.22', '2017-10-01 11:11:11.23', '2017-10-01 11:11:11.24', '2017-10-01 11:11:11.25', '2017-10-01 11:11:11.26', '2017-10-01 11:11:11.27', '2017-10-01 11:11:11.28'], 
+            ['2017-10-01 11:11:11.11', '2017-10-01 11:11:11.12', '2017-10-01 11:11:11.13', '2017-10-01 11:11:11.14', '2017-10-01 11:11:11.15', '2017-10-01 11:11:11.16', '2017-10-01 11:11:11.17', '2017-10-01 11:11:11.18'], 
+            ['Beijing', 'Shanghai'], [10, 11, 12, 13, 14], [0, 1]
+        order_qe_point_in_select in_stmt
     }
 
     sql "DROP TABLE IF EXISTS table_with_column_group4"

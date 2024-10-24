@@ -26,9 +26,8 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.common.Config;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
@@ -49,8 +48,6 @@ import java.util.Set;
  * If depth is larger than 'max_distribution_pruner_recursion_depth', all buckets will be return without pruning.
  */
 public class HashDistributionPruner implements DistributionPruner {
-    private static final Logger LOG = LogManager.getLogger(HashDistributionPruner.class);
-
     // partition list, sort by the hash code
     private List<Long> bucketsList;
     // partition columns
@@ -61,6 +58,18 @@ public class HashDistributionPruner implements DistributionPruner {
 
     private boolean isBaseIndexSelected;
 
+    /*
+     * This map maintains a relationship between distribution keys and their corresponding tablet IDs.
+     * For example, if the distribution columns are (k1, k2, k3),
+     * and the tuple (1, 2, 3) is hashed into bucket 1001,
+     * then the `distributionKey2TabletIDs` would map the key (1, 2, 3) to the tablet ID 1001.
+     * (1, 2, 3) -> 1001
+     * Map structure:
+     * - Key: PartitionKey, representing a specific combination of distribution columns (e.g., k1, k2, k3).
+     * - Value: Set<Long>, containing the tablet IDs associated with the corresponding distribution key.
+     */
+    private Map<PartitionKey, Set<Long>> distributionKey2TabletIDs = Maps.newHashMap();
+
     public HashDistributionPruner(List<Long> bucketsList, List<Column> columns,
                            Map<String, PartitionColumnFilter> filters, int hashMod, boolean isBaseIndexSelected) {
         this.bucketsList = bucketsList;
@@ -70,13 +79,21 @@ public class HashDistributionPruner implements DistributionPruner {
         this.isBaseIndexSelected = isBaseIndexSelected;
     }
 
+    public Map<PartitionKey, Set<Long>> getDistributionKeysTabletIDs() {
+        return distributionKey2TabletIDs;
+    }
+
     // columnId: which column to compute
     // hashKey: the key which to compute hash value
     public Collection<Long> prune(int columnId, PartitionKey hashKey, int complex) {
         if (columnId == distributionColumns.size()) {
             // compute Hash Key
             long hashValue = hashKey.getHashValue();
-            return Lists.newArrayList(bucketsList.get((int) ((hashValue & 0xffffffff) % hashMod)));
+            List<Long> result =
+                    Lists.newArrayList(bucketsList.get((int) ((hashValue & 0xffffffff) % hashMod)));
+            distributionKey2TabletIDs.computeIfAbsent(PartitionKey.clone(hashKey),
+                                                      k -> Sets.newHashSet(result)).addAll(result);
+            return result;
         }
         Column keyColumn = distributionColumns.get(columnId);
         String columnName = isBaseIndexSelected ? keyColumn.getName()
@@ -119,9 +136,6 @@ public class HashDistributionPruner implements DistributionPruner {
             Collection<Long> subList = prune(columnId + 1, hashKey, newComplex);
             resultSet.addAll(subList);
             hashKey.popColumn();
-            if (resultSet.size() >= bucketsList.size()) {
-                break;
-            }
         }
         return resultSet;
     }
