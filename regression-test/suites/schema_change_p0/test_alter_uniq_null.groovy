@@ -41,7 +41,6 @@ suite("test_alter_uniq_null") {
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`k2`) BUCKETS 1
         PROPERTIES (
-        "file_cache_ttl_seconds" = "0",
         "light_schema_change" = "true",
         "group_commit_interval_ms" = "10000",
         "group_commit_data_bytes" = "134217728",
