@@ -341,8 +341,14 @@ void Tablet::save_meta() {
             int64_t total_segment_size = 0;
             int64_t total_inverted_index_size = 0;
             for (int64_t seg_id = 0; seg_id < rs_meta->num_segments(); seg_id++) {
-                std::string segment_path = fmt::format("{}/{}_{}.dat", _tablet_path,
-                                                       rs_meta->rowset_id().to_string(), seg_id);
+                std::string segment_path;
+                if (rs_meta->is_local()) {
+                    segment_path = fmt::format("{}/{}_{}.dat", _tablet_path,
+                                               rs_meta->rowset_id().to_string(), seg_id);
+                } else {
+                    segment_path = rs_meta->remote_storage_resource().value()->remote_segment_path(
+                            rs_meta->tablet_id(), rs_meta->rowset_id().to_string(), seg_id);
+                }
                 int64_t segment_file_size = 0;
                 auto st = fs->file_size(segment_path, &segment_file_size);
                 if (!st.ok()) {
@@ -362,9 +368,16 @@ void Tablet::save_meta() {
                         continue;
                     }
                     for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
-                        std::string segment_path =
-                                fmt::format("{}/{}_{}.dat", _tablet_path,
-                                            rs_meta->rowset_id().to_string(), seg_id);
+                        std::string segment_path;
+                        if (rs_meta->is_local()) {
+                            segment_path = fmt::format("{}/{}_{}.dat", _tablet_path,
+                                                       rs_meta->rowset_id().to_string(), seg_id);
+                        } else {
+                            segment_path =
+                                    rs_meta->remote_storage_resource().value()->remote_segment_path(
+                                            rs_meta->tablet_id(), rs_meta->rowset_id().to_string(),
+                                            seg_id);
+                        }
                         int64_t file_size = 0;
 
                         std::string inverted_index_file_path =
@@ -386,9 +399,16 @@ void Tablet::save_meta() {
             } else {
                 for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
                     int64_t file_size = 0;
-                    std::string segment_path = fmt::format(
-                            "{}/{}_{}.dat", _tablet_path, rs_meta->rowset_id().to_string(), seg_id);
-
+                    std::string segment_path;
+                    if (rs_meta->is_local()) {
+                        segment_path = fmt::format("{}/{}_{}.dat", _tablet_path,
+                                                   rs_meta->rowset_id().to_string(), seg_id);
+                    } else {
+                        segment_path =
+                                rs_meta->remote_storage_resource().value()->remote_segment_path(
+                                        rs_meta->tablet_id(), rs_meta->rowset_id().to_string(),
+                                        seg_id);
+                    }
                     std::string inverted_index_file_path =
                             InvertedIndexDescriptor::get_index_file_path_v2(
                                     InvertedIndexDescriptor::get_index_file_path_prefix(
