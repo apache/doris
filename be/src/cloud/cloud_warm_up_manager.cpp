@@ -49,14 +49,12 @@ CloudWarmUpManager::~CloudWarmUpManager() {
     }
 }
 
-std::unordered_map<std::string, RowsetMetaSharedPtr> snapshot_rs_metas(BaseTablet* tablet) {
-    std::unordered_map<std::string, RowsetMetaSharedPtr> id_to_rowset_meta_map;
-    auto visitor = [&id_to_rowset_meta_map](const RowsetSharedPtr& r) {
-        id_to_rowset_meta_map.emplace(r->rowset_meta()->rowset_id().to_string(), r->rowset_meta());
-    };
+std::vector<RowsetSharedPtr> snapshot_rs(BaseTablet* tablet) {
+    std::vector<RowsetSharedPtr> rs_snapshot;
+    auto visitor = [&rs_snapshot](const RowsetSharedPtr& r) { rs_snapshot.emplace_back(r); };
     constexpr bool include_stale = false;
     tablet->traverse_rowsets(visitor, include_stale);
-    return id_to_rowset_meta_map;
+    return rs_snapshot;
 }
 
 void CloudWarmUpManager::handle_jobs() {
@@ -88,29 +86,29 @@ void CloudWarmUpManager::handle_jobs() {
             std::shared_ptr<bthread::CountdownEvent> wait =
                     std::make_shared<bthread::CountdownEvent>(0);
             auto tablet_meta = tablet->tablet_meta();
-            auto rs_metas = snapshot_rs_metas(tablet.get());
-            for (auto& [_, rs] : rs_metas) {
-                for (int64_t seg_id = 0; seg_id < rs->num_segments(); seg_id++) {
-                    auto storage_resource = rs->remote_storage_resource();
-                    if (!storage_resource) {
-                        LOG(WARNING) << storage_resource.error();
-                        continue;
-                    }
+            auto rowsets = snapshot_rs(tablet.get());
+            for (const auto& rs : rowsets) {
+                const auto& rs_meta = rs->rowset_meta();
+                auto storage_resource = rs_meta->remote_storage_resource();
+                if (!storage_resource) {
+                    LOG(WARNING) << storage_resource.error();
+                    continue;
+                }
 
-                    int64_t expiration_time =
-                            tablet_meta->ttl_seconds() == 0 || rs->newest_write_timestamp() <= 0
-                                    ? 0
-                                    : rs->newest_write_timestamp() + tablet_meta->ttl_seconds();
+                int64_t expiration_time =
+                        tablet_meta->ttl_seconds() == 0 || rs_meta->newest_write_timestamp() <= 0
+                                ? 0
+                                : rs_meta->newest_write_timestamp() + tablet_meta->ttl_seconds();
+                for (int64_t seg_id = 0; seg_id < rs_meta->num_segments(); seg_id++) {
                     if (expiration_time <= UnixSeconds()) {
                         expiration_time = 0;
                     }
-
                     wait->add_count();
                     _engine.file_cache_block_downloader().submit_download_task(
                             io::DownloadFileMeta {
-                                    .path = storage_resource.value()->remote_segment_path(*rs,
+                                    .path = storage_resource.value()->remote_segment_path(*rs_meta,
                                                                                           seg_id),
-                                    .file_size = rs->segment_file_size(seg_id),
+                                    .file_size = rs_meta->segment_file_size(seg_id),
                                     .file_system = storage_resource.value()->fs,
                                     .ctx =
                                             {
@@ -124,45 +122,42 @@ void CloudWarmUpManager::handle_jobs() {
                                                 wait->signal();
                                             },
                             });
+                }
 
-                    auto download_idx_file = [&](const io::Path& idx_path) {
-                        io::DownloadFileMeta meta {
-                                .path = idx_path,
-                                .file_size = -1,
-                                .file_system = storage_resource.value()->fs,
-                                .ctx =
-                                        {
-                                                .expiration_time = expiration_time,
-                                        },
-                                .download_done =
-                                        [wait](Status st) {
-                                            if (!st) {
-                                                LOG_WARNING("Warm up error ").error(st);
-                                            }
-                                            wait->signal();
-                                        },
-                        };
-                        _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
+                // Warmup inverted index files
+                auto download_idx_file = [&](const io::FileInfo& idx_file) {
+                    io::DownloadFileMeta meta {
+                            .path = fmt::format(
+                                    "{}/{}",
+                                    storage_resource.value()->remote_rowset_path(
+                                            rs_meta->tablet_id(), rs_meta->rowset_id().to_string()),
+                                    idx_file.file_name),
+                            .file_size = idx_file.file_size,
+                            .file_system = storage_resource.value()->fs,
+                            .ctx =
+                                    {
+                                            .expiration_time = expiration_time,
+                                    },
+                            .download_done =
+                                    [wait](Status st) {
+                                        if (!st) {
+                                            LOG_WARNING("Warm up error ").error(st);
+                                        }
+                                        wait->signal();
+                                    },
                     };
-                    auto schema_ptr = rs->tablet_schema();
-                    auto idx_version = schema_ptr->get_inverted_index_storage_format();
-                    if (idx_version == InvertedIndexStorageFormatPB::V1) {
-                        for (const auto& index : schema_ptr->indexes()) {
-                            if (index.index_type() == IndexType::INVERTED) {
-                                wait->add_count();
-                                auto idx_path = storage_resource.value()->remote_idx_v1_path(
-                                        *rs, seg_id, index.index_id(), index.get_index_suffix());
-                                download_idx_file(idx_path);
-                            }
-                        }
-                    } else if (idx_version == InvertedIndexStorageFormatPB::V2) {
-                        if (schema_ptr->has_inverted_index()) {
-                            wait->add_count();
-                            auto idx_path =
-                                    storage_resource.value()->remote_idx_v2_path(*rs, seg_id);
-                            download_idx_file(idx_path);
-                        }
-                    }
+                    _engine.file_cache_block_downloader().submit_download_task(std::move(meta));
+                };
+
+                const auto& inverted_index_files = rs->list_inverted_index_files();
+                if (!inverted_index_files.has_value()) {
+                    LOG(WARNING) << "warm up inverted index file error: "
+                                 << inverted_index_files.error();
+                    continue;
+                }
+                for (const auto& file : inverted_index_files.value()) {
+                    wait->add_count();
+                    download_idx_file(file);
                 }
             }
             timespec time;

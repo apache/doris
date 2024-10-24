@@ -310,6 +310,10 @@ public:
 
     Result<std::string> segment_path(int64_t seg_id);
 
+    Result<std::string> rowset_dir();
+
+    virtual Result<std::vector<io::FileInfo>> list_inverted_index_files() = 0;
+
 protected:
     friend class RowsetFactory;
 

@@ -374,21 +374,12 @@ Status EngineStorageMigrationTask::_copy_index_and_data_files(
         RETURN_IF_ERROR(_tablet->get_rowset_binlog_metas(binlog_versions, &rowset_binlog_metas_pb));
     }
 
-    // copy index binlog files.
+    const auto& local_fs = io::global_local_filesystem();
+
+    // Segment Binlog Files
     for (const auto& rowset_binlog_meta : rowset_binlog_metas_pb.rowset_binlog_metas()) {
         auto num_segments = rowset_binlog_meta.num_segments();
         std::string_view rowset_id = rowset_binlog_meta.rowset_id();
-
-        RowsetMetaPB rowset_meta_pb;
-        if (!rowset_meta_pb.ParseFromString(rowset_binlog_meta.data())) {
-            auto err_msg = fmt::format("fail to parse binlog meta data value:{}",
-                                       rowset_binlog_meta.data());
-            LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
-        }
-        const auto& tablet_schema_pb = rowset_meta_pb.tablet_schema();
-        TabletSchema tablet_schema;
-        tablet_schema.init_from_pb(tablet_schema_pb);
 
         // copy segment files and index files
         for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
@@ -396,52 +387,36 @@ Status EngineStorageMigrationTask::_copy_index_and_data_files(
             auto snapshot_segment_file_path =
                     fmt::format("{}/{}_{}.binlog", full_path, rowset_id, segment_index);
 
-            Status status = io::global_local_filesystem()->copy_path(segment_file_path,
-                                                                     snapshot_segment_file_path);
+            const auto& status = local_fs->copy_path(segment_file_path, snapshot_segment_file_path);
             if (!status.ok()) {
                 LOG(WARNING) << "fail to copy binlog segment file. [src=" << segment_file_path
                              << ", dest=" << snapshot_segment_file_path << "]" << status;
                 return status;
             }
             VLOG_DEBUG << "copy " << segment_file_path << " to " << snapshot_segment_file_path;
+        }
+    }
 
-            if (tablet_schema.get_inverted_index_storage_format() ==
-                InvertedIndexStorageFormatPB::V1) {
-                for (const auto& index : tablet_schema.indexes()) {
-                    if (index.index_type() != IndexType::INVERTED) {
-                        continue;
-                    }
-                    auto index_id = index.index_id();
-                    auto index_file =
-                            _tablet->get_segment_index_filepath(rowset_id, segment_index, index_id);
-                    auto snapshot_segment_index_file_path =
-                            fmt::format("{}/{}_{}_{}.binlog-index", full_path, rowset_id,
-                                        segment_index, index_id);
-                    VLOG_DEBUG << "copy " << index_file << " to "
-                               << snapshot_segment_index_file_path;
-                    status = io::global_local_filesystem()->copy_path(
-                            index_file, snapshot_segment_index_file_path);
-                    if (!status.ok()) {
-                        LOG(WARNING)
-                                << "fail to copy binlog index file. [src=" << index_file
-                                << ", dest=" << snapshot_segment_index_file_path << "]" << status;
-                        return status;
-                    }
-                }
-            } else if (tablet_schema.has_inverted_index()) {
-                auto index_file = InvertedIndexDescriptor::get_index_file_path_v2(
-                        InvertedIndexDescriptor::get_index_file_path_prefix(segment_file_path));
-                auto snapshot_segment_index_file_path =
-                        fmt::format("{}/{}_{}.binlog-index", full_path, rowset_id, segment_index);
-                VLOG_DEBUG << "copy " << index_file << " to " << snapshot_segment_index_file_path;
-                status = io::global_local_filesystem()->copy_path(index_file,
-                                                                  snapshot_segment_index_file_path);
-                if (!status.ok()) {
-                    LOG(WARNING) << "fail to copy binlog index file. [src=" << index_file
-                                 << ", dest=" << snapshot_segment_index_file_path << "]" << status;
-                    return status;
-                }
+    // Inverted Index Binlog Files
+    for (const auto& rs : consistent_rowsets) {
+        const auto& inverted_index_files = DORIS_TRY(rs->list_inverted_index_files());
+        const auto& rs_dir = DORIS_TRY(rs->rowset_dir());
+        for (const auto& file : inverted_index_files) {
+            const auto& inverted_index_file_path = fmt::format("{}/{}", rs_dir, file.file_name);
+            const auto& snapshot_inverted_index_file_path =
+                    fmt::format("{}/{}", full_path,
+                                InvertedIndexDescriptor::snapshot_index_file_name(file.file_name));
+
+            const auto& status = local_fs->copy_path(inverted_index_file_path,
+                                                     snapshot_inverted_index_file_path);
+            if (!status.ok()) {
+                LOG(WARNING) << "fail to copy binlog inverted index file. [src="
+                             << inverted_index_file_path
+                             << ", dest=" << snapshot_inverted_index_file_path << "]" << status;
+                return status;
             }
+            VLOG_DEBUG << "copy " << inverted_index_file_path << " to "
+                       << snapshot_inverted_index_file_path;
         }
     }
 
