@@ -246,8 +246,13 @@ import com.google.gson.stream.JsonWriter;
 import org.apache.commons.lang3.reflect.TypeUtils;
 
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInput;
 import java.io.DataInputStream;
+import java.io.DataOutput;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.lang.reflect.Method;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
@@ -257,6 +262,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 /*
  * Some utilities about Gson.
@@ -978,4 +985,26 @@ public class GsonUtils {
         }
     }
 
+    public static void toJsonCompressed(DataOutput out, Object src) throws IOException {
+        ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+        try (GZIPOutputStream gzipStream = new GZIPOutputStream(byteStream)) {
+            try (OutputStreamWriter writer = new OutputStreamWriter(gzipStream)) {
+                GsonUtils.GSON.toJson(src, writer);
+            }
+        }
+        Text text = new Text(byteStream.toByteArray());
+        text.write(out);
+    }
+
+    public static void fromJsonCompressed(DataInput in, Class clazz) throws IOException {
+        Text text = new Text();
+        text.readFields(in);
+
+        ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
+        try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
+            try (InputStreamReader reader = new InputStreamReader(gzipStream)) {
+                return GsonUtils.GSON.fromJson(reader, clazz);
+            }
+        }
+    }
 }

@@ -43,7 +43,7 @@ import java.util.Map;
 public abstract class AbstractJob implements Writable {
 
     public enum JobType {
-        BACKUP, RESTORE
+        BACKUP, RESTORE, BACKUP_COMPRESSED, RESTORE_COMPRESSED
     }
 
     @SerializedName("t")
@@ -174,10 +174,10 @@ public abstract class AbstractJob implements Writable {
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_136) {
             AbstractJob job = null;
             JobType type = JobType.valueOf(Text.readString(in));
-            if (type == JobType.BACKUP) {
-                job = new BackupJob();
-            } else if (type == JobType.RESTORE) {
-                job = new RestoreJob();
+            if (type == JobType.BACKUP || type == JobType.BACKUP_COMPRESSED) {
+                job = new BackupJob(type);
+            } else if (type == JobType.RESTORE || type == JobType.RESTORE_COMPRESSED) {
+                job = new RestoreJob(type);
             } else {
                 throw new IOException("Unknown job type: " + type.name());
             }
@@ -185,8 +185,10 @@ public abstract class AbstractJob implements Writable {
             job.setTypeRead(true);
             job.readFields(in);
             return job;
-        } else {
+        } else if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_141) {
             return GsonUtils.GSON.fromJson(Text.readString(in), AbstractJob.class);
+        } else {
+            return GsonUtils.GSON.fromJsonCompressed(in, AbstractJob.class);
         }
     }
 
@@ -203,7 +205,7 @@ public abstract class AbstractJob implements Writable {
             count++;
         }
 
-        Text.writeString(out, GsonUtils.GSON.toJson(this));
+        GsonUtils.GSON.toJsonCompressed(out, this);
     }
 
     @Deprecated
