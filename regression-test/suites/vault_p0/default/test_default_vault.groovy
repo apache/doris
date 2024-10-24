@@ -92,7 +92,9 @@ suite("test_default_vault", "nonConcurrent") {
         """
 
         sql """ insert into ${tableName} values(1, 1); """
-        qt_sql """ select * from ${tableName}; """
+        result """ select * from ${tableName}; """
+        assertEqual(result.size(), 1)
+        assertEqual(result[0][0], 1)
 
         def create_table_stmt = sql """ show create table ${tableName} """
         assertTrue(create_table_stmt[0][1].contains("built_in_storage_vault"))
