@@ -1141,12 +1141,13 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         }
     }
 
-    auto fill_one_cell = [&read_index_old](const TabletColumn& tablet_column, std::size_t idx,
-                                           vectorized::MutableColumnPtr& new_col,
-                                           const vectorized::IColumn& default_value_col,
-                                           const vectorized::IColumn& old_value_col,
-                                           const vectorized::IColumn& cur_col, bool skipped,
-                                           const signed char* delete_sign_column_data) {
+    auto fill_one_cell = [&read_index_old, &read_index_update](
+                                 const TabletColumn& tablet_column, std::size_t idx,
+                                 vectorized::MutableColumnPtr& new_col,
+                                 const vectorized::IColumn& default_value_col,
+                                 const vectorized::IColumn& old_value_col,
+                                 const vectorized::IColumn& cur_col, bool skipped,
+                                 const signed char* delete_sign_column_data) {
         if (skipped) {
             if (delete_sign_column_data != nullptr &&
                 delete_sign_column_data[read_index_old[cast_set<uint32_t>(idx)]] != 0) {
@@ -1160,10 +1161,10 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                     new_col->insert_default();
                 }
             } else {
-                new_col->insert_from(old_value_col, idx);
+                new_col->insert_from(old_value_col, read_index_old[idx]);
             }
         } else {
-            new_col->insert_from(cur_col, idx);
+            new_col->insert_from(cur_col, read_index_update[idx]);
         }
     };
 
@@ -1174,7 +1175,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         auto col_uid = rs_column.unique_id();
         for (auto idx = 0; idx < update_rows; ++idx) {
             if (cid < rowset_schema->num_key_columns()) {
-                new_col->insert_from(cur_col, idx);
+                new_col->insert_from(cur_col, read_index_update[idx]);
             } else {
                 const vectorized::IColumn& default_value_col =
                         *default_value_block.get_by_position(cid - rowset_schema->num_key_columns())
