@@ -329,7 +329,6 @@ void TxnLazyCommitTask::commit() {
                         tmp_rowset_pb;
             }
 
-            int64_t table_id = -1;
             // tablet_id -> TabletIndexPB
             std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
             for (auto& [partition_id, tmp_rowset_metas] : partition_to_tmp_rowset_metas) {
@@ -358,9 +357,11 @@ void TxnLazyCommitTask::commit() {
                     break;
                 }
 
+                int64_t table_id = -1;
                 DCHECK(tmp_rowset_metas.size() > 0);
                 if (table_id <= 0) {
                     if (tablet_ids.size() > 0) {
+                        // get table_id from memory cache
                         table_id = tablet_ids.begin()->second.table_id();
                     } else {
                         // get table_id from storage
@@ -454,6 +455,10 @@ void TxnLazyCommitTask::commit() {
                         break;
                     }
                 }
+            }
+            if (code_ != MetaServiceCode::OK) {
+                LOG(WARNING) << "txn_id=" << txn_id_ << " code=" << code_ << " msg=" << msg_;
+                break;
             }
             make_committed_txn_visible(instance_id_, db_id, txn_id_, txn_kv_, code_, msg_);
         } while (false);
