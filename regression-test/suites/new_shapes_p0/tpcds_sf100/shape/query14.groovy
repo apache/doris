@@ -35,10 +35,6 @@ suite("query14") {
     sql 'set enable_runtime_filter_prune=false'
     sql 'set runtime_filter_type=8'
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"
-
-    def var_result = sql "show variables"
-    logger.info("show variales result: " + var_result )
-
     def ds = """with  cross_items as
  (select i_item_sk ss_item_sk
  from item,
