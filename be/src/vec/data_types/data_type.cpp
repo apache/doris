@@ -81,7 +81,7 @@ ColumnPtr IDataType::create_column_const_with_default_value(size_t size) const {
 }
 
 size_t IDataType::get_size_of_value_in_memory() const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                            "Value of type {} in memory is not of fixed size.", get_name());
     return 0;
 }
