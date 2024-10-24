@@ -47,7 +47,7 @@ private:
 
     void update_cumulative_point();
 
-    void process_old_version_delete_bitmap();
+    Status process_old_version_delete_bitmap();
 
     ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
 
