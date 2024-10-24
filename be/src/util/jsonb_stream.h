@@ -41,6 +41,8 @@
 #include <cinttypes>
 #include <iostream>
 
+#include "gutil/strings/numbers.h"
+
 namespace doris {
 
 using int128_t = __int128;
@@ -149,7 +151,10 @@ public:
             realloc(MAX_DOUBLE_DIGITS + 1);
         }
 
-        int len = snprintf(head_ + size_, MAX_DOUBLE_DIGITS + 1, "%.15g", d);
+        // char buf[MAX_FLOAT_STR_LENGTH + 2];
+        int len = DoubleToBuffer(d, MAX_DOUBLE_DIGITS + 1, head_ + size_);
+
+        // int len = snprintf(head_ + size_, MAX_DOUBLE_DIGITS + 1, "%.15g", d);
         assert(len > 0);
         size_ += len;
     }

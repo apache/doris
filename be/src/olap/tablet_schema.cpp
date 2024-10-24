@@ -38,6 +38,7 @@
 #include "exec/tablet_info.h"
 #include "olap/inverted_index_parser.h"
 #include "olap/olap_define.h"
+#include "olap/tablet_column_cache.h"
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "runtime/thread_context.h"
@@ -942,7 +943,8 @@ void TabletSchema::clear_columns() {
     _cols.clear();
 }
 
-void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns) {
+void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns,
+                                bool reuse_cache_column) {
     _keys_type = schema.keys_type();
     _num_columns = 0;
     _num_variant_columns = 0;
@@ -957,21 +959,27 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
         _cluster_key_idxes.push_back(i);
     }
     for (auto& column_pb : schema.column()) {
-        TabletColumn column;
-        column.init_from_pb(column_pb);
-        if (ignore_extracted_columns && column.is_extracted_column()) {
+        TabletColumnPtr column;
+        if (reuse_cache_column) {
+            column = TabletColumnCache::instance()->insert(
+                    deterministic_string_serialize(column_pb));
+        } else {
+            column = std::make_shared<TabletColumn>();
+            column->init_from_pb(column_pb);
+        }
+        if (ignore_extracted_columns && column->is_extracted_column()) {
             continue;
         }
-        if (column.is_key()) {
+        if (column->is_key()) {
             _num_key_columns++;
         }
-        if (column.is_nullable()) {
+        if (column->is_nullable()) {
             _num_null_columns++;
         }
-        if (column.is_variant_type()) {
+        if (column->is_variant_type()) {
             ++_num_variant_columns;
         }
-        _cols.emplace_back(std::make_shared<TabletColumn>(std::move(column)));
+        _cols.emplace_back(std::move(column));
         _vl_field_mem_size +=
                 sizeof(StringRef) + sizeof(char) * _cols.back()->name().size() + sizeof(size_t);
         _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
@@ -1563,15 +1571,6 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
-}
-
-std::string TabletSchema::deterministic_string_serialize(const TabletSchemaPB& schema_pb) {
-    std::string output;
-    google::protobuf::io::StringOutputStream string_output_stream(&output);
-    google::protobuf::io::CodedOutputStream output_stream(&string_output_stream);
-    output_stream.SetSerializationDeterministic(true);
-    schema_pb.SerializeToCodedStream(&output_stream);
-    return output;
 }
 
 } // namespace doris

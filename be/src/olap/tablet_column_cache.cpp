@@ -15,47 +15,41 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/tablet_schema_cache.h"
+#include "olap/tablet_column_cache.h"
 
+#include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/olap_file.pb.h>
 
-#include "bvar/bvar.h"
 #include "olap/tablet_schema.h"
-
-bvar::Adder<int64_t> g_tablet_schema_cache_count("tablet_schema_cache_count");
-bvar::Adder<int64_t> g_tablet_schema_cache_columns_count("tablet_schema_cache_columns_count");
 
 namespace doris {
 
-std::pair<Cache::Handle*, TabletSchemaSPtr> TabletSchemaCache::insert(const std::string& key) {
+TabletColumnPtr TabletColumnCache::insert(const std::string& key) {
     auto* lru_handle = lookup(key);
-    TabletSchemaSPtr tablet_schema_ptr;
+    TabletColumnPtr tablet_column_ptr;
     if (lru_handle) {
         auto* value = (CacheValue*)LRUCachePolicy::value(lru_handle);
-        tablet_schema_ptr = value->tablet_schema;
+        tablet_column_ptr = value->tablet_column;
+        LOG(INFO) << "reuse column " << tablet_column_ptr->name();
     } else {
         auto* value = new CacheValue;
-        tablet_schema_ptr = std::make_shared<TabletSchema>();
-        TabletSchemaPB pb;
+        tablet_column_ptr = std::make_shared<TabletColumn>();
+        ColumnPB pb;
         pb.ParseFromString(key);
-        tablet_schema_ptr->init_from_pb(pb, false, true);
-        value->tablet_schema = tablet_schema_ptr;
-        lru_handle = LRUCachePolicy::insert(key, value, tablet_schema_ptr->num_columns(), 0,
-                                            CachePriority::NORMAL);
-        g_tablet_schema_cache_count << 1;
-        g_tablet_schema_cache_columns_count << tablet_schema_ptr->num_columns();
+        tablet_column_ptr->init_from_pb(pb);
+        value->tablet_column = tablet_column_ptr;
+        lru_handle =
+                LRUCachePolicy::insert(key, value, sizeof(TabletColumn), 0, CachePriority::NORMAL);
     }
     DCHECK(lru_handle != nullptr);
-    return std::make_pair(lru_handle, tablet_schema_ptr);
+    release(lru_handle);
+    return tablet_column_ptr;
 }
 
-void TabletSchemaCache::release(Cache::Handle* lru_handle) {
+void TabletColumnCache::release(Cache::Handle* lru_handle) {
     LRUCachePolicy::release(lru_handle);
 }
 
-TabletSchemaCache::CacheValue::~CacheValue() {
-    g_tablet_schema_cache_count << -1;
-    g_tablet_schema_cache_columns_count << -tablet_schema->num_columns();
-}
+TabletColumnCache::CacheValue::~CacheValue() = default;
 
 } // namespace doris

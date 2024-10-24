@@ -101,6 +101,7 @@ class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
 class TabletSchemaCache;
+class TabletColumnCache;
 class UserFunctionCache;
 class SchemaCache;
 class StoragePageCache;
@@ -299,6 +300,7 @@ public:
     std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
+    TabletColumnCache* get_tablet_column_cache() { return _tablet_column_cache; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -437,6 +439,7 @@ private:
     // these redundancy header could introduce potential bug, at least, more header means slow compile.
     // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
     TabletSchemaCache* _tablet_schema_cache = nullptr;
+    TabletColumnCache* _tablet_column_cache = nullptr;
     std::unique_ptr<BaseStorageEngine> _storage_engine;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;

@@ -298,10 +298,19 @@ public:
     TabletSchema();
     virtual ~TabletSchema();
 
-    void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false);
+    void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false,
+                      bool reuse_cached_column = false);
     // Notice: Use deterministic way to serialize protobuf,
     // since serialize Map in protobuf may could lead to un-deterministic by default
-    static std::string deterministic_string_serialize(const TabletSchemaPB& schema_pb);
+    template <class PbType>
+    static std::string deterministic_string_serialize(const PbType& pb) {
+        std::string output;
+        google::protobuf::io::StringOutputStream string_output_stream(&output);
+        google::protobuf::io::CodedOutputStream output_stream(&string_output_stream);
+        output_stream.SetSerializationDeterministic(true);
+        pb.SerializeToCodedStream(&output_stream);
+        return output;
+    }
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex index);
