@@ -1587,8 +1587,8 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
         }
 
         if (need_read_schema_dict) {
-            read_schema_from_dict(code, msg, instance_id, idx.index_id(), txn.get(),
-                                  response->mutable_rowset_meta());
+            read_schema_dict(code, msg, instance_id, idx.index_id(), txn.get(), response,
+                             request->schema_op());
             if (code != MetaServiceCode::OK) return;
         }
         TEST_SYNC_POINT_CALLBACK("get_rowset::finish", &response);
