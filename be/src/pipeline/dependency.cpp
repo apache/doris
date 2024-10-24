@@ -32,7 +32,7 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
                                                        std::string name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
@@ -267,8 +267,8 @@ bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
                                               need_computes.data());
         }
 
-        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, int rows) {
-            for (int i = 0; i < rows; ++i) {
+        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, size_t rows) {
+            for (size_t i = 0; i < rows; ++i) {
                 computes[i] = computes[i] == res[i];
             }
         };

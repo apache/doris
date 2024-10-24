@@ -44,7 +44,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 TaskScheduler::~TaskScheduler() {
     stop();
     LOG(INFO) << "Task scheduler " << _name << " shutdown";
@@ -60,7 +60,7 @@ Status TaskScheduler::start() {
                             .build(&_fix_thread_pool));
     LOG_INFO("TaskScheduler set cores").tag("size", cores);
     _markers.resize(cores, true);
-    for (size_t i = 0; i < cores; ++i) {
+    for (int i = 0; i < cores; ++i) {
         RETURN_IF_ERROR(_fix_thread_pool->submit_func([this, i] { _do_work(i); }));
     }
     return Status::OK();
@@ -97,7 +97,7 @@ void _close_task(PipelineTask* task, Status exec_status) {
     task->fragment_context()->close_a_pipeline(task->pipeline_id());
 }
 
-void TaskScheduler::_do_work(size_t index) {
+void TaskScheduler::_do_work(int index) {
     while (_markers[index]) {
         auto* task = _task_queue->take(index);
         if (!task) {

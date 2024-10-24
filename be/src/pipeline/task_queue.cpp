@@ -27,7 +27,7 @@
 #include "runtime/workload_group/workload_group.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 TaskQueue::~TaskQueue() = default;
 
 PipelineTask* SubTaskQueue::try_take(bool is_steal) {
@@ -121,7 +121,7 @@ Status PriorityTaskQueue::push(PipelineTask* task) {
 
     // update empty queue's  runtime, to avoid too high priority
     if (_sub_queues[level].empty() &&
-        _queue_level_min_vruntime > _sub_queues[level].get_vruntime()) {
+        double(_queue_level_min_vruntime) > _sub_queues[level].get_vruntime()) {
         _sub_queues[level].adjust_runtime(_queue_level_min_vruntime);
     }
 

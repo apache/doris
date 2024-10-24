@@ -777,7 +777,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                 std::max(cur_pipe->num_tasks(), _num_instances),
                 should_disable_bucket_shuffle ? _total_instances : _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        ? int(_runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
@@ -785,21 +785,21 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
                 ignore_data_hash_distribution,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        ? int(_runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
     case ExchangeType::PASSTHROUGH:
         shared_state->exchanger = PassthroughExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        ? int(_runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
     case ExchangeType::BROADCAST:
         shared_state->exchanger = BroadcastExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        ? int(_runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
     case ExchangeType::PASS_TO_ONE:
@@ -808,13 +808,13 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
             shared_state->exchanger = PassToOneExchanger::create_unique(
                     cur_pipe->num_tasks(), _num_instances,
                     _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                            ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                            ? int(_runtime_state->query_options().local_exchange_free_blocks_limit)
                             : 0);
         } else {
             shared_state->exchanger = BroadcastExchanger::create_unique(
                     cur_pipe->num_tasks(), _num_instances,
                     _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                            ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                            ? int(_runtime_state->query_options().local_exchange_free_blocks_limit)
                             : 0);
         }
         break;
@@ -829,7 +829,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         shared_state->exchanger = LocalMergeSortExchanger::create_unique(
                 sort_source, cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        ? int(_runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
     }
@@ -837,7 +837,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         shared_state->exchanger = AdaptivePassthroughExchanger::create_unique(
                 cur_pipe->num_tasks(), _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
-                        ? _runtime_state->query_options().local_exchange_free_blocks_limit
+                        ? int(_runtime_state->query_options().local_exchange_free_blocks_limit)
                         : 0);
         break;
     default:

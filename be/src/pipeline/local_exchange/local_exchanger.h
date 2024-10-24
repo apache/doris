@@ -21,6 +21,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
@@ -351,5 +352,5 @@ private:
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline
