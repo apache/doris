@@ -327,7 +327,7 @@ Status FixedReadPlan::read_columns_by_plan(
                 (*read_index)[pos] = read_idx++;
             }
             if (has_row_column) {
-                auto st = doris::BaseTablet::fetch_value_through_row_column(
+                auto st = BaseTablet::fetch_value_through_row_column(
                         rowset_iter->second, tablet_schema, segment_id, rids, cids_to_read, block);
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to fetch value through row column";
@@ -486,7 +486,6 @@ Status FlexibleReadPlan::read_columns_by_plan(
         const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
         vectorized::Block& old_value_block, std::map<uint32_t, uint32_t>* read_index) const {
     DCHECK(use_row_store);
-    auto mutable_columns = old_value_block.mutate_columns();
     size_t read_idx = 0;
     for (const auto& [rowset_id, segment_row_mappings] : row_store_plan) {
         for (const auto& [segment_id, mappings] : segment_row_mappings) {
@@ -497,19 +496,15 @@ Status FlexibleReadPlan::read_columns_by_plan(
                 rids.emplace_back(rid);
                 (*read_index)[pos] = read_idx++;
             }
-            for (size_t cid = 0; cid < mutable_columns.size(); ++cid) {
-                TabletColumn tablet_column = tablet_schema.column(cids_to_read[cid]);
-                auto st = doris::BaseTablet::fetch_value_by_rowids(
-                        rowset_iter->second, segment_id, rids, tablet_column, mutable_columns[cid]);
-                // set read value to output block
-                if (!st.ok()) {
-                    LOG(WARNING) << "failed to fetch value";
-                    return st;
-                }
+            auto st = BaseTablet::fetch_value_through_row_column(rowset_iter->second, tablet_schema,
+                                                                 segment_id, rids, cids_to_read,
+                                                                 old_value_block);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to fetch value through row column";
+                return st;
             }
         }
     }
-    old_value_block.set_columns(std::move(mutable_columns));
     return Status::OK();
 }
 
