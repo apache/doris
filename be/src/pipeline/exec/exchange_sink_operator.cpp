@@ -750,7 +750,7 @@ void ExchangeSinkOperatorX::create_buffer() {
     PUniqueId id;
     id.set_hi(_state->query_id().hi);
     id.set_lo(_state->query_id().lo);
-    _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, state(), _keep_order);
+    _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, _dest_node_id, state(), true);
     for (const auto& _dest : _dests) {
         const auto& dest_fragment_instance_id = _dest.fragment_instance_id;
         _sink_buffer->construct_request(dest_fragment_instance_id);
