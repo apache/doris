@@ -335,6 +335,12 @@ public class MetaServiceProxy {
         return w.executeRequest((client) -> client.getDeleteBitmapUpdateLock(request));
     }
 
+    public Cloud.RemoveDeleteBitmapUpdateLockResponse removeDeleteBitmapUpdateLock(
+            Cloud.RemoveDeleteBitmapUpdateLockRequest request)
+            throws RpcException {
+        return w.executeRequest((client) -> client.removeDeleteBitmapUpdateLock(request));
+    }
+
     public Cloud.AlterObjStoreInfoResponse alterObjStoreInfo(Cloud.AlterObjStoreInfoRequest request)
             throws RpcException {
         return w.executeRequest((client) -> client.alterObjStoreInfo(request));
