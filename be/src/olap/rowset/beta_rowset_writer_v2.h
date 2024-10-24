@@ -154,10 +154,9 @@ private:
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
 
     SegmentFileCollection _seg_files;
+    InvertedIndexFileCollection _idx_files;
 
     SegmentCreator _segment_creator;
-
-    InvertedIndexFilesInfo _idx_files_info;
 
     fmt::memory_buffer vlog_buffer;
 

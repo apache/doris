@@ -101,7 +101,9 @@ TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shar
 }
 
 TabletManager::~TabletManager() {
+#ifndef BE_TEST
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
+#endif
 }
 
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
