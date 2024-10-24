@@ -1599,6 +1599,7 @@ public class Env {
                 // Set initial root password if master FE first time launch.
                 auth.setInitialRootPassword(Config.initial_root_password);
             } else {
+                VariableMgr.forceUpdateVariables();
                 if (journalVersion <= FeMetaVersion.VERSION_114) {
                     // if journal version is less than 114, which means it is upgraded from version before 2.0.
                     // When upgrading from 1.2 to 2.0,
