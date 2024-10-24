@@ -32,6 +32,7 @@ import org.apache.doris.load.loadv2.BrokerLoadJob;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadManager;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.PlanFragment;
@@ -39,7 +40,9 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.NereidsSqlCoordinator;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.GlobalTransactionMgr;
@@ -134,6 +137,9 @@ public class EnvFactory {
 
     public Coordinator createCoordinator(ConnectContext context, Analyzer analyzer, Planner planner,
                                          StatsErrorEstimator statsErrorEstimator) {
+        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner()) {
+            return new NereidsSqlCoordinator(context, analyzer, (NereidsPlanner) planner, statsErrorEstimator);
+        }
         return new Coordinator(context, analyzer, planner, statsErrorEstimator);
     }
 

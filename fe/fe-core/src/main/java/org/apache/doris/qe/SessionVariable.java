@@ -34,6 +34,8 @@ import org.apache.doris.nereids.metrics.Event;
 import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
@@ -3384,7 +3386,9 @@ public class SessionVariable implements Serializable, Writable {
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         // TODO: support other sink
-        if (logicalPlan instanceof UnboundResultSink && sessionVariable.enableNereidsDistributePlanner) {
+        if ((logicalPlan instanceof UnboundResultSink
+                || logicalPlan instanceof LogicalFileSink
+                || logicalPlan instanceof InsertIntoTableCommand) && sessionVariable.enableNereidsDistributePlanner) {
             return true;
         }
         return false;
