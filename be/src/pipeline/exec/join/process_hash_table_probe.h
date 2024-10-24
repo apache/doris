@@ -132,7 +132,6 @@ struct ProcessHashTableProbe {
     bool _need_calculate_build_index_has_zero = true;
     bool* _has_null_in_build_side;
 
-    RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
