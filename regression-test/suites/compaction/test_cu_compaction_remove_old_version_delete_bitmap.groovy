@@ -18,9 +18,6 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
-    if (!isCloudMode()) {
-        return
-    }
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
     def backendId_to_params = [string: [:]]
@@ -171,7 +168,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
     set_be_param("tablet_rowset_stale_sweep_time_sec", "0")
 
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("CloudCumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets")
+        GetDebugPoint().enableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets")
         // 1. test normal
         sql "sync"
         sql """ INSERT INTO ${testTable} VALUES (0,0,'0'),(1,1,'1'); """
@@ -267,27 +264,29 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
 
         qt_sql "select * from ${testTable} order by plan_id"
         GetDebugPoint().enableDebugPointForAllBEs("CloudCumulativeCompaction.modify_rowsets.update_delete_bitmap_failed")
-        for (def tablet in tablets) {
-            String tablet_id = tablet.TabletId
-            def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
-            logger.info("tablet: " + tablet_info)
-            String trigger_backend_id = tablet.BackendId
+        if (isCloudMode()) {
+            for (def tablet in tablets) {
+                String tablet_id = tablet.TabletId
+                def tablet_info = sql_return_maparray """ show tablet ${tablet_id}; """
+                logger.info("tablet: " + tablet_info)
+                String trigger_backend_id = tablet.BackendId
 
-            delete_bitmap_count = getDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
-            assertTrue(delete_bitmap_count == 6)
-            logger.info("delete_bitmap_count:" + delete_bitmap_count)
+                delete_bitmap_count = getDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
+                assertTrue(delete_bitmap_count == 6)
+                logger.info("delete_bitmap_count:" + delete_bitmap_count)
 
-            getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
-            assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
-                    "cumulative", tablet_id).contains("Success"));
-            waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
-            getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
+                getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
+                assertTrue(triggerCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id],
+                        "cumulative", tablet_id).contains("Success"));
+                waitForCompaction(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id)
+                getTabletStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id);
 
-            // update fail, delete_bitmap_count will not change
-            Thread.sleep(1000)
-            delete_bitmap_count = getDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
-            assertTrue(delete_bitmap_count == 6)
-            logger.info("delete_bitmap_count:" + delete_bitmap_count)
+                // update fail, delete_bitmap_count will not change
+                Thread.sleep(1000)
+                delete_bitmap_count = getDeleteBitmapStatus(backendId_to_backendIP[trigger_backend_id], backendId_to_backendHttpPort[trigger_backend_id], tablet_id).delete_bitmap_count
+                assertTrue(delete_bitmap_count == 6)
+                logger.info("delete_bitmap_count:" + delete_bitmap_count)
+            }
         }
 
         qt_sql "select * from ${testTable} order by plan_id"
@@ -309,7 +308,7 @@ suite("test_cu_compaction_remove_old_version_delete_bitmap", "nonConcurrent") {
     } finally {
         reset_be_param("compaction_promotion_version_count")
         reset_be_param("tablet_rowset_stale_sweep_time_sec")
-        GetDebugPoint().disableDebugPointForAllBEs("CloudCumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets")
+        GetDebugPoint().disableDebugPointForAllBEs("CumulativeCompaction.modify_rowsets.delete_expired_stale_rowsets")
         GetDebugPoint().disableDebugPointForAllBEs("CloudCumulativeCompaction.modify_rowsets.update_delete_bitmap_failed")
     }
 
