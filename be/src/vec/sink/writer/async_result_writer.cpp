@@ -107,12 +107,13 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* profi
         force_close(status);
     }
 
-    if (state && state->get_query_ctx()) {
-        WorkloadGroupPtr wg_ptr = state->get_query_ctx()->workload_group();
-        if (wg_ptr && wg_ptr->get_cgroup_cpu_ctl_ptr()) {
-            Status ret = wg_ptr->get_cgroup_cpu_ctl_ptr()->add_thread_to_cgroup();
+    if (state && state->get_query_ctx() && state->get_query_ctx()->workload_group()) {
+        if (auto cg_ctl_sptr =
+                    state->get_query_ctx()->workload_group()->get_cgroup_cpu_ctl_wptr().lock()) {
+            Status ret = cg_ctl_sptr->add_thread_to_cgroup();
             if (ret.ok()) {
-                std::string wg_tname = "asyc_wr_" + wg_ptr->name();
+                std::string wg_tname =
+                        "asyc_wr_" + state->get_query_ctx()->workload_group()->name();
                 Thread::set_self_name(wg_tname);
             }
         }

@@ -55,14 +55,14 @@ public class AlterWorkloadGroupStmt extends DdlStmt implements NotFallbackInPars
         }
 
         if (properties == null || properties.isEmpty()) {
-            throw new AnalysisException("Resource group properties can't be null");
+            throw new AnalysisException("Workload Group properties can't be null");
         }
     }
 
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("ALTER RESOURCE GROUP '").append(workloadGroupName).append("' ");
+        sb.append("ALTER WORKLOAD GROUP '").append(workloadGroupName).append("' ");
         sb.append("PROPERTIES(").append(new PrintableMap<>(properties, " = ", true, false)).append(")");
         return sb.toString();
     }
