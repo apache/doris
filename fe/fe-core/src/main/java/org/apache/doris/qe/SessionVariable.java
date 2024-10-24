@@ -435,8 +435,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String JOIN_REORDER_TIME_LIMIT = "join_order_time_limit";
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
-    public static final String ENABLE_MINIDUMP = "enable_minidump";
-
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
 
     public static final String MINIDUMP_PATH = "minidump_path";
@@ -505,6 +503,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_DELETE_SUB_PREDICATE_V2 = "enable_delete_sub_predicate_v2";
 
     public static final String JDBC_CLICKHOUSE_QUERY_FINAL = "jdbc_clickhouse_query_final";
+
+    public static final String JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN = "jdbc_oracle_null_predicate_pushdown";
 
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
@@ -662,6 +662,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String REQUIRE_SEQUENCE_IN_INSERT = "require_sequence_in_insert";
 
+    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -684,6 +686,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否在查询 ClickHouse JDBC 外部表时，对查询 SQL 添加 FINAL 关键字。",
                     "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external tables."})
     public boolean jdbcClickhouseQueryFinal = false;
+
+    @VariableMgr.VarAttr(name = JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN, needForward = true,
+            description = {"是否允许将 NULL 谓词下推到 Oracle JDBC 外部表。",
+                    "Whether to allow NULL predicates to be pushed down to Oracle JDBC external tables."})
+    public boolean jdbcOracleNullPredicatePushdown = false;
 
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
     public boolean roundPreciseDecimalV2Value = false;
@@ -1146,7 +1153,7 @@ public class SessionVariable implements Serializable, Writable {
     public int sortPhaseNum = 0;
 
     @VariableMgr.VarAttr(name = HIVE_TEXT_COMPRESSION, needForward = true)
-    private String hiveTextCompression = "uncompressed";
+    private String hiveTextCompression = "plain";
 
     @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
             description = {"在读取csv文件时是否读取csv的空行为null",
@@ -1614,9 +1621,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
     public int dphyperLimit = 1000;
 
-    @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
-    public boolean enableMinidump = false;
-
 
     @VariableMgr.VarAttr(
             name = ENABLE_PAGE_CACHE,
@@ -1628,9 +1632,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
-
-    @VariableMgr.VarAttr(name = MINIDUMP_PATH)
-    public String minidumpPath = "";
 
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
@@ -2165,6 +2166,13 @@ public class SessionVariable implements Serializable, Writable {
                     + " column requires a sequence column to be provided for each row"
     })
     public boolean requireSequenceInInsert = true;
+
+
+    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, description = {
+            "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
+            "Skip checking transactional hive version file '_orc_acid_version.'"
+    })
+    public boolean skipCheckingAcidVersionFile = false;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -3997,22 +4005,6 @@ public class SessionVariable implements Serializable, Writable {
         return "";
     }
 
-    public boolean isEnableMinidump() {
-        return enableMinidump;
-    }
-
-    public void setEnableMinidump(boolean enableMinidump) {
-        this.enableMinidump = enableMinidump;
-    }
-
-    public String getMinidumpPath() {
-        return minidumpPath;
-    }
-
-    public void setMinidumpPath(String minidumpPath) {
-        this.minidumpPath = minidumpPath;
-    }
-
     public boolean isTraceNereids() {
         return traceNereids;
     }
@@ -4105,6 +4097,10 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public String hiveTextCompression() {
+        if (hiveTextCompression.equals("uncompressed")) {
+            // This is for compatibility.
+            return "plain";
+        }
         return hiveTextCompression;
     }
 

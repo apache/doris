@@ -1311,6 +1311,7 @@ suite("nereids_scalar_fn_Array") {
     sql """ set debug_skip_fold_constant=true; """
     qt_array_empty_be """select array()"""
 
+    // array_min/max with nested array for args
     test {
         sql "select array_min(array(1,2,3),array(4,5,6));"
         check{result, exception, startTime, endTime ->
@@ -1349,4 +1350,18 @@ suite("nereids_scalar_fn_Array") {
        exception("errCode = 2")
     }
 
+    // agg for array types add decimal256 cases array_min/array_max/array_product/array_avg/array_sum with decimal256
+    sql """ set enable_decimal256=true; """
+    order_qt_sql_array_min_decimal256 "select array_min(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_max_decimal256 "select array_max(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_product_decimal256 "select array_product(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_avg_decimal256 "select array_avg(c) from fn_test_array_with_large_decimal order by id"
+    order_qt_sql_array_sum_decimal256 "select array_sum(c) from fn_test_array_with_large_decimal order by id"
+    // array_overlap for type correctness
+    order_qt_sql_array_overlaps_1 """select arrays_overlap(a, b) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_2 """select arrays_overlap(b, a) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_3 """select arrays_overlap(a, c) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_4 """select arrays_overlap(c, a) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_5 """select arrays_overlap(b, c) from fn_test_array_with_large_decimal order by id"""
+    order_qt_sql_array_overlaps_6 """select arrays_overlap(c, b) from fn_test_array_with_large_decimal order by id"""
 }

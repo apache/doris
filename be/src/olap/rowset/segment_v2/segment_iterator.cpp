@@ -1987,6 +1987,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (UNLIKELY(!_lazy_inited)) {
         RETURN_IF_ERROR(_lazy_init());
         _lazy_inited = true;
+        // If the row bitmap size is smaller than block_row_max, there's no need to reserve that many column rows.
+        auto nrows_reserve_limit =
+                std::min(_row_bitmap.cardinality(), uint64_t(_opts.block_row_max));
         if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
             _block_rowids.resize(_opts.block_row_max);
         }
@@ -2011,7 +2014,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                                 storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
+                _current_return_columns[cid]->reserve(nrows_reserve_limit);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
                 // a delete condition column. but the column is not effective in the segment. so we just
@@ -2022,7 +2025,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // TODO: skip read the not effective delete column to speed up segment read.
                 _current_return_columns[cid] =
                         Schema::get_data_type_ptr(*column_desc)->create_column();
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
+                _current_return_columns[cid]->reserve(nrows_reserve_limit);
             }
         }
 
@@ -2047,7 +2050,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (_can_opt_topn_reads()) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
-
+    // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
+    nrows_read_limit = std::min(_row_bitmap.cardinality(), uint64_t(nrows_read_limit));
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt 1 execute failed: {}",

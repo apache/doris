@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
@@ -56,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -254,6 +257,17 @@ public class NereidsPlanner extends Planner {
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
                 return rewrittenPlan;
             }
+        }
+
+        // if we cannot get table row count, skip join reorder
+        // except:
+        //   1. user set leading hint
+        //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
+        if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest
+                && !cascadesContext.isLeadingDisableJoinReorder()) {
+            List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
+                    .collectToList(LogicalOlapScan.class::isInstance);
+            StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
         }
 
         optimize();
@@ -531,7 +545,7 @@ public class NereidsPlanner extends Planner {
         String used = "";
         String unUsed = "";
         String syntaxError = "";
-        int distributeHintIndex = 1;
+        int distributeHintIndex = 0;
         for (Hint hint : hints) {
             String distributeIndex = "";
             if (hint instanceof DistributeHint) {

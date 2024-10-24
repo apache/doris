@@ -16,7 +16,9 @@
 // under the License.
 
 suite("test_set_operation_adjust_nullable") {
-
+    sql "set enable_fallback_to_original_planner=false"
+    String realDb = context.config.getDbNameByFile(context.file)
+    logger.info("realDb:${realDb}")
     sql """
         DROP TABLE IF EXISTS set_operation_t1
     """

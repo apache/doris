@@ -2802,6 +2802,9 @@ public class Config extends ConfigBase {
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";
 
+    @ConfField
+    public static String spilled_minidump_storage_path = System.getenv("LOG_DIR") + File.separator + "minidump";
+
     // The max number of profiles that can be stored to storage.
     @ConfField
     public static int max_spilled_profile_num = 500;
@@ -3129,5 +3132,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
             "Maximum lock hold time; logs a warning if exceeded"})
-    public static long  max_lock_hold_threshold_seconds = 10;
+    public static long max_lock_hold_threshold_seconds = 10;
+
+    @ConfField(mutable = true, description = {"元数据同步是否开启安全模式",
+        "Is metadata synchronization enabled in safe mode"})
+    public static boolean meta_helper_security_mode = false;
 }
