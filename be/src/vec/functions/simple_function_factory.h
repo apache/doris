@@ -58,6 +58,7 @@ void register_function_is_null(SimpleFunctionFactory& factory);
 void register_function_is_not_null(SimpleFunctionFactory& factory);
 void register_function_nullables(SimpleFunctionFactory& factory);
 void register_function_to_time_function(SimpleFunctionFactory& factory);
+void register_function_time_value_field(SimpleFunctionFactory& factory);
 void register_function_time_of_function(SimpleFunctionFactory& factory);
 void register_function_string(SimpleFunctionFactory& factory);
 void register_function_running_difference(SimpleFunctionFactory& factory);
@@ -248,6 +249,7 @@ public:
             register_function_is_not_null(instance);
             register_function_nullables(instance);
             register_function_to_time_function(instance);
+            register_function_time_value_field(instance);
             register_function_time_of_function(instance);
             register_function_string(instance);
             register_function_in(instance);
