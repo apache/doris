@@ -540,10 +540,15 @@ void NewOlapScanner::_update_realtime_counters() {
     COUNTER_UPDATE(olap_parent ? olap_parent->_read_compressed_counter
                                : local_state->_read_compressed_counter,
                    stats.compressed_bytes_read);
+    COUNTER_UPDATE(olap_parent ? olap_parent->_scan_bytes
+                               : local_state->_scan_bytes,
+                   stats.compressed_bytes_read);
     _scan_bytes += stats.compressed_bytes_read;
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
 
     COUNTER_UPDATE(olap_parent ? olap_parent->_raw_rows_counter : local_state->_raw_rows_counter,
+                   stats.raw_rows_read);
+    COUNTER_UPDATE(olap_parent ? olap_parent->_scan_rows : local_state->_scan_rows,
                    stats.raw_rows_read);
     _scan_rows += stats.raw_rows_read;
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
