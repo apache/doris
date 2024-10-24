@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
@@ -119,17 +118,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     ctx.getSessionVariable().getSendBatchParallelism(),
                     false,
                     isStrictMode,
-                    timeout);
-            // complete and set commands both modify thrift struct
-            olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
-            if (!olapInsertCtx.isAllowAutoPartition()) {
-                olapTableSink.setAutoPartition(false);
-            }
-            if (olapInsertCtx.isAutoDetectOverwrite()) {
-                olapTableSink.setAutoDetectOverwite(true);
-                olapTableSink.setOverwriteGroupId(olapInsertCtx.getOverwriteGroupId());
-            }
-            // update
+                    timeout, olapInsertCtx);
 
             // set schema and partition info for tablet id shuffle exchange
             if (fragment.getPlanRoot() instanceof ExchangeNode
@@ -156,14 +145,10 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                     throw new IllegalStateException("Unsupported DataSink: " + childFragmentSink);
                 }
 
-                Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), ConnectContext.get());
-                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.createSchema(
-                        database.getId(), olapTableSink.getDstTable(), analyzer));
-                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.createPartition(
-                        database.getId(), olapTableSink.getDstTable(), analyzer));
+                dataStreamSink.setTabletSinkSchemaParam(olapTableSink.getOlapTableSchemaParam());
+                dataStreamSink.setTabletSinkPartitionParam(olapTableSink.getOlapTablePartitionParam());
                 dataStreamSink.setTabletSinkTupleDesc(olapTableSink.getTupleDescriptor());
-                List<TOlapTableLocationParam> locationParams = olapTableSink
-                        .createLocation(database.getId(), olapTableSink.getDstTable());
+                List<TOlapTableLocationParam> locationParams = olapTableSink.getOlapTableLocationParams();
                 dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
                 dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
                 dataStreamSink.setTabletSinkExprs(fragment.getOutputExprs());
