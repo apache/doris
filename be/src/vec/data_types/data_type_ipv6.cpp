@@ -42,7 +42,7 @@ std::string DataTypeIPv6::to_string(const IColumn& column, size_t row_num) const
     return value.to_string();
 }
 
-std::string DataTypeIPv6::to_string(const IPv6& ipv6_val) const {
+std::string DataTypeIPv6::to_string(const IPv6& ipv6_val) {
     auto value = IPv6Value(ipv6_val);
     return value.to_string();
 }
