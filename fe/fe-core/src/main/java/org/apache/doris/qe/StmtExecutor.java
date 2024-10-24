@@ -274,6 +274,7 @@ public class StmtExecutor {
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
+    private Boolean isForwardedToMaster = null;
 
     private ExecuteStmt execStmt;
     PrepareStmtContext preparedStmtCtx = null;
@@ -405,6 +406,13 @@ public class StmtExecutor {
     }
 
     public boolean isForwardToMaster() {
+        if (isForwardedToMaster == null) {
+            isForwardedToMaster = shouldForwardToMaster();
+        }
+        return isForwardedToMaster;
+    }
+
+    private boolean shouldForwardToMaster() {
         if (Env.getCurrentEnv().isMaster()) {
             return false;
         }
@@ -415,7 +423,7 @@ public class StmtExecutor {
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries())) {
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries)) {
             return true;
         }
 
@@ -428,7 +436,7 @@ public class StmtExecutor {
 
     private boolean debugForwardAllQueries() {
         DebugPoint debugPoint = DebugPointUtil.getDebugPoint("StmtExecutor.forward_all_queries");
-        return debugPoint != null && debugPoint.param("forwardAllQueries", true);
+        return debugPoint != null && debugPoint.param("forwardAllQueries", false);
     }
 
     public ByteBuffer getOutputPacket() {
@@ -3455,17 +3463,13 @@ public class StmtExecutor {
         return ((ProxyMysqlChannel) context.getMysqlChannel()).getProxyResultBufferList();
     }
 
-    public boolean sendProxyQueryResult() throws IOException {
+    public void sendProxyQueryResult() throws IOException {
         if (masterOpExecutor == null) {
-            return false;
+            return;
         }
         List<ByteBuffer> queryResultBufList = masterOpExecutor.getQueryResultBufList();
-        if (queryResultBufList.isEmpty()) {
-            return false;
-        }
         for (ByteBuffer byteBuffer : queryResultBufList) {
             context.getMysqlChannel().sendOnePacket(byteBuffer);
         }
-        return true;
     }
 }

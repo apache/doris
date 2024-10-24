@@ -2825,4 +2825,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {
             "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，"})
     public static boolean sql_block_rule_ignore_admin = false;
+
+    @ConfField(description = {"用于测试，强制将所有的查询forward到master以验证forward query的行为",
+            "For testing purposes, all queries are forcibly forwarded to the master to verify"
+                    + "the behavior of forwarding queries."})
+    public static boolean force_forward_all_queries = false;
 }
