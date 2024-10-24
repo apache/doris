@@ -119,6 +119,9 @@ public:
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
     int batch_size() const { return _query_options.batch_size; }
+    int result_batch_rows() const {
+        return _query_options.__isset.result_batch_rows ? _query_options.result_batch_rows : 32768;
+    }
     int wait_full_block_schedule_times() const {
         return _query_options.wait_full_block_schedule_times;
     }
