@@ -53,7 +53,7 @@ suite("test_dup_schema_value_modify","p0") {
              "               (567890123, 'Eve', 0, 'Chengdu', 27, 0, 13572468091, 'No. 654 Street, Chengdu', '2022-05-05 18:00:00')," +
              "               (678901234, 'Frank', 1, 'Hangzhou', 32, 1, 13467985213, 'No. 321 Street, Hangzhou', '2022-06-06 20:00:00')," +
              "               (789012345, 'Grace', 0, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
-
+     def insertSql = ""
      //TODO Test the dup model by modify a value type from BOOLEAN to TINYINT
      errorMessage="errCode = 2, detailMessage = Can not change BOOLEAN to TINYINT"
      expectException({

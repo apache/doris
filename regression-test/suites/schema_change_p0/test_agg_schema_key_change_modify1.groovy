@@ -51,6 +51,7 @@ suite("test_agg_schema_key_change_modify1","p0") {
              "               (789012345, 'Grace', 0, 'Xian', 29, 0, 13333333333, 'No. 222 Street, Xian', '2022-07-07 22:00:00');"
      def initTable1 = ""
      def initTableData1 = ""
+     def insertSql = ""
 
      /**
       *  Test the agg model by modify a key type from LARGEINT to other type
