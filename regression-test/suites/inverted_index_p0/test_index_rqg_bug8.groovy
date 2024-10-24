@@ -119,7 +119,7 @@ suite("test_index_rqg_bug8", "test_index_rqg_bug8"){
         INDEX col_varchar_1024__undef_signed_not_null_index_inverted_p_e_idx (`col_varchar_1024__undef_signed_not_null_index_inverted_p_e`) USING INVERTED PROPERTIES("parser" = "english", "lower_case" = "true", "support_phrase" = "true"),
         INDEX col_varchar_1024__undef_signed_not_null_index_inverted_p_u_idx (`col_varchar_1024__undef_signed_not_null_index_inverted_p_u`) USING INVERTED PROPERTIES("parser" = "unicode", "lower_case" = "true", "support_phrase" = "true")
         ) ENGINE=OLAP
-        UNIQUE KEY(`pk`, `col_int_undef_signed_index_inverted`)
+        DUPLICATE KEY(`pk`, `col_int_undef_signed_index_inverted`)
         DISTRIBUTED BY HASH(`pk`) BUCKETS 10
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1"
