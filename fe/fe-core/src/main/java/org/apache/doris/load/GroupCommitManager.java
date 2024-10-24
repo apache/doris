@@ -393,10 +393,10 @@ public class GroupCommitManager {
     private void updateLoadDataInternal(long tableId, long receiveData) {
         if (tableToPressureMap.containsKey(tableId)) {
             tableToPressureMap.get(tableId).add(receiveData);
-            LOG.info("Update load data for table{}, receiveData {}, tablePressureMap {}", tableId, receiveData,
+            LOG.info("Update load data for table {}, receiveData {}, tablePressureMap {}", tableId, receiveData,
                     tableToPressureMap.toString());
-        } else {
-            LOG.warn("can not find backend id: {}", tableId);
+        } else if (LOG.isDebugEnabled()) {
+            LOG.debug("can not find table id {}", tableId);
         }
     }
 }
