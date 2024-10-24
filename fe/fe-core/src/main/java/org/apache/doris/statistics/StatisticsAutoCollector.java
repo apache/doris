@@ -179,6 +179,13 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             List<AnalysisInfo> analysisInfos, TableIf table) {
         AnalysisMethod analysisMethod = table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
+        if (table instanceof OlapTable && analysisMethod.equals(AnalysisMethod.SAMPLE)) {
+            OlapTable ot = (OlapTable) table;
+            if (ot.getRowCountForIndex(ot.getBaseIndexId(), true) == OlapTable.ROW_COUNT_BEFORE_REPORT) {
+                LOG.info("Table {} row count is not fully reported, skip auto analyzing this time.", ot.getName());
+                return;
+            }
+        }
         long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
         AnalysisInfo jobInfo = new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
