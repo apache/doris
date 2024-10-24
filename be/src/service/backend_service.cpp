@@ -802,6 +802,11 @@ void BaseBackendService::submit_routine_load_task(TStatus& t_status,
 void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenParams& params) {
     TStatus t_status;
     TUniqueId fragment_instance_id = generate_uuid();
+    // A query_id is randomly generated to replace t_query_plan_info.query_id.
+    // external query does not need to report anything to FE, so the query_id can be changed.
+    // Otherwise, multiple independent concurrent open tablet scanners have the same query_id.
+    // when one of the scanners ends, the other scanners will be canceled through FragmentMgr.cancel(query_id).
+    TUniqueId query_id = generate_uuid();
     std::shared_ptr<ScanContext> p_context;
     static_cast<void>(_exec_env->external_scan_context_mgr()->create_scan_context(&p_context));
     p_context->fragment_instance_id = fragment_instance_id;
@@ -838,13 +843,18 @@ void BaseBackendService::open_scanner(TScanOpenResult& result_, const TScanOpenP
                 << " deserialize error, should not be modified after returned Doris FE processed";
             exec_st = Status::InvalidArgument(msg.str());
         }
-        p_context->query_id = t_query_plan_info.query_id;
+        p_context->query_id = query_id;
     }
     std::vector<TScanColumnDesc> selected_columns;
     if (exec_st.ok()) {
         // start the scan procedure
+        LOG(INFO) << fmt::format(
+                "exec external scanner, old_query_id = {}, new_query_id = {}, fragment_instance_id "
+                "= {}",
+                print_id(t_query_plan_info.query_id), print_id(query_id),
+                print_id(fragment_instance_id));
         exec_st = _exec_env->fragment_mgr()->exec_external_plan_fragment(
-                params, t_query_plan_info, fragment_instance_id, &selected_columns);
+                params, t_query_plan_info, query_id, fragment_instance_id, &selected_columns);
     }
     exec_st.to_thrift(&t_status);
     //return status

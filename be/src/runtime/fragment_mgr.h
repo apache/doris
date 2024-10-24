@@ -112,6 +112,7 @@ public:
     // execute external query, all query info are packed in TScanOpenParams
     Status exec_external_plan_fragment(const TScanOpenParams& params,
                                        const TQueryPlanInfo& t_query_plan_info,
+                                       const TUniqueId& query_id,
                                        const TUniqueId& fragment_instance_id,
                                        std::vector<TScanColumnDesc>* selected_columns);
 
