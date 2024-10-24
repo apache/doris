@@ -586,11 +586,7 @@ public class BindExpression implements AnalysisRuleFactory {
         CascadesContext cascadesContext = ctx.cascadesContext;
         List<Expression> unboundHashJoinConjunct = using.getHashJoinConjuncts();
 
-        // Suppose A JOIN B USING(name) JOIN C USING(name), [A JOIN B] is the left node, in this case,
-        // C should combine with table B on C.name=B.name. so we reverse the output to make sure that
-        // the most right slot is matched with priority.
-        List<Slot> leftOutput = Utils.reverseImmutableList(using.left().getOutput());
-        Scope leftScope = toScope(cascadesContext, ExpressionUtils.distinctSlotByName(leftOutput));
+        Scope leftScope = toScope(cascadesContext, ExpressionUtils.distinctSlotByName(using.left().getOutput()));
         Scope rightScope = toScope(cascadesContext, ExpressionUtils.distinctSlotByName(using.right().getOutput()));
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(cascadesContext);
 
