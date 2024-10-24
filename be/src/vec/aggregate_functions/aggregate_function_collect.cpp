@@ -26,6 +26,7 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T, typename HasLimit, typename ShowNull>
 AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,

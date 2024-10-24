@@ -24,6 +24,7 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,

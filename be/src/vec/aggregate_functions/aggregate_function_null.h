@@ -31,6 +31,7 @@
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename NestFunction, bool result_is_nullable, typename Derived>
 class AggregateFunctionNullBaseInline : public IAggregateFunctionHelper<Derived> {
@@ -334,3 +335,5 @@ private:
             is_nullable; /// Plain array is better than std::vector due to one indirection less.
 };
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

@@ -26,6 +26,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct StringRef;
 } // namespace doris
 

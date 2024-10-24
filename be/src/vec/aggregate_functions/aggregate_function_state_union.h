@@ -23,6 +23,7 @@
 #include "vec/data_types/data_type_agg_state.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 const static std::string AGG_UNION_SUFFIX = "_union";
 
 class AggregateStateUnion : public IAggregateFunctionHelper<AggregateStateUnion> {
@@ -112,3 +113,5 @@ protected:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"
