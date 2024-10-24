@@ -345,6 +345,7 @@ private:
     bool try_reserve_during_async_load(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     std::vector<FileCacheType> get_other_cache_type(FileCacheType cur_cache_type);
+    std::vector<FileCacheType> get_other_cache_type_without_ttl(FileCacheType cur_cache_type);
 
     bool try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t offset, int64_t cur_time,
                                       std::lock_guard<std::mutex>& cache_lock);

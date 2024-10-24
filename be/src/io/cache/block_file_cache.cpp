@@ -107,8 +107,8 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                                                            "file_cache_hit_ratio_5m", 0.0);
     _hit_ratio_1h = std::make_shared<bvar::Status<double>>(_cache_base_path.c_str(),
                                                            "file_cache_hit_ratio_1h", 0.0);
-    _disk_limit_mode_metrics = std::make_shared<bvar::Status<size_t>>(
-            _cache_base_path.c_str(), "disk_limit_mode", 0);
+    _disk_limit_mode_metrics =
+            std::make_shared<bvar::Status<size_t>>(_cache_base_path.c_str(), "disk_limit_mode", 0);
 
     _disposable_queue = LRUQueue(cache_settings.disposable_queue_size,
                                  cache_settings.disposable_queue_elements, 60 * 60);
@@ -116,7 +116,7 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
                             7 * 24 * 60 * 60);
     _normal_queue = LRUQueue(cache_settings.query_queue_size, cache_settings.query_queue_elements,
                              24 * 60 * 60);
-    _ttl_queue = LRUQueue(std::numeric_limits<int>::max(), std::numeric_limits<int>::max(),
+    _ttl_queue = LRUQueue(cache_settings.ttl_queue_size, cache_settings.ttl_queue_elements,
                           std::numeric_limits<int>::max());
 
     if (cache_settings.storage == "memory") {
@@ -950,10 +950,6 @@ bool BlockFileCache::try_reserve(const UInt128Wrapper& hash, const CacheContext&
         size = 5 * size;
     }
 
-    if (context.cache_type == FileCacheType::TTL) {
-        return try_reserve_for_ttl(size, cache_lock);
-    }
-
     auto query_context = config::enable_file_cache_query_limit &&
                                          (context.query_id.hi != 0 || context.query_id.lo != 0)
                                  ? get_query_context(context.query_id, cache_lock)
@@ -1114,12 +1110,29 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
     }
 }
 
-std::vector<FileCacheType> BlockFileCache::get_other_cache_type(FileCacheType cur_cache_type) {
+std::vector<FileCacheType> BlockFileCache::get_other_cache_type_without_ttl(
+        FileCacheType cur_cache_type) {
     switch (cur_cache_type) {
     case FileCacheType::INDEX:
         return {FileCacheType::DISPOSABLE, FileCacheType::NORMAL};
     case FileCacheType::NORMAL:
         return {FileCacheType::DISPOSABLE, FileCacheType::INDEX};
+    case FileCacheType::DISPOSABLE:
+        return {FileCacheType::NORMAL, FileCacheType::INDEX};
+    default:
+        return {};
+    }
+    return {};
+}
+
+std::vector<FileCacheType> BlockFileCache::get_other_cache_type(FileCacheType cur_cache_type) {
+    switch (cur_cache_type) {
+    case FileCacheType::INDEX:
+        return {FileCacheType::DISPOSABLE, FileCacheType::NORMAL, FileCacheType::TTL};
+    case FileCacheType::NORMAL:
+        return {FileCacheType::DISPOSABLE, FileCacheType::INDEX, FileCacheType::TTL};
+    case FileCacheType::DISPOSABLE:
+        return {FileCacheType::NORMAL, FileCacheType::INDEX, FileCacheType::TTL};
     default:
         return {};
     }
@@ -1202,8 +1215,18 @@ bool BlockFileCache::try_reserve_from_other_queue_by_size(
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
     std::vector<FileBlockCell*> to_evict;
+    // we follow the privilege defined in get_other_cache_types to evict
     for (FileCacheType cache_type : other_cache_types) {
         auto& queue = get_queue(cache_type);
+
+        // we will not drain each of them to the bottom -- i.e., we only
+        // evict what they have stolen.
+        size_t cur_queue_size = queue.get_capacity(cache_lock);
+        size_t cur_queue_max_size = queue.get_max_size();
+        if (cur_queue_size <= cur_queue_max_size) {
+            continue;
+        }
+
         find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
                               false);
     }
@@ -1214,16 +1237,14 @@ bool BlockFileCache::try_reserve_from_other_queue_by_size(
 bool BlockFileCache::try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t size,
                                                   int64_t cur_time,
                                                   std::lock_guard<std::mutex>& cache_lock) {
-    // disposable queue cannot reserve other queues
-    if (cur_cache_type == FileCacheType::DISPOSABLE) {
-        return false;
-    }
-    auto other_cache_types = get_other_cache_type(cur_cache_type);
+    auto other_cache_types = get_other_cache_type_without_ttl(cur_cache_type);
     bool reserve_success = try_reserve_from_other_queue_by_hot_interval(other_cache_types, size,
                                                                         cur_time, cache_lock);
     if (reserve_success || !config::file_cache_enable_evict_from_other_queue_by_size) {
         return reserve_success;
     }
+    // currently, TTL cache is not considered as a candidate
+    other_cache_types = get_other_cache_type(cur_cache_type);
     auto& cur_queue = get_queue(cur_cache_type);
     size_t cur_queue_size = cur_queue.get_capacity(cache_lock);
     size_t cur_queue_max_size = cur_queue.get_max_size();
