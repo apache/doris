@@ -446,7 +446,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
             }
         }
         // Not need waiting flush memtable and below low watermark disable load buffer limit
-        if (flushed_memtable_bytes <= 0 && !is_low_water_mark) {
+        if (flushed_memtable_bytes <= 0 && !is_low_wartermark) {
             wg->enable_load_buffer_limit(false);
         }
 
