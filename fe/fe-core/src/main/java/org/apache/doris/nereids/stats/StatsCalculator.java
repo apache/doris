@@ -434,7 +434,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             if (isVisibleSlotReference(slot)) {
                 ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, (SlotReference) slot);
                 if (!cache.isUnKnown) {
-                    if (cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null)
+                    if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
                             || cache.ndv > rowCount * 10) {
                         return Optional.of("slot " + slot.getName() + " has invalid column stats: " + cache);
                     }
