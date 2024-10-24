@@ -114,6 +114,34 @@ private:
     io::Path _path = "/tmp/mock";
 };
 
+class TestingRangeCacheFileReader : public io::FileReader {
+public:
+    TestingRangeCacheFileReader(std::shared_ptr<io::FileReader> delegate) : _delegate(delegate) {};
+
+    ~TestingRangeCacheFileReader() override = default;
+
+    Status close() override { return _delegate->close(); }
+
+    const io::Path& path() const override { return _delegate->path(); }
+
+    size_t size() const override { return _delegate->size(); }
+
+    bool closed() const override { return _delegate->closed(); }
+
+    const io::PrefetchRange& last_read_range() const { return *_last_read_range; }
+
+protected:
+    Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
+                        const io::IOContext* io_ctx) override {
+        _last_read_range = std::make_unique<io::PrefetchRange>(offset, offset + result.size);
+        return _delegate->read_at_impl(offset, result, bytes_read, io_ctx);
+    }
+
+private:
+    std::shared_ptr<io::FileReader> _delegate;
+    std::unique_ptr<io::PrefetchRange> _last_read_range;
+};
+
 TEST_F(BufferedReaderTest, normal_use) {
     // buffered_reader_test_file 950 bytes
     io::FileReaderSPtr local_reader;
@@ -395,6 +423,86 @@ TEST_F(BufferedReaderTest, test_merged_io) {
     }
     for (auto& ref : merge_reader.box_reference()) {
         EXPECT_TRUE(ref == 0);
+    }
+}
+
+TEST_F(BufferedReaderTest, test_range_cache_file_reader) {
+    io::FileReaderSPtr offset_reader = std::make_shared<MockOffsetFileReader>(128 * 1024 * 1024);
+    auto testing_reader = std::make_shared<TestingRangeCacheFileReader>(offset_reader);
+
+    int64_t orc_max_merge_distance = 1L * 1024L * 1024L;
+    int64_t orc_once_max_read_size = 8L * 1024L * 1024L;
+
+    {
+        std::vector<io::PrefetchRange> tiny_stripe_ranges = {
+                io::PrefetchRange(3, 33),
+                io::PrefetchRange(33, 63),
+                io::PrefetchRange(63, 8L * 1024L * 1024L + 63),
+        };
+        std::vector<io::PrefetchRange> prefetch_merge_ranges =
+                io::PrefetchRange::merge_adjacent_seq_ranges(
+                        tiny_stripe_ranges, orc_max_merge_distance, orc_once_max_read_size);
+        auto range_finder =
+                std::make_shared<io::LinearProbeRangeFinder>(std::move(prefetch_merge_ranges));
+        io::RangeCacheFileReader range_cache_file_reader(nullptr, testing_reader, range_finder);
+        char data[1];
+        Slice result(data, 1);
+        size_t bytes_read;
+        EXPECT_TRUE(range_cache_file_reader.read_at(3, result, &bytes_read, nullptr).ok());
+        EXPECT_EQ(io::PrefetchRange(3, 63), testing_reader->last_read_range());
+
+        EXPECT_TRUE(range_cache_file_reader.read_at(63, result, &bytes_read, nullptr).ok());
+        EXPECT_EQ(io::PrefetchRange(63, 8 * 1024L * 1024L + 63), testing_reader->last_read_range());
+        EXPECT_TRUE(range_cache_file_reader.close().ok());
+    }
+
+    {
+        std::vector<io::PrefetchRange> tiny_stripe_ranges = {
+                io::PrefetchRange(3, 33),
+                io::PrefetchRange(33, 63),
+                io::PrefetchRange(63, 8L * 1024L * 1024L + 63),
+        };
+        std::vector<io::PrefetchRange> prefetch_merge_ranges =
+                io::PrefetchRange::merge_adjacent_seq_ranges(
+                        tiny_stripe_ranges, orc_max_merge_distance, orc_once_max_read_size);
+        auto range_finder =
+                std::make_shared<io::LinearProbeRangeFinder>(std::move(prefetch_merge_ranges));
+        io::RangeCacheFileReader range_cache_file_reader(nullptr, testing_reader, range_finder);
+        char data[1];
+        Slice result(data, 1);
+        size_t bytes_read;
+        EXPECT_TRUE(range_cache_file_reader.read_at(62, result, &bytes_read, nullptr).ok());
+        EXPECT_EQ(io::PrefetchRange(3, 63), testing_reader->last_read_range());
+
+        EXPECT_TRUE(range_cache_file_reader.read_at(63, result, &bytes_read, nullptr).ok());
+        EXPECT_EQ(io::PrefetchRange(63, 8L * 1024L * 1024L + 63),
+                  testing_reader->last_read_range());
+        EXPECT_TRUE(range_cache_file_reader.close().ok());
+    }
+
+    {
+        std::vector<io::PrefetchRange> tiny_stripe_ranges = {
+                io::PrefetchRange(3, 3),
+                io::PrefetchRange(4, 1048576L * 5L + 4),
+                io::PrefetchRange(1048576L * 5L + 4, 1048576L * 3L + 1048576L * 5L + 4),
+        };
+        std::vector<io::PrefetchRange> prefetch_merge_ranges =
+                io::PrefetchRange::merge_adjacent_seq_ranges(
+                        tiny_stripe_ranges, orc_max_merge_distance, orc_once_max_read_size);
+        auto range_finder =
+                std::make_shared<io::LinearProbeRangeFinder>(std::move(prefetch_merge_ranges));
+        io::RangeCacheFileReader range_cache_file_reader(nullptr, testing_reader, range_finder);
+        char data[1];
+        Slice result(data, 1);
+        size_t bytes_read;
+        EXPECT_TRUE(range_cache_file_reader.read_at(3, result, &bytes_read, nullptr).ok());
+        EXPECT_EQ(io::PrefetchRange(3, 1 + 1048576 * 5 + 3), testing_reader->last_read_range());
+
+        EXPECT_TRUE(range_cache_file_reader.read_at(4 + 1048576 * 5, result, &bytes_read, nullptr)
+                            .ok());
+        EXPECT_EQ(io::PrefetchRange(4 + 1048576 * 5, 3 * 1048576 + 4 + 1048576 * 5),
+                  testing_reader->last_read_range());
+        EXPECT_TRUE(range_cache_file_reader.close().ok());
     }
 }
 
