@@ -709,7 +709,7 @@ public class SessionVariable implements Serializable, Writable {
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
-    @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
+    @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
     public long maxExecMemByte = 2147483648L;
 
     @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT,

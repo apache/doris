@@ -276,11 +276,11 @@ void WorkloadGroupMgr::handle_paused_queries() {
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
         auto& queries_list = it->second;
         const auto& wg = it->first;
-        if (queries_list.empty()) {
-            wg->enable_load_buffer_limit(false);
-            it = _paused_queries_list.erase(it);
-            continue;
-        }
+
+        bool is_low_wartermark = false;
+        bool is_high_wartermark = false;
+        wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+
         bool has_changed_hard_limit = false;
         int64_t flushed_memtable_bytes = 0;
         // If the query is paused because its limit exceed the query itself's memlimit, then just spill disk.
@@ -445,14 +445,18 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 ++query_it;
             }
         }
-
-        // Not need waiting flush memtable, disable load buffer limit
-        if (flushed_memtable_bytes <= 0) {
+        // Not need waiting flush memtable and below low watermark disable load buffer limit
+        if (flushed_memtable_bytes <= 0 && !is_low_water_mark) {
             wg->enable_load_buffer_limit(false);
         }
 
-        // Finished deal with one workload group, and should deal with next one.
-        ++it;
+        if (queries_list.empty()) {
+            it = _paused_queries_list.erase(it);
+            continue;
+        } else {
+            // Finished deal with one workload group, and should deal with next one.
+            ++it;
+        }
     }
 }
 
@@ -673,6 +677,10 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
     if (wg->enable_memory_overcommit()) {
         return;
     }
+    // If reached low watermark then enable load buffer limit
+    if (is_low_wartermark) {
+        wg->enable_load_buffer_limit(true);
+    }
     int32_t total_used_slot_count = 0;
     int32_t total_slot_count = wg->total_query_slot_count();
     // calculate total used slot count
@@ -696,7 +704,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
         int64_t query_weighted_mem_limit = 0;
         int64_t expected_query_weighted_mem_limit = 0;
         // If the query enable hard limit, then it should not use the soft limit
-        if (query_ctx->enable_mem_overcommit()) {
+        if (!query_ctx->enable_mem_overcommit()) {
             if (total_slot_count < 1) {
                 LOG(WARNING)
                         << "query " << print_id(query_ctx->query_id())

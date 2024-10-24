@@ -92,8 +92,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
             .add(LOAD_BUFFER_RATIO).build();
 
-    public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 80;
-    public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 95;
+    public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 75;
+    public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 90;
     public static final int LOAD_BUFFER_RATIO_DEFAULT_VALUE = 20;
 
     @SerializedName(value = "id")
