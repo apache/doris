@@ -55,7 +55,7 @@ public final class QeProcessorImpl implements QeProcessor {
 
     private Map<TUniqueId, Integer> queryToInstancesNum;
     private Map<String, AtomicInteger> userToInstancesCount;
-    private ExecutorService writeProfileExecutor;
+    private ExecutorService profileUpdateExecutor;
 
     public static final QeProcessor INSTANCE;
 
@@ -68,23 +68,30 @@ public final class QeProcessorImpl implements QeProcessor {
         queryToInstancesNum = new ConcurrentHashMap<>();
         userToInstancesCount = new ConcurrentHashMap<>();
         // write profile to ProfileManager when query is running.
-        writeProfileExecutor = ThreadPoolManager.newDaemonProfileThreadPool(3, 100,
-                "profile-write-pool", true);
+        profileUpdateExecutor = ThreadPoolManager.newDaemonProfileThreadPool(10, 100,
+                "profile-update-pool", true);
     }
 
     private Status processQueryProfile(TQueryProfile profile, TNetworkAddress address, boolean isDone) {
         ExecutionProfile executionProfile = ProfileManager.getInstance().getExecutionProfile(profile.query_id);
         if (executionProfile == null) {
             LOG.warn("Could not find execution profile with query id {}", DebugUtil.printId(profile.query_id));
+            ProfileManager.getInstance().profileReportErrorCounter.incrementAndGet();
             return new Status(TStatusCode.NOT_FOUND, "Could not find execution profile with query id "
                     + DebugUtil.printId(profile.query_id));
         }
 
         // Update profile may cost a lot of time, use a seperate pool to deal with it.
-        writeProfileExecutor.submit(new Runnable() {
+        profileUpdateExecutor.submit(new Runnable() {
             @Override
             public void run() {
-                executionProfile.updateProfile(profile, address, isDone);
+                try {
+                    ProfileManager.getInstance().profileUpdatingTaskGuage.getAndIncrement();
+                    // TODO: Updating of profile is not thread safe.
+                    executionProfile.updateProfile(profile, address, isDone);
+                } finally {
+                    ProfileManager.getInstance().profileUpdatingTaskGuage.getAndDecrement();
+                }
             }
         });
 
@@ -239,6 +246,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     processQueryProfile(params.getQueryProfile(), backend.getHeartbeatAddress(), isDone);
                 }
             } else {
+                ProfileManager.getInstance().profileReportErrorCounter.incrementAndGet();
                 LOG.warn("Invalid report profile req, this is a logical error, BE must set backendId and isDone"
                             + " at same time, query id: {}", DebugUtil.printId(params.query_id));
             }

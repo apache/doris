@@ -48,6 +48,8 @@ public abstract class MetricVisitor {
 
     public abstract void visitWorkloadGroup();
 
+    public abstract void visitProfileManager();
+
     public String finish() {
         return sb.toString();
     }

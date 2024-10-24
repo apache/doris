@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.monitor.jvm.JvmStats;
 import org.apache.doris.monitor.jvm.JvmStats.GarbageCollector;
 import org.apache.doris.monitor.jvm.JvmStats.MemoryPool;
@@ -349,6 +350,16 @@ public class PrometheusMetricVisitor extends MetricVisitor {
             sb.append(tmpSb);
         } catch (Exception e) {
             logger.warn("error happends when get workload group query detail ", e);
+        }
+    }
+
+    @Override
+    public void visitProfileManager() {
+        try {
+            ProfileManager profileManager = ProfileManager.getInstance();
+            sb.append(profileManager.getMetircs());
+        } catch (Exception e) {
+            logger.warn("error happends when get profile manager ", e);
         }
     }
 }

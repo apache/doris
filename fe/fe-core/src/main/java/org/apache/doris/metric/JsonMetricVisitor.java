@@ -239,6 +239,11 @@ public class JsonMetricVisitor extends MetricVisitor {
     }
 
     @Override
+    public void visitProfileManager() {
+        return;
+    }
+
+    @Override
     public String finish() {
         if (!closed) {
             sb.append("\n]");

@@ -156,4 +156,8 @@ public class SimpleCoreMetricVisitor extends MetricVisitor {
         return;
     }
 
+    @Override
+    public void visitProfileManager() {
+        return;
+    }
 }
