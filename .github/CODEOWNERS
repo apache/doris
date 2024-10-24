@@ -19,4 +19,3 @@ be/src/agent/be_exec_version_manager.cpp @BiteTheDDDDt
 fe/fe-core/src/main/java/org/apache/doris/catalog/Env.java @dataroaring @CalvinKirs @morningman
 **/pom.xml @CalvinKirs @morningman
 fe/fe-common/src/main/java/org/apache/doris/common/FeMetaVersion.java @dataroaring @morningman @yiguolei @xiaokang
-.github/workflows/* @CalvinKirs @morningman
