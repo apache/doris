@@ -15,21 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
+package org.apache.doris.common.profile;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.profile.ExecutionProfile;
-import org.apache.doris.common.profile.MultiProfileTreeBuilder;
-import org.apache.doris.common.profile.Profile;
-import org.apache.doris.common.profile.ProfileTreeBuilder;
-import org.apache.doris.common.profile.ProfileTreeNode;
-import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.qe.CoordInterface;
@@ -90,7 +85,6 @@ public class ProfileManager extends MasterDaemon {
 
         private final Profile profile;
         public Map<String, String> infoStrings = Maps.newHashMap();
-        public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
 
         public StatsErrorEstimator statsErrorEstimator;
@@ -438,67 +432,6 @@ public class ProfileManager extends MasterDaemon {
             if (!element.infoStrings.get(SummaryProfile.USER).equals(user)) {
                 throw new AuthenticationException("Access deny to view query with id: " + queryId);
             }
-        } finally {
-            readLock.unlock();
-        }
-    }
-
-    public ProfileTreeNode getFragmentProfileTree(String queryID, String executionId) throws AnalysisException {
-        MultiProfileTreeBuilder builder;
-        readLock.lock();
-        try {
-            ProfileElement element = queryIdToProfileMap.get(queryID);
-            if (element == null || element.builder == null) {
-                throw new AnalysisException("failed to get fragment profile tree. err: "
-                        + (element == null ? "not found" : element.errMsg));
-            }
-            builder = element.builder;
-        } finally {
-            readLock.unlock();
-        }
-        return builder.getFragmentTreeRoot(executionId);
-    }
-
-    public ProfileTreeNode getInstanceProfileTree(String queryID, String executionId,
-            String fragmentId, String instanceId)
-            throws AnalysisException {
-        MultiProfileTreeBuilder builder;
-        readLock.lock();
-        try {
-            ProfileElement element = queryIdToProfileMap.get(queryID);
-            if (element == null || element.builder == null) {
-                throw new AnalysisException("failed to get instance profile tree. err: "
-                        + (element == null ? "not found" : element.errMsg));
-            }
-            builder = element.builder;
-        } finally {
-            readLock.unlock();
-        }
-
-        return builder.getInstanceTreeRoot(executionId, fragmentId, instanceId);
-    }
-
-    // Return the tasks info of the specified load job
-    // Columns: TaskId, ActiveTime
-    public List<List<String>> getLoadJobTaskList(String jobId) throws AnalysisException {
-        MultiProfileTreeBuilder builder = getMultiProfileTreeBuilder(jobId);
-        return builder.getSubTaskInfo();
-    }
-
-    public List<ProfileTreeBuilder.FragmentInstances> getFragmentsAndInstances(String queryId)
-            throws AnalysisException {
-        return getMultiProfileTreeBuilder(queryId).getFragmentInstances(queryId);
-    }
-
-    private MultiProfileTreeBuilder getMultiProfileTreeBuilder(String jobId) throws AnalysisException {
-        readLock.lock();
-        try {
-            ProfileElement element = queryIdToProfileMap.get(jobId);
-            if (element == null || element.builder == null) {
-                throw new AnalysisException("failed to get task ids. err: "
-                        + (element == null ? "not found" : element.errMsg));
-            }
-            return element.builder;
         } finally {
             readLock.unlock();
         }
