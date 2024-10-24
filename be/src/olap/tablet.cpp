@@ -353,9 +353,9 @@ void Tablet::save_meta() {
                 total_segment_size += segment_file_size;
             }
 
-            if (tablet_schema()->get_inverted_index_storage_format() ==
+            if (_max_version_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
-                auto indices = tablet_schema()->indexes();
+                auto indices = _max_version_schema->indexes();
                 for (auto& index : indices) {
                     // only get file_size for inverted index
                     if (index.index_type() != IndexType::INVERTED) {
