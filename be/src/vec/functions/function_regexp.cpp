@@ -50,6 +50,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct RegexpReplaceImpl {
     static constexpr auto name = "regexp_replace";
