@@ -797,13 +797,8 @@ public class Backend implements Writable {
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
                 + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", process epoch=" + lastStartTime
-                + ", isDecommissioned=" + isDecommissioned + ", tags: " + tagMap + "]";
-    }
-
-    public String getHealthyStatus() {
-        return "Backend [id=" + id + ", isDecommission: " + isDecommissioned
-                + ", backendStatus: " + backendStatus + ", isAlive: " + isAlive.get() + ", lastUpdateTime: "
-                + TimeUtils.longToTimeString(lastUpdateMs);
+                + ", isDecommissioned=" + isDecommissioned + ", tags: " + tagMap + "]"
+                + ", backendStatus: " + backendStatus;
     }
 
     /**
@@ -945,7 +940,9 @@ public class Backend implements Writable {
         public String toString() {
             return "[" + "lastSuccessReportTabletsTime='" + lastSuccessReportTabletsTime + '\''
                     + ", lastStreamLoadTime=" + lastStreamLoadTime + ", isQueryDisabled=" + isQueryDisabled
-                    + ", isLoadDisabled=" + isLoadDisabled + "]";
+                    + ", isLoadDisabled=" + isLoadDisabled
+                    + ", currentFragmentNum=" + currentFragmentNum
+                    + ", lastFragmentUpdateTime=" + lastFragmentUpdateTime + "]";
         }
     }
 
