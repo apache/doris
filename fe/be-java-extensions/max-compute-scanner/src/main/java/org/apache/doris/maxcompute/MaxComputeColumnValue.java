@@ -29,11 +29,8 @@ import org.apache.arrow.vector.Float4Vector;
 import org.apache.arrow.vector.Float8Vector;
 import org.apache.arrow.vector.IntVector;
 import org.apache.arrow.vector.SmallIntVector;
-import org.apache.arrow.vector.TimeStampMicroTZVector;
 import org.apache.arrow.vector.TimeStampMilliTZVector;
-import org.apache.arrow.vector.TimeStampNanoTZVector;
 import org.apache.arrow.vector.TimeStampNanoVector;
-import org.apache.arrow.vector.TimeStampSecTZVector;
 import org.apache.arrow.vector.TinyIntVector;
 import org.apache.arrow.vector.ValueVector;
 import org.apache.arrow.vector.VarBinaryVector;
@@ -61,8 +58,8 @@ import java.util.List;
 public class MaxComputeColumnValue implements ColumnValue {
     private static final Logger LOG = Logger.getLogger(MaxComputeColumnValue.class);
     private int idx;
-    private int offset = 0; // for complex type
     private ValueVector column;
+    private ZoneId timeZone;
 
     public MaxComputeColumnValue() {
         idx = 0;
@@ -77,10 +74,19 @@ public class MaxComputeColumnValue implements ColumnValue {
         this.idx = i;
     }
 
+    public MaxComputeColumnValue(ValueVector valueVector, int i, ZoneId timeZone) {
+        this.column = valueVector;
+        this.idx = i;
+        this.timeZone = timeZone;
+    }
+
     public void reset(ValueVector column) {
         this.column = column;
         this.idx = 0;
-        this.offset = 0;
+    }
+
+    public void setTimeZone(ZoneId timeZone) {
+        this.timeZone = timeZone;
     }
 
     @Override
@@ -283,9 +289,10 @@ public class MaxComputeColumnValue implements ColumnValue {
     @Override
     public void unpackArray(List<ColumnValue> values) {
         ListVector listCol = (ListVector) column;
-        int elemSize = listCol.getObject(idx).size();
+        int elemSize = listCol.getElementEndIndex(idx) - listCol.getElementStartIndex(idx);
+        int offset = listCol.getElementStartIndex(idx);
         for (int i = 0; i < elemSize; i++) {
-            MaxComputeColumnValue val = new MaxComputeColumnValue(listCol.getDataVector(), offset);
+            MaxComputeColumnValue val = new MaxComputeColumnValue(listCol.getDataVector(), offset, timeZone);
             values.add(val);
             offset++;
         }
@@ -295,13 +302,14 @@ public class MaxComputeColumnValue implements ColumnValue {
     public void unpackMap(List<ColumnValue> keys, List<ColumnValue> values) {
         MapVector mapCol = (MapVector) column;
         int elemSize = mapCol.getElementEndIndex(idx) - mapCol.getElementStartIndex(idx);
+        int offset = mapCol.getElementStartIndex(idx);
         List<FieldVector> innerCols = ((StructVector) mapCol.getDataVector()).getChildrenFromFields();
         FieldVector keyList = innerCols.get(0);
         FieldVector valList = innerCols.get(1);
         for (int i = 0; i < elemSize; i++) {
-            MaxComputeColumnValue key = new MaxComputeColumnValue(keyList, offset);
+            MaxComputeColumnValue key = new MaxComputeColumnValue(keyList, offset, timeZone);
             keys.add(key);
-            MaxComputeColumnValue val = new MaxComputeColumnValue(valList, offset);
+            MaxComputeColumnValue val = new MaxComputeColumnValue(valList, offset, timeZone);
             values.add(val);
             offset++;
         }
@@ -312,32 +320,14 @@ public class MaxComputeColumnValue implements ColumnValue {
         StructVector structCol = (StructVector) column;
         List<FieldVector> innerCols = structCol.getChildrenFromFields();
         for (Integer fieldIndex : structFieldIndex) {
-            MaxComputeColumnValue val = new MaxComputeColumnValue(innerCols.get(fieldIndex), idx);
+            MaxComputeColumnValue val = new MaxComputeColumnValue(innerCols.get(fieldIndex), idx, timeZone);
             values.add(val);
         }
     }
 
-    public static LocalDateTime convertToLocalDateTime(TimeStampMilliTZVector milliTZVector, int index) {
+    public LocalDateTime convertToLocalDateTime(TimeStampMilliTZVector milliTZVector, int index) {
         long timestampMillis = milliTZVector.get(index);
-        return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestampMillis), ZoneId.systemDefault());
+        return LocalDateTime.ofInstant(Instant.ofEpochMilli(timestampMillis), timeZone);
     }
 
-    public static LocalDateTime convertToLocalDateTime(TimeStampNanoTZVector nanoTZVector, int index) {
-        long timestampNanos = nanoTZVector.get(index);
-        return LocalDateTime.ofInstant(Instant.ofEpochSecond(timestampNanos / 1_000_000_000,
-                timestampNanos % 1_000_000_000), ZoneId.systemDefault());
-    }
-
-    public static LocalDateTime convertToLocalDateTime(TimeStampSecTZVector secTZVector, int index) {
-        long timestampSeconds = secTZVector.get(index);
-        return LocalDateTime.ofInstant(Instant.ofEpochSecond(timestampSeconds), ZoneId.systemDefault());
-    }
-
-    public static LocalDateTime convertToLocalDateTime(TimeStampMicroTZVector microTZVector, int index) {
-        long timestampMicros = microTZVector.get(index);
-        long seconds = timestampMicros / 1_000_000;
-        long nanos = (timestampMicros % 1_000_000) * 1_000;
-
-        return LocalDateTime.ofInstant(Instant.ofEpochSecond(seconds, nanos), ZoneId.systemDefault());
-    }
 }

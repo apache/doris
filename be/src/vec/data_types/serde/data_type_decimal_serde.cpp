@@ -280,6 +280,9 @@ template <typename T>
 Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
         IColumn& column, Slice& slice, int rows, int* num_deserialized,
         const FormatOptions& options) const {
+    if (rows < 1) [[unlikely]] {
+        return Status::OK();
+    }
     Status st = deserialize_one_cell_from_json(column, slice, options);
     if (!st.ok()) {
         return st;
@@ -293,6 +296,9 @@ Status DataTypeDecimalSerDe<T>::deserialize_column_from_fixed_json(
 template <typename T>
 void DataTypeDecimalSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
                                                                       int times) const {
+    if (times < 1) [[unlikely]] {
+        return;
+    }
     auto& col = static_cast<ColumnDecimal<T>&>(column);
     auto sz = col.size();
 

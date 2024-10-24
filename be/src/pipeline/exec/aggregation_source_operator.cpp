@@ -461,8 +461,6 @@ void AggLocalState::do_agg_limit(vectorized::Block* block, bool* eos) {
             vectorized::Block::filter_block_internal(block, _shared_state->need_computes);
             if (auto rows = block->rows()) {
                 _num_rows_returned += rows;
-                COUNTER_UPDATE(_blocks_returned_counter, 1);
-                COUNTER_SET(_rows_returned_counter, _num_rows_returned);
             }
         } else {
             reached_limit(block, eos);
@@ -470,8 +468,6 @@ void AggLocalState::do_agg_limit(vectorized::Block* block, bool* eos) {
     } else {
         if (auto rows = block->rows()) {
             _num_rows_returned += rows;
-            COUNTER_UPDATE(_blocks_returned_counter, 1);
-            COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
     }
 }
@@ -625,8 +621,8 @@ void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* place
 
                            SCOPED_TIMER(_hash_table_emplace_timer);
                            for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                   creator_for_null_key);
+                               places[i] = *agg_method.lazy_emplace(state, i, creator,
+                                                                    creator_for_null_key);
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);

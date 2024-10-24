@@ -112,6 +112,7 @@ import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.transaction.TransactionUtil;
 import org.apache.doris.transaction.TxnCommitAttachment;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 import org.apache.doris.transaction.TxnStateChangeCallback;
@@ -469,8 +470,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     "disable_load_job is set to true, all load jobs are not allowed");
         }
 
-        List<OlapTable> mowTableList = getMowTableList(tableList);
-        if (tabletCommitInfos != null && !tabletCommitInfos.isEmpty() && !mowTableList.isEmpty()) {
+        List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
+        if (!mowTableList.isEmpty()) {
             calcDeleteBitmapForMow(dbId, mowTableList, transactionId, tabletCommitInfos);
         }
 
@@ -481,12 +482,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .addAllBaseTabletIds(getBaseTabletsFromTables(tableList, tabletCommitInfos))
                 .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
-
-        // if tablet commit info is empty, no need to pass mowTableList to meta service.
-        if (tabletCommitInfos != null && !tabletCommitInfos.isEmpty()) {
-            for (OlapTable olapTable : mowTableList) {
-                builder.addMowTableIds(olapTable.getId());
-            }
+        for (OlapTable olapTable : mowTableList) {
+            builder.addMowTableIds(olapTable.getId());
         }
 
         if (txnCommitAttachment != null) {
@@ -600,14 +597,27 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return txnState;
     }
 
-    private List<OlapTable> getMowTableList(List<Table> tableList) {
+    // return mow tables with contains tablet commit info
+    private List<OlapTable> getMowTableList(List<Table> tableList, List<TabletCommitInfo> tabletCommitInfos) {
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
+            return Lists.newArrayList();
+        }
         List<OlapTable> mowTableList = new ArrayList<>();
+        TabletInvertedIndex tabletInvertedIndex = Env.getCurrentEnv().getTabletInvertedIndex();
         for (Table table : tableList) {
-            if ((table instanceof OlapTable)) {
-                OlapTable olapTable = (OlapTable) table;
-                if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                    mowTableList.add(olapTable);
-                }
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) table;
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                continue;
+            }
+            boolean hasTabletCommitInfo = tabletCommitInfos.stream().anyMatch(ci -> {
+                TabletMeta tabletMeta = tabletInvertedIndex.getTabletMeta(ci.getTabletId());
+                return tabletMeta != null && tabletMeta.getTableId() == olapTable.getId();
+            });
+            if (hasTabletCommitInfo) {
+                mowTableList.add(olapTable);
             }
         }
         return mowTableList;
@@ -1510,8 +1520,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public Long getTransactionId(Long dbId, String label) throws AnalysisException {
-        throw new AnalysisException(NOT_SUPPORTED_MSG);
+    public Long getTransactionId(Long dbId, String label)  {
+        try {
+            TransactionStatus labelState = getLabelState(dbId, label);
+            List<TransactionStatus> statusList = Lists.newArrayList(labelState);
+            return getTransactionIdByLabel(dbId, label, statusList);
+        } catch (UserException e) {
+            LOG.warn("Get transaction id by label " + label + " failed", e);
+            return null;
+        }
     }
 
     @Override
@@ -1692,7 +1709,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     @Override
     public List<List<String>> getSingleTranInfo(long dbId, long txnId) throws AnalysisException {
-        throw new AnalysisException(NOT_SUPPORTED_MSG);
+        List<List<String>> infos = new ArrayList<List<String>>();
+        TransactionState txnState = this.getTransactionState(dbId, txnId);
+        if (txnState == null) {
+            throw new AnalysisException("transaction with id " + txnId + " does not exist");
+        }
+        TransactionUtil.checkAuth(dbId, txnState);
+        infos.add(TransactionUtil.getTxnStateInfo(txnState, Lists.newArrayList()));
+        return infos;
     }
 
     @Override

@@ -19,6 +19,7 @@
 
 #include <bvar/bvar.h>
 
+#include "runtime/process_profile.h"
 #include "runtime/thread_context.h"
 
 namespace doris {
@@ -33,7 +34,7 @@ bvar::PassiveStatus<int64_t> g_sys_mem_avail(
         "meminfo_sys_mem_avail", [](void*) { return GlobalMemoryArbitrator::sys_mem_available(); },
         nullptr);
 
-std::atomic<int64_t> GlobalMemoryArbitrator::_s_process_reserved_memory = 0;
+std::atomic<int64_t> GlobalMemoryArbitrator::_process_reserved_memory = 0;
 std::atomic<int64_t> GlobalMemoryArbitrator::refresh_interval_memory_growth = 0;
 std::mutex GlobalMemoryArbitrator::cache_adjust_capacity_lock;
 std::condition_variable GlobalMemoryArbitrator::cache_adjust_capacity_cv;
@@ -45,9 +46,10 @@ std::atomic<bool> GlobalMemoryArbitrator::memtable_memory_refresh_notify {false}
 
 bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
     if (sys_mem_available() - bytes < MemInfo::sys_mem_available_warning_water_mark()) {
+        doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
         return false;
     }
-    int64_t old_reserved_mem = _s_process_reserved_memory.load(std::memory_order_relaxed);
+    int64_t old_reserved_mem = _process_reserved_memory.load(std::memory_order_relaxed);
     int64_t new_reserved_mem = 0;
     do {
         new_reserved_mem = old_reserved_mem + bytes;
@@ -55,15 +57,16 @@ bool GlobalMemoryArbitrator::try_reserve_process_memory(int64_t bytes) {
                              refresh_interval_memory_growth.load(std::memory_order_relaxed) +
                              new_reserved_mem >=
                      MemInfo::soft_mem_limit())) {
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
             return false;
         }
-    } while (!_s_process_reserved_memory.compare_exchange_weak(old_reserved_mem, new_reserved_mem,
-                                                               std::memory_order_relaxed));
+    } while (!_process_reserved_memory.compare_exchange_weak(old_reserved_mem, new_reserved_mem,
+                                                             std::memory_order_relaxed));
     return true;
 }
 
 void GlobalMemoryArbitrator::release_process_reserved_memory(int64_t bytes) {
-    _s_process_reserved_memory.fetch_sub(bytes, std::memory_order_relaxed);
+    _process_reserved_memory.fetch_sub(bytes, std::memory_order_relaxed);
 }
 
 int64_t GlobalMemoryArbitrator::sub_thread_reserve_memory(int64_t bytes) {

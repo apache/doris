@@ -31,7 +31,7 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 struct StreamingHtMinReductionEntry {
     // Use 'streaming_ht_min_reduction' if the total size of hash table bucket directories in
     // bytes is greater than this threshold.
@@ -59,10 +59,9 @@ static constexpr int STREAMING_HT_MIN_REDUCTION_SIZE =
 DistinctStreamingAggLocalState::DistinctStreamingAggLocalState(RuntimeState* state,
                                                                OperatorXBase* parent)
         : PipelineXLocalState<FakeSharedState>(state, parent),
-          dummy_mapped_data(std::make_shared<char>('A')),
           batch_size(state->batch_size()),
           _agg_arena_pool(std::make_unique<vectorized::Arena>()),
-          _agg_data(std::make_unique<AggregatedDataVariants>()),
+          _agg_data(std::make_unique<DistinctDataVariants>()),
           _agg_profile_arena(std::make_unique<vectorized::Arena>()),
           _child_block(vectorized::Block::create_unique()),
           _aggregated_block(vectorized::Block::create_unique()) {}
@@ -95,12 +94,8 @@ Status DistinctStreamingAggLocalState::open(RuntimeState* state) {
         RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, _probe_expr_ctxs[i]));
     }
 
-    if (_probe_expr_ctxs.empty()) {
-        _agg_data->without_key = reinterpret_cast<vectorized::AggregateDataPtr>(
-                _agg_profile_arena->alloc(p._total_size_of_aggregate_states));
-    } else {
-        RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
-    }
+    DCHECK_EQ(p._total_size_of_aggregate_states, 0);
+    RETURN_IF_ERROR(_init_hash_method(_probe_expr_ctxs));
     return Status::OK();
 }
 
@@ -139,8 +134,8 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
                         const int64_t aggregated_input_rows = input_rows - _num_rows_returned;
                         // TODO chenhao
                         //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
-                        double current_reduction =
-                                static_cast<double>(aggregated_input_rows) / ht_rows;
+                        double current_reduction = static_cast<double>(aggregated_input_rows) /
+                                                   static_cast<double>(ht_rows);
 
                         // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
                         // inaccurate, which could lead to a divide by zero below.
@@ -171,8 +166,8 @@ bool DistinctStreamingAggLocalState::_should_expand_preagg_hash_tables() {
 
 Status DistinctStreamingAggLocalState::_init_hash_method(
         const vectorized::VExprContextSPtrs& probe_exprs) {
-    RETURN_IF_ERROR(init_agg_hash_method(
-            _agg_data.get(), probe_exprs,
+    RETURN_IF_ERROR(init_hash_method<DistinctDataVariants>(
+            _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<DistinctStreamingAggOperatorX>()._is_first_phase));
     return Status::OK();
 }
@@ -198,7 +193,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         }
     }
 
-    int rows = in_block->rows();
+    size_t rows = in_block->rows();
     _distinct_row.clear();
     _distinct_row.reserve(rows);
 
@@ -303,13 +298,10 @@ void DistinctStreamingAggLocalState::_emplace_into_hash_table_to_distinct(
                         size_t row = 0;
                         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
                             HashMethodType::try_presis_key(key, origin, _arena);
-                            ctor(key, dummy_mapped_data.get());
+                            ctor(key);
                             distinct_row.push_back(row);
                         };
-                        auto creator_for_null_key = [&](auto& mapped) {
-                            mapped = dummy_mapped_data.get();
-                            distinct_row.push_back(row);
-                        };
+                        auto creator_for_null_key = [&]() { distinct_row.push_back(row); };
 
                         SCOPED_TIMER(_hash_table_emplace_timer);
                         for (; row < num_rows; ++row) {
@@ -376,8 +368,8 @@ Status DistinctStreamingAggOperatorX::open(RuntimeState* state) {
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
 
-    int j = _probe_expr_ctxs.size();
-    for (int i = 0; i < j; ++i) {
+    size_t j = _probe_expr_ctxs.size();
+    for (size_t i = 0; i < j; ++i) {
         auto nullable_output = _output_tuple_desc->slots()[i]->is_nullable();
         auto nullable_input = _probe_expr_ctxs[i]->root()->is_nullable();
         if (nullable_output != nullable_input) {
@@ -460,7 +452,6 @@ Status DistinctStreamingAggOperatorX::pull(RuntimeState* state, vectorized::Bloc
                                                                block->columns()));
     }
     local_state.add_num_rows_returned(block->rows());
-    COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     // If the limit is not reached, it is important to ensure that _aggregated_block is empty
     // because it may still contain data.
     // However, if the limit is reached, there is no need to output data even if some exists.

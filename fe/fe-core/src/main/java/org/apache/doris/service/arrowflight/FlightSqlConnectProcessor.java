@@ -53,6 +53,8 @@ import java.util.concurrent.TimeoutException;
 
 /**
  * Process one flgiht sql connection.
+ *
+ * Must use try-with-resources.
  */
 public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(FlightSqlConnectProcessor.class);
@@ -177,6 +179,7 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
     @Override
     public void close() throws Exception {
         ctx.setCommand(MysqlCommand.COM_SLEEP);
+        ctx.clear();
         // TODO support query profile
         for (StmtExecutor asynExecutor : returnResultFromRemoteExecutor) {
             asynExecutor.finalizeQuery();

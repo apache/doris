@@ -145,4 +145,14 @@ public class DecimalV3Literal extends FractionalLiteral {
         DecimalV3Literal literal = (DecimalV3Literal) o;
         return Objects.equals(dataType, literal.dataType);
     }
+
+    @Override
+    public String toSql() {
+        return value.toPlainString();
+    }
+
+    @Override
+    public String toString() {
+        return toSql();
+    }
 }

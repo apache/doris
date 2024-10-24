@@ -400,6 +400,7 @@ Status VMetaScanner::_build_catalogs_metadata_request(const TMetaScanRange& meta
     // create TMetadataTableRequestParams
     TMetadataTableRequestParams metadata_table_params;
     metadata_table_params.__set_metadata_type(TMetadataType::CATALOGS);
+    metadata_table_params.__set_current_user_ident(_user_identity);
 
     request->__set_metada_table_params(metadata_table_params);
     return Status::OK();

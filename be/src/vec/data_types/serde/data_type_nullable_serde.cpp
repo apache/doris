@@ -131,12 +131,15 @@ Status DataTypeNullableSerDe::deserialize_column_from_hive_text_vector(
 Status DataTypeNullableSerDe::deserialize_column_from_fixed_json(
         IColumn& column, Slice& slice, int rows, int* num_deserialized,
         const FormatOptions& options) const {
+    if (rows < 1) [[unlikely]] {
+        return Status::OK();
+    }
     auto& col = static_cast<ColumnNullable&>(column);
     Status st = deserialize_one_cell_from_json(column, slice, options);
     if (!st.ok()) {
         return st;
     }
-    if (rows - 1 != 0) {
+    if (rows > 1) {
         auto& null_map = col.get_null_map_data();
         auto& nested_column = col.get_nested_column();
 

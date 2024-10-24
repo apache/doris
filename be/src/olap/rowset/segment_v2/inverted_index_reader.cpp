@@ -266,24 +266,13 @@ Status FullTextIndexReader::query(OlapReaderStatistics* stats, RuntimeState* run
             query_info.terms.emplace_back(search_str);
         } else {
             if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY) {
-                PhraseQuery::parser_slop(search_str, query_info);
+                PhraseQuery::parser_info(
+                        search_str, column_name, query_type, _index_meta.properties(), query_info,
+                        runtime_state->query_options().enable_phrase_query_sequential_opt);
+            } else {
+                query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        search_str, column_name, query_type, _index_meta.properties());
             }
-
-            InvertedIndexCtxSPtr inverted_index_ctx = std::make_shared<InvertedIndexCtx>(
-                    get_inverted_index_parser_type_from_string(
-                            get_parser_string_from_properties(_index_meta.properties())),
-                    get_parser_mode_string_from_properties(_index_meta.properties()),
-                    get_parser_char_filter_map_from_properties(_index_meta.properties()),
-                    get_parser_lowercase_from_properties(_index_meta.properties()),
-                    get_parser_stopwords_from_properties(_index_meta.properties()));
-            auto analyzer = inverted_index::InvertedIndexAnalyzer::create_analyzer(
-                    inverted_index_ctx.get());
-            inverted_index_ctx->analyzer = analyzer.get();
-            auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
-                    inverted_index_ctx->char_filter_map);
-            reader->init(search_str.data(), search_str.size(), true);
-            query_info.terms = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    reader.get(), analyzer.get(), column_name, query_type);
         }
         if (query_info.terms.empty()) {
             auto msg = fmt::format(

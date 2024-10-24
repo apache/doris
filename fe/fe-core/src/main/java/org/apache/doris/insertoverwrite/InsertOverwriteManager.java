@@ -289,6 +289,14 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      * @param table Run the table for insert overwrite
      */
     public void recordRunningTableOrException(DatabaseIf db, TableIf table) {
+        // The logic of OlapTable executing insert overwrite is to create temporary partitions,
+        // replace partitions, etc.
+        // If executed in parallel, it may cause problems such as not being able to find temporary partitions.
+        // But in terms of external table, we don't care the internal logic of execution,
+        // so there's no need to keep records
+        if (!(table instanceof OlapTable)) {
+            return;
+        }
         long dbId = db.getId();
         long tableId = table.getId();
         runningLock.writeLock().lock();

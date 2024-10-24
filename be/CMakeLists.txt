@@ -299,8 +299,6 @@ if (COMPILER_CLANG)
                         -Wno-implicit-float-conversion
                         -Wno-implicit-int-conversion
                         -Wno-sign-conversion
-                        -Wno-missing-field-initializers
-                        -Wno-unused-const-variable
                         -Wno-shorten-64-to-32)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)

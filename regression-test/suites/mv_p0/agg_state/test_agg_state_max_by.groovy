@@ -67,15 +67,9 @@ suite ("test_agg_state_max_by") {
     sql """set enable_stats=false;"""
 
     qt_select_star "select * from d_table order by 1,2;"
-    explain {
-        sql("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;")
-        contains "(k1mb)"
-    }
+    mv_rewrite_success("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;", "k1mb")
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;")
-        contains "(k1mb)"
-    }
+    mv_rewrite_success("select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;", "k1mb")
     qt_select_mv "select k1,max_by(k2,k3) from d_table group by k1 order by 1,2;"
 
     createMV("create materialized view k1mbcp1 as select k1,max_by(k2+k3,abs(k3)) from d_table group by k1;")
@@ -110,35 +104,17 @@ suite ("test_agg_state_max_by") {
     sql "analyze table d_table with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select k1,max_by(k2+k3,abs(k3)) from d_table group by k1 order by 1,2;")
-        contains "(k1mbcp1)"
-    }
+    mv_rewrite_success("select k1,max_by(k2+k3,abs(k3)) from d_table group by k1 order by 1,2;", "k1mbcp1")
     qt_select_mv "select k1,max_by(k2+k3,k3) from d_table group by k1 order by 1,2;"
 
-    explain {
-        sql("select k1,max_by(k2+k3,k3) from d_table group by k1 order by 1,2;")
-        contains "(k1mbcp2)"
-    }
+    mv_rewrite_success("select k1,max_by(k2+k3,k3) from d_table group by k1 order by 1,2;", "k1mbcp2")
     qt_select_mv "select k1,max_by(k2+k3,k3) from d_table group by k1 order by 1,2;"
 
-    explain {
-        sql("select k1,max_by(k2,abs(k3)) from d_table group by k1 order by 1,2;")
-        contains "(k1mbcp3)"
-    }
+    mv_rewrite_success("select k1,max_by(k2,abs(k3)) from d_table group by k1 order by 1,2;", "k1mbcp3")
     qt_select_mv "select k1,max_by(k2,abs(k3)) from d_table group by k1 order by 1,2;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,max_by(k2+k3,abs(k3)) from d_table group by k1 order by 1,2;")
-        contains "(k1mbcp1)"
-    }
-    explain {
-        sql("select k1,max_by(k2+k3,k3) from d_table group by k1 order by 1,2;")
-        contains "(k1mbcp2)"
-    }
-    explain {
-        sql("select k1,max_by(k2,abs(k3)) from d_table group by k1 order by 1,2;")
-        contains "(k1mbcp3)"
-    }
+    mv_rewrite_success("select k1,max_by(k2+k3,abs(k3)) from d_table group by k1 order by 1,2;", "k1mbcp1")
+    mv_rewrite_success("select k1,max_by(k2+k3,k3) from d_table group by k1 order by 1,2;", "k1mbcp2")
+    mv_rewrite_success("select k1,max_by(k2,abs(k3)) from d_table group by k1 order by 1,2;", "k1mbcp3")
 }

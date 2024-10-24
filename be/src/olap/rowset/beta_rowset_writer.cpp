@@ -259,7 +259,7 @@ Status BaseBetaRowsetWriter::add_block(const vectorized::Block* block) {
 Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
     if (!_context.tablet->enable_unique_key_merge_on_write() ||
-        (_context.partial_update_info && _context.partial_update_info->is_partial_update)) {
+        (_context.partial_update_info && _context.partial_update_info->is_partial_update())) {
         return Status::OK();
     }
     RowsetSharedPtr rowset_ptr;
@@ -291,7 +291,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
 Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
     RETURN_IF_ERROR(BaseBetaRowsetWriter::init(rowset_writer_context));
     if (_segcompaction_worker) {
-        _segcompaction_worker->init_mem_tracker(rowset_writer_context.txn_id);
+        _segcompaction_worker->init_mem_tracker(rowset_writer_context);
     }
     return Status::OK();
 }

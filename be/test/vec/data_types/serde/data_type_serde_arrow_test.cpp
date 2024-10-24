@@ -489,7 +489,7 @@ void serialize_and_deserialize_arrow_test() {
     RowDescriptor row_desc(&tuple_desc, true);
     // arrow schema
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema), Status::OK());
+    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema, "UTC"), Status::OK());
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;
@@ -623,7 +623,7 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     RowDescriptor row_desc(&tuple_desc, true);
     // arrow schema
     std::shared_ptr<arrow::Schema> _arrow_schema;
-    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema), Status::OK());
+    EXPECT_EQ(convert_to_arrow_schema(row_desc, &_arrow_schema, "UTC"), Status::OK());
 
     // serialize
     std::shared_ptr<arrow::RecordBatch> result;

@@ -22,9 +22,9 @@
 #include <algorithm>
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
+#include <boost/locale.hpp>
 #include <climits>
 #include <cmath>
-#include <codecvt>
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
@@ -109,18 +109,18 @@
 namespace doris::vectorized {
 
 struct StringOP {
-    static void push_empty_string(int index, ColumnString::Chars& chars,
+    static void push_empty_string(size_t index, ColumnString::Chars& chars,
                                   ColumnString::Offsets& offsets) {
         offsets[index] = chars.size();
     }
 
-    static void push_null_string(int index, ColumnString::Chars& chars,
+    static void push_null_string(size_t index, ColumnString::Chars& chars,
                                  ColumnString::Offsets& offsets, NullMap& null_map) {
         null_map[index] = 1;
         push_empty_string(index, chars, offsets);
     }
 
-    static void push_value_string(const std::string_view& string_value, int index,
+    static void push_value_string(const std::string_view& string_value, size_t index,
                                   ColumnString::Chars& chars, ColumnString::Offsets& offsets) {
         ColumnString::check_chars_length(chars.size() + string_value.size(), offsets.size());
 
@@ -129,7 +129,8 @@ struct StringOP {
     }
 
     static void push_value_string_reserved_and_allow_overflow(const std::string_view& string_value,
-                                                              int index, ColumnString::Chars& chars,
+                                                              size_t index,
+                                                              ColumnString::Chars& chars,
                                                               ColumnString::Offsets& offsets) {
         chars.insert_assume_reserved_and_allow_overflow(string_value.data(),
                                                         string_value.data() + string_value.size());
@@ -448,8 +449,7 @@ public:
 
 private:
     std::u16string _string_to_u16string(const std::string& str) const {
-        std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> convert;
-        return convert.from_bytes(str);
+        return boost::locale::conv::utf_to_utf<char16_t>(str);
     }
 
     std::string _string_to_unicode(const std::u16string& s) const {
@@ -1696,14 +1696,13 @@ public:
         }
 
         fmt::memory_buffer buffer;
-        buffer.reserve(strcol_chars.size());
+        buffer.resize(strcol_chars.size());
         size_t buffer_len = 0;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!pad_const) {
                 pad_index.clear();
             }
-            buffer.clear();
             const auto len = col_len_data[index_check_const<len_const>(i)];
             if (len < 0) {
                 // return NULL when input length is invalid number
@@ -1722,7 +1721,7 @@ public:
                                 (const char*)str_data, (const char*)str_data + str_len, len);
                 // If iterate_char_len equals len, it indicates that the str length is greater than or equal to len
                 if (iterate_char_len == len) {
-                    buffer.reserve(buffer_len + iterate_byte_len);
+                    buffer.resize(buffer_len + iterate_byte_len);
                     memcpy(buffer.data() + buffer_len, str_data, iterate_byte_len);
                     buffer_len += iterate_byte_len;
                     res_offsets[i] = buffer_len;
@@ -1746,7 +1745,7 @@ public:
                 const size_t pad_remainder_len = pad_index[(len - str_char_size) % pad_char_size];
                 const size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
                 ColumnString::check_chars_length(buffer_len + new_capacity, i);
-                buffer.reserve(buffer_len + new_capacity);
+                buffer.resize(buffer_len + new_capacity);
                 if constexpr (!Impl::is_lpad) {
                     memcpy(buffer.data() + buffer_len, str_data, str_len);
                     buffer_len += str_len;
@@ -2368,6 +2367,122 @@ private:
                 dest_pos++;
             }
         }
+    }
+};
+
+class FunctionCountSubString : public IFunction {
+public:
+    static constexpr auto name = "count_substrings";
+
+    static FunctionPtr create() { return std::make_shared<FunctionCountSubString>(); }
+    using NullMapType = PaddedPODArray<UInt8>;
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        DCHECK(is_string(arguments[0]))
+                << "first argument for function: " << name << " should be string"
+                << " and arguments[0] is " << arguments[0]->get_name();
+        DCHECK(is_string(arguments[1]))
+                << "second argument for function: " << name << " should be string"
+                << " and arguments[1] is " << arguments[1]->get_name();
+        return std::make_shared<DataTypeInt32>();
+    }
+
+    Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        DCHECK_EQ(arguments.size(), 2);
+        const auto& [src_column, left_const] =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+        const auto& [right_column, right_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        const auto* col_left = check_and_get_column<ColumnString>(src_column.get());
+        if (!col_left) {
+            return Status::InternalError("Left operator of function {} can not be {}", get_name(),
+                                         block.get_by_position(arguments[0]).type->get_name());
+        }
+
+        const auto* col_right = check_and_get_column<ColumnString>(right_column.get());
+        if (!col_right) {
+            return Status::InternalError("Right operator of function {} can not be {}", get_name(),
+                                         block.get_by_position(arguments[1]).type->get_name());
+        }
+
+        auto dest_column_ptr = ColumnInt32::create(input_rows_count, 0);
+        // count_substring(ColumnString, "xxx")
+        if (right_const) {
+            _execute_constant_pattern(*col_left, col_right->get_data_at(0),
+                                      dest_column_ptr->get_data(), input_rows_count);
+        } else if (left_const) {
+            // count_substring("xxx", ColumnString)
+            _execute_constant_src_string(col_left->get_data_at(0), *col_right,
+                                         dest_column_ptr->get_data(), input_rows_count);
+        } else {
+            // count_substring(ColumnString, ColumnString)
+            _execute_vector(*col_left, *col_right, dest_column_ptr->get_data(), input_rows_count);
+        }
+
+        block.replace_by_position(result, std::move(dest_column_ptr));
+        return Status::OK();
+    }
+
+private:
+    void _execute_constant_pattern(const ColumnString& src_column_string,
+                                   const StringRef& pattern_ref,
+                                   ColumnInt32::Container& dest_column_data,
+                                   size_t input_rows_count) const {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            const StringRef str_ref = src_column_string.get_data_at(i);
+            dest_column_data[i] = find_str_count(str_ref, pattern_ref);
+        }
+    }
+
+    void _execute_vector(const ColumnString& src_column_string, const ColumnString& pattern_column,
+                         ColumnInt32::Container& dest_column_data, size_t input_rows_count) const {
+        for (size_t i = 0; i < input_rows_count; i++) {
+            const StringRef pattern_ref = pattern_column.get_data_at(i);
+            const StringRef str_ref = src_column_string.get_data_at(i);
+            dest_column_data[i] = find_str_count(str_ref, pattern_ref);
+        }
+    }
+
+    void _execute_constant_src_string(const StringRef& str_ref, const ColumnString& pattern_col,
+                                      ColumnInt32::Container& dest_column_data,
+                                      size_t input_rows_count) const {
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            const StringRef pattern_ref = pattern_col.get_data_at(i);
+            dest_column_data[i] = find_str_count(str_ref, pattern_ref);
+        }
+    }
+
+    size_t find_pos(size_t pos, const StringRef str_ref, const StringRef pattern_ref) const {
+        size_t old_size = pos;
+        size_t str_size = str_ref.size;
+        while (pos < str_size && memcmp_small_allow_overflow15(str_ref.data + pos, pattern_ref.data,
+                                                               pattern_ref.size)) {
+            pos++;
+        }
+        return pos - old_size;
+    }
+
+    int find_str_count(const StringRef str_ref, StringRef pattern_ref) const {
+        int count = 0;
+        if (str_ref.size == 0 || pattern_ref.size == 0) {
+            return 0;
+        } else {
+            for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                const size_t res_pos = find_pos(str_pos, str_ref, pattern_ref);
+                if (res_pos == (str_ref.size - str_pos)) {
+                    break; // not find
+                }
+                count++;
+                str_pos = str_pos + res_pos + pattern_ref.size;
+            }
+        }
+        return count;
     }
 };
 

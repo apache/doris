@@ -20,7 +20,10 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionListenerMatcher;
@@ -184,7 +187,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         } else if (expr instanceof AggregateExpression && ((AggregateExpression) expr).getFunction().isDistinct()) {
             return expr;
         }
-        return expr.accept(this, ctx);
+        // ATTN: we must return original expr, because OrToIn is implemented with MutableState,
+        //   newExpr will lose these states leading to dead loop by OrToIn -> SimplifyRange -> FoldConstantByFE
+        Expression newExpr = expr.accept(this, ctx);
+        if (newExpr.equals(expr)) {
+            return expr;
+        }
+        return newExpr;
     }
 
     /**
@@ -219,6 +228,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         if ("".equals(dbName)) {
             throw new AnalysisException("DB " + dbName + "not found");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                        dbName, PrivPredicate.SHOW)) {
+            String message = ErrorCode.ERR_DB_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.SHOW.getPrivs().toString(), dbName);
+            throw new AnalysisException(message);
         }
         org.apache.doris.catalog.Database database =
                 Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);

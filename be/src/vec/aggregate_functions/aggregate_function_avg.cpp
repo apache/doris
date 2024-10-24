@@ -45,8 +45,17 @@ template <typename T>
 using AggregateFuncAvgDecimal256 = typename AvgDecimal256<T>::Function;
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("avg", creator_with_type::creator<AggregateFuncAvg>);
-    factory.register_function_both("avg_decimal256",
-                                   creator_with_type::creator<AggregateFuncAvgDecimal256>);
+    AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
+                                           const bool result_is_nullable,
+                                           const AggregateFunctionAttr& attr) {
+        if (attr.enable_decimal256) {
+            return creator_with_type::creator<AggregateFuncAvgDecimal256>(name, types,
+                                                                          result_is_nullable, attr);
+        } else {
+            return creator_with_type::creator<AggregateFuncAvg>(name, types, result_is_nullable,
+                                                                attr);
+        }
+    };
+    factory.register_function_both("avg", creator);
 }
 } // namespace doris::vectorized
