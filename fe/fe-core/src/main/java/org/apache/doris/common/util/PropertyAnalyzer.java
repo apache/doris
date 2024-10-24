@@ -642,11 +642,17 @@ public class PropertyAnalyzer {
                     if (column.getName().equalsIgnoreCase(bfColumn)) {
                         PrimitiveType type = column.getDataType();
 
-                        // tinyint/float/double columns don't support
+                        // now we only support BloomFilter on (same behavior with BE):
+                        // smallint/int/bigint/largeint
+                        // string/varchar/char
+                        // date/datetime/datev2/datetimev2
+                        // decimal/decimal32/decimal64/decimal128I/decimal256
+                        // ipv4/ipv6
+                        //
                         // key columns and none/replace aggregate non-key columns support
-                        if (type == PrimitiveType.TINYINT || type == PrimitiveType.FLOAT
-                                || type == PrimitiveType.DOUBLE || type == PrimitiveType.BOOLEAN
-                                || type.isComplexType()) {
+                        if (!((type ==  PrimitiveType.SMALLINT || type == PrimitiveType.INT
+                                || type == PrimitiveType.BIGINT) || type.isCharFamily() || type.isDateType()
+                                || type.isDecimalV2Type() || type.isDecimalV3Type() || type.isIPType())) {
                             throw new AnalysisException(type + " is not supported in bloom filter index. "
                                     + "invalid column: " + bfColumn);
                         } else if (keysType != KeysType.AGG_KEYS || column.isKey()) {
