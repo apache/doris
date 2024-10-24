@@ -951,7 +951,11 @@ public class BindExpression implements AnalysisRuleFactory {
         return new LogicalTVFRelation(unboundTVFRelation.getRelationId(), (TableValuedFunction) bindResult.first);
     }
 
-    private void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
+    /**
+     * Check the slot in childOutputs is duplicated or not
+     * If childOutputs has duplicated column name, would throw analysis exception
+     */
+    public static void checkSameNameSlot(List<Slot> childOutputs, String subQueryAlias) {
         Set<String> nameSlots = new HashSet<>(childOutputs.size() * 2);
         for (Slot s : childOutputs) {
             if (!nameSlots.add(s.getInternalName())) {
