@@ -148,8 +148,7 @@ bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeInd
 }
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
-    ColumnsWithTypeAndName arguments {
-            arg, {type->create_column_const_with_default_value(1), type, type->get_name()}};
+    ColumnsWithTypeAndName arguments {arg, {nullptr, type, type->get_name()}};
     auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
     if (!function) {
         return Status::InternalError("Not found cast function {} to {}", arg.type->get_name(),
