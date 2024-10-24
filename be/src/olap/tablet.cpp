@@ -354,14 +354,14 @@ void Tablet::save_meta() {
                 if (!st.ok()) {
                     segment_file_size = 0;
                     LOG(WARNING) << "table size correctness check get segment size failed! msg:"
-                                 << st.msg() << ", segment path:" << segment_path;
+                                 << st.to_string() << ", segment path:" << segment_path;
                 }
                 total_segment_size += segment_file_size;
             }
 
-            if (_max_version_schema->get_inverted_index_storage_format() ==
+            if (rs_meta->tablet_schema()->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
-                auto indices = _max_version_schema->indexes();
+                auto indices = rs_meta->tablet_schema()->indexes();
                 for (auto& index : indices) {
                     // only get file_size for inverted index
                     if (index.index_type() != IndexType::INVERTED) {
@@ -388,9 +388,11 @@ void Tablet::save_meta() {
                         auto st = fs->file_size(inverted_index_file_path, &file_size);
                         if (!st.ok()) {
                             file_size = 0;
-                            LOG(WARNING) << "table size correctness check get inverted index v1 "
+                            LOG(WARNING) << " tablet id: " << get_tablet_info().tablet_id
+                                         << ", rowset id:" << rs_meta->rowset_id()
+                                         << ", table size correctness check get inverted index v1 "
                                             "size failed! msg:"
-                                         << st.msg()
+                                         << st.to_string()
                                          << ", inverted index path:" << inverted_index_file_path;
                         }
                         total_inverted_index_size += file_size;
@@ -416,10 +418,12 @@ void Tablet::save_meta() {
                     auto st = fs->file_size(inverted_index_file_path, &file_size);
                     if (!st.ok()) {
                         file_size = 0;
-                        LOG(WARNING)
-                                << "table size correctness check get inverted index v2 size "
-                                   "failed! msg:"
-                                << st.msg() << ", inverted index path:" << inverted_index_file_path;
+                        LOG(WARNING) << " tablet id: " << get_tablet_info().tablet_id
+                                     << ", rowset id:" << rs_meta->rowset_id()
+                                     << ", table size correctness check get inverted index v2 "
+                                        "size failed! msg:"
+                                     << st.to_string()
+                                     << ", inverted index path:" << inverted_index_file_path;
                     }
                     total_inverted_index_size += file_size;
                 }
