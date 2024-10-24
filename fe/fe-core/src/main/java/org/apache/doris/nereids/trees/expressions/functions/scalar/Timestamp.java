@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -41,9 +42,15 @@ public class Timestamp extends ScalarFunction
     // This preference follows original planner. refer to ScalarType.getDefaultDateType()
     public static final List<FunctionSignature> SIGNATURES = Config.enable_date_conversion ? ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
+                    VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE)
     ) : ImmutableList.of(
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE),
+            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT,
+                    VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT).args(DateTimeV2Type.SYSTEM_DEFAULT)
     );
 
@@ -54,13 +61,21 @@ public class Timestamp extends ScalarFunction
         super("timestamp", arg);
     }
 
+    public Timestamp(Expression arg1, Expression arg2) {
+        super("timestamp", arg1, arg2);
+    }
+
     /**
      * withChildren.
      */
     @Override
     public Timestamp withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new Timestamp(children.get(0));
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        if (children.size() == 1) {
+            return new Timestamp(children.get(0));
+        } else {
+            return new Timestamp(children.get(0), children.get(1));
+        }
     }
 
     @Override
