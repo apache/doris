@@ -1272,7 +1272,7 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
 
 void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
                          const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
-                         std::string& msg, GetRowsetResponse* response, bool snapshot) {
+                         std::string& msg, GetRowsetResponse* response) {
     LOG(INFO) << "get_rowset start=" << start << ", end=" << end;
     MetaRowsetKeyInfo key_info0 {instance_id, tablet_id, start};
     MetaRowsetKeyInfo key_info1 {instance_id, tablet_id, end + 1};
@@ -1291,7 +1291,7 @@ void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
 
     std::stringstream ss;
     do {
-        TxnErrorCode err = txn->get(key0, key1, &it, snapshot);
+        TxnErrorCode err = txn->get(key0, key1, &it);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::READ>(err);
             ss << "internal error, failed to get rowset, err=" << err;
@@ -2190,9 +2190,15 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::get_instance_info(
     return {code, std::move(msg)};
 }
 
+std::pair<std::string, std::string> init_key_pair(std::string instance_id, int64_t table_id) {
+    std::string begin_key = stats_tablet_key({instance_id, table_id, 0, 0, 0});
+    std::string end_key = stats_tablet_key({instance_id, table_id + 1, 0, 0, 0});
+    return std::make_pair(begin_key, end_key);
+}
+
 MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_unique_id_str,
                                                             std::string table_id_str) {
-    // step 1: parse params
+    // parse params
     int64_t table_id;
     std::string instance_id;
     MetaServiceResponseStatus st = parse_fix_tablet_stats_param(
@@ -2201,52 +2207,52 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
         return st;
     }
 
-    std::vector<std::shared_ptr<TabletStatsPB>> tablet_stat_shared_ptr_vec_batch;
-    MetaServiceResponseStatus st = get_batch_tablet_stats(txn_kv_, instance_id, table_id,
-                                                          tablet_stat_shared_ptr_vec_batch);
-    if (st.code() != MetaServiceCode::OK) {
-        return st;
-    }
-
-    std::vector<std::shared_ptr<TabletStatsPB>> tablet_stat_shared_ptr_vec;
-    // step 2: read tablet data and rewrite them
-    st = fix_tablet_stats_data(txn_kv_, instance_id, table_id, tablet_stat_shared_ptr_vec);
-    if (st.code() != MetaServiceCode::OK) {
-        return st;
-    }
-
-    // step 3: check new data
-    std::vector<std::shared_ptr<TabletStatsPB>> conflict_tablet_stat_shared_ptr_vec;
-    st = check_tablet_stats_data(tablet_stat_shared_ptr_vec, txn_kv_, instance_id, table_id,
-                                 conflict_tablet_stat_shared_ptr_vec);
-    if (st.code() != MetaServiceCode::OK) {
-        return st;
-    }
-
-    // step 4: deal with unchaged tablet stat due to conflict txn
-    size_t retry = 0;
-    // If conflict_tablet_stat_shared_ptr_vec is not empty, it means we need to continue retry.
-    while (!conflict_tablet_stat_shared_ptr_vec.empty() && retry < 100) {
-        retry++;
-        sleep(1);
-        std::ostringstream oss;
-        std::transform(conflict_tablet_stat_shared_ptr_vec.begin(),
-                       conflict_tablet_stat_shared_ptr_vec.end(),
-                       std::ostream_iterator<std::string>(oss, ","),
-                       [](const std::shared_ptr<TabletStatsPB>& s) {
-                           return std::to_string(s->idx().tablet_id());
-                       });
-        LOG(INFO) << fmt::format("retry time: {}, conflict tablet stat vec: [{}]", retry,
-                                 oss.str());
-        st = deal_with_conflict(conflict_tablet_stat_shared_ptr_vec, txn_kv_, instance_id,
-                                table_id);
+    std::pair<std::string, std::string> key_pair = init_key_pair(instance_id, table_id);
+    while (key_pair.first <= key_pair.second) {
+        // get tablet stats
+        std::vector<std::shared_ptr<TabletStatsPB>> tablet_stat_shared_ptr_vec_batch;
+        MetaServiceResponseStatus st =
+                get_old_tablet_stats_batch(txn_kv_, key_pair, tablet_stat_shared_ptr_vec_batch);
         if (st.code() != MetaServiceCode::OK) {
             return st;
         }
-    }
 
-    st.set_code(MetaServiceCode::OK);
-    st.set_msg("");
+        // fix tablet stats
+        st = write_new_tablet_stats(txn_kv_, tablet_stat_shared_ptr_vec_batch, instance_id);
+        if (st.code() != MetaServiceCode::OK) {
+            return st;
+        }
+
+        std::vector<std::shared_ptr<TabletStatsPB>> conflict_tablet_stat_shared_ptr_vec;
+        std::vector<std::shared_ptr<TabletStatsPB>> check_batch_vec;
+        size_t retry = 0;
+        bool is_first_check = true;
+        do {
+            conflict_tablet_stat_shared_ptr_vec.clear();
+
+            // On the first check, we check the entire batch. On subsequent retries, we check only the conflicting data
+            if (is_first_check) {
+                check_batch_vec = tablet_stat_shared_ptr_vec_batch;
+                is_first_check = false;
+            } else {
+                check_batch_vec = conflict_tablet_stat_shared_ptr_vec;
+            }
+
+            // Check tablet stats
+            st = check_new_tablet_stats(txn_kv_, instance_id, check_batch_vec,
+                                        conflict_tablet_stat_shared_ptr_vec);
+            if (st.code() != MetaServiceCode::OK) {
+                return st;
+            }
+
+            // If there are conflicts, rewrite the tablet stats
+            st = write_new_tablet_stats(txn_kv_, conflict_tablet_stat_shared_ptr_vec, instance_id);
+            if (st.code() != MetaServiceCode::OK) {
+                return st;
+            }
+            retry++;
+        } while (!conflict_tablet_stat_shared_ptr_vec.empty() && retry < 100);
+    }
     return st;
 }
 
