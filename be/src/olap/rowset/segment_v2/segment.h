@@ -80,8 +80,8 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // change finished, client should disable all cached Segment for old TabletSchema.
 class Segment : public std::enable_shared_from_this<Segment>, public MetadataAdder<Segment> {
 public:
-    static Status open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
-                       RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+    static Status open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
+                       uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {});
 
@@ -214,6 +214,10 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
             InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo());
+    static Status _open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
+                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                        const io::FileReaderOptions& reader_options,
+                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer(SegmentFooterPB* footer);

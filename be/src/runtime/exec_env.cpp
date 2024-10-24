@@ -54,7 +54,10 @@ void ExecEnv::set_write_cooldown_meta_executors() {
 #endif // BE_TEST
 
 Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
-    return GetInstance()->storage_engine().get_tablet(tablet_id);
+    auto storage_engine = GetInstance()->_storage_engine.get();
+    return storage_engine != nullptr
+                   ? storage_engine->get_tablet(tablet_id)
+                   : ResultError(Status::InternalError("failed to get tablet {}", tablet_id));
 }
 
 const std::string& ExecEnv::token() const {
