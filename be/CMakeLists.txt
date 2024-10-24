@@ -69,6 +69,9 @@ endif()
 # enable glog custom prefix
 add_definitions(-DGLOG_CUSTOM_PREFIX_SUPPORT)
 
+# enable simdjson check eof
+add_definitions(-DSIMDJSON_CHECK_EOF)
+
 # Options
 option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON)
 option(USE_LIBCPP "Use libc++" OFF)
