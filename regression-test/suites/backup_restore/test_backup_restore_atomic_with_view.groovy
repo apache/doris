@@ -55,6 +55,7 @@ suite("test_backup_restore_atomic_with_view", "backup_restore") {
         SELECT * FROM ${dbName}.${tableName} WHERE count > 5
         """
 
+    sql "sync"
     qt_sql "SELECT * FROM ${dbName}.${tableName} ORDER BY id ASC"
     qt_sql "SELECT * FROM ${dbName}.${viewName} ORDER BY id ASC"
 
@@ -85,6 +86,7 @@ suite("test_backup_restore_atomic_with_view", "backup_restore") {
 
     syncer.waitAllRestoreFinish(dbName1)
 
+    sql "sync"
     qt_sql "SELECT * FROM ${dbName1}.${tableName} ORDER BY id ASC"
     qt_sql "SELECT * FROM ${dbName1}.${viewName} ORDER BY id ASC"
     def show_view_result = sql_return_maparray "SHOW VIEW FROM ${tableName} FROM ${dbName1}"
@@ -115,6 +117,7 @@ suite("test_backup_restore_atomic_with_view", "backup_restore") {
     // View could read the incremental data.
     sql "INSERT INTO ${dbName}.${tableName} VALUES (11, 11)"
 
+    sql "sync"
     qt_sql "SELECT * FROM ${dbName}.${tableName} ORDER BY id ASC"
     qt_sql "SELECT * FROM ${dbName}.${viewName} ORDER BY id ASC"
 
