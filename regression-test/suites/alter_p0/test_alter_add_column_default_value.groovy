@@ -60,7 +60,7 @@ suite('test_alter_add_column_default_value') {
     sql """insert into ${tbl} values (4,4,4,to_bitmap(444))"""
     sql """insert into ${tbl} (k1,v1,v2) values (5,5,5)"""
     sql """insert into ${tbl} (k1,v1,v2) values (6,6,6)"""
-    qt_select4 """ SELECT * FROM ${tbl} ORDER BY k1 """
+    qt_select4 """ SELECT k1,v1,v1,bitmap_to_string(v3) FROM ${tbl} ORDER BY k1 """
 
     sql "DROP TABLE IF EXISTS ${tbl} FORCE"
 }
