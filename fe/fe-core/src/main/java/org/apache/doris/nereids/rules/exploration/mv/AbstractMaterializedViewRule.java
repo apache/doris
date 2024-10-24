@@ -37,6 +37,7 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PartitionRemover
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
+import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -256,6 +257,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
+            // If rewrite successfully, try to get mv read lock to avoid data inconsistent,
+            // try to get lock which should added before RBO
+            if (materializationContext instanceof AsyncMaterializationContext && !materializationContext.isSuccess()) {
+                cascadesContext.getStatementContext()
+                        .addTableReadLock(((AsyncMaterializationContext) materializationContext).getMtmv());
+            }
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
@@ -349,6 +356,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 rewrittenPlanOutput, queryPlan.getOutput()));
                 continue;
             }
+            // Merge project
+            rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
+                    childContext -> {
+                        Rewriter.getCteChildrenRewriter(childContext,
+                                ImmutableList.of(Rewriter.bottomUp(new MergeProjects()))).execute();
+                        return childContext.getRewritePlan();
+                    }, rewrittenPlan, queryPlan);
             if (!isOutputValid(queryPlan, rewrittenPlan)) {
                 LogicalProperties logicalProperties = rewrittenPlan.getLogicalProperties();
                 materializationContext.recordFailReason(queryStructInfo,
@@ -358,11 +372,11 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                                 logicalProperties, queryPlan.getLogicalProperties()));
                 continue;
             }
-            recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext);
             trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);
             // if rewrite successfully, try to regenerate mv scan because it maybe used again
             materializationContext.tryReGenerateScanPlan(cascadesContext);
+            recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
         }
         return rewriteResults;
     }
@@ -830,8 +844,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return checkQueryPattern(structInfo, cascadesContext);
     }
 
-    protected void recordIfRewritten(Plan plan, MaterializationContext context) {
+    protected void recordIfRewritten(Plan plan, MaterializationContext context, CascadesContext cascadesContext) {
         context.setSuccess(true);
+        cascadesContext.addMaterializationRewrittenSuccess(context.generateMaterializationIdentifier());
         if (plan.getGroupExpression().isPresent()) {
             context.addMatchedGroup(plan.getGroupExpression().get().getOwnerGroup().getGroupId(), true);
         }

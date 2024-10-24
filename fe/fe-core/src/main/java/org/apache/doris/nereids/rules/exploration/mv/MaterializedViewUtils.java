@@ -29,6 +29,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -58,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.ImmutableList;
@@ -197,8 +199,8 @@ public class MaterializedViewUtils {
                         structInfosBuilder.add(structInfo);
                     }
                 }
-                return structInfosBuilder.build();
             }
+            return structInfosBuilder.build();
         }
         // if plan doesn't belong to any group, construct it directly
         return ImmutableList.of(StructInfo.of(plan, originalPlan, cascadesContext));
@@ -247,11 +249,22 @@ public class MaterializedViewUtils {
         CascadesContext rewrittenPlanContext = CascadesContext.initContext(
                 cascadesContext.getStatementContext(), rewrittenPlan,
                 cascadesContext.getCurrentJobContext().getRequiredProperties());
+        // Tmp old disable rule variable
+        Set<String> oldDisableRuleNames = rewrittenPlanContext.getStatementContext().getConnectContext()
+                .getSessionVariable()
+                .getDisableNereidsRuleNames();
+        rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
+                .setDisableNereidsRules(String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
+        rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         try {
             rewrittenPlanContext.getConnectContext().setSkipAuth(true);
             rewrittenPlan = planRewriter.apply(rewrittenPlanContext);
         } finally {
             rewrittenPlanContext.getConnectContext().setSkipAuth(false);
+            // Recover old disable rules variable
+            rewrittenPlanContext.getStatementContext().getConnectContext().getSessionVariable()
+                    .setDisableNereidsRules(String.join(",", oldDisableRuleNames));
+            rewrittenPlanContext.getStatementContext().invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
         }
         Map<ExprId, Slot> exprIdToNewRewrittenSlot = Maps.newLinkedHashMap();
         for (Slot slot : rewrittenPlan.getOutput()) {

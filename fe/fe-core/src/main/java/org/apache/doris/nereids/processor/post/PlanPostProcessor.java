@@ -27,8 +27,13 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
  */
 public class PlanPostProcessor extends DefaultPlanRewriter<CascadesContext> {
 
-    public Plan processRoot(Plan plan, CascadesContext ctx) {
-        AbstractPhysicalPlan newPlan = (AbstractPhysicalPlan) super.visit(plan, ctx);
+    @Override
+    public Plan visit(Plan plan, CascadesContext context) {
+        AbstractPhysicalPlan newPlan = (AbstractPhysicalPlan) super.visit(plan, context);
         return newPlan == plan ? plan : newPlan.copyStatsAndGroupIdFrom((AbstractPhysicalPlan) plan);
+    }
+
+    public Plan processRoot(Plan plan, CascadesContext ctx) {
+        return plan.accept(this, ctx);
     }
 }
