@@ -320,6 +320,8 @@ static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
     rowset.set_num_segments(1);
     rowset.set_num_rows(num_rows);
     rowset.set_data_disk_size(num_rows * 100);
+    rowset.set_index_disk_size(num_rows * 10);
+    rowset.set_total_disk_size(num_rows * 110);
     rowset.mutable_tablet_schema()->set_schema_version(0);
     rowset.set_txn_expiration(::time(nullptr)); // Required by DCHECK
     return rowset;
@@ -1285,7 +1287,7 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
     stats_tablet_data_size_key({mock_instance, table_id, index_id, partition_id, tablet_id},
                                &data_size_key);
     ASSERT_EQ(txn->get(data_size_key, &data_size_val), TxnErrorCode::TXN_OK);
-    EXPECT_EQ(*(int64_t*)data_size_val.data(), 20000);
+    EXPECT_EQ(*(int64_t*)data_size_val.data(), 22000);
     std::string num_rows_key, num_rows_val;
     stats_tablet_num_rows_key({mock_instance, table_id, index_id, partition_id, tablet_id},
                               &num_rows_key);
@@ -1306,7 +1308,7 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
     get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(res.tablet_stats_size(), 1);
-    EXPECT_EQ(res.tablet_stats(0).data_size(), 40000);
+    EXPECT_EQ(res.tablet_stats(0).data_size(), 44000);
     EXPECT_EQ(res.tablet_stats(0).num_rows(), 400);
     EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 5);
     EXPECT_EQ(res.tablet_stats(0).num_segments(), 4);

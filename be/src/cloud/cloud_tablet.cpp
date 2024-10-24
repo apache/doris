@@ -412,7 +412,7 @@ int CloudTablet::delete_expired_stale_rowsets() {
 void CloudTablet::update_base_size(const Rowset& rs) {
     // Define base rowset as the rowset of version [2-x]
     if (rs.start_version() == 2) {
-        _base_size = rs.data_disk_size();
+        _base_size = rs.total_disk_size();
     }
 }
 

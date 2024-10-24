@@ -51,6 +51,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "runtime/client_cache.h"
@@ -749,6 +750,130 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
     {
         Status ret_st;
         TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_rowset", ret_st);
+    }
+    if (config::enable_table_size_correctness_check) {
+        const auto fs = const_cast<RowsetMeta&>(rs_meta).fs();
+        if (!fs) {
+            LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
+        }
+        int64_t total_segment_size = 0;
+        int64_t total_inverted_index_size = 0;
+        for (int64_t seg_id = 0; seg_id < rs_meta.num_segments(); seg_id++) {
+            std::string segment_path = StorageResource().remote_segment_path(
+                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+            int64_t segment_file_size = 0;
+            auto st = fs->file_size(segment_path, &segment_file_size);
+            if (!st.ok()) {
+                segment_file_size = 0;
+                LOG(WARNING) << "table size correctness check get segment size failed! msg:"
+                             << st.msg() << ", segment path:" << segment_path;
+            }
+            total_segment_size += segment_file_size;
+        }
+
+        if (rs_meta.tablet_schema()->get_inverted_index_storage_format() ==
+            InvertedIndexStorageFormatPB::V1) {
+            auto indices = rs_meta.tablet_schema()->indexes();
+            for (auto& index : indices) {
+                // only get file_size for inverted index
+                if (index.index_type() != IndexType::INVERTED) {
+                    continue;
+                }
+                for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+                    std::string segment_path = StorageResource().remote_segment_path(
+                            rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                    int64_t file_size = 0;
+
+                    std::string inverted_index_file_path =
+                            InvertedIndexDescriptor::get_index_file_path_v1(
+                                    InvertedIndexDescriptor::get_index_file_path_prefix(
+                                            segment_path),
+                                    index.index_id(), index.get_index_suffix());
+                    auto st = fs->file_size(inverted_index_file_path, &file_size);
+                    if (!st.ok()) {
+                        file_size = 0;
+                        LOG(WARNING)
+                                << "table size correctness check get inverted index v1 "
+                                   "size failed! msg:"
+                                << st.msg() << ", inverted index path:" << inverted_index_file_path;
+                    }
+                    total_inverted_index_size += file_size;
+                }
+            }
+        } else {
+            for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+                int64_t file_size = 0;
+                std::string segment_path = StorageResource().remote_segment_path(
+                        rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+
+                std::string inverted_index_file_path =
+                        InvertedIndexDescriptor::get_index_file_path_v2(
+                                InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));
+                auto st = fs->file_size(inverted_index_file_path, &file_size);
+                if (!st.ok()) {
+                    file_size = 0;
+                    LOG(WARNING) << "table size correctness check get inverted index v2 size "
+                                    "failed! msg:"
+                                 << st.msg()
+                                 << ", inverted index path:" << inverted_index_file_path;
+                }
+                total_inverted_index_size += file_size;
+            }
+        }
+        LOG(INFO) << "[Cloud table segment size check info]:"
+                  << " tablet id: " << rs_meta.tablet_id() << ", rowset id:" << rs_meta.rowset_id()
+                  << ", rowset data disk size:" << rs_meta.data_disk_size()
+                  << ", rowset real data disk size:" << total_segment_size
+                  << ", rowset index disk size:" << rs_meta.index_disk_size()
+                  << ", rowset real index disk size:" << total_inverted_index_size
+                  << ", rowset total disk size:" << rs_meta.total_disk_size()
+                  << ", rowset segment path:"
+                  << StorageResource().remote_segment_path(rs_meta.tablet_id(),
+                                                           rs_meta.rowset_id().to_string(), 0)
+                  << ".";
+        if (rs_meta.data_disk_size() != total_segment_size) {
+            LOG(WARNING) << "[Cloud table segment size check failed]:"
+                         << " tablet id: " << rs_meta.tablet_id()
+                         << ", rowset id:" << rs_meta.rowset_id()
+                         << ", rowset data disk size:" << rs_meta.data_disk_size()
+                         << ", rowset real data disk size:" << total_segment_size
+                         << ", rowset index disk size:" << rs_meta.index_disk_size()
+                         << ", rowset real index disk size:" << total_inverted_index_size
+                         << ", rowset total disk size:" << rs_meta.total_disk_size()
+                         << ", rowset segment path:"
+                         << StorageResource().remote_segment_path(
+                                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), 0)
+                         << ".";
+            DCHECK(false);
+        }
+        if (rs_meta.index_disk_size() != total_inverted_index_size) {
+            LOG(WARNING) << "[Cloud table index size check failed]:"
+                         << " tablet id: " << rs_meta.tablet_id()
+                         << ", rowset id:" << rs_meta.rowset_id()
+                         << ", rowset data disk size:" << rs_meta.data_disk_size()
+                         << ", rowset real data disk size:" << total_segment_size
+                         << ", rowset index disk size:" << rs_meta.index_disk_size()
+                         << ", rowset real index disk size:" << total_inverted_index_size
+                         << ", rowset total disk size:" << rs_meta.total_disk_size()
+                         << ", rowset segment path:"
+                         << StorageResource().remote_segment_path(
+                                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), 0)
+                         << ".";
+            DCHECK(false);
+        }
+        if (rs_meta.data_disk_size() + rs_meta.index_disk_size() != rs_meta.total_disk_size()) {
+            LOG(WARNING) << "[Cloud table size check failed]:"
+                         << " tablet id: " << rs_meta.tablet_id()
+                         << ", rowset id:" << rs_meta.rowset_id()
+                         << ", rowset data disk size:" << rs_meta.data_disk_size()
+                         << ", rowset index disk size:" << rs_meta.index_disk_size()
+                         << ", rowset total disk size:" << rs_meta.total_disk_size()
+                         << ", rowset segment path:"
+                         << StorageResource().remote_segment_path(
+                                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), 0)
+                         << ".";
+            DCHECK(false);
+        }
     }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;

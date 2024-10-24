@@ -209,7 +209,7 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::new_cumulative_point(
     // if rowsets have no delete version, check output_rowset total disk size satisfies promotion size.
     return output_rowset->start_version() == last_cumulative_point &&
                            (last_delete_version.first != -1 ||
-                            output_rowset->data_disk_size() >= cloud_promotion_size(tablet) ||
+                            output_rowset->total_disk_size() >= cloud_promotion_size(tablet) ||
                             satisfy_promotion_version)
                    ? output_rowset->end_version() + 1
                    : last_cumulative_point;
