@@ -149,6 +149,7 @@ void QueryContext::_init_query_mem_tracker() {
     if (_query_options.__isset.is_report_success && _query_options.is_report_success) {
         query_mem_tracker->enable_print_log_usage();
     }
+    query_mem_tracker->set_overcommit(enable_mem_overcommit());
     _user_set_mem_limit = bytes_limit;
 }
 

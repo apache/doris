@@ -308,6 +308,10 @@ std::shared_ptr<MemTrackerLimiter> RuntimeState::query_mem_tracker() const {
     return _query_mem_tracker;
 }
 
+WorkloadGroupPtr RuntimeState::workload_group() {
+    return _query_ctx->workload_group();
+}
+
 bool RuntimeState::log_error(const std::string& error) {
     std::lock_guard<std::mutex> l(_error_log_lock);
 
