@@ -55,8 +55,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 
 public class IndexChangeJob implements Writable {
@@ -111,7 +113,7 @@ public class IndexChangeJob implements Writable {
     AgentBatchTask invertedIndexBatchTask = new AgentBatchTask();
     // save failed task after retry three times, tablet -> backends
     @SerializedName(value = "failedTabletBackends")
-    protected Map<Long, List<Long>> failedTabletBackends = Maps.newHashMap();
+    protected Map<Long, Set<Long>> failedTabletBackends = Maps.newHashMap();
     @SerializedName(value = "timeoutMs")
     protected long timeoutMs = -1;
 
@@ -372,8 +374,8 @@ public class IndexChangeJob implements Writable {
             for (AgentTask task : tasks) {
                 if (task.getFailedTimes() > 3) {
                     LOG.warn("alter inverted index task failed: " + task.getErrorMsg());
-                    List<Long> failedBackends = failedTabletBackends.computeIfAbsent(task.getTabletId(),
-                            k -> Lists.newArrayList());
+                    Set<Long> failedBackends = failedTabletBackends.computeIfAbsent(task.getTabletId(),
+                            k -> new HashSet<>());
                     failedBackends.add(task.getBackendId());
                     int expectSucceedTaskNum = tbl.getPartitionInfo()
                             .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
