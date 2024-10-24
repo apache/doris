@@ -4128,6 +4128,10 @@ public class Env {
         getInternalCatalog().replayDeleteReplica(info);
     }
 
+    public void replayModifyReplica(ReplicaPersistInfo info) throws MetaNotFoundException {
+        getInternalCatalog().replayModifyReplica(info);
+    }
+
     public void replayAddFrontend(Frontend fe) {
         tryLock(true);
         try {
