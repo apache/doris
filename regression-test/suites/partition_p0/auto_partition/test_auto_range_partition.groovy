@@ -184,7 +184,7 @@ suite("test_auto_range_partition") {
                 "replication_num" = "1"
             );
         """
-        exception "Auto Range Partition need FunctionCallExpr"
+        exception "auto create partition only support date_trunc function of RANGE partition"
     }
     test {
         sql """

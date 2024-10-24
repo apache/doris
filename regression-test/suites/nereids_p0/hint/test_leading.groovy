@@ -939,42 +939,38 @@ suite("test_leading") {
 
     // distribute hint + leading hint
 // only distribute hint + single hint
-    // used
-    qt_select90_1 """explain shape plan select count(*) from t1 join [broadcast] t2 on c1 = c2;"""
     // unused
     explain {
         sql """shape plan select count(*) from t1 right outer join [broadcast] t2 on c1 = c2;"""
-        contains("UnUsed: [broadcast]_2")
+        contains("UnUsed: [broadcast]_1")
     }
 
 // only distribute hint + multi hints
-    qt_select90_3 """explain shape plan select count(*) from t1 join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
     explain {
         sql """shape plan select count(*) from t1 right outer join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2")
+        contains("UnUsed: [broadcast]_1")
     }
-    qt_select90_5 """explain shape plan select count(*) from t1 join [broadcast] t2 on c1 = c2 right outer join[shuffle] t3 on c2 = c3;"""
     explain {
         sql """shape plan select count(*) from t1 join [shuffle] t2 on c1 = c2 right outer join[broadcast] t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_3")
+        contains("UnUsed: [broadcast]_2")
     }
 
 // leading + distribute hint outside leading + single hint
     explain {
         sql """shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2 [shuffle]_3")
+        contains("UnUsed: [broadcast]_1 [shuffle]_2")
     }
     explain {
         sql """shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 right outer join [broadcast] t2 on c1 = c2 join[shuffle] t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2 [shuffle]_3")
+        contains("UnUsed: [broadcast]_1 [shuffle]_2")
     }
     explain {
         sql """shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 join [broadcast] t2 on c1 = c2 right outer join[shuffle] t3 on c2 = c3;"""
-        contains("UnUsed: [broadcast]_2 [shuffle]_3")
+        contains("UnUsed: [broadcast]_1 [shuffle]_2")
     }
     explain {
         sql """shape plan select /*+ leading(t1 t2 t3) */ count(*) from t1 join [shuffle] t2 on c1 = c2 right outer join[broadcast] t3 on c2 = c3;"""
-        contains("UnUsed: [shuffle]_2 [broadcast]_3")
+        contains("UnUsed: [shuffle]_1 [broadcast]_2")
     }
 
 // leading + distribute hint inside leading + single hint

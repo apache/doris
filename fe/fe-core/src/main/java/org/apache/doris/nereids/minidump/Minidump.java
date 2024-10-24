@@ -19,6 +19,9 @@ package org.apache.doris.nereids.minidump;
 
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -48,7 +51,7 @@ public class Minidump {
     private String dbName;
 
     // metadata objects
-    private List<TableIf> tables;
+    private Map<List<String>, TableIf> tables;
 
     private Map<String, ColumnStatistic> totalColumnStatisticMap = new HashMap<>();
 
@@ -58,7 +61,7 @@ public class Minidump {
 
     /** Minidump class used to save environment messages */
     public Minidump(String sql, SessionVariable sessionVariable,
-                    String parsedPlanJson, String resultPlanJson, List<TableIf> tables,
+                    String parsedPlanJson, String resultPlanJson, Map<List<String>, TableIf> tables,
                     String dbName, Map<String, ColumnStatistic> totalColumnStatisticMap,
                     Map<String, Histogram> totalHistogramMap, ColocateTableIndex colocateTableIndex) {
         this.sql = sql;
@@ -84,7 +87,7 @@ public class Minidump {
         return resultPlanJson;
     }
 
-    public List<TableIf> getTables() {
+    public Map<List<String>, TableIf> getTables() {
         return tables;
     }
 
@@ -111,7 +114,16 @@ public class Minidump {
     /** Nereids minidump entry, argument should be absolute address of minidump path */
     public static void main(String[] args) {
         assert (args.length == 1);
-        Minidump minidump = MinidumpUtils.loadMinidumpInputs(args[0]);
+        Minidump minidump = null;
+        try {
+            minidump = MinidumpUtils.loadMinidumpInputs(args[0]);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        StatementContext statementContext = new StatementContext(ConnectContext.get(),
+                new OriginStatement(minidump.getSql(), 0));
+        ConnectContext.get().setStatementContext(statementContext);
         JSONObject resultPlan = MinidumpUtils.executeSql(minidump.getSql());
         JSONObject minidumpResult = new JSONObject(minidump.getResultPlanJson());
 
@@ -121,9 +133,10 @@ public class Minidump {
             System.out.println(minidump.sql);
         } else {
             System.out.println(minidump.sql + "\n" + "Result plan are not expected. Differences:");
-            for (String difference : differences) {
-                System.out.println(difference + "\n");
-            }
+            System.out.println("----------------------------Result plan--------------------------");
+            System.out.println(resultPlan + "\n");
+            System.out.println("----------------------------Minidump plan--------------------------");
+            System.out.println(minidumpResult + "\n");
         }
         System.exit(0);
     }

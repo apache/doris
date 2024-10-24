@@ -47,14 +47,14 @@ public class PushDownFilterThroughProject implements RewriteRuleFactory {
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalFilter(logicalProject())
+                logicalFilter(logicalProject().whenNot(LogicalProject::containsNoneMovableFunction))
                         .whenNot(filter -> ExpressionUtils.containsWindowExpression(filter.child().getProjects()))
                         .then(PushDownFilterThroughProject::pushDownFilterThroughProject)
                         .toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_PROJECT),
                 // filter(project(limit)) will change to filter(limit(project)) by PushdownProjectThroughLimit,
                 // then we should change filter(limit(project)) to project(filter(limit))
                 // TODO maybe we could remove this rule, because translator already support filter(limit(project))
-                logicalFilter(logicalLimit(logicalProject()))
+                logicalFilter(logicalLimit(logicalProject().whenNot(LogicalProject::containsNoneMovableFunction)))
                         .whenNot(filter ->
                                 ExpressionUtils.containsWindowExpression(filter.child().child().getProjects())
                         )

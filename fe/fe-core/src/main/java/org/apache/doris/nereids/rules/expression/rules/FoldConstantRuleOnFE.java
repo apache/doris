@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
@@ -171,7 +172,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Date.class, this::visitDate),
                 matches(Version.class, this::visitVersion),
                 matches(SessionUser.class, this::visitSessionUser),
-                matches(LastQueryId.class, this::visitLastQueryId)
+                matches(LastQueryId.class, this::visitLastQueryId),
+                matches(Nvl.class, this::visitNvl)
         );
     }
 
@@ -642,6 +644,21 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     @Override
     public Expression visitVersion(Version version, ExpressionRewriteContext context) {
         return new StringLiteral(GlobalVariable.version);
+    }
+
+    @Override
+    public Expression visitNvl(Nvl nvl, ExpressionRewriteContext context) {
+        for (Expression expr : nvl.children()) {
+            if (expr.isLiteral()) {
+                if (!expr.isNullLiteral()) {
+                    return expr;
+                }
+            } else {
+                return nvl;
+            }
+        }
+        // all nulls
+        return nvl.child(0);
     }
 
     private <E extends Expression> E rewriteChildren(E expr, ExpressionRewriteContext context) {

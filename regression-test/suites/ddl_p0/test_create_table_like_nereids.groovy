@@ -46,7 +46,8 @@ suite("test_create_table_like_nereids") {
     // with all rollup
     sql "drop table if exists table_like_with_roll_up"
     sql "CREATE TABLE table_like_with_roll_up LIKE mal_test_create_table_like with rollup;"
-    waitForRollUpJob("mal_test_create_table_like", 5000, 2)
+    waitForRollUpJob("mal_test_create_table_like", "r1", 60000)
+    waitForRollUpJob("mal_test_create_table_like", "r2", 60000)
     explain {
         sql ("select sum(a) from table_like_with_roll_up group by a")
         contains "ru1"
@@ -59,7 +60,7 @@ suite("test_create_table_like_nereids") {
     // with partial rollup
     sql "drop table if exists table_like_with_partial_roll_up;"
     sql "CREATE TABLE table_like_with_partial_roll_up LIKE mal_test_create_table_like with rollup (ru1);"
-    waitForRollUpJob("mal_test_create_table_like", 5000, 2)
+    waitForRollUpJob("mal_test_create_table_like", "r1", 60000)
     sql "select * from table_like_with_partial_roll_up order by pk, a, b"
     explain {
         sql("select sum(a) from table_like_with_partial_roll_up group by a")
@@ -78,7 +79,7 @@ suite("test_create_table_like_nereids") {
     sql "drop table if exists table_like_with_partial_roll_up_exists"
     sql """CREATE TABLE if not exists table_like_with_partial_roll_up_exists
     LIKE mal_test_create_table_like with rollup (ru1);"""
-    waitForRollUpJob("mal_test_create_table_like", 5000, 2)
+    waitForRollUpJob("mal_test_create_table_like", "r1", 60000)
 
     sql "drop table if exists test_create_table_like_char_255"
     sql """

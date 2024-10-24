@@ -32,8 +32,6 @@ enum {
 };
 
 namespace doris::vectorized {
-static const int64_t timestamp_threshold = -2177481943;
-static const int64_t timestamp_diff = 343;
 static const int64_t micr_to_nano_second = 1000;
 
 Status DataTypeDateTimeV2SerDe::serialize_column_to_json(const IColumn& column, int start_idx,
@@ -232,14 +230,6 @@ Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
                 binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(col_data[row_id]);
         if (!datetime_val.unix_timestamp(&timestamp, timezone)) {
             return Status::InternalError("get unix timestamp error.");
-        }
-
-        // -2177481943 represent '1900-12-31 23:54:17'
-        // but -2177481944 represent '1900-12-31 23:59:59'
-        // so for timestamp <= -2177481944, we subtract 343 (5min 43s)
-        // Reference: https://www.timeanddate.com/time/change/china/shanghai?year=1900
-        if (timezone == TimezoneUtils::default_time_zone && timestamp < timestamp_threshold) {
-            timestamp -= timestamp_diff;
         }
 
         cur_batch->data[row_id] = timestamp;

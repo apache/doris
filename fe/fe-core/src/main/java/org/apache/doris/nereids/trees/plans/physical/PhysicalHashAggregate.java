@@ -23,9 +23,11 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.plans.AggMode;
@@ -197,9 +199,9 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         TopnPushInfo topnPushInfo = (TopnPushInfo) getMutableState(
                 MutableState.KEY_PUSH_TOPN_TO_AGG).orElseGet(() -> null);
         return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+                "stats", statistics,
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
-                "stats", statistics,
                 "maybeUseStreaming", maybeUsingStream,
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
@@ -335,14 +337,32 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         return this;
     }
 
+    /**
+     * sql: select sum(distinct c1) from t;
+     * assume c1 is not null, because there is no group by
+     * sum(distinct c1)'s nullable is alwasNullable in rewritten phase.
+     * But in implementation phase, we may create 3 phase agg with group by key c1.
+     * And the sum(distinct c1)'s nullability should be changed depending on if there is any group by expressions.
+     * This pr update the agg function's nullability accordingly
+     */
     private List<NamedExpression> adjustNullableForOutputs(List<NamedExpression> outputs, boolean alwaysNullable) {
         return ExpressionUtils.rewriteDownShortCircuit(outputs, output -> {
-            if (output instanceof NullableAggregateFunction
-                    && ((NullableAggregateFunction) output).isAlwaysNullable() != alwaysNullable) {
-                return ((NullableAggregateFunction) output).withAlwaysNullable(alwaysNullable);
-            } else {
-                return output;
+            if (output instanceof AggregateExpression) {
+                AggregateFunction function = ((AggregateExpression) output).getFunction();
+                if (function instanceof NullableAggregateFunction
+                        && ((NullableAggregateFunction) function).isAlwaysNullable() != alwaysNullable) {
+                    AggregateParam param = ((AggregateExpression) output).getAggregateParam();
+                    Expression child = ((AggregateExpression) output).child();
+                    AggregateFunction newFunction = ((NullableAggregateFunction) function)
+                            .withAlwaysNullable(alwaysNullable);
+                    if (function == child) {
+                        // function is also child
+                        child = newFunction;
+                    }
+                    return new AggregateExpression(newFunction, param, child);
+                }
             }
+            return output;
         });
     }
 }
