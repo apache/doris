@@ -285,6 +285,7 @@ terminal String
     KW_BIN,
     KW_BINLOG,
     KW_BITMAP,
+    KW_BITMAP_EMPTY,
     KW_BITMAP_UNION,
     KW_BLOB,
     KW_BOOLEAN,
@@ -3971,6 +3972,10 @@ opt_default_value ::=
     | KW_DEFAULT KW_CURRENT_TIMESTAMP LPAREN INTEGER_LITERAL:precision RPAREN
     {:
         RESULT = ColumnDef.DefaultValue.currentTimeStampDefaultValueWithPrecision(precision);
+    :}
+    | KW_DEFAULT KW_BITMAP_EMPTY
+    {:
+        RESULT = ColumnDef.DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
     :}
     | KW_DEFAULT INTEGER_LITERAL:value
     {:
@@ -8101,6 +8106,8 @@ keyword ::=
     | KW_BIN:id
     {: RESULT = id; :}
     | KW_BITMAP:id
+    {: RESULT = id; :}
+    | KW_BITMAP_EMPTY:id
     {: RESULT = id; :}
     | KW_QUANTILE_STATE:id
     {: RESULT = id; :}
