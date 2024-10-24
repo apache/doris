@@ -3140,7 +3140,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) {
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
         long visibleVersion = tableVersions.containsKey(id) ? tableVersions.get(id) : getVisibleVersion();
-        return new MTMVVersionSnapshot(visibleVersion);
+        return new MTMVVersionSnapshot(visibleVersion, id);
     }
 
     @Override
