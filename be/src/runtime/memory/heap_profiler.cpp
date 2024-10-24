@@ -17,6 +17,9 @@
 
 #include "runtime/memory/heap_profiler.h"
 
+#ifdef USE_JEMALLOC
+#include "jemalloc/jemalloc.h"
+#endif
 #include "agent/utils.h"
 #include "common/config.h"
 #include "io/fs/local_file_system.h"
@@ -57,6 +60,8 @@ bool HeapProfiler::get_prof_dump(const std::string& profile_file_name) {
         LOG(WARNING) << "dump heap profile failed";
         return false;
     }
+#else
+    return false;
 #endif
 }
 
@@ -85,10 +90,14 @@ void HeapProfiler::heap_profiler_stop() {
 }
 
 bool HeapProfiler::check_heap_profiler() {
+#ifdef USE_JEMALLOC
     size_t value = 0;
     size_t sz = sizeof(value);
     jemallctl("prof.active", &value, &sz, nullptr, 0);
     return value;
+#else
+    return false;
+#endif
 }
 
 std::string HeapProfiler::dump_heap_profile() {
