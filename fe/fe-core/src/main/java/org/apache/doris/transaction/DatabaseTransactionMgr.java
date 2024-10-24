@@ -37,6 +37,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -685,15 +686,16 @@ public class DatabaseTransactionMgr {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("transaction not found: {}", transactionId);
             }
-            throw new TransactionCommitFailedException("transaction [" + transactionId + "] not found.");
+            throw new TransactionCommitFailedException(InternalErrorCode.TXN_NOT_EXIST,
+                    "transaction [" + transactionId + "] not found.");
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("transaction is already aborted: {}", transactionId);
             }
-            throw new TransactionCommitFailedException("transaction [" + transactionId
-                    + "] is already aborted. abort reason: " + transactionState.getReason());
+            throw new TransactionCommitFailedException(InternalErrorCode.TXN_ALREADY_ABORT, "transaction ["
+                    + transactionId + "] is already aborted. abort reason: " + transactionState.getReason());
         }
 
         if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
@@ -701,8 +703,8 @@ public class DatabaseTransactionMgr {
                 LOG.debug("transaction is already visible: {}", transactionId);
             }
             if (is2PC) {
-                throw new TransactionCommitFailedException("transaction [" + transactionId
-                        + "] is already visible, not pre-committed.");
+                throw new TransactionCommitFailedException(InternalErrorCode.TXN_ALREADY_VISIBLE, "transaction ["
+                        + transactionId + "] is already visible, not pre-committed.");
             }
             return false;
         }
@@ -711,8 +713,8 @@ public class DatabaseTransactionMgr {
                 LOG.debug("transaction is already committed: {}", transactionId);
             }
             if (is2PC) {
-                throw new TransactionCommitFailedException("transaction [" + transactionId
-                        + "] is already committed, not pre-committed.");
+                throw new TransactionCommitFailedException(InternalErrorCode.TXN_ALREADY_COMMITTED, "transaction ["
+                        + transactionId + "] is already committed, not pre-committed.");
             }
             return false;
         }
@@ -1787,11 +1789,11 @@ public class DatabaseTransactionMgr {
             throws UserException {
         TransactionState transactionState = unprotectedGetTransactionState(transactionId);
         if (transactionState == null) {
-            throw new TransactionNotFoundException("transaction [" + transactionId + "] not found.");
+            throw new UserException(InternalErrorCode.TXN_NOT_EXIST, "transaction [" + transactionId + "] not found.");
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.ABORTED) {
-            throw new TransactionNotFoundException("transaction [" + transactionId + "] is already aborted, "
-                    + "abort reason: " + transactionState.getReason());
+            throw new UserException(InternalErrorCode.TXN_ALREADY_ABORT, "transaction [" + transactionId
+                    + "] is already aborted, " + "abort reason: " + transactionState.getReason());
         }
         if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
                 || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
