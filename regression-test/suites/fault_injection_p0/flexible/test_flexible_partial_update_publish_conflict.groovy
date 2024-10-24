@@ -40,19 +40,27 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
     sql """insert into ${tableName} select number, number, number, number, number, number from numbers("number" = "6"); """
     order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
 
-    def enable_publish_spin_wait = {
+    def enable_publish_spin_wait = { tokenName -> 
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "${tokenName}"])
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait", [token: "${tokenName}"])
         }
     }
 
-    def enable_block_in_publish = {
+    def disable_publish_spin_wait = {
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+        }
+    }
+    
+    def enable_block_in_publish = { passToken -> 
+        if (isCloudMode()) {
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "${passToken}"])
+        } else {
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block", [pass_token: "${passToken}"])
         }
     }
 
@@ -79,7 +87,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
                 set 'strict_mode', 'false'
                 set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
                 file "test1.json"
-                time 20000
+                time 40000
             }
         }
 
@@ -93,18 +101,62 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
                 set 'strict_mode', 'false'
                 set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
                 file "test2.json"
-                time 20000
+                time 40000
             }
         }
 
         Thread.sleep(500)
 
+        disable_publish_spin_wait()
         disable_block_in_publish()
         t1.join()
         t2.join()
 
         order_qt_sql "select k,v1,v2,v3,v4,v5,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
-        
+
+
+        // ==================================================================================================
+        sql "truncate table ${tableName}"
+        enable_publish_spin_wait("token1")
+        enable_block_in_publish("-1")
+        def t3 = Thread.start {
+            sql "set insert_visible_timeout_ms=60000;"
+            sql "sync;"
+            sql "insert into ${tableName} values(1,1,1,1,1,1),(2,2,2,2,2,2);"
+        }
+        Thread.sleep(700)
+        def t4 = Thread.start {
+            sql "set enable_unique_key_partial_update=true;"
+            sql "set insert_visible_timeout_ms=60000;"
+            sql "set enable_insert_strict=false;"
+            sql "sync;"
+            sql "insert into ${tableName}(k,v1,v2,v3) values(1,99,99,99);"
+        }
+        Thread.sleep(700)
+        enable_publish_spin_wait("token2")
+        def t5 = Thread.start {
+            streamLoad {
+                table "${tableName}"
+                set 'format', 'json'
+                set 'read_json_by_line', 'true'
+                set 'strict_mode', 'false'
+                set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+                file "test5.json"
+                time 40000
+            }
+        }
+        Thread.sleep(700)
+        // let t3 and t4 publish
+        enable_block_in_publish("token1")
+        t3.join()
+        t4.join()
+        Thread.sleep(1000)
+        qt_sql1 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+        // let t5 publish
+        enable_block_in_publish("token2")
+        t5.join()
+        qt_sql2 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
+
     } catch(Exception e) {
         logger.info(e.getMessage())
         throw e
@@ -112,6 +164,4 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllFEs()
         GetDebugPoint().clearDebugPointsForAllBEs()
     }
-
-    sql "DROP TABLE IF EXISTS ${tableName};"
 }
