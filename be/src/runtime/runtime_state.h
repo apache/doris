@@ -170,7 +170,7 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
-    bool enable_decima256() const {
+    bool enable_decimal256() const {
         return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
     }
 

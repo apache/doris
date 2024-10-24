@@ -63,7 +63,8 @@ AggregateFunctionPtr create_function_single_value(const String& name,
 template <bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string& name,
                                                                const DataTypes& argument_types,
-                                                               const bool result_is_nullable) {
+                                                               const bool result_is_nullable,
+                                                               const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionSamp, CovarSampName, SampData,
                                         is_nullable>(name, argument_types, result_is_nullable,
                                                      NULLABLE);
@@ -71,7 +72,8 @@ AggregateFunctionPtr create_aggregate_function_covariance_samp(const std::string
 
 AggregateFunctionPtr create_aggregate_function_covariance_pop(const std::string& name,
                                                               const DataTypes& argument_types,
-                                                              const bool result_is_nullable) {
+                                                              const bool result_is_nullable,
+                                                              const AggregateFunctionAttr& attr) {
     return create_function_single_value<AggregateFunctionPop, CovarName, PopData>(
             name, argument_types, result_is_nullable, NOTNULLABLE);
 }
