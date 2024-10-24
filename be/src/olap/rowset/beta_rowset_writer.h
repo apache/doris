@@ -85,8 +85,6 @@ public:
     // This method is thread-safe.
     Status flush_single_block(const vectorized::Block* block) override;
 
-    Status build(RowsetSharedPtr& rowset) override;
-
     RowsetSharedPtr manual_build(const RowsetMetaSharedPtr& rowset_meta) override;
 
     PUniqueId load_id() override { return _context.load_id; }
@@ -132,18 +130,16 @@ public:
 
     const RowsetWriterContext& context() const override { return _context; }
 
-private:
+protected:
     virtual Status _generate_delete_bitmap(int32_t segment_id) = 0;
     Status _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta,
                               bool check_segment_num = false);
 
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
-    // build a tmp rowset for load segment to calc delete_bitmap
-    // for this segment
-protected:
+
     Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
     virtual Status _close_file_writers();
-    virtual Status _check_segment_number_limit();
+    virtual Status _check_segment_number_limit(size_t segnum);
     virtual int64_t _num_seg() const;
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
     Status _build_tmp(RowsetSharedPtr& rowset_ptr);
@@ -201,6 +197,8 @@ public:
     Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
                        TabletSchemaSPtr flush_schema) override;
 
+    Status build(RowsetSharedPtr& rowset) override;
+
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
             KeyBoundsPB& key_bounds);
@@ -213,7 +211,7 @@ private:
     // segment compaction
     friend class SegcompactionWorker;
     Status _close_file_writers() override;
-    Status _check_segment_number_limit() override;
+    Status _check_segment_number_limit(size_t segnum) override;
     int64_t _num_seg() const override;
     Status _wait_flying_segcompaction();
     Status _create_segment_writer_for_segcompaction(
@@ -222,7 +220,6 @@ private:
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
-    bool _check_and_set_is_doing_segcompaction();
     Status _rename_compacted_segments(int64_t begin, int64_t end);
     Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
