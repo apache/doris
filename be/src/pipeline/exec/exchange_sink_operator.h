@@ -231,13 +231,14 @@ private:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    template <typename Channels, typename HashValueType>
-    Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const HashValueType* channel_ids, int rows, vectorized::Block* block,
-                            bool eos);
+    Status channel_add_rows(RuntimeState* state,
+                            std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+                            int num_channels, const uint32_t* channel_ids, int rows,
+                            vectorized::Block* block, bool eos);
 
-    template <typename Channels>
-    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
+    Status channel_add_rows_with_idx(RuntimeState* state,
+                                     std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+                                     int num_channels,
                                      std::vector<std::vector<uint32_t>>& channel2rows,
                                      vectorized::Block* block, bool eos);
     RuntimeState* _state = nullptr;
