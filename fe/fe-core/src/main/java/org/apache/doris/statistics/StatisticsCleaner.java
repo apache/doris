@@ -183,10 +183,8 @@ public class StatisticsCleaner extends MasterDaemon {
 
     private Map<Long, DatabaseIf> constructDbMap() {
         Map<Long, DatabaseIf> idToDb = Maps.newHashMap();
-        for (CatalogIf<? extends DatabaseIf> ctl : idToCatalog.values()) {
-            for (DatabaseIf db : ctl.getAllDbs()) {
-                idToDb.put(db.getId(), db);
-            }
+        for (DatabaseIf db : Env.getCurrentEnv().getInternalCatalog().getAllDbs()) {
+            idToDb.put(db.getId(), db);
         }
         return idToDb;
     }
@@ -270,6 +268,16 @@ public class StatisticsCleaner extends MasterDaemon {
                     long catalogId = statsId.catalogId;
                     if (!idToCatalog.containsKey(catalogId)) {
                         expiredStats.expiredCatalog.add(catalogId);
+                        continue;
+                    }
+                    // Skip check external DBs and tables to avoid fetch too much metadata.
+                    // Remove expired external table stats only when the external catalog is dropped.
+                    // TODO: Need to check external database and table exist or not. But for now, we only check catalog.
+                    // Because column_statistics table only keep table id and db id.
+                    // But meta data doesn't always cache all external tables' ids.
+                    // So we may fail to find the external table only by id. Need to use db name and table name instead.
+                    // Have to store db name and table name in column_statistics in the future.
+                    if (catalogId != InternalCatalog.INTERNAL_CATALOG_ID) {
                         continue;
                     }
                     long dbId = statsId.dbId;
