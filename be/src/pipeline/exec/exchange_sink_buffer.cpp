@@ -416,7 +416,10 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         }
         broadcast_q.pop();
     } else {
-        _turn_off_channel(id);
+        if (!_rpc_channel_is_idle[id]) {
+            _rpc_channel_is_idle[id] = true;
+            _busy_channels.fetch_sub(1);
+        }
     }
 
     return Status::OK();
@@ -458,7 +461,7 @@ void ExchangeSinkBuffer<Parent>::_failed(InstanceLoId id, const std::string& err
     _context->cancel(err, Status::Cancelled(err));
     if constexpr (std::is_same_v<ExchangeSinkLocalState, Parent>) {
         std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
-        _turn_off_channel(id, true);
+        _turn_off_channel(id);
     } else {
         _ended(id);
     }
@@ -468,7 +471,7 @@ template <typename Parent>
 void ExchangeSinkBuffer<Parent>::_set_receiver_eof(InstanceLoId id) {
     std::unique_lock<std::mutex> lock(*_instance_to_package_queue_mutex[id]);
     _instance_to_receiver_eof[id] = true;
-    _turn_off_channel(id, std::is_same_v<ExchangeSinkLocalState, Parent> ? true : false);
+    _turn_off_channel(id);
     std::queue<BroadcastTransmitInfo<Parent>, std::list<BroadcastTransmitInfo<Parent>>> empty;
     swap(empty, _instance_to_broadcast_package_queue[id]);
 }
@@ -480,16 +483,15 @@ bool ExchangeSinkBuffer<Parent>::_is_receiver_eof(InstanceLoId id) {
 }
 
 template <typename Parent>
-void ExchangeSinkBuffer<Parent>::_turn_off_channel(InstanceLoId id, bool cleanup) {
+void ExchangeSinkBuffer<Parent>::_turn_off_channel(InstanceLoId id) {
     if (!_rpc_channel_is_idle[id]) {
         _rpc_channel_is_idle[id] = true;
-        auto all_done = _busy_channels.fetch_sub(1) == 1;
-        _set_ready_to_finish(all_done);
-        if (cleanup && all_done) {
+        _busy_channels.fetch_sub(1);
+        if constexpr (std::is_same_v<ExchangeSinkLocalState, Parent>) {
             auto weak_task_ctx = weak_task_exec_ctx();
             if (auto pip_ctx = weak_task_ctx.lock()) {
                 DCHECK(_parent);
-                _parent->set_reach_limit();
+                _parent->on_channel_finished(id);
             }
         }
     }

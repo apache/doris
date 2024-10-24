@@ -91,7 +91,7 @@ public:
               _serializer(this) {
         _finish_dependency =
                 std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
+                                             parent->get_name() + "_FINISH_DEPENDENCY", false);
     }
 
     std::vector<Dependency*> dependencies() const override {
@@ -145,6 +145,9 @@ public:
         return Status::OK();
     }
     Status _send_new_partition_batch();
+
+    void on_channel_finished(InstanceLoId channel_id);
+
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
             channel_shared_ptrs;
@@ -237,6 +240,10 @@ private:
     std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
     std::atomic<bool> _reach_limit = false;
     int _last_local_channel_idx = -1;
+
+    std::atomic_int _working_channels_count = 0;
+    std::set<InstanceLoId> _finished_channels;
+    std::mutex _finished_channels_mutex;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {

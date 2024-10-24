@@ -282,7 +282,7 @@ private:
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
     inline bool _is_receiver_eof(InstanceLoId id);
-    inline void _turn_off_channel(InstanceLoId id, bool cleanup = false);
+    inline void _turn_off_channel(InstanceLoId id);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 

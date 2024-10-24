@@ -222,10 +222,16 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
         _local_recvr->add_block(&block, _parent->sender_id(), true);
         if (eos) {
             _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+            if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
+                _parent->on_channel_finished(_fragment_instance_id.lo);
+            }
         }
         return Status::OK();
     } else {
         _serializer.reset_block();
+        if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
+            _parent->on_channel_finished(_fragment_instance_id.lo);
+        }
         return _receiver_status;
     }
 }
@@ -348,6 +354,9 @@ Status Channel<Parent>::close_internal(Status exec_status) {
         if (is_local()) {
             if (_recvr_is_valid()) {
                 _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
+            }
+            if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
+                _parent->on_channel_finished(_fragment_instance_id.lo);
             }
         } else {
             // Non pipeline engine will send an empty eos block
