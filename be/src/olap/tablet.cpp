@@ -2395,7 +2395,7 @@ int64_t Tablet::_get_newest_cooldown_time(const RowsetSharedPtr& rowset) {
         newest_cooldown_time = rowset->newest_write_timestamp() + cooldown_ttl_sec;
     }
     if (cooldown_datetime > 0) {
-        newest_cooldown_time = std::min(newest_cooldown_time, cooldown_datetime);
+        newest_cooldown_time = rowset->newest_write_timestamp() <  cooldown_datetime ? rowset->newest_write_timestamp() : newest_cooldown_time;
     }
 
     return newest_cooldown_time;
