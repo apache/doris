@@ -53,6 +53,7 @@
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_column_object_pool.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
@@ -338,6 +339,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     _tablet_schema_cache =
             TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
+
+    _tablet_column_object_pool = TabletColumnObjectPool::create_global_column_cache(
+            config::tablet_schema_cache_capacity);
 
     // Storage engine
     doris::EngineOptions options;
