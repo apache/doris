@@ -36,6 +36,7 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -259,10 +260,22 @@ public class AuditLogHelper {
         auditEventBuilder.setFeIp(FrontendOptions.getLocalHostAddress());
 
         // We put origin query stmt at the end of audit log, for parsing the log more convenient.
-        if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
-            auditEventBuilder.setStmt(parsedStmt.toSql());
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            if (!ctx.getState().isQuery() && (parsedStmt != null
+                    && (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof NeedAuditEncryption)
+                    && ((NeedAuditEncryption) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan())
+                            .needAuditEncryption())) {
+                auditEventBuilder
+                        .setStmt(((NeedAuditEncryption) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan()).toSql());
+            } else {
+                auditEventBuilder.setStmt(origStmt);
+            }
         } else {
-            auditEventBuilder.setStmt(origStmt);
+            if (!ctx.getState().isQuery() && (parsedStmt != null && parsedStmt.needAuditEncryption())) {
+                auditEventBuilder.setStmt(parsedStmt.toSql());
+            } else {
+                auditEventBuilder.setStmt(origStmt);
+            }
         }
 
         auditEventBuilder.setStmtType(getStmtType(parsedStmt));
