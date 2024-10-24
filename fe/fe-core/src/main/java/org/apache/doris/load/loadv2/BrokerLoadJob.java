@@ -43,6 +43,7 @@ import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.BrokerFileGroup;
@@ -260,6 +261,10 @@ public class BrokerLoadJob extends BulkLoadJob {
                 List<BrokerFileGroup> brokerFileGroups = entry.getValue();
                 long tableId = aggKey.getTableId();
                 OlapTable table = (OlapTable) db.getTableNullable(tableId);
+                if (table.isTemporary())  {
+                    throw new UserException("Do not support load into temporary table "
+                        + Util.getTempTableOuterName(table.getName()));
+                }
                 boolean isEnableMemtableOnSinkNode =
                         table.getTableProperty().getUseSchemaLightChange() && this.enableMemTableOnSinkNode;
                 // Generate loading task and init the plan of task

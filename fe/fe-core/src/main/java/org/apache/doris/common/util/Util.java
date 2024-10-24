@@ -690,4 +690,27 @@ public class Util {
     public static long genIdByName(String... names) {
         return Math.abs(sha256long(String.join(".", names)));
     }
+
+
+    public static String generateTempTableInnerName(String tableName) {
+        ConnectContext ctx = ConnectContext.get();
+        // when replay edit log, no need to generate temp table name
+        return ctx == null ? tableName : ctx.getConnectionId() + "_#TEMP#_" + tableName;
+    }
+
+    public static String getTempTableOuterName(String tableName) {
+        return tableName.indexOf("_#TEMP#_") != -1 ? tableName.split("_#TEMP#_")[1] : tableName;
+    }
+
+    public static int getTempTableConnectionId(String tableName) {
+        return tableName.indexOf("_#TEMP#_") != -1 ? new Integer(tableName.split("_#TEMP#_")[0]) : -1;
+    }
+
+    public static boolean isTempTable(String tableName) {
+        return tableName.indexOf("_#TEMP#_") != -1;
+    }
+
+    public static boolean isTempTableInCurrentSession(String tableName) {
+        return getTempTableConnectionId(tableName) == ConnectContext.get().getConnectionId();
+    }
 }

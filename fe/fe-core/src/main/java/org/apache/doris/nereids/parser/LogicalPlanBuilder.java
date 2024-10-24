@@ -2753,6 +2753,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new CreateTableCommand(Optional.empty(), new CreateTableInfo(
                     ctx.EXISTS() != null,
                     ctx.EXTERNAL() != null,
+                    ctx.TEMPORARY() != null,
                     ctlName,
                     dbName,
                     tableName,
@@ -2772,6 +2773,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new CreateTableCommand(Optional.of(visitQuery(ctx.query())), new CreateTableInfo(
                     ctx.EXISTS() != null,
                     ctx.EXTERNAL() != null,
+                    ctx.TEMPORARY() != null,
                     ctlName,
                     dbName,
                     tableName,
@@ -3805,6 +3807,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             withAllRollUp = true;
         }
         CreateTableLikeInfo info = new CreateTableLikeInfo(ctx.EXISTS() != null,
+                ctx.TEMPORARY() != null,
                 new TableNameInfo(nameParts), new TableNameInfo(existedTableNameParts),
                 rollupNames, withAllRollUp);
         return new CreateTableLikeCommand(info);

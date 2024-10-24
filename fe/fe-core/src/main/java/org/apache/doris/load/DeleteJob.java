@@ -45,6 +45,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.planner.ColumnBound;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.ListPartitionPrunerV2;
@@ -619,7 +620,11 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                     }
                 } else if (olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED) {
                     // this is an un-partitioned table, use table name as partition name
-                    partitionNames.add(olapTable.getName());
+                    if (olapTable.isTemporary()) {
+                        partitionNames.add(Util.getTempTableOuterName(olapTable.getName()));
+                    } else {
+                        partitionNames.add(olapTable.getName());
+                    }
                 } else {
                     throw new UserException("Unknown partition type: " + olapTable.getPartitionInfo().getType());
                 }

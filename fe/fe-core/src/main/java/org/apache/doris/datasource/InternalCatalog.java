@@ -941,7 +941,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
 
-            dropTableInternal(db, table, stmt.isForceDrop(), watch, costTimes);
+            if (table.isTemporary()) {
+                dropTableInternal(db, table, true, watch, costTimes);
+            } else {
+                dropTableInternal(db, table, stmt.isForceDrop(), watch, costTimes);
+            }
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         } finally {
@@ -1004,6 +1008,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, forceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
+        if (table.isTemporary() && ConnectContext.get() != null) {
+            ConnectContext.get().removeTempTableFromDB(db.getFullName(), tableName);
+        }
     }
 
     private static String genDropHint(String dbName, TableIf table) {
@@ -1029,6 +1036,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
+        }
+
+        if (isReplay && table.isTemporary()) {
+            Env.getCurrentEnv().removePhantomTempTable(table);
         }
         Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         db.unregisterTable(table.getName());
@@ -1210,12 +1221,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         String engineName = stmt.getEngineName();
         String dbName = stmt.getDbName();
         String tableName = stmt.getTableName();
+        String tableShowName = tableName;
+        if (stmt.isTemp()) {
+            tableName = Util.generateTempTableInnerName(tableName);
+        }
 
         // check if db exists
         Database db = getDbOrDdlException(dbName);
         // InfoSchemaDb and MysqlDb can not create table manually
         if (db instanceof MysqlCompatibleDatabase) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableName,
+            ErrorReport.reportDdlException(ErrorCode.ERR_CANT_CREATE_TABLE, tableShowName,
                     ErrorCode.ERR_CANT_CREATE_TABLE.getCode(), "not supported create table in this database");
         }
 
@@ -1225,12 +1240,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // check if table exists in db
-        if (db.getTable(tableName).isPresent()) {
+        boolean isTableExist = stmt.isTemp() ? db.isTableExist(tableName, true) : db.isTableExist(tableName);
+        if (isTableExist) {
             if (stmt.isSetIfNotExists()) {
-                LOG.info("create table[{}] which already exists", tableName);
+                LOG.info("create table[{}] which already exists", tableShowName);
                 return true;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
         }
         if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(tableName)).isPresent()) {
@@ -1315,6 +1331,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         createTableStmt.get(0), ctx);
                 parsedCreateTableStmt.setTableName(stmt.getTableName());
                 parsedCreateTableStmt.setIfNotExists(stmt.isIfNotExists());
+                parsedCreateTableStmt.setTemp(stmt.isTemp());
                 createTable(parsedCreateTableStmt);
             } finally {
                 ctx.setSkipAuth(false);
@@ -2389,6 +2406,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin create olap table: {}", tableName);
         }
+        String tableShowName = tableName;
+        if (stmt.isTemp()) {
+            tableName = Util.generateTempTableInnerName(tableName);
+        }
         boolean tableHasExist = false;
         BinlogConfig dbBinlogConfig;
         db.readLock();
@@ -2453,7 +2474,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
             long partitionId = idGeneratorBuffer.getNextId();
             // use table name as single partition name
-            partitionNameToId.put(tableName, partitionId);
+            if (stmt.isTemp()) {
+                partitionNameToId.put(Util.getTempTableOuterName(tableName), partitionId);
+            } else {
+                partitionNameToId.put(tableName, partitionId);
+            }
             partitionInfo = new SinglePartitionInfo();
         }
 
@@ -2478,7 +2503,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long tableId = idGeneratorBuffer.getNextId();
         TableType tableType = OlapTableFactory.getTableType(stmt);
         OlapTable olapTable = (OlapTable) new OlapTableFactory()
-                .init(tableType)
+                .init(tableType, stmt.isTemp())
                 .withTableId(tableId)
                 .withTableName(tableName)
                 .withSchema(baseSchema)
@@ -2897,7 +2922,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             // in RangePartitionDesc analyze phase.
 
             // use table name as this single partition name
-            long partitionId = partitionNameToId.get(tableName);
+            long partitionId = -1;
+            if (stmt.isTemp()) {
+                partitionId = partitionNameToId.get(Util.getTempTableOuterName(tableName));
+            } else {
+                partitionId = partitionNameToId.get(tableName);
+            }
             DataProperty dataProperty = null;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
@@ -3057,6 +3087,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 // use table name as partition name
                 DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                 String partitionName = tableName;
+                if (stmt.isTemp()) {
+                    partitionName = Util.getTempTableOuterName(tableName);
+                }
                 long partitionId = partitionNameToId.get(partitionName);
 
                 // check replica quota if this operation done
@@ -3066,8 +3099,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                 long totalReplicaNum = indexNum * bucketNum * replicaNum;
                 if (Config.isNotCloudMode() && totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
                     throw new DdlException(
-                            "Database " + db.getFullName() + " create unpartitioned table " + tableName + " increasing "
-                                    + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
+                            "Database " + db.getFullName() + " create unpartitioned table " + tableShowName
+                                    + " increasing " + totalReplicaNum + " of replica exceeds quota["
+                                    + db.getReplicaQuota() + "]");
                 }
                 beforeCreatePartitions(db.getId(), olapTable.getId(), null, olapTable.getIndexIdList(), true);
                 Partition partition = createPartitionWithIndices(db.getId(), olapTable,
@@ -3130,7 +3164,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
                 if (Config.isNotCloudMode() && totalReplicaNum >= db.getReplicaQuotaLeftWithLock()) {
                     throw new DdlException(
-                            "Database " + db.getFullName() + " create table " + tableName + " increasing "
+                            "Database " + db.getFullName() + " create table " + tableShowName + " increasing "
                                     + totalReplicaNum + " of replica exceeds quota[" + db.getReplicaQuota() + "]");
                 }
 
@@ -3176,7 +3210,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             Pair<Boolean, Boolean> result = db.createTableWithLock(olapTable, false, stmt.isSetIfNotExists());
             if (!result.first) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableShowName);
             }
 
             if (result.second) {

@@ -76,6 +76,25 @@ suite("test_backup_restore", "backup_restore") {
     result = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(result.size(), values.size());
 
+    // backup of temp table should not support
+    sql """ 
+        create temporary table ${dbName}.test_temp_table_backup PROPERTIES (
+            'replication_num' = '1'
+        ) 
+        as select * from ${dbName}.${tableName};
+    """
+
+    sql """
+        BACKUP SNAPSHOT ${dbName}.${snapshotName}_1
+        TO `${repoName}`
+        ON (test_temp_table_backup)
+    """
+    syncer.waitSnapshotFinish(dbName)
+    def show_data = sql "show backup from ${dbName} where SnapshotName = '${snapshotName}_1'"
+    assertTrue(show_data.size() >= 1)
+    assertTrue(show_data[0][12].contains("test_temp_table_backup does not exist"))
+
+    sql "DROP TABLE ${dbName}.test_temp_table_backup FORCE"
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP DATABASE ${dbName} FORCE"
     sql "DROP REPOSITORY `${repoName}`"
