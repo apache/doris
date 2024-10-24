@@ -210,8 +210,16 @@ struct ProcessHashTableBuild {
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
                                             null_map ? null_map->data() : nullptr, true, true,
                                             hash_table_ctx.hash_table->get_bucket_size());
-        hash_table_ctx.hash_table->template build<JoinOpType, with_other_conjuncts>(
-                hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), _rows);
+        // only 2 cases need to access the null value in hash table
+        // 1. null aware join with other conjuncts
+        // 2. single null safe eq
+        bool keep_null_key = ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                               JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
+                              with_other_conjuncts) ||
+                             _parent->_shared_state->single_null_eq_null();
+
+        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
+                                         _rows, keep_null_key);
         hash_table_ctx.bucket_nums.resize(_batch_size);
         hash_table_ctx.bucket_nums.shrink_to_fit();
 

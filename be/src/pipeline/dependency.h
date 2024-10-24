@@ -606,6 +606,12 @@ struct HashJoinSharedState : public JoinSharedState {
     ENABLE_FACTORY_CREATOR(HashJoinSharedState)
     // mark the join column whether support null eq
     std::vector<bool> is_null_safe_eq_join;
+
+    // join condition is single null safe eq
+    bool single_null_eq_null() {
+        return is_null_safe_eq_join.size() == 1 && is_null_safe_eq_join[0];
+    }
+
     // mark the build hash table whether it needs to store null value
     std::vector<bool> store_null_in_hash_table;
     std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();

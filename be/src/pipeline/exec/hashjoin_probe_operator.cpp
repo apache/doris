@@ -153,7 +153,7 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
 bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,
                                                    const std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
-        if (!_shared_state->is_null_safe_eq_join[i]) {
+        if (_shared_state->single_null_eq_null() || !_shared_state->is_null_safe_eq_join[i]) {
             auto column = block.get_by_position(res_col_ids[i]).column.get();
             if (check_and_get_column<vectorized::ColumnNullable>(*column)) {
                 return true;
@@ -391,7 +391,7 @@ Status HashJoinProbeLocalState::_extract_join_column(vectorized::Block& block,
             continue;
         }
 
-        if (shared_state.is_null_safe_eq_join[i]) {
+        if (!shared_state.single_null_eq_null() && shared_state.is_null_safe_eq_join[i]) {
             _probe_columns[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
             const auto* column = block.get_by_position(res_col_ids[i]).column.get();

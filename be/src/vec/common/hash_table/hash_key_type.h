@@ -97,16 +97,11 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
         return HashKeyType::without_key;
     }
 
-    if (!data_types[0]->have_maximum_size_of_value()) {
-        if (is_string(data_types[0])) {
-            return HashKeyType::string_key;
-        } else {
-            return HashKeyType::serialized;
-        }
+    if (!data_types[0]->have_maximum_size_of_value() && is_string(remove_nullable(data_types[0]))) {
+        return HashKeyType::string_key;
     }
 
-    size_t size =
-            data_types[0]->get_maximum_size_of_value_in_memory() - data_types[0]->is_nullable();
+    size_t size = remove_nullable(data_types[0])->get_maximum_size_of_value_in_memory();
     if (size == sizeof(vectorized::UInt8)) {
         return HashKeyType::int8_key;
     } else if (size == sizeof(vectorized::UInt16)) {

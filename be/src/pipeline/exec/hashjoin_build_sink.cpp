@@ -236,7 +236,7 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
             continue;
         }
 
-        if (shared_state.is_null_safe_eq_join[i]) {
+        if (!shared_state.single_null_eq_null() && shared_state.is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
         } else {
             const auto* column = block.get_by_position(res_col_ids[i]).column.get();
@@ -341,7 +341,8 @@ void HashJoinBuildSinkLocalState::_set_build_ignore_flag(vectorized::Block& bloc
                                                          const std::vector<int>& res_col_ids) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
-        if (!_shared_state->is_null_safe_eq_join[i] && !p._short_circuit_for_null_in_build_side) {
+        if ((_shared_state->single_null_eq_null() || !_shared_state->is_null_safe_eq_join[i]) &&
+            !p._short_circuit_for_null_in_build_side) {
             const auto* column = block.get_by_position(res_col_ids[i]).column.get();
             if (check_and_get_column<vectorized::ColumnNullable>(*column)) {
                 _build_side_ignore_null |= !_shared_state->store_null_in_hash_table[i];
@@ -393,8 +394,8 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
         _hash_output_slot_ids = tnode.hash_join_node.hash_output_slot_ids;
     }
 
-    const bool build_stores_null = _join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-                                   _join_op == TJoinOp::RIGHT_ANTI_JOIN;
+    const bool build_stores_null =
+            _join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::RIGHT_ANTI_JOIN;
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
@@ -437,8 +438,9 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
 
         // if is null aware, build join column and probe join column both need dispose null value
         _store_null_in_hash_table.emplace_back(
-                is_null_safe_equal ||
-                (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
+                (is_null_safe_equal ||
+                 (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null)) &&
+                eq_join_conjuncts.size() != 1);
     }
 
     return Status::OK();
