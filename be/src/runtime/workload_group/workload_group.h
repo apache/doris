@@ -86,10 +86,6 @@ public:
 
     bool enable_load_buffer_limit() const { return _enable_load_buffer_limit; }
 
-    void set_weighted_memory_limit(int64_t weighted_memory_limit) {
-        _weighted_memory_limit = weighted_memory_limit;
-    }
-
     // make memory snapshots and refresh total memory used at the same time.
     int64_t refresh_memory_usage();
     int64_t memory_used();
@@ -217,9 +213,6 @@ private:
     int64_t _load_buffer_ratio = 0;
     std::atomic<bool> _enable_load_buffer_limit = false;
 
-    // `weighted_memory_limit` less than or equal to _memory_limit, calculate after exclude public memory.
-    // more detailed description in `refresh_wg_weighted_memory_limit`.
-    std::atomic<int64_t> _weighted_memory_limit {0};
     std::atomic_int64_t _total_mem_used = 0; // bytes
     std::atomic_int64_t _load_buffer_size = 0;
     std::atomic_int64_t _wg_refresh_interval_memory_growth;

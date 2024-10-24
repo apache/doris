@@ -643,8 +643,6 @@ bool WorkloadGroupMgr::handle_single_query_(std::shared_ptr<QueryContext> query_
 
 void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit) {
     auto wg_mem_limit = wg->memory_limit();
-    auto wg_weighted_mem_limit = int64_t(wg_mem_limit * 1);
-    wg->set_weighted_memory_limit(wg_weighted_mem_limit);
     auto all_query_ctxs = wg->queries();
     bool is_low_wartermark = false;
     bool is_high_wartermark = false;
@@ -662,14 +660,13 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
     std::string debug_msg;
     if (is_high_wartermark || is_low_wartermark) {
         debug_msg = fmt::format(
-                "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem limit: {}, "
+                "\nWorkload Group {}: mem limit: {}, mem used: {}, "
                 "high water mark mem limit: {}, load memtable usage: {}, used ratio: {}",
                 wg->name(), PrettyPrinter::print(wg->memory_limit(), TUnit::BYTES),
                 PrettyPrinter::print(wg->total_mem_used(), TUnit::BYTES),
-                PrettyPrinter::print(wg_weighted_mem_limit, TUnit::BYTES),
                 PrettyPrinter::print(wg_high_water_mark_limit, TUnit::BYTES),
                 PrettyPrinter::print(memtable_usage, TUnit::BYTES),
-                (double)(wg->total_mem_used()) / wg_weighted_mem_limit);
+                (double)(wg->total_mem_used()) / wg_mem_limit);
     }
 
     // If the wg enable over commit memory, then it is no need to update query memlimit

@@ -85,20 +85,17 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
             std::make_unique<bvar::Adder<size_t>>(_name, "total_local_read_bytes");
     _total_local_scan_io_per_second = std::make_unique<bvar::PerSecond<bvar::Adder<size_t>>>(
             _name, "total_local_read_bytes_per_second", _total_local_scan_io_adder.get(), 1);
-    _load_buffer_ratio = (int64_t)(_memory_limit * 0.2);
-    // Its initial value should equal to memory limit, or it will be 0 and all reserve memory request will failed.
-    _weighted_memory_limit = _memory_limit;
 }
 
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
-    auto mem_used_ratio = realtime_total_mem_used / ((double)_weighted_memory_limit + 1);
+    auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
     return fmt::format(
             "WorkloadGroup[id = {}, name = {}, version = {}, cpu_share = {}, "
             "total_query_slot_count={}, "
             "memory_limit = {}, load_buffer_ratio= {}%"
-            "enable_memory_overcommit = {},  weighted_memory_limit = {}, total_mem_used = {},"
+            "enable_memory_overcommit = {}, total_mem_used = {},"
             "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
             "{}, spill_high_watermark = {},cpu_hard_limit = {}, scan_thread_num = "
             "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
@@ -107,7 +104,6 @@ std::string WorkloadGroup::debug_string() const {
             _id, _name, _version, cpu_share(), _total_query_slot_count,
             PrettyPrinter::print(_memory_limit, TUnit::BYTES), _load_buffer_ratio,
             _enable_memory_overcommit ? "true" : "false",
-            PrettyPrinter::print(_weighted_memory_limit.load(), TUnit::BYTES),
             PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
             PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
             mem_used_ratio, _spill_low_watermark, _spill_high_watermark, cpu_hard_limit(),
@@ -137,16 +133,15 @@ bool WorkloadGroup::add_wg_refresh_interval_memory_growth(int64_t size) {
 
 std::string WorkloadGroup::memory_debug_string() const {
     auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
-    auto mem_used_ratio = realtime_total_mem_used / ((double)_weighted_memory_limit + 1);
+    auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
     return fmt::format(
             "WorkloadGroup[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
-            "{}, weighted_memory_limit = {}, total_mem_used = {},"
+            "{}, total_mem_used = {},"
             "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
             "{}, "
             "spill_high_watermark = {}, version = {}, is_shutdown = {}, query_num = {}]",
             _id, _name, PrettyPrinter::print(_memory_limit, TUnit::BYTES),
             _enable_memory_overcommit ? "true" : "false",
-            PrettyPrinter::print(_weighted_memory_limit.load(), TUnit::BYTES),
             PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
             PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
             mem_used_ratio, _spill_low_watermark, _spill_high_watermark, _version, _is_shutdown,
