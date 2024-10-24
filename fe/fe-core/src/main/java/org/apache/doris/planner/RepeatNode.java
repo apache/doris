@@ -200,4 +200,9 @@ public class RepeatNode extends PlanNode {
         }
         return output.toString();
     }
+
+    @Override
+    public boolean isSerialOperator() {
+        return children.get(0).isSerialOperator();
+    }
 }

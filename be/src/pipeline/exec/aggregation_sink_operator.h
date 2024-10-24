@@ -143,9 +143,8 @@ public:
 
     DataDistribution required_data_distribution() const override {
         if (_probe_expr_ctxs.empty()) {
-            return _needs_finalize || DataSinkOperatorX<AggSinkLocalState>::_child
-                                              ->ignore_data_distribution()
-                           ? DataDistribution(ExchangeType::PASSTHROUGH)
+            return _needs_finalize
+                           ? DataDistribution(ExchangeType::NOOP)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
         return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
@@ -204,8 +203,8 @@ protected:
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
     const bool _require_bucket_distribution;
-
     RowDescriptor _agg_fn_output_row_descriptor;
+    const bool _without_key;
 };
 
 } // namespace doris::pipeline

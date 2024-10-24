@@ -597,7 +597,6 @@ public abstract class JoinNodeBase extends PlanNode {
         this.useSpecificProjections = useSpecificProjections;
     }
 
-
     public boolean isUseSpecificProjections() {
         return useSpecificProjections;
     }

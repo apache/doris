@@ -90,6 +90,10 @@ public class DataPartition {
         return type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED;
     }
 
+    public boolean isTabletSinkShufflePartition() {
+        return type == TPartitionType.TABLET_SINK_SHUFFLE_PARTITIONED;
+    }
+
     public TPartitionType getType() {
         return type;
     }

@@ -81,4 +81,8 @@ public class EmptySetNode extends PlanNode {
         return 1;
     }
 
+    @Override
+    public boolean isSerialOperator() {
+        return true;
+    }
 }

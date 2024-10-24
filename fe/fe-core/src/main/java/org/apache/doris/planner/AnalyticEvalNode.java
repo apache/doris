@@ -296,4 +296,9 @@ public class AnalyticEvalNode extends PlanNode {
 
         return output.toString();
     }
+
+    @Override
+    public boolean isSerialOperator() {
+        return partitionExprs.isEmpty();
+    }
 }
