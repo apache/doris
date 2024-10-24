@@ -23,7 +23,7 @@ on:
       - closed
     branches:
       - master
-
+permissions: write-all
 jobs:
   auto_cherry_pick:
     runs-on: ubuntu-latest
