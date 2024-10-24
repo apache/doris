@@ -231,6 +231,7 @@ suite("insert_group_commit_into") {
                     none_group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
                     none_group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
                     none_group_commit_insert """ insert into ${table} with label test_gc_""" + System.currentTimeMillis() + """ (id, name, score) values(13, 'h', 100);  """, 1
+                    sql "sync"
                 //}
 
                 def rowCount = sql "select count(*) from ${table}"
