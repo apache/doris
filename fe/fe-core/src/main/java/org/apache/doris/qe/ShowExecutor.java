@@ -3407,8 +3407,7 @@ public class ShowExecutor {
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
                     .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
-                            PrivPredicate.USAGE)
-                    )
+                            PrivPredicate.USAGE))
                     .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {

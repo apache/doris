@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("forbid_vault") {
-    if (enableStoragevault()) {
-        logger.info("skip forbid storage vault case because storage vault enabled")
+suite("test_forbid_vault") {
+    if (!isCloudMode()) {
+        logger.info("skip ${name} case, because not cloud mode")
         return
     }
 
-    if (!isCloudMode()) {
-        logger.info("skip forbid storage vault case because not cloud mode")
+    if (enableStoragevault()) {
+        logger.info("skip ${name} case, because storage vault enabled")
         return
     }
 

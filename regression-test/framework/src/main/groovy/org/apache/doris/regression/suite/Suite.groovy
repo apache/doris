@@ -17,16 +17,20 @@
 
 package org.apache.doris.regression.suite
 
-import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
-import groovy.json.JsonOutput
+
+import com.google.common.base.Strings
+import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.google.gson.Gson
+import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
-import com.google.common.collect.ImmutableList
+import groovy.util.logging.Slf4j
+
+import org.awaitility.Awaitility
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.RegressionTest
@@ -53,7 +57,6 @@ import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import groovy.util.logging.Slf4j
 
 import java.sql.Connection
 import java.io.File
@@ -1512,12 +1515,13 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
-        boolean ret = false;
-        if (context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
-                context.config.instanceId == null || context.config.instanceId.isEmpty() ||
-                context.config.metaServiceToken == null || context.config.metaServiceToken.isEmpty()) {
-            return ret;
+        if (Strings.isNullOrEmpty(context.config.metaServiceHttpAddress)
+                || Strings.isNullOrEmpty(context.config.instanceId)
+                || Strings.isNullOrEmpty(context.config.metaServiceToken)) {
+            return false;
         }
+
+        boolean ret = false;
         def getInstanceInfo = { check_func ->
             httpTest {
                 endpoint context.config.metaServiceHttpAddress
