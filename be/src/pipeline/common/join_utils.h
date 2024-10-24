@@ -80,51 +80,22 @@ struct JoinDataVariants {
             method_variant.emplace<SerializedHashTableContext>();
             break;
         case HashKeyType::int8_key:
-            if (nullable) {
-                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<I8HashTableContext>();
-            }
+            method_variant.emplace<I8HashTableContext>();
             break;
         case HashKeyType::int16_key:
-            if (nullable) {
-                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<I16HashTableContext>();
-            }
+            method_variant.emplace<I16HashTableContext>();
             break;
         case HashKeyType::int32_key:
-            if (nullable) {
-                method_variant.emplace<I64FixedKeyHashTableContext<nullable>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<I32HashTableContext>();
-            }
+            method_variant.emplace<I32HashTableContext>();
             break;
         case HashKeyType::int64_key:
-            if (nullable) {
-                method_variant.emplace<I128FixedKeyHashTableContext<nullable>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<I64HashTableContext>();
-            }
+            method_variant.emplace<I64HashTableContext>();
             break;
         case HashKeyType::int128_key:
-            if (nullable) {
-                method_variant.emplace<I136FixedKeyHashTableContext<nullable>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<I128HashTableContext>();
-            }
+            method_variant.emplace<I128HashTableContext>();
             break;
         case HashKeyType::int256_key:
-            if (nullable) {
-                method_variant.emplace<SerializedHashTableContext>();
-            } else {
-                method_variant.emplace<I256HashTableContext>();
-            }
+            method_variant.emplace<I256HashTableContext>();
             break;
         case HashKeyType::string_key:
             method_variant.emplace<MethodOneString>();

@@ -97,16 +97,16 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
         return HashKeyType::without_key;
     }
 
-    if (!data_types[0]->have_maximum_size_of_value()) {
-        if (is_string(data_types[0])) {
+    auto t = remove_nullable(data_types[0]);
+    // serialized cannot be used in the case of single column, because the join operator will have some processing of column nullable, resulting in incorrect serialized results.
+    if (!t->have_maximum_size_of_value()) {
+        if (is_string(t)) {
             return HashKeyType::string_key;
-        } else {
-            return HashKeyType::serialized;
         }
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type, type={}", t->get_name());
     }
 
-    size_t size =
-            data_types[0]->get_maximum_size_of_value_in_memory() - data_types[0]->is_nullable();
+    size_t size = t->get_maximum_size_of_value_in_memory();
     if (size == sizeof(vectorized::UInt8)) {
         return HashKeyType::int8_key;
     } else if (size == sizeof(vectorized::UInt16)) {
@@ -121,7 +121,7 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
         return HashKeyType::int256_key;
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type size, size={}, type={}", size,
-                        data_types[0]->get_name());
+                        t->get_name());
     }
 }
 
