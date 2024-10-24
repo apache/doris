@@ -30,8 +30,11 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -42,6 +45,7 @@
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 #include "meta_service.h"
+#include "rate-limiter/rate_limiter.h"
 
 namespace doris::cloud {
 
@@ -333,6 +337,70 @@ static HttpResponse process_alter_iam(MetaServiceImpl* service, brpc::Controller
     return http_json_reply(resp.status());
 }
 
+static HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    bool is_attr_set = false;
+    int64_t default_qps_limit = -1;
+    if (auto default_qps_limit_str = std::string(http_query(uri, "default_qps_limit"));
+        !default_qps_limit_str.empty()) {
+        try {
+            default_qps_limit = std::stoll(default_qps_limit_str);
+        } catch (const std::exception& ex) {
+            return http_json_reply(
+                    MetaServiceCode::INVALID_ARGUMENT,
+                    fmt::format("param `default_qps_limit` is not a legal int64 type:{}",
+                                ex.what()));
+        }
+        if (default_qps_limit < 0) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "`default_qps_limit` should not be less than 0");
+        }
+        is_attr_set |= true;
+    }
+    std::string_view specific_max_qps_limit = http_query(uri, "specific_max_qps_limit");
+    is_attr_set |= (!specific_max_qps_limit.empty());
+    if (!is_attr_set) {
+        return http_json_reply(
+                MetaServiceCode::INVALID_ARGUMENT,
+                "default_qps_limit(int64) or "
+                "specific_max_qps_limit(list of[rpcname:qps(int64);]) is required as query param");
+    }
+    auto rate_limiter = service->rate_limiter();
+    rate_limiter->reset_rate_limit(service, default_qps_limit, specific_max_qps_limit.data());
+    return http_json_reply(MetaServiceCode::OK, "success to adjust rate limit");
+}
+
+static HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    auto rpc_name = std::string(http_query(uri, "rpc_name"));
+    auto rate_limiter = service->rate_limiter();
+    rapidjson::Document d;
+    if (rpc_name.empty()) {
+        auto get_qps_limit = [&d](std::string_view rpc_name,
+                                  std::shared_ptr<RpcRateLimiter> rpc_limiter) {
+            auto max_qps_limit = std::to_string(rpc_limiter->max_qps_limit());
+            d.AddMember(rapidjson::StringRef(rpc_name.data(), rpc_name.size()),
+                        rapidjson::StringRef(max_qps_limit.data(), max_qps_limit.size()),
+                        d.GetAllocator());
+        };
+        rate_limiter->for_each_rpc_limiter(std::move(get_qps_limit));
+    } else {
+        auto rpc_limiter = rate_limiter->get_rpc_rate_limiter(rpc_name);
+        if (rpc_limiter == nullptr) [[unlikely]] {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   fmt::format("rpc_name={} is not exists", rpc_name));
+        }
+        auto max_qps_limit = std::to_string(rpc_limiter->max_qps_limit());
+        d.AddMember(rapidjson::StringRef(rpc_name.data(), rpc_name.size()),
+                    rapidjson::StringRef(max_qps_limit.data(), max_qps_limit.size()),
+                    d.GetAllocator());
+    }
+    rapidjson::StringBuffer sb;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+    d.Accept(writer);
+    return http_json_reply(MetaServiceCode::OK, sb.GetString());
+}
+
 static HttpResponse process_decode_key(MetaServiceImpl*, brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
     std::string_view key = http_query(uri, "key");
@@ -615,13 +683,17 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"abort_tablet_job", process_abort_tablet_job},
             {"alter_ram_user", process_alter_ram_user},
             {"alter_iam", process_alter_iam},
+            {"adjust_rate_limit", process_adjust_rate_limit},
+            {"query_rate_limit", process_query_rate_limit},
             {"v1/abort_txn", process_abort_txn},
             {"v1/abort_tablet_job", process_abort_tablet_job},
             {"v1/alter_ram_user", process_alter_ram_user},
             {"v1/alter_iam", process_alter_iam},
+            {"v1/adjust_rate_limit", process_adjust_rate_limit},
+            {"v1/query_rate_limit", process_query_rate_limit},
     };
 
-    auto cntl = static_cast<brpc::Controller*>(controller);
+    auto* cntl = static_cast<brpc::Controller*>(controller);
     brpc::ClosureGuard closure_guard(done);
 
     // Prepare input request info
