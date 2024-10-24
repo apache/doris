@@ -117,21 +117,18 @@ std::string WorkloadGroup::debug_string() const {
 }
 
 bool WorkloadGroup::add_wg_refresh_interval_memory_growth(int64_t size) {
-    // If a group is enable memory overcommit, then not need check the limit
-    // It is always true, and it will only fail when process memory is not
-    // enough.
-    if (_enable_memory_overcommit) {
-        if (doris::GlobalMemoryArbitrator::is_exceed_soft_mem_limit(size)) {
-            return false;
-        } else {
-            return true;
-        }
-    }
     auto realtime_total_mem_used =
             _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
     if ((realtime_total_mem_used >
          ((double)_memory_limit * _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
-        return false;
+        // If a group is enable memory overcommit, then not need check the limit
+        // It is always true, and it will only fail when process memory is not
+        // enough.
+        if (_enable_memory_overcommit) {
+            return true;
+        } else {
+            return false;
+        }
     } else {
         _wg_refresh_interval_memory_growth.fetch_add(size);
         return true;
