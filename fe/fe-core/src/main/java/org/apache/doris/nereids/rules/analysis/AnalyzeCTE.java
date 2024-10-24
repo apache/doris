@@ -101,6 +101,8 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             CTEId cteId = StatementScopeIdGenerator.newCTEId();
             LogicalSubQueryAlias<Plan> logicalSubQueryAlias =
                     aliasQuery.withChildren(ImmutableList.of(analyzedCtePlan));
+            BindExpression.checkSameNameSlot(logicalSubQueryAlias.child(0).getOutput(),
+                    logicalSubQueryAlias.getAlias());
             outerCteCtx = new CTEContext(cteId, logicalSubQueryAlias, outerCteCtx);
             outerCteCtx.setAnalyzedPlan(logicalSubQueryAlias);
             cteProducerPlans.add(new LogicalCTEProducer<>(cteId, logicalSubQueryAlias));
