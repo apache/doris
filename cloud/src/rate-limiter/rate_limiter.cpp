@@ -22,6 +22,7 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
 
 #include "common/bvars.h"
 #include "common/config.h"
@@ -30,9 +31,23 @@
 namespace doris::cloud {
 
 void RateLimiter::init(google::protobuf::Service* service) {
-    std::map<std::string, int64_t> rpc_name_to_max_qps_limit;
+    reset_rate_limit(service, config::default_max_qps_limit, config::specific_max_qps_limit);
+}
+
+std::shared_ptr<RpcRateLimiter> RateLimiter::get_rpc_rate_limiter(const std::string& rpc_name) {
+    std::shared_lock read_lock(shared_mtx_);
+    auto it = limiters_.find(rpc_name);
+    if (it == limiters_.end()) {
+        return nullptr;
+    }
+    return it->second;
+}
+
+void RateLimiter::reset_rate_limit(google::protobuf::Service* service, int64_t default_qps_limit,
+                                   const std::string& specific_max_qps_limit) {
+    std::unordered_map<std::string, int64_t> rpc_name_to_max_qps_limit;
     std::vector<std::string> max_qps_limit_list;
-    butil::SplitString(config::specific_max_qps_limit, ';', &max_qps_limit_list);
+    butil::SplitString(specific_max_qps_limit, ';', &max_qps_limit_list);
     for (const auto& v : max_qps_limit_list) {
         auto p = v.find(':');
         if (p != std::string::npos && p != (v.size() - 1)) {
@@ -49,26 +64,30 @@ void RateLimiter::init(google::protobuf::Service* service) {
             }
         }
     }
+
     auto method_size = service->GetDescriptor()->method_count();
+    bool default_qps_limit_not_mod = (default_qps_limit == config::default_max_qps_limit);
+
+    std::unique_lock write_lock(shared_mtx_);
     for (auto i = 0; i < method_size; ++i) {
         std::string rpc_name = service->GetDescriptor()->method(i)->name();
-        int64_t max_qps_limit = config::default_max_qps_limit;
+        int64_t max_qps_limit = default_qps_limit;
 
         auto it = rpc_name_to_max_qps_limit.find(rpc_name);
         if (it != rpc_name_to_max_qps_limit.end()) {
             max_qps_limit = it->second;
+        } else if (default_qps_limit_not_mod) {
+            continue;
         }
         limiters_[rpc_name] = std::make_shared<RpcRateLimiter>(rpc_name, max_qps_limit);
     }
 }
 
-std::shared_ptr<RpcRateLimiter> RateLimiter::get_rpc_rate_limiter(const std::string& rpc_name) {
-    // no need to be locked, because it is only modified during initialization
-    auto it = limiters_.find(rpc_name);
-    if (it == limiters_.end()) {
-        return nullptr;
+void RateLimiter::for_each_rpc_limiter(
+        std::function<void(std::string_view, std::shared_ptr<RpcRateLimiter>)> cb) {
+    for (const auto& [rpc_name, rpc_limiter] : limiters_) {
+        cb(rpc_name, rpc_limiter);
     }
-    return it->second;
 }
 
 bool RpcRateLimiter::get_qps_token(const std::string& instance_id,
