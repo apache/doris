@@ -101,8 +101,8 @@ private:
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
 
     // ========= profiles ==========
-    int64_t _compressed_bytes_read = 0;
-    int64_t _raw_rows_read = 0;
+    int64_t _scan_bytes = 0;
+    int64_t _scan_rows = 0;
     bool _profile_updated = false;
 };
 } // namespace vectorized

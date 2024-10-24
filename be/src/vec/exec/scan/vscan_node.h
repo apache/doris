@@ -379,6 +379,9 @@ protected:
     RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
 
+    RuntimeProfile::Counter* _scan_rows = nullptr;
+    RuntimeProfile::Counter* _scan_bytes = nullptr;
+
     std::unordered_map<std::string, int> _colname_to_slot_id;
 
     TPushAggOp::type _push_down_agg_type;
