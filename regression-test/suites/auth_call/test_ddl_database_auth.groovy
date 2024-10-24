@@ -95,7 +95,7 @@ suite("test_ddl_database_auth","p0,auth_call") {
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql """drop database ${dbName};"""
         def ctl_res = sql """show databases;"""
-        assertTrue(ctl_res.size() == 3 || db_res.size() == 1)
+        assertTrue(ctl_res.size() == 3 || ctl_res.size() == 1)
     }
 
     sql """drop database if exists ${dbName}"""
