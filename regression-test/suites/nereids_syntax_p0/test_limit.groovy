@@ -75,4 +75,9 @@ suite("test_limit") {
     qt_lmit2 """
             select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t limit 1 offset 2;
         """
+
+    sql """ set parallel_pipeline_task_num = 1; """
+    qt_lmit3 """
+            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t limit 1 offset 2;
+        """
 }
