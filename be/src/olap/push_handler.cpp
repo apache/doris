@@ -27,6 +27,7 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
+#include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <iostream>
@@ -188,6 +189,9 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         for (const auto& column_desc : request.columns_desc) {
             tablet_schema->append_column(TabletColumn(column_desc));
         }
+    } else {
+        CHECK(false) << fmt::format("===>use a BE tablet schema, column_desc={}",
+                                    apache::thrift::ThriftDebugString(request.columns_desc));
     }
     RowsetSharedPtr rowset_to_add;
     // writes
