@@ -115,4 +115,71 @@ suite("test_bloom_filter") {
         sql """ALTER TABLE ${test_map_tb} SET("bloom_filter_columns" = "k1,m1")"""
         exception "not supported in bloom filter index"
     }
+
+    // bloom filter index for json column
+    def test_json_tb = "test_json_bloom_filter_tb"
+    sql """DROP TABLE IF EXISTS ${test_json_tb}"""
+
+    test {
+        sql """CREATE TABLE IF NOT EXISTS ${test_json_tb} (
+                `k1` int(11) NOT NULL,
+                `j1` json NOT NULL
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`)
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "bloom_filter_columns" = "k1,j1"
+            )"""
+        exception "not supported in bloom filter index"
+    }
+
+    sql """CREATE TABLE IF NOT EXISTS ${test_json_tb} (
+            `k1` int(11) NOT NULL,
+            `j1` json NOT NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            PROPERTIES (
+                "replication_num" = "1",
+                "bloom_filter_columns" = "k1"
+        )"""
+    test {
+        sql """ALTER TABLE ${test_json_tb} SET("bloom_filter_columns" = "k1,j1")"""
+        exception "not supported in bloom filter index"
+    }
+
+    // bloom filter index for variant column
+    def test_variant_tb = "test_variant_bloom_filter_tb"
+    sql """DROP TABLE IF EXISTS ${test_variant_tb}"""
+
+    test {
+        sql """CREATE TABLE IF NOT EXISTS ${test_variant_tb} (
+                `k1` int(11) NOT NULL,
+                `v1` variant NOT NULL
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`)
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "bloom_filter_columns" = "k1,v1"
+            )"""
+        exception "not supported in bloom filter index"
+    }
+
+    sql """CREATE TABLE IF NOT EXISTS ${test_variant_tb} (
+            `k1` int(11) NOT NULL,
+            `v1` variant NOT NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            PROPERTIES (
+                "replication_num" = "1",
+                "bloom_filter_columns" = "k1"
+        )"""
+
+    test {
+        sql """ALTER TABLE ${test_variant_tb} SET("bloom_filter_columns" = "k1,v1")"""
+        exception "not supported in bloom filter index"
+    }
 }
