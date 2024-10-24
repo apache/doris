@@ -145,6 +145,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             fragment_id_to_channel_index.emplace(fragment_instance_id.lo,
                                                  channel_shared_ptrs.size() - 1);
             channels.push_back(channel_shared_ptrs.back().get());
+            if (fragment_instance_id.hi != -1 && fragment_instance_id.lo != -1) {
+                _working_channels_count++;
+            }
         } else {
             channel_shared_ptrs.emplace_back(
                     channel_shared_ptrs[fragment_id_to_channel_index[fragment_instance_id.lo]]);
@@ -160,6 +163,24 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     }
     _wait_broadcast_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBroadcastBuffer", timer_name);
     return Status::OK();
+}
+
+void ExchangeSinkLocalState::on_channel_finished(InstanceLoId channel_id) {
+    std::lock_guard<std::mutex> lock(_finished_channels_mutex);
+
+    if (_finished_channels.contains(channel_id)) {
+        LOG(WARNING) << "query: " << print_id(_state->query_id())
+                     << ", on_channel_finished on already finished channel: " << channel_id;
+        return;
+    } else {
+        _finished_channels.emplace(channel_id);
+        if (_working_channels_count.fetch_sub(1) == 1) {
+            set_reach_limit();
+            if (_finish_dependency) {
+                _finish_dependency->set_ready();
+            }
+        }
+    }
 }
 
 Status ExchangeSinkLocalState::open(RuntimeState* state) {
@@ -733,9 +754,10 @@ std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
         fmt::format_to(
                 debug_string_buffer,
                 ", Sink Buffer: (_should_stop = {}, _busy_channels = {}, _is_finishing = {}), "
-                "_reach_limit: {}",
+                "_reach_limit: {}, working channels: {}",
                 _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load(),
-                _sink_buffer->_is_finishing.load(), _reach_limit.load());
+                _sink_buffer->_is_finishing.load(), _reach_limit.load(),
+                _working_channels_count.load());
     }
     return fmt::to_string(debug_string_buffer);
 }
