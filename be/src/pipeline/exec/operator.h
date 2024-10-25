@@ -101,6 +101,9 @@ public:
         return Status::OK();
     }
 
+    // Operators need to be executed serially. (e.g. finalized agg without key)
+    [[nodiscard]] virtual bool is_serial_operator() const { return _is_serial_operator; }
+
     [[nodiscard]] bool is_closed() const { return _is_closed; }
 
     virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
@@ -122,6 +125,7 @@ protected:
 
     bool _is_closed;
     bool _followed_by_shuffled_operator = false;
+    bool _is_serial_operator = false;
 };
 
 class PipelineXLocalStateBase {
@@ -443,7 +447,7 @@ public:
 
     Status init(const TDataSink& tsink) override;
     [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
-                                      const bool is_shuffled_hash_join,
+                                      const bool use_global_hash_shuffle,
                                       const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }

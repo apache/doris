@@ -836,4 +836,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     public long getSelectedSplitNum() {
         return selectedSplitNum;
     }
+
+    @Override
+    public boolean isSerialOperator() {
+        return true;
+    }
 }

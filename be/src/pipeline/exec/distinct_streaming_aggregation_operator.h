@@ -104,6 +104,9 @@ public:
     bool need_more_input_data(RuntimeState* state) const override;
 
     DataDistribution required_data_distribution() const override {
+        if (_needs_finalize && _probe_expr_ctxs.empty()) {
+            return {ExchangeType::NOOP};
+        }
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
             return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
@@ -136,6 +139,7 @@ private:
     /// The total size of the row from the aggregate functions.
     size_t _total_size_of_aggregate_states = 0;
     bool _is_streaming_preagg = false;
+    const bool _without_key;
 };
 
 } // namespace pipeline
