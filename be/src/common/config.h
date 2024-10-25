@@ -1090,11 +1090,7 @@ DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
 DECLARE_mBool(inverted_index_compaction_enable);
 // Only for debug, do not use in production
-// Debug switch for collecting intermediate data in inverted index compaction
 DECLARE_mBool(debug_inverted_index_compaction);
-// Only for debug, do not use in production
-// Debug switch for writing inverted index both in compaction process and index compaction process
-DECLARE_mBool(dual_write_inverted_index_enable);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast

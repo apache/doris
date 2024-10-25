@@ -1042,8 +1042,6 @@ DEFINE_Int32(max_depth_in_bkd_tree, "32");
 DEFINE_mBool(inverted_index_compaction_enable, "false");
 // Only for debug, do not use in production
 DEFINE_mBool(debug_inverted_index_compaction, "false");
-// Only for debug, do not use in production
-DEFINE_mBool(dual_write_inverted_index_enable, "false");
 // index by RAM directory
 DEFINE_mBool(inverted_index_ram_dir_enable, "true");
 // use num_broadcast_buffer blocks as buffer to do broadcast
