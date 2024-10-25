@@ -281,4 +281,21 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         }
         return output.toString();
     }
+
+    /**
+     * If joinOp is one of type below:
+     * 1. NULL_AWARE_LEFT_ANTI_JOIN
+     * 2. RIGHT_OUTER_JOIN
+     * 3. RIGHT_ANTI_JOIN
+     * 4. RIGHT_SEMI_JOIN
+     *
+     * We will
+     * @return
+     */
+    @Override
+    public boolean isSerialOperator() {
+        return joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN || joinOp == JoinOperator.RIGHT_OUTER_JOIN
+                || joinOp == JoinOperator.RIGHT_ANTI_JOIN || joinOp == JoinOperator.RIGHT_SEMI_JOIN
+                || joinOp == JoinOperator.FULL_OUTER_JOIN;
+    }
 }

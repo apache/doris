@@ -195,11 +195,21 @@ public class ExchangeNode extends PlanNode {
         return prefix + "offset: " + offset + "\n";
     }
 
+    @Override
+    public boolean isMerging() {
+        return mergeInfo != null;
+    }
+
     public boolean isRightChildOfBroadcastHashJoin() {
         return isRightChildOfBroadcastHashJoin;
     }
 
     public void setRightChildOfBroadcastHashJoin(boolean value) {
         isRightChildOfBroadcastHashJoin = value;
+    }
+
+    @Override
+    public boolean isSerialOperator() {
+        return true;
     }
 }
