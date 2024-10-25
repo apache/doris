@@ -719,6 +719,8 @@ public final class MetricRepo {
 
         visitor.visitCloudTableStats();
 
+        visitor.visitProfileManager();
+        
         visitor.visitWorkloadGroup();
 
         return visitor.finish();
