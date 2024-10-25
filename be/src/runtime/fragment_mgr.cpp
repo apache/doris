@@ -801,20 +801,23 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         query_ctx->set_merge_controller_handler(handler);
     }
 
-    for (const auto& local_param : params.local_params) {
+    {
+        // (query_id, fragment_id) is executed only on one BE, locks _pipeline_map.
+        std::lock_guard<std::mutex> lock(_lock);
+        for (const auto& local_param : params.local_params) {
+            const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
+            auto iter = _pipeline_map.find({params.query_id, params.fragment_id});
+            if (iter != _pipeline_map.end()) {
+                return Status::InternalError(
+                        "exec_plan_fragment query_id({}) input duplicated fragment_id({})",
+                        print_id(params.query_id), params.fragment_id);
+            }
+            query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
+        }
+
         int64 now = duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
-        const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
-        // (query_id, fragment_id) is executed only on one BE, locks _pipeline_map.
-        std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _pipeline_map.find({params.query_id, params.fragment_id});
-        if (iter != _pipeline_map.end()) {
-            return Status::InternalError("exec_plan_fragment input duplicated fragment_id({})",
-                                         params.fragment_id);
-        }
-        query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
-
         g_fragment_executing_count << 1;
         g_fragment_last_active_time.set_value(now);
         // TODO: simplify this mapping
