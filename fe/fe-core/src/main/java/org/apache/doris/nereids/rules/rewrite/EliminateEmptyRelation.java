@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.UnaryNode;
@@ -45,6 +46,9 @@ import java.util.stream.Collectors;
 /**
  * try to eliminate sub plan tree which contains EmptyRelation
  */
+@DependsRules ({
+    BuildAggForUnion.class
+})
 public class EliminateEmptyRelation implements RewriteRuleFactory {
 
     @Override

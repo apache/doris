@@ -13,7 +13,7 @@ PhysicalResultSink
 --------------------filter((i1.i_manufact_id <= 788) and (i1.i_manufact_id >= 748))
 ----------------------PhysicalOlapScan[item] apply RFs: RF0
 ------------------PhysicalProject
---------------------filter((ifnull(item_cnt, 0) > 0))
+--------------------filter((item_cnt > 0))
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]

@@ -35,6 +35,7 @@
 #include "pipeline/exec/join/process_hash_table_probe.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
+#include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/spill/spill_stream.h"
 
@@ -539,6 +540,12 @@ public:
     int child_count() const { return _child_count; }
     DataQueue data_queue;
     const int _child_count;
+};
+
+struct CacheSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(CacheSharedState)
+public:
+    DataQueue data_queue;
 };
 
 class MultiCastDataStreamer;

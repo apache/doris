@@ -48,6 +48,7 @@ public:
         CLOUD_TXN_DELETE_BITMAP_CACHE = 17,
         NONE = 18, // not be used
         FOR_UT_CACHE_NUMBER = 19,
+        QUERY_CACHE = 20
     };
 
     static std::string type_string(CacheType type) {
@@ -90,6 +91,8 @@ public:
             return "CloudTxnDeleteBitmapCache";
         case CacheType::FOR_UT_CACHE_NUMBER:
             return "ForUTCacheNumber";
+        case CacheType::QUERY_CACHE:
+            return "QUERY_CACHE";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }

@@ -110,7 +110,6 @@ private:
     RuntimeProfile::Counter* _read_compressed_counter = nullptr;
     RuntimeProfile::Counter* _decompressor_timer = nullptr;
     RuntimeProfile::Counter* _read_uncompressed_counter = nullptr;
-    RuntimeProfile::Counter* _raw_rows_counter = nullptr;
 
     RuntimeProfile::Counter* _rows_vec_cond_filtered_counter = nullptr;
     RuntimeProfile::Counter* _rows_short_circuit_cond_filtered_counter = nullptr;
@@ -198,11 +197,13 @@ private:
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
 public:
     OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                      const DescriptorTbl& descs, int parallel_tasks);
+                      const DescriptorTbl& descs, int parallel_tasks,
+                      const TQueryCacheParam& cache_param);
 
 private:
     friend class OlapScanLocalState;
     TOlapScanNode _olap_scan_node;
+    TQueryCacheParam _cache_param;
 };
 
 } // namespace doris::pipeline
