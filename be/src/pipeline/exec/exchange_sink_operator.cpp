@@ -156,19 +156,17 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     id.set_lo(_state->query_id().lo);
 
     if (!only_local_exchange) {
-        _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, _sender_id,
-                                                            _state->be_number(), state, this);
+        _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, state, this);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "ExchangeSinkQueueDependency", true);
-        _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
+        _sink_buffer->set_dependency(_queue_dependency);
     }
 
     if ((_part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
         _broadcast_dependency = Dependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
-        _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
     } else if (local_size > 0) {
