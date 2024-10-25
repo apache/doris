@@ -568,7 +568,11 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
             stale_rowsets.push_back(it.second);
         }
     }
+    std::sort(rowsets.begin(), rowsets.end(), Rowset::comparator);
+    std::sort(stale_rowsets.begin(), stale_rowsets.end(), Rowset::comparator);
 
+    // get snapshot version path json_doc
+    _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
     rapidjson::Value cumu_value;
     std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
