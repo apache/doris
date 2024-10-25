@@ -17,6 +17,7 @@
 
 #include "meta-service/meta_service_tablet_stats.h"
 
+#include <fmt/core.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 
@@ -226,6 +227,7 @@ MetaServiceResponseStatus get_old_tablet_stats_batch(
     size_t tablet_cnt = 0;
     while (it->has_next() && tablet_cnt < batch_size) {
         auto [k, v] = it->next();
+        key_pair.first = k;
         auto k1 = k;
         k1.remove_prefix(1);
         std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
@@ -240,7 +242,9 @@ MetaServiceResponseStatus get_old_tablet_stats_batch(
                     std::make_shared<TabletStatsPB>(tablet_stat));
         }
     }
-    key_pair.first = it->next_begin_key();
+    if (it->has_next()) {
+        key_pair.first = it->next().first;
+    }
     return st;
 }
 
@@ -344,7 +348,11 @@ MetaServiceResponseStatus check_new_tablet_stats(
         }
         TabletStatsPB tablet_stat_check;
         tablet_stat_check.ParseFromArray(tablet_stat_value.data(), tablet_stat_value.size());
-        if (tablet_stat_check.DebugString() != tablet_stat_ptr->DebugString()) {
+        if (tablet_stat_check.DebugString() != tablet_stat_ptr->DebugString() &&
+            // If anyone data size of tablet_stat_check and tablet_stat_ptr is twice bigger than another,
+            // we need to rewrite it this tablet_stat.
+            (tablet_stat_check.data_size() > 2 * tablet_stat_ptr->data_size() ||
+             tablet_stat_ptr->data_size() > 2 * tablet_stat_check.data_size())) {
             conflict_tablet_stat_shared_ptr_vec.emplace_back(tablet_stat_ptr);
         }
 
@@ -373,7 +381,10 @@ MetaServiceResponseStatus check_new_tablet_stats(
         if constexpr (std::endian::native == std::endian::big) {
             tablet_stat_data_size_check = bswap_64(tablet_stat_data_size_check);
         }
-        if (tablet_stat_data_size_check != tablet_stat_data_size) {
+        if (tablet_stat_data_size_check != tablet_stat_data_size &&
+            // ditto
+            (tablet_stat_data_size_check > 2 * tablet_stat_data_size ||
+             tablet_stat_data_size > 2 * tablet_stat_data_size_check)) {
             conflict_tablet_stat_shared_ptr_vec.emplace_back(tablet_stat_ptr);
         }
     }

@@ -2208,9 +2208,11 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
     }
 
     std::pair<std::string, std::string> key_pair = init_key_pair(instance_id, table_id);
-    while (key_pair.first <= key_pair.second) {
+    std::string old_begin_key;
+    while (old_begin_key < key_pair.first) {
         // get tablet stats
         std::vector<std::shared_ptr<TabletStatsPB>> tablet_stat_shared_ptr_vec_batch;
+        old_begin_key = key_pair.first;
         MetaServiceResponseStatus st =
                 get_old_tablet_stats_batch(txn_kv_, key_pair, tablet_stat_shared_ptr_vec_batch);
         if (st.code() != MetaServiceCode::OK) {
@@ -2236,6 +2238,8 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
                 is_first_check = false;
             } else {
                 check_batch_vec = conflict_tablet_stat_shared_ptr_vec;
+                LOG(WARNING) << fmt::format("retry:{}, conflict size:{}", retry,
+                                            conflict_tablet_stat_shared_ptr_vec.size());
             }
 
             // Check tablet stats
