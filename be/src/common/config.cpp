@@ -1354,7 +1354,7 @@ DEFINE_mInt32(check_score_rounds_num, "1000");
 
 DEFINE_Int32(query_cache_size, "512");
 
-DEFINE_mBool(enable_delete_old_version_delete_bitmap_on_cu_compaction, "false");
+DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 
 // clang-format off
 #ifdef BE_TEST

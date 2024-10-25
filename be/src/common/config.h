@@ -1442,7 +1442,7 @@ DECLARE_mInt32(check_score_rounds_num);
 // MB
 DECLARE_Int32(query_cache_size);
 
-DECLARE_mBool(enable_delete_old_version_delete_bitmap_on_cu_compaction);
+DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 
 #ifdef BE_TEST
 // test s3
