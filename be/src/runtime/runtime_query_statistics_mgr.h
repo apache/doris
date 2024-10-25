@@ -54,10 +54,10 @@ public:
     int64_t _query_start_time;
 };
 
-class RuntimeQueryStatiticsMgr {
+class RuntimeQueryStatisticsMgr {
 public:
-    RuntimeQueryStatiticsMgr() = default;
-    ~RuntimeQueryStatiticsMgr() = default;
+    RuntimeQueryStatisticsMgr() = default;
+    ~RuntimeQueryStatisticsMgr() = default;
 
     void register_query_statistics(std::string query_id, std::shared_ptr<QueryStatistics> qs_ptr,
                                    TNetworkAddress fe_addr, TQueryType::type query_type);
