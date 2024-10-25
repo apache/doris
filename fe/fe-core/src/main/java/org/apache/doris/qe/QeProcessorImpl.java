@@ -150,7 +150,9 @@ public final class QeProcessorImpl implements QeProcessor {
             }
             queryToInstancesNum.put(queryId, instancesNum);
             userToInstancesCount.computeIfAbsent(user, ignored -> new AtomicInteger(0)).addAndGet(instancesNum);
-            MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN.getOrAdd(user).increase(instancesNum.longValue());
+            if (MetricRepo.isInit) {
+                MetricRepo.USER_COUNTER_QUERY_INSTANCE_BEGIN.getOrAdd(user).increase(instancesNum.longValue());
+            }
         }
     }
 

@@ -212,8 +212,10 @@ public class AuditLogHelper {
 
         if (ctx.getState().isQuery()) {
             if (!ctx.getSessionVariable().internalSession) {
-                MetricRepo.COUNTER_QUERY_ALL.increase(1L);
-                MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_QUERY_ALL.increase(1L);
+                    MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+                }
             }
             try {
                 if (Config.isCloudMode()) {
@@ -228,16 +230,20 @@ public class AuditLogHelper {
                     && ctx.getState().getErrType() != QueryState.ErrType.ANALYSIS_ERR) {
                 // err query
                 if (!ctx.getSessionVariable().internalSession) {
-                    MetricRepo.COUNTER_QUERY_ERR.increase(1L);
-                    MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.COUNTER_QUERY_ERR.increase(1L);
+                        MetricRepo.USER_COUNTER_QUERY_ERR.getOrAdd(ctx.getQualifiedUser()).increase(1L);
+                    }
                     MetricRepo.increaseClusterQueryErr(cloudCluster);
                 }
             } else if (ctx.getState().getStateType() == MysqlStateType.OK
                     || ctx.getState().getStateType() == MysqlStateType.EOF) {
                 // ok query
                 if (!ctx.getSessionVariable().internalSession) {
-                    MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
-                    MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
+                    if (MetricRepo.isInit) {
+                        MetricRepo.HISTO_QUERY_LATENCY.update(elapseMs);
+                        MetricRepo.USER_HISTO_QUERY_LATENCY.getOrAdd(ctx.getQualifiedUser()).update(elapseMs);
+                    }
                     MetricRepo.updateClusterQueryLatency(cloudCluster, elapseMs);
                 }
 
