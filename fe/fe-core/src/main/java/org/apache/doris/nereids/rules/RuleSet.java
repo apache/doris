@@ -90,6 +90,7 @@ import org.apache.doris.nereids.rules.rewrite.ConvertOuterJoinToAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
+import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.MaxMinFilterPushDown;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
@@ -147,6 +148,7 @@ public class RuleSet {
             new PushDownFilterThroughSetOperation(),
             new PushDownFilterThroughGenerate(),
             new PushDownProjectThroughLimit(),
+            new InferFilterNotNull(),
             new EliminateOuterJoin(),
             new ConvertOuterJoinToAntiJoin(),
             new MergeProjects(),

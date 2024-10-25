@@ -421,6 +421,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         ),
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                        bottomUp(new EliminateNotNull()),
                         custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
                 ),
                 topic("adjust preagg status",
