@@ -1450,6 +1450,10 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
         for (auto non_visible_rowset : *non_visible_rowsets) {
             specified_rowsets.emplace_back(non_visible_rowset);
         }
+        std::sort(specified_rowsets.begin(), specified_rowsets.end(),
+                  [](RowsetSharedPtr& lhs, RowsetSharedPtr& rhs) {
+                      return lhs->end_version() > rhs->end_version();
+                  });
     }
     auto t3 = watch.get_elapse_time_us();
 
