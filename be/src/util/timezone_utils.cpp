@@ -59,6 +59,9 @@ static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change b
 void TimezoneUtils::clear_timezone_caches() {
     lower_zone_cache_->clear();
 }
+int TimezoneUtils::cache_size() {
+    return lower_zone_cache_->size();
+}
 
 static bool parse_save_name_tz(const std::string& tz_name) {
     cctz::time_zone tz;
@@ -127,30 +130,34 @@ void TimezoneUtils::load_offsets_to_cache() {
             std::string offset_str = (hour >= 0 ? "+" : "") + to_hour_string(hour) + ':' +
                                      (minute == 0 ? "00" : "30");
             cctz::time_zone result;
-            if (parse_tz_offset_string(offset_str, result)) [[likely]] {
-                lower_zone_cache_->emplace(offset_str, result);
-            } else {
-                LOG(FATAL) << "parse timezone " << offset_str << " failed!";
-            }
+            parse_tz_offset_string(offset_str, result);
+            lower_zone_cache_->emplace(offset_str, result);
         }
     }
+    // -00 for hour is also valid
+    std::string offset_str = "-00:00";
+    cctz::time_zone result;
+    parse_tz_offset_string(offset_str, result);
+    lower_zone_cache_->emplace(offset_str, result);
+    offset_str = "-00:30";
+    parse_tz_offset_string(offset_str, result);
+    lower_zone_cache_->emplace(offset_str, result);
 }
 
 bool TimezoneUtils::find_cctz_time_zone(const std::string& timezone, cctz::time_zone& ctz) {
-    if (auto it = lower_zone_cache_->find(to_lower_copy(timezone));
-        it != lower_zone_cache_->end()) {
+    if (auto it = lower_zone_cache_->find(to_lower_copy(timezone)); it != lower_zone_cache_->end())
+            [[likely]] {
         ctz = it->second;
         return true;
     }
-    // offset format or just illegal
-    return parse_tz_offset_string(timezone, ctz);
+    return false;
 }
 
 bool TimezoneUtils::parse_tz_offset_string(const std::string& timezone, cctz::time_zone& ctz) {
     // like +08:00, which not in timezone_names_map_
     re2::StringPiece value;
-    if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value,
-                                          1)) {
+    if (time_zone_offset_format_reg.Match(timezone, 0, timezone.size(), RE2::UNANCHORED, &value, 1))
+            [[likely]] {
         bool positive = value[0] != '-';
 
         //Regular expression guarantees hour and minute must be int
@@ -166,8 +173,6 @@ bool TimezoneUtils::parse_tz_offset_string(const std::string& timezone, cctz::ti
         int offset = hour * 60 * 60 + minute * 60;
         offset *= positive ? 1 : -1;
         ctz = cctz::fixed_time_zone(cctz::seconds(offset));
-        // try to push the result time offset of "+08:00" need lock. now it's harmful for performance.
-        // maybe we can use rcu of hazard-pointer to opt it.
         return true;
     }
     return false;
