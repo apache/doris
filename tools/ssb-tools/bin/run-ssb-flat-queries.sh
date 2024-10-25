@@ -127,7 +127,7 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     if [[ $? -ne 0 ]]; then
         echo "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log"
-        continue  
+        continue
     fi
     end=$(date +%s%3N)
     cold=$((end - start))
@@ -147,7 +147,7 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
     if [[ $? -ne 0 ]]; then
         echo "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log"
-        continue  
+        continue
     fi
     end=$(date +%s%3N)
     hot2=$((end - start))
