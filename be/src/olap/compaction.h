@@ -102,6 +102,12 @@ protected:
         return _allow_delete_in_cumu_compaction;
     }
 
+    void agg_and_remove_old_version_delete_bitmap(
+            std::vector<RowsetSharedPtr>& pre_rowsets,
+            std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
+                    to_remove_vec,
+            DeleteBitmapPtr& new_delete_bitmap);
+
 private:
     bool _check_if_includes_input_rowsets(const RowsetIdUnorderedSet& commit_rowset_ids_set) const;
     void _load_segment_to_cache();

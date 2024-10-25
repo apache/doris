@@ -37,6 +37,7 @@
 #include "http/action/compaction_score_action.h"
 #include "http/action/config_action.h"
 #include "http/action/debug_point_action.h"
+#include "http/action/delete_bitmap_action.h"
 #include "http/action/download_action.h"
 #include "http/action/download_binlog_action.h"
 #include "http/action/file_cache_action.h"
@@ -287,6 +288,12 @@ Status HttpService::start() {
                                            TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
+
+    DeleteBitmapAction* count_delete_bitmap_action =
+            _pool.add(new DeleteBitmapAction(DeleteBitmapActionType::COUNT_INFO, _env,
+                                             TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count",
+                                      count_delete_bitmap_action);
 
     ConfigAction* update_config_action =
             _pool.add(new ConfigAction(ConfigActionType::UPDATE_CONFIG));

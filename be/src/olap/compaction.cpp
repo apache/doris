@@ -1186,6 +1186,34 @@ void Compaction::_load_segment_to_cache() {
     }
 }
 
+void Compaction::agg_and_remove_old_version_delete_bitmap(
+        std::vector<RowsetSharedPtr>& pre_rowsets,
+        std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>&
+                to_remove_vec,
+        DeleteBitmapPtr& new_delete_bitmap) {
+    // agg previously rowset old version delete bitmap
+    auto pre_max_version = _output_rowset->version().second;
+    new_delete_bitmap = std::make_shared<DeleteBitmap>(_tablet->tablet_meta()->tablet_id());
+    for (auto& rowset : pre_rowsets) {
+        if (rowset->rowset_meta()->total_disk_size() == 0) {
+            continue;
+        }
+        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+            rowset->rowset_id().to_string();
+            DeleteBitmap::BitmapKey start {rowset->rowset_id(), seg_id, 0};
+            DeleteBitmap::BitmapKey end {rowset->rowset_id(), seg_id, pre_max_version};
+            DeleteBitmap::BitmapKey before_end {rowset->rowset_id(), seg_id, pre_max_version - 1};
+            auto d = _tablet->tablet_meta()->delete_bitmap().get_agg(
+                    {rowset->rowset_id(), seg_id, pre_max_version});
+            to_remove_vec.emplace_back(std::make_tuple(_tablet->tablet_id(), start, before_end));
+            if (d->isEmpty()) {
+                continue;
+            }
+            new_delete_bitmap->set(end, *d);
+        }
+    }
+}
+
 #ifdef BE_TEST
 void Compaction::set_input_rowset(const std::vector<RowsetSharedPtr>& rowsets) {
     _input_rowsets = rowsets;

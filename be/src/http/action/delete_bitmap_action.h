@@ -17,41 +17,35 @@
 
 #pragma once
 
-#include <butil/macros.h>
+#include <stdint.h>
 
 #include <string>
-#include <vector>
 
 #include "common/status.h"
-#include "io/io_common.h"
-#include "olap/compaction.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
+#include "http/http_handler_with_auth.h"
 #include "olap/tablet.h"
 
 namespace doris {
+class HttpRequest;
 
-class CumulativeCompaction : public Compaction {
+class ExecEnv;
+
+enum class DeleteBitmapActionType { COUNT_INFO = 1 };
+
+/// This action is used for viewing the delete bitmap status
+class DeleteBitmapAction : public HttpHandlerWithAuth {
 public:
-    CumulativeCompaction(const TabletSharedPtr& tablet);
-    ~CumulativeCompaction() override;
+    DeleteBitmapAction(DeleteBitmapActionType ctype, ExecEnv* exec_env, TPrivilegeHier::type hier,
+                       TPrivilegeType::type ptype);
 
-    Status prepare_compact() override;
-    Status execute_compact_impl() override;
+    ~DeleteBitmapAction() override = default;
 
-protected:
-    Status pick_rowsets_to_compact() override;
-
-    std::string compaction_name() const override { return "cumulative compaction"; }
-
-    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
+    void handle(HttpRequest* req) override;
 
 private:
-    Version _last_delete_version {-1, -1};
+    Status _handle_show_delete_bitmap_count(HttpRequest* req, std::string* json_result);
 
-    void _process_old_version_delete_bitmap();
-
-    DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
+private:
+    DeleteBitmapActionType _delete_bitmap_action_type;
 };
-
 } // namespace doris
