@@ -34,9 +34,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.StringJoiner;
 
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.CSV;
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.JSON;
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.NULL_VALUE;
+import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.*;
 
 /** Serializer for RowData. */
 public class DorisRecordSerializer {
@@ -122,7 +120,7 @@ public class DorisRecordSerializer {
                     Date dateValue = sourceMeta.getDate(r);;
                     return new java.sql.Date(dateValue.getTime());
                 case ValueMetaInterface.TYPE_TIMESTAMP:
-                    java.sql.Timestamp timestampValue = (Timestamp) sourceMeta.getDate(r);
+                    Timestamp timestampValue = (Timestamp) sourceMeta.getDate(r);
                     return timestampValue;
                 case ValueMetaInterface.TYPE_BINARY:
                 case ValueMetaInterface.TYPE_STRING:

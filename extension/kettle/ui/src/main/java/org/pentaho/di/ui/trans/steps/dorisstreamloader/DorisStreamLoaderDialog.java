@@ -19,26 +19,11 @@ package org.pentaho.di.ui.trans.steps.dorisstreamloader;
 
 import org.eclipse.jface.dialogs.MessageDialog;
 import org.eclipse.swt.SWT;
-import org.eclipse.swt.events.FocusAdapter;
-import org.eclipse.swt.events.FocusEvent;
-import org.eclipse.swt.events.FocusListener;
-import org.eclipse.swt.events.ModifyEvent;
-import org.eclipse.swt.events.ModifyListener;
-import org.eclipse.swt.events.SelectionAdapter;
-import org.eclipse.swt.events.SelectionEvent;
-import org.eclipse.swt.events.ShellAdapter;
-import org.eclipse.swt.events.ShellEvent;
+import org.eclipse.swt.events.*;
 import org.eclipse.swt.layout.FormAttachment;
 import org.eclipse.swt.layout.FormData;
 import org.eclipse.swt.layout.FormLayout;
-import org.eclipse.swt.widgets.Button;
-import org.eclipse.swt.widgets.Display;
-import org.eclipse.swt.widgets.Event;
-import org.eclipse.swt.widgets.Label;
-import org.eclipse.swt.widgets.Listener;
-import org.eclipse.swt.widgets.Shell;
-import org.eclipse.swt.widgets.TableItem;
-import org.eclipse.swt.widgets.Text;
+import org.eclipse.swt.widgets.*;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.core.SourceToTargetMapping;
 import org.pentaho.di.core.annotations.PluginDialog;
@@ -53,6 +38,10 @@ import org.pentaho.di.trans.step.BaseStepMeta;
 import org.pentaho.di.trans.step.StepDialogInterface;
 import org.pentaho.di.trans.step.StepMeta;
 import org.pentaho.di.trans.steps.dorisstreamloader.DorisStreamLoaderMeta;
+import org.pentaho.di.trans.steps.dorisstreamloader.load.DorisDataType;
+import org.pentaho.di.trans.steps.dorisstreamloader.load.DorisJdbcConnectionOptions;
+import org.pentaho.di.trans.steps.dorisstreamloader.load.DorisJdbcConnectionProvider;
+import org.pentaho.di.trans.steps.dorisstreamloader.load.DorisQueryVisitor;
 import org.pentaho.di.ui.core.dialog.EnterMappingDialog;
 import org.pentaho.di.ui.core.dialog.ErrorDialog;
 import org.pentaho.di.ui.core.gui.GUIResource;
@@ -61,28 +50,29 @@ import org.pentaho.di.ui.core.widget.TableView;
 import org.pentaho.di.ui.core.widget.TextVar;
 import org.pentaho.di.ui.trans.step.BaseStepDialog;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
+import java.io.IOException;
+import java.io.StringReader;
+import java.util.*;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 
 /**
- * Dialog class for the Doris stream loader step.
+ * Dialog class for the MySQL bulk loader step.
  */
-@PluginDialog(id = "DorisStreamLoaderStep", image = "doris.svg", pluginType = PluginDialog.PluginType.STEP,
-        documentationUrl = "https://doris.apache.org/docs/dev/data-operate/import/import-way/stream-load-manual/")
+@PluginDialog(id = "DorisStreamLoaderStep", image = "BLKMYSQL.svg", pluginType = PluginDialog.PluginType.STEP,
+        documentationUrl = "http://wiki.pentaho.com/display/EAI/MySQL+Bulk+Loader")
 @InjectionSupported(localizationPrefix = "DorisKettleConnector.Injection.", groups = {"FIELDS"})
 public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialogInterface {
     private static Class<?> PKG = DorisStreamLoaderDialog.class; // for i18n purposes, needed by Translator2!!
 
     private DorisStreamLoaderMeta input;
 
+    private Label wlJdbcUrl;
+    private TextVar wJdbcUrl;
+    private FormData fdlJdbcUrl, fdJdbcUrl;
 
-    private Label wlFenodes;
-    private TextVar wFenodes;
-    private FormData fdlFenodes, fdFenodes;
+    private Label wlHttpUrl;
+    private TextVar wHttpUrl;
+    private FormData fdlHttpUrl, fdHttpUrl;
 
     private Label wlDatabaseName;
     private TextVar wDatabaseName;
@@ -156,26 +146,26 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
             }
         };
 
-        FocusListener lsFocusLost = new FocusAdapter() {
-          @Override
-          public void focusLost(FocusEvent focusEvent) {
-            setTableFieldCombo();
-          }
-        };
+    FocusListener lsFocusLost = new FocusAdapter() {
+      @Override
+      public void focusLost(FocusEvent focusEvent) {
+        setTableFieldCombo();
+      }
+    };
         changed = input.hasChanged();
 
         FormLayout formLayout = new FormLayout();
         formLayout.marginWidth = Const.FORM_MARGIN;
         formLayout.marginHeight = Const.FORM_MARGIN;
         shell.setLayout(formLayout);
-        shell.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.Shell.Title"));
+        shell.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.Shell.Title"));
 
         int middle = props.getMiddlePct();
         int margin = Const.MARGIN;
 
         // Stepname line
         wlStepname = new Label(shell, SWT.RIGHT);
-        wlStepname.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.Stepname.Label"));
+        wlStepname.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.Stepname.Label"));
         props.setLook(wlStepname);
         fdlStepname = new FormData();
         fdlStepname.left = new FormAttachment(0, 0);
@@ -192,34 +182,54 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         fdStepname.right = new FormAttachment(100, 0);
         wStepname.setLayoutData(fdStepname);
 
-        //fenodes
-        wlFenodes = new Label(shell, SWT.RIGHT);
-        wlFenodes.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.Fenodes.Label"));
-        props.setLook(wlFenodes);
-        fdlFenodes = new FormData();
-        fdlFenodes.left = new FormAttachment(0, 0);
-        fdlFenodes.right = new FormAttachment(middle, -margin);
-        fdlFenodes.top = new FormAttachment(wStepname, margin * 2);
-        wlFenodes.setLayoutData(fdlFenodes);
+        //jdbc url
+        wlJdbcUrl = new Label(shell, SWT.RIGHT);
+        wlJdbcUrl.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.JdbcUrl.Label"));
+        props.setLook(wlJdbcUrl);
+        fdlJdbcUrl = new FormData();
+        fdlJdbcUrl.left = new FormAttachment(0, 0);
+        fdlJdbcUrl.right = new FormAttachment(middle, -margin);
+        fdlJdbcUrl.top = new FormAttachment(wStepname, margin * 2);
+        wlJdbcUrl.setLayoutData(fdlJdbcUrl);
 
-        wFenodes = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
-        props.setLook(wFenodes);
-        wFenodes.addModifyListener(lsMod);
-        wFenodes.addFocusListener(lsFocusLost);
-        fdFenodes = new FormData();
-        fdFenodes.left = new FormAttachment(middle, 0);
-        fdFenodes.right = new FormAttachment(100, 0);
-        fdFenodes.top = new FormAttachment(wStepname, margin * 2);
-        wFenodes.setLayoutData(fdFenodes);
+        wJdbcUrl = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
+        props.setLook(wJdbcUrl);
+        wJdbcUrl.addModifyListener(lsMod);
+        wJdbcUrl.addFocusListener(lsFocusLost);
+        fdJdbcUrl = new FormData();
+        fdJdbcUrl.left = new FormAttachment(middle, 0);
+        fdJdbcUrl.right = new FormAttachment(100, 0);
+        fdJdbcUrl.top = new FormAttachment(wStepname, margin * 2);
+        wJdbcUrl.setLayoutData(fdJdbcUrl);
+
+        //http url ..
+        wlHttpUrl = new Label(shell, SWT.RIGHT);
+        wlHttpUrl.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.HttpUrl.Label"));
+        props.setLook(wlHttpUrl);
+        fdlHttpUrl = new FormData();
+        fdlHttpUrl.left = new FormAttachment(0, 0);
+        fdlHttpUrl.right = new FormAttachment(middle, -margin);
+        fdlHttpUrl.top = new FormAttachment(wJdbcUrl, margin * 2);
+        wlHttpUrl.setLayoutData(fdlHttpUrl);
+
+        wHttpUrl = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
+        props.setLook(wHttpUrl);
+        wHttpUrl.addModifyListener(lsMod);
+        wHttpUrl.addFocusListener(lsFocusLost);
+        fdHttpUrl = new FormData();
+        fdHttpUrl.left = new FormAttachment(middle, 0);
+        fdHttpUrl.right = new FormAttachment(100, 0);
+        fdHttpUrl.top = new FormAttachment(wJdbcUrl, margin * 2);
+        wHttpUrl.setLayoutData(fdHttpUrl);
 
         // DataBase Name line...
         wlDatabaseName = new Label(shell, SWT.RIGHT);
-        wlDatabaseName.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.DatabaseName.Label"));
+        wlDatabaseName.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.DatabaseName.Label"));
         props.setLook(wlDatabaseName);
         fdlDatabaseName = new FormData();
         fdlDatabaseName.left = new FormAttachment(0, 0);
         fdlDatabaseName.right = new FormAttachment(middle, -margin);
-        fdlDatabaseName.top = new FormAttachment(wFenodes, margin * 2);
+        fdlDatabaseName.top = new FormAttachment(wHttpUrl, margin * 2);
         wlDatabaseName.setLayoutData(fdlDatabaseName);
 
         wDatabaseName = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
@@ -229,13 +239,13 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         fdDatabaseName = new FormData();
         fdDatabaseName.left = new FormAttachment(middle, 0);
         fdDatabaseName.right = new FormAttachment(100, 0);
-        fdDatabaseName.top = new FormAttachment(wFenodes, margin * 2);
+        fdDatabaseName.top = new FormAttachment(wHttpUrl, margin * 2);
         wDatabaseName.setLayoutData(fdDatabaseName);
 
 
         // Table Name line...
         wlTableName = new Label(shell, SWT.RIGHT);
-        wlTableName.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.TableName.Label"));
+        wlTableName.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.TableName.Label"));
         props.setLook(wlTableName);
         fdlTableName = new FormData();
         fdlTableName.left = new FormAttachment(0, 0);
@@ -247,6 +257,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         props.setLook(wTableName);
         wTableName.addModifyListener(lsMod);
         wTableName.addFocusListener(lsFocusLost);
+        //wTableName.setText(input.getTable());
         fdTableName = new FormData();
         fdTableName.left = new FormAttachment(middle, 0);
         fdTableName.right = new FormAttachment(100, 0);
@@ -255,7 +266,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
 
         // User line...
         wlUser = new Label(shell, SWT.RIGHT);
-        wlUser.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.User.Label"));
+        wlUser.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.User.Label"));
         props.setLook(wlUser);
         fdlUser = new FormData();
         fdlUser.left = new FormAttachment(0, 0);
@@ -275,7 +286,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
 
         // Password line ...
         wlPassword = new Label(shell, SWT.RIGHT);
-        wlPassword.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.Password.Label"));
+        wlPassword.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.Password.Label"));
         props.setLook(wlPassword);
         fdlPassword = new FormData();
         fdlPassword.left = new FormAttachment(0, 0);
@@ -293,29 +304,50 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         fdPassword.top = new FormAttachment(wUser, margin * 2);
         wPassword.setLayoutData(fdPassword);
 
+        //streamLoadProp line ...
+        wlStreamLoadProp = new Label(shell, SWT.RIGHT);
+        wlStreamLoadProp.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.StreamLoadProp.Label"));
+        props.setLook(wlStreamLoadProp);
+        fdlStreamLoadProp = new FormData();
+        fdlStreamLoadProp.left = new FormAttachment(0, 0);
+        fdlStreamLoadProp.right = new FormAttachment(middle, -margin);
+        fdlStreamLoadProp.top = new FormAttachment(wPassword, margin * 2);
+        wlStreamLoadProp.setLayoutData(fdlStreamLoadProp);
+
+        wStreamLoadProp = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
+        props.setLook(wStreamLoadProp);
+        wStreamLoadProp.addModifyListener(lsMod);
+        // wPassword.addFocusListener(lsFocusLost);
+        fdStreamLoadProp = new FormData();
+        fdStreamLoadProp.left = new FormAttachment(middle, 0);
+        fdStreamLoadProp.right = new FormAttachment(100, 0);
+        fdStreamLoadProp.top = new FormAttachment(wPassword, margin * 2);
+        wStreamLoadProp.setLayoutData(fdStreamLoadProp);
+
+
         //bufferFlushMaxRows line ...
         wlBufferFlushMaxRows = new Label(shell, SWT.RIGHT);
-        wlBufferFlushMaxRows.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.BufferFlushMaxRows.Label"));
+        wlBufferFlushMaxRows.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.BufferFlushMaxRows.Label"));
         props.setLook(wlBufferFlushMaxRows);
         fdlBufferFlushMaxRows = new FormData();
         fdlBufferFlushMaxRows.left = new FormAttachment(0, 0);
         fdlBufferFlushMaxRows.right = new FormAttachment(middle, -margin);
-        fdlBufferFlushMaxRows.top = new FormAttachment(wPassword, margin * 2);
+        fdlBufferFlushMaxRows.top = new FormAttachment(wStreamLoadProp, margin * 2);
         wlBufferFlushMaxRows.setLayoutData(fdlBufferFlushMaxRows);
 
         wBufferFlushMaxRows = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
         props.setLook(wBufferFlushMaxRows);
         wBufferFlushMaxRows.addModifyListener(lsMod);
-        wBufferFlushMaxRows.addFocusListener(lsFocusLost);
+        // wPassword.addFocusListener(lsFocusLost);
         fdBufferFlushMaxRows = new FormData();
         fdBufferFlushMaxRows.left = new FormAttachment(middle, 0);
         fdBufferFlushMaxRows.right = new FormAttachment(100, 0);
-        fdBufferFlushMaxRows.top = new FormAttachment(wPassword, margin * 2);
+        fdBufferFlushMaxRows.top = new FormAttachment(wStreamLoadProp, margin * 2);
         wBufferFlushMaxRows.setLayoutData(fdBufferFlushMaxRows);
 
         //bufferFlushMaxBytes line ...
         wlBufferFlushMaxBytes = new Label(shell, SWT.RIGHT);
-        wlBufferFlushMaxBytes.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.BufferFlushMaxBytes.Label"));
+        wlBufferFlushMaxBytes.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.BufferFlushMaxBytes.Label"));
         props.setLook(wlBufferFlushMaxBytes);
         fdlBufferFlushMaxBytes = new FormData();
         fdlBufferFlushMaxBytes.left = new FormAttachment(0, 0);
@@ -326,7 +358,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         wBufferFlushMaxBytes = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
         props.setLook(wBufferFlushMaxBytes);
         wBufferFlushMaxBytes.addModifyListener(lsMod);
-        wBufferFlushMaxBytes.addFocusListener(lsFocusLost);
+        // wPassword.addFocusListener(lsFocusLost);
         fdBufferFlushMaxBytes = new FormData();
         fdBufferFlushMaxBytes.left = new FormAttachment(middle, 0);
         fdBufferFlushMaxBytes.right = new FormAttachment(100, 0);
@@ -336,7 +368,8 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
 
         //maxRetries line ...
         wlMaxRetries = new Label(shell, SWT.RIGHT);
-        wlMaxRetries.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.MaxRetries.Label"));
+        wlMaxRetries.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.MaxRetries.Label"));
+        //wlMaxRetries.setText(BaseMessages.getString(PKG, "导入作业最大容错率"));
         props.setLook(wlMaxRetries);
         fdlMaxRetries = new FormData();
         fdlMaxRetries.left = new FormAttachment(0, 0);
@@ -347,32 +380,13 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         wMaxRetries = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
         props.setLook(wMaxRetries);
         wMaxRetries.addModifyListener(lsMod);
-        wPassword.addFocusListener(lsFocusLost);
+        // wPassword.addFocusListener(lsFocusLost);
         fdMaxRetries = new FormData();
         fdMaxRetries.left = new FormAttachment(middle, 0);
         fdMaxRetries.right = new FormAttachment(100, 0);
         fdMaxRetries.top = new FormAttachment(wBufferFlushMaxBytes, margin * 2);
         wMaxRetries.setLayoutData(fdMaxRetries);
 
-        //streamLoadProp line ...
-        wlStreamLoadProp = new Label(shell, SWT.RIGHT);
-        wlStreamLoadProp.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.StreamLoadProp.Label"));
-        props.setLook(wlStreamLoadProp);
-        fdlStreamLoadProp = new FormData();
-        fdlStreamLoadProp.left = new FormAttachment(0, 0);
-        fdlStreamLoadProp.right = new FormAttachment(middle, -margin);
-        fdlStreamLoadProp.top = new FormAttachment(wMaxRetries, margin * 2);
-        wlStreamLoadProp.setLayoutData(fdlStreamLoadProp);
-
-        wStreamLoadProp = new TextVar(transMeta, shell, SWT.SINGLE | SWT.LEFT | SWT.BORDER);
-        props.setLook(wStreamLoadProp);
-        wStreamLoadProp.addModifyListener(lsMod);
-        wStreamLoadProp.addFocusListener(lsFocusLost);
-        fdStreamLoadProp = new FormData();
-        fdStreamLoadProp.left = new FormAttachment(middle, 0);
-        fdStreamLoadProp.right = new FormAttachment(100, 0);
-        fdStreamLoadProp.top = new FormAttachment(wMaxRetries, margin * 2);
-        wStreamLoadProp.setLayoutData(fdStreamLoadProp);
 
         // OK and cancel buttons
         wOK = new Button( shell, SWT.PUSH );
@@ -383,11 +397,12 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
 
         // The field Table
         wlReturn = new Label(shell, SWT.NONE);
-        wlReturn.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.Fields.Label"));
+        wlReturn.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.Fields.Label"));
+        //wlReturn.setText(BaseMessages.getString(PKG, "要加载的字段"));
         props.setLook(wlReturn);
         fdlReturn = new FormData();
         fdlReturn.left = new FormAttachment(0, 0);
-        fdlReturn.top = new FormAttachment(wStreamLoadProp, margin);
+        fdlReturn.top = new FormAttachment(wMaxRetries, margin);
         wlReturn.setLayoutData(fdlReturn);
 
         int UpInsCols = 2;
@@ -396,11 +411,11 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         ciReturn = new ColumnInfo[UpInsCols];
         ciReturn[0] =
                 new ColumnInfo(
-                        BaseMessages.getString(PKG, "DorisStreamLoaderDialog.ColumnInfo.TableField"),
+                        BaseMessages.getString(PKG, "DorisKettleConnectorDialog.ColumnInfo.TableField"),
                         ColumnInfo.COLUMN_TYPE_CCOMBO, new String[]{""}, false);
         ciReturn[1] =
                 new ColumnInfo(
-                        BaseMessages.getString(PKG, "DorisStreamLoaderDialog.ColumnInfo.StreamField"),
+                        BaseMessages.getString(PKG, "DorisKettleConnectorDialog.ColumnInfo.StreamField"),
                         ColumnInfo.COLUMN_TYPE_CCOMBO, new String[]{""}, false);
 
         tableFieldColumns.add(ciReturn[0]);
@@ -410,14 +425,22 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
                         UpInsRows, lsMod, props);
 
         wGetLU = new Button(shell, SWT.PUSH);
-        wGetLU.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.GetFields.Label"));
+        wGetLU.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.GetFields.Label"));
+        //wGetLU.setText(BaseMessages.getString(PKG, "获取字段"));
         fdGetLU = new FormData();
         fdGetLU.top = new FormAttachment(wlReturn, margin);
         fdGetLU.right = new FormAttachment(100, 0);
         wGetLU.setLayoutData(fdGetLU);
 
+//        wGetLU.addListener(SWT.Selection, new Listener() {
+//            @Override
+//            public void handleEvent(Event event) {
+//                setTableFieldCombo();
+//            }
+//        });
+
         wDoMapping = new Button(shell, SWT.PUSH);
-        wDoMapping.setText(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.EditMapping.Label"));
+        wDoMapping.setText(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.EditMapping.Label"));
         fdDoMapping = new FormData();
         fdDoMapping.top = new FormAttachment(wGetLU, margin);
         fdDoMapping.right = new FormAttachment(100, 0);
@@ -458,29 +481,27 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         new Thread(runnable).start();
 
         // Add listeners
-        lsOK = new Listener() {
-            @Override
-            public void handleEvent( Event e ) {
-                ok();
-            }
-        };
         lsCancel = new Listener() {
-            @Override
             public void handleEvent( Event e ) {
                 cancel();
+            }
+        };
+        lsOK = new Listener() {
+            public void handleEvent( Event e ) {
+                ok();
             }
         };
 
         lsGetLU = new Listener() {
             @Override
-            public void handleEvent( Event e ) {
+            public void handleEvent(Event event) {
                 getUpdate();
             }
         };
 
-        wOK.addListener( SWT.Selection, lsOK );
         wCancel.addListener( SWT.Selection, lsCancel );
-        wGetLU.addListener( SWT.Selection, lsGetLU );
+        wOK.addListener( SWT.Selection, lsOK );
+        wGetLU.addListener(SWT.Selection, lsGetLU);
 
         lsDef = new SelectionAdapter() {
             public void widgetDefaultSelected( SelectionEvent e ) {
@@ -488,20 +509,20 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
             }
         };
 
-        wStepname.addSelectionListener(lsDef);
-        wFenodes.addSelectionListener(lsDef);
+        wJdbcUrl.addSelectionListener(lsDef);
+        wHttpUrl.addSelectionListener(lsDef);
         wDatabaseName.addSelectionListener(lsDef);
         wTableName.addSelectionListener(lsDef);
         wUser.addSelectionListener(lsDef);
         wPassword.addSelectionListener(lsDef);
+        wStreamLoadProp.addSelectionListener(lsDef);
         wBufferFlushMaxRows.addSelectionListener(lsDef);
         wBufferFlushMaxBytes.addSelectionListener(lsDef);
-        wStreamLoadProp.addSelectionListener(lsDef);
-        wMaxRetries.addSelectionListener(lsDef);
+        wMaxRetries.addSelectionListener( lsDef );
+
 
         // Detect X or ALT-F4 or something that kills this window...
         shell.addShellListener( new ShellAdapter() {
-            @Override
             public void shellClosed( ShellEvent e ) {
                 cancel();
             }
@@ -520,23 +541,26 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
                 display.sleep();
             }
         }
+
         return stepname;
     }
 
     private void getData(){
         if (log.isDebug()) {
-            logDebug(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.Log.GettingKeyInfo"));
+            logDebug(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.Log.GettingKeyInfo"));
         }
 
-        wFenodes.setText(Const.NVL(input.getFenodes(), ""));
-        wDatabaseName.setText(Const.NVL(input.getDatabase(), ""));
-        wTableName.setText(Const.NVL(input.getTable(), ""));
-        wUser.setText(Const.NVL(input.getUsername(), "root"));
-        wPassword.setText(Const.NVL(input.getPassword(), ""));
-        wStreamLoadProp.setText(Const.NVL(input.getStreamLoadProp(),""));
-        wBufferFlushMaxRows.setText(Const.NVL(String.valueOf(input.getBufferFlushMaxRows()),"50000"));
-        wBufferFlushMaxBytes.setText(Const.NVL(String.valueOf(input.getBufferFlushMaxBytes()),"104857600"));
-        wMaxRetries.setText(Const.NVL(String.valueOf(input.getMaxRetries()),"3"));
+        String streamLoadStr = String.valueOf(input.getStreamLoadProp());
+        if (streamLoadStr.startsWith("{")){
+            streamLoadStr= streamLoadStr.substring(1,streamLoadStr.length()-1);
+        }
+        if (streamLoadStr.endsWith("}")){
+            streamLoadStr= streamLoadStr.substring(0,streamLoadStr.length()-2);
+        }
+        wStreamLoadProp.setText(Const.NVL(streamLoadStr,""));
+        wBufferFlushMaxRows.setText(Const.NVL(String.valueOf(input.getBufferFlushMaxRows()),"10000"));
+        wBufferFlushMaxBytes.setText(Const.NVL(String.valueOf(input.getBufferFlushMaxBytes()),"94371840"));
+        wMaxRetries.setText(Const.NVL(String.valueOf(input.getMaxRetries()),"0"));
 
         if (input.getFieldTable() != null) {
             for (int i = 0; i < input.getFieldTable().length; i++) {
@@ -548,6 +572,25 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
                     item.setText(2, input.getFieldStream()[i]);
                 }
             }
+        }
+
+        if (input.getJdbcUrl() != null){
+            wJdbcUrl.setText(input.getJdbcUrl().toString());
+        }
+        if (input.getFenodes() != null){
+            wHttpUrl.setText(input.getFenodes().toString());
+        }
+        if (input.getDatabase() != null) {
+            wDatabaseName.setText(input.getDatabase().toString());
+        }
+        if (input.getTable() != null) {
+            wTableName.setText(input.getTable().toString());
+        }
+        if (input.getUsername() != null) {
+            wUser.setText(input.getUsername().toString());
+        }
+        if (input.getPassword() != null) {
+            wPassword.setText(input.getPassword().toString());
         }
 
         wReturn.setRowNums();
@@ -569,6 +612,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
             return;
         }
 
+        input.setChanged();
         getInfo(input);
         dispose();
     }
@@ -578,25 +622,24 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         // Determine the source and target fields...
         //
         RowMetaInterface sourceFields;
-
+        List<String> targetFields = new ArrayList<>();
 
         try {
             sourceFields = transMeta.getPrevStepFields(stepMeta);
         } catch (KettleException e) {
             new ErrorDialog(shell,
-                    BaseMessages.getString(PKG, "DorisStreamLoaderDialog.DoMapping.UnableToFindSourceFields.Title"),
-                    BaseMessages.getString(PKG, "DorisStreamLoaderDialog.DoMapping.UnableToFindSourceFields.Message"), e);
+                    BaseMessages.getString(PKG, "DorisKettleConnectorDialog.DoMapping.UnableToFindSourceFields.Title"),
+                    BaseMessages.getString(PKG, "DorisKettleConnectorDialog.DoMapping.UnableToFindSourceFields.Message"), e);
             return;
         }
-        //todo: get target fields from doris
-        List<String> targetFields = Arrays.asList(sourceFields.getFieldNames());
-
         // refresh data
-        input.setFenodes(wFenodes.getText());
+        input.setJdbcUrl(wJdbcUrl.getText());
+        input.setFenodes(wHttpUrl.getText());
         input.setTable(wTableName.getText());
         input.setDatabase(wDatabaseName.getText());
         input.setUsername(wUser.getText());
         input.setPassword(wPassword.getText());
+
 
         String[] inputNames = new String[sourceFields.size()];
         for (int i = 0; i < sourceFields.size(); i++) {
@@ -640,22 +683,22 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
             if (missingSourceFields.length() > 0) {
                 message +=
                         BaseMessages.getString(
-                                PKG, "DorisStreamLoaderDialog.DoMapping.SomeSourceFieldsNotFound", missingSourceFields.toString())
+                                PKG, "DorisKettleConnectorDialog.DoMapping.SomeSourceFieldsNotFound", missingSourceFields.toString())
                                 + Const.CR;
             }
             if (missingTargetFields.length() > 0) {
                 message +=
                         BaseMessages.getString(
-                                PKG, "DorisStreamLoaderDialog.DoMapping.SomeTargetFieldsNotFound", missingSourceFields.toString())
+                                PKG, "DorisKettleConnectorDialog.DoMapping.SomeTargetFieldsNotFound", missingSourceFields.toString())
                                 + Const.CR;
             }
             message += Const.CR;
             message +=
-                    BaseMessages.getString(PKG, "DorisStreamLoaderDialog.DoMapping.SomeFieldsNotFoundContinue") + Const.CR;
+                    BaseMessages.getString(PKG, "DorisKettleConnectorDialog.DoMapping.SomeFieldsNotFoundContinue") + Const.CR;
             MessageDialog.setDefaultImage(GUIResource.getInstance().getImageSpoon());
             boolean goOn =
                     MessageDialog.openConfirm(shell, BaseMessages.getString(
-                            PKG, "DorisStreamLoaderDialog.DoMapping.SomeFieldsNotFoundTitle"), message);
+                            PKG, "DorisKettleConnectorDialog.DoMapping.SomeFieldsNotFoundTitle"), message);
             if (!goOn) {
                 return;
             }
@@ -687,8 +730,9 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
 
         inf.allocate(nrfields);
 
+
         if (log.isDebug()) {
-            logDebug(BaseMessages.getString(PKG, "DorisStreamLoaderDialog.Log.FoundFields", "" + nrfields));
+            logDebug(BaseMessages.getString(PKG, "DorisKettleConnectorDialog.Log.FoundFields", "" + nrfields));
         }
         //CHECKSTYLE:Indentation:OFF
         for (int i = 0; i < nrfields; i++) {
@@ -696,16 +740,39 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
             inf.getFieldTable()[i] = item.getText(1);
             inf.getFieldStream()[i] = item.getText(2);
         }
+        if (wHttpUrl.getText() != null && wHttpUrl.getText().length() != 0) {
+            inf.setFenodes(wHttpUrl.getText());
+        } else {
+            inf.setFenodes(null);
+        }
 
-        inf.setFenodes(wFenodes.getText());
+        input.setJdbcUrl(wJdbcUrl.getText());
         inf.setDatabase(wDatabaseName.getText());
         inf.setTable(wTableName.getText());
         inf.setUsername(wUser.getText());
         inf.setPassword(wPassword.getText());
-        inf.setBufferFlushMaxRows(Long.valueOf(wBufferFlushMaxRows.getText()));
-        inf.setBufferFlushMaxBytes(Long.valueOf(wBufferFlushMaxBytes.getText()));
-        inf.setMaxRetries(Integer.valueOf(wMaxRetries.getText()));
-        inf.setStreamLoadProp(wStreamLoadProp.getText());
+
+        if (wStreamLoadProp.getText() != null && wStreamLoadProp.getText().length() != 0){
+            Properties properties = new Properties();
+            try {
+                properties.load(new StringReader(wStreamLoadProp.getText()));
+                inf.setStreamLoadProp(properties);
+            }catch (IOException e){
+                e.printStackTrace();
+                new ErrorDialog(shell,
+                        BaseMessages.getString(PKG, "DorisKettleConnectorDialog.StreamLoadProp.ParsingError.Title"),
+                        BaseMessages.getString(PKG, "DorisKettleConnectorDialog.StreamLoadProp.ParsingError.Message"), e);
+            }
+        }else {
+            inf.setStreamLoadProp(null);
+        }
+
+        inf.setBufferFlushMaxRows(Long.parseLong(wBufferFlushMaxRows.getText()));
+        inf.setBufferFlushMaxBytes(Long.parseLong(wBufferFlushMaxBytes.getText()));
+        inf.setMaxRetries(Integer.parseInt(wMaxRetries.getText()));
+
+
+
 
         stepname = wStepname.getText();
 
@@ -728,21 +795,6 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
         ciReturn[1].setComboValues(fieldNames);
     }
 
-    private void setTableFieldCombo() {
-        Runnable fieldLoader = new Runnable() {
-            public void run() {
-                if (!wFenodes.isDisposed() && !wTableName.isDisposed() && !wDatabaseName.isDisposed() && !wUser.isDisposed() && !wPassword.isDisposed()) {
-                    // todo: query column from doris
-                    for (ColumnInfo colInfo : tableFieldColumns) {
-                        colInfo.setComboValues(new String[]{});
-                    }
-
-                }
-            }
-        };
-        shell.getDisplay().asyncExec( fieldLoader );
-    }
-
     private void getUpdate() {
         try {
             RowMetaInterface r = transMeta.getPrevStepFields(stepname);
@@ -751,8 +803,44 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
             }
         } catch (KettleException ke) {
             new ErrorDialog(
-                    shell, BaseMessages.getString(PKG, "DorisStreamLoaderDialog.FailedToGetFields.DialogTitle"),
-                    BaseMessages.getString(PKG, "DorisStreamLoaderDialog.FailedToGetFields.DialogMessage"), ke);
+                    shell, BaseMessages.getString(PKG, "DorisKettleConnectorDialog.FailedToGetFields.DialogTitle"),
+                    BaseMessages.getString(PKG, "DorisKettleConnectorDialog.FailedToGetFields.DialogMessage"), ke);
         }
+    }
+    private void setTableFieldCombo() {
+        Runnable fieldLoader = new Runnable() {
+            @Override
+            public void run() {
+                if (!wJdbcUrl.isDisposed() && !wTableName.isDisposed() && !wDatabaseName.isDisposed() && !wUser.isDisposed() && !wPassword.isDisposed()) {
+                    final String jdbcUrl = wJdbcUrl.getText(), tableName = wTableName.getText(), databaseName = wDatabaseName.getText(), user = wUser.getText(), password = wPassword.getText();
+
+                    // Clear
+                    for (ColumnInfo colInfo : tableFieldColumns) {
+                        colInfo.setComboValues(new String[]{});
+                    }
+                    if (!Utils.isEmpty(tableName) && !Utils.isEmpty(jdbcUrl) && !Utils.isEmpty(user)) {
+                        try {
+                            DorisJdbcConnectionOptions jdbcConnectionOptions = new DorisJdbcConnectionOptions(jdbcUrl, user, password);
+                            DorisJdbcConnectionProvider jdbcConnectionProvider = new DorisJdbcConnectionProvider(jdbcConnectionOptions);
+                            DorisQueryVisitor dorisQueryVisitor = new DorisQueryVisitor(jdbcConnectionProvider, databaseName, tableName);
+
+                            Map<String, DorisDataType> fieldMap = dorisQueryVisitor.getFieldMapping();
+                            if (null != fieldMap) {
+                                String[] fieldNames = fieldMap.keySet().toArray(new String[0]);
+                                for (ColumnInfo colInfo : tableFieldColumns) {
+                                    colInfo.setComboValues(fieldNames);
+                                }
+
+                            }
+                        } catch (Exception e) {
+                            for (ColumnInfo colInfo : tableFieldColumns) {
+                                colInfo.setComboValues(new String[]{});
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        shell.getDisplay().asyncExec(fieldLoader);
     }
 }

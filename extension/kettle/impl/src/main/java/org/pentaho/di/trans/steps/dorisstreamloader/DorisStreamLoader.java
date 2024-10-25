@@ -23,23 +23,22 @@ import org.pentaho.di.core.row.ValueMetaInterface;
 import org.pentaho.di.i18n.BaseMessages;
 import org.pentaho.di.trans.Trans;
 import org.pentaho.di.trans.TransMeta;
-import org.pentaho.di.trans.step.BaseStep;
-import org.pentaho.di.trans.step.StepDataInterface;
-import org.pentaho.di.trans.step.StepInterface;
-import org.pentaho.di.trans.step.StepMeta;
-import org.pentaho.di.trans.step.StepMetaInterface;
+import org.pentaho.di.trans.step.*;
 import org.pentaho.di.trans.steps.dorisstreamloader.load.DorisBatchStreamLoad;
+import org.pentaho.di.trans.steps.dorisstreamloader.load.DorisDataType;
 import org.pentaho.di.trans.steps.dorisstreamloader.load.DorisOptions;
 import org.pentaho.di.trans.steps.dorisstreamloader.serializer.DorisRecordSerializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.sql.Timestamp;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.Properties;
 
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.CSV;
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.FIELD_DELIMITER_DEFAULT;
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.FIELD_DELIMITER_KEY;
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.FORMAT_KEY;
+import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.*;
 
 /**
  * Doris Stream Load
@@ -116,17 +115,146 @@ public class DorisStreamLoader extends BaseStep implements StepInterface {
     streamLoad = null;
   }
 
-  @Override
+    public Object[] transform(Object[] r, boolean supportUpsertDelete) throws KettleException {
+        Object[] values = new Object[data.keynrs.length + (supportUpsertDelete ? 1 : 0)];
+        for (int i = 0; i < data.keynrs.length; i++) {
+            ValueMetaInterface sourceMeta = getInputRowMeta().getValueMeta(data.keynrs[i]);
+            DorisDataType dataType = data.fieldtype.get(meta.getFieldTable()[i]);
+            values[i] = typeConversion(sourceMeta, dataType, r[i]);
+        }
+        return values;
+    }
+
+    public Object typeConversion(ValueMetaInterface sourceMeta, DorisDataType type, Object r) throws KettleException {
+        if (r == null) {
+            return null;
+        }
+        try {
+            switch (sourceMeta.getType()) {
+                case ValueMetaInterface.TYPE_STRING:
+                    String sValue;
+                    if (sourceMeta.isStorageBinaryString()) {
+                        sValue = new String((byte[]) r, StandardCharsets.UTF_8);
+                    } else {
+                        sValue = sourceMeta.getString(r);
+                    }
+                    return sValue;
+                case ValueMetaInterface.TYPE_BOOLEAN:
+                    Boolean boolenaValue;
+                    if (sourceMeta.isStorageBinaryString()) {
+                        String binaryBoolean = new String((byte[]) r, StandardCharsets.UTF_8);
+                        boolenaValue = binaryBoolean.equals("1") || binaryBoolean.equals("true") || binaryBoolean.equals("True") || binaryBoolean.equals("TRUE");
+                    } else {
+                        boolenaValue = sourceMeta.getBoolean(r);
+                    }
+                    return boolenaValue;
+                case ValueMetaInterface.TYPE_INTEGER:
+                    Long integerValue;
+                    if (sourceMeta.isStorageBinaryString()) {
+                        integerValue = Long.parseLong(new String((byte[]) r, StandardCharsets.UTF_8));
+                    } else {
+                        integerValue = sourceMeta.getInteger(r);
+                    }
+                    if (integerValue >= Byte.MIN_VALUE && integerValue <= Byte.MAX_VALUE && type == DorisDataType.TINYINT) {
+                        return integerValue.byteValue();
+                    } else if (integerValue >= Short.MIN_VALUE && integerValue <= Short.MAX_VALUE && type == DorisDataType.SMALLINT) {
+                        return integerValue.shortValue();
+                    } else if (integerValue >= Integer.MIN_VALUE && integerValue <= Integer.MAX_VALUE && type == DorisDataType.INT) {
+                        return integerValue.intValue();
+                    } else {
+                        return integerValue;
+                    }
+                case ValueMetaInterface.TYPE_NUMBER:
+                    Double doubleValue;
+                    if (sourceMeta.isStorageBinaryString()) {
+                        doubleValue = Double.parseDouble(new String((byte[]) r, StandardCharsets.UTF_8));
+                    } else {
+                        doubleValue = sourceMeta.getNumber(r);
+                    }
+                    return doubleValue;
+                case ValueMetaInterface.TYPE_BIGNUMBER:
+                    BigDecimal decimalValue;
+                    if (sourceMeta.isStorageBinaryString()) {
+                        decimalValue = new BigDecimal(new String((byte[]) r, StandardCharsets.UTF_8));
+                    } else {
+                        decimalValue = sourceMeta.getBigNumber(r);
+                    }
+                    return decimalValue; // BigDecimal string representation is compatible with DECIMAL
+                case ValueMetaInterface.TYPE_DATE:
+                    SimpleDateFormat sourceDateFormatter = sourceMeta.getDateFormat();
+                    SimpleDateFormat dateFormatter = null;
+                    if (type == DorisDataType.DATE) {
+                        // StarRocks DATE type format: 'yyyy-MM-dd'
+                        dateFormatter = new SimpleDateFormat("yyyy-MM-dd");
+                    } else {
+                        // StarRocks DATETIME type format: 'yyyy-MM-dd HH:mm:ss'
+                        dateFormatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                    }
+                    Date dateValue = null;
+                    if (sourceMeta.isStorageBinaryString()) {
+                        String dateStr = new String((byte[]) r, StandardCharsets.UTF_8);
+                        dateValue = sourceDateFormatter.parse(dateStr);
+                    } else {
+                        dateValue = sourceMeta.getDate(r);
+                    }
+
+                    return dateFormatter.format(dateValue);
+                case ValueMetaInterface.TYPE_TIMESTAMP:
+                    SimpleDateFormat sourceTimestampFormatter = sourceMeta.getDateFormat();
+                    SimpleDateFormat timeStampFormatter = null;
+                    if (type == DorisDataType.DATE) {
+                        // StarRocks DATE type format: 'yyyy-MM-dd'
+                        timeStampFormatter = new SimpleDateFormat("yyyy-MM-dd");
+                    } else {
+                        // StarRocks DATETIME type format: 'yyyy-MM-dd HH:mm:ss'
+                        timeStampFormatter = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+                    }
+                    Timestamp timestampValue = null;
+                    if (sourceMeta.isStorageBinaryString()) {
+                        String timestampStr = new String((byte[]) r, StandardCharsets.UTF_8);
+                        timestampValue = new Timestamp(sourceTimestampFormatter.parse(timestampStr).getTime());
+                    } else {
+                        timestampValue = (Timestamp) sourceMeta.getDate(r);
+                    }
+                    return timeStampFormatter.format(timestampValue);
+                case ValueMetaInterface.TYPE_BINARY:
+                    throw new KettleException((BaseMessages.getString(PKG, "StarRocksKettleConnector.Message.UnSupportBinary") + r.toString()));
+
+                case ValueMetaInterface.TYPE_INET:
+                    String address;
+                    if (sourceMeta.isStorageBinaryString()) {
+
+                        address = new String((byte[]) r, StandardCharsets.UTF_8);
+                    } else {
+                        address = (String) r;
+                    }
+                    return address;
+                default:
+                    throw new KettleException(BaseMessages.getString(PKG, "StarRocksKettleConnector.Message.UnknowType") + ValueMetaInterface.getTypeDescription(sourceMeta.getType()));
+            }
+        } catch (Exception e) {
+            throw new KettleException(BaseMessages.getString(PKG, "StarRocksKettleConnector.Message.FailConvertType") + e.getMessage());
+        }
+    }
+
+
+    @Override
   public boolean init( StepMetaInterface smi, StepDataInterface sdi ) {
     meta = (DorisStreamLoaderMeta) smi;
     data = (DorisStreamLoaderData) sdi;
     if (super.init(smi, sdi)){
       Properties streamHeaders = new Properties();
-      String streamLoadProp = meta.getStreamLoadProp();
+      String streamLoadProp = meta.getStreamLoadProp().toString();
       if (StringUtils.isNotBlank(streamLoadProp)) {
-        String[] keyValues = streamLoadProp.split(";");
+          if (streamLoadProp.startsWith("{")){
+              streamLoadProp= streamLoadProp.substring(1,streamLoadProp.length()-1);
+          }
+          if (streamLoadProp.endsWith("}")){
+              streamLoadProp= streamLoadProp.substring(0,streamLoadProp.length()-2);
+          }
+        String[] keyValues = streamLoadProp.split(",");
         for (String keyValue : keyValues) {
-          String[] kv = keyValue.split(":");
+          String[] kv = keyValue.split(",");
           if (kv.length == 2) {
             streamHeaders.put(kv[0], kv[1]);
           }

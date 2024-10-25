@@ -21,10 +21,7 @@ import java.util.Properties;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.FIELD_DELIMITER_DEFAULT;
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.FIELD_DELIMITER_KEY;
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.LINE_DELIMITER_DEFAULT;
-import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.LINE_DELIMITER_KEY;
+import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.*;
 
 /** Handler for escape in properties. */
 public class EscapeHandler {

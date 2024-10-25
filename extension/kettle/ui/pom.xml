@@ -20,52 +20,52 @@ under the License.
 <project xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd"
          xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <modelVersion>4.0.0</modelVersion>
+    <modelVersion>4.0.0</modelVersion>
 
-  <parent>
-    <groupId>org.pentaho.di.plugins</groupId>
-    <artifactId>doris-stream-loader</artifactId>
-    <version>9.4.0.0-343</version>
-  </parent>
+    <parent>
+        <groupId>org.pentaho.di.plugins</groupId>
+        <artifactId>doris-stream-loader</artifactId>
+        <version>9.4.0.0-343</version>
+    </parent>
 
-  <artifactId>doris-stream-loader-ui</artifactId>
-  <name>PDI Doris stream loader plugin UI</name>
+    <artifactId>doris-stream-loader-ui</artifactId>
+    <name>PDI Doris stream loader plugin UI</name>
 
-  <dependencies>
-    <dependency>
-      <groupId>org.pentaho.di.plugins</groupId>
-      <artifactId>doris-stream-loader-impl</artifactId>
-      <version>${project.version}</version>
-    </dependency>
+    <dependencies>
+        <dependency>
+            <groupId>org.pentaho.di.plugins</groupId>
+            <artifactId>doris-stream-loader-impl</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
-    <dependency>
-      <groupId>pentaho-kettle</groupId>
-      <artifactId>kettle-core</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>pentaho-kettle</groupId>
-      <artifactId>kettle-engine</artifactId>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>pentaho-kettle</groupId>
-      <artifactId>kettle-ui-swt</artifactId>
-      <scope>provided</scope>
-    </dependency>
+        <dependency>
+            <groupId>pentaho-kettle</groupId>
+            <artifactId>kettle-core</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>pentaho-kettle</groupId>
+            <artifactId>kettle-engine</artifactId>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>pentaho-kettle</groupId>
+            <artifactId>kettle-ui-swt</artifactId>
+            <scope>provided</scope>
+        </dependency>
 
-    <!-- SWT it required to compile any version of any architecture will work -->
-    <dependency>
-      <groupId>org.eclipse.swt</groupId>
-      <artifactId>org.eclipse.swt.gtk.linux.x86_64</artifactId>
-      <scope>provided</scope>
-      <exclusions>
-        <exclusion>
-          <groupId>*</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-  </dependencies>
+        <!-- SWT it required to compile any version of any architecture will work -->
+        <dependency>
+            <groupId>org.eclipse.swt</groupId>
+            <artifactId>org.eclipse.swt.gtk.linux.x86_64</artifactId>
+            <scope>provided</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+    </dependencies>
 
 </project>
