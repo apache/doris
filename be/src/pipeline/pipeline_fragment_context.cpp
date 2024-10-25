@@ -704,6 +704,9 @@ Status PipelineFragmentContext::_create_tree_helper(ObjectPool* pool,
             (followed_by_shuffled_operator || op->is_shuffled_operator()) &&
             require_shuffled_data_distribution;
 
+    if (num_children == 0) {
+        _use_serial_source = op->is_serial_operator();
+    }
     // rely on that tnodes is preorder of the plan
     for (int i = 0; i < num_children; i++) {
         ++*node_idx;
@@ -783,6 +786,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
+                _use_serial_source,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? _runtime_state->query_options().local_exchange_free_blocks_limit
                         : 0);

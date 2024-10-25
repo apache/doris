@@ -217,21 +217,24 @@ public:
 
 protected:
     ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
-                     int free_block_limit)
+                     bool ignore_source_data_distribution, int free_block_limit)
             : Exchanger<PartitionedBlock>(running_sink_operators, num_sources, num_partitions,
-                                          free_block_limit) {
+                                          free_block_limit),
+              _ignore_source_data_distribution(ignore_source_data_distribution) {
         _data_queue.resize(num_partitions);
     }
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
+
+    const bool _ignore_source_data_distribution = false;
 };
 
 class BucketShuffleExchanger final : public ShuffleExchanger {
     ENABLE_FACTORY_CREATOR(BucketShuffleExchanger);
     BucketShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
-                           int free_block_limit)
+                           bool ignore_source_data_distribution, int free_block_limit)
             : ShuffleExchanger(running_sink_operators, num_sources, num_partitions,
-                               free_block_limit) {}
+                               ignore_source_data_distribution, free_block_limit) {}
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };
