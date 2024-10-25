@@ -35,7 +35,8 @@ suite("other_join_conjuncts_inner") {
       o_orderpriority  CHAR(15) NOT NULL,  
       o_clerk          CHAR(15) NOT NULL, 
       o_shippriority   INTEGER NOT NULL,
-      O_COMMENT        VARCHAR(79) NOT NULL
+      O_COMMENT        VARCHAR(79) NOT NULL,
+      lo_orderdate    DATE NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
@@ -65,7 +66,8 @@ suite("other_join_conjuncts_inner") {
       l_receiptdate DATE NOT NULL,
       l_shipinstruct CHAR(25) NOT NULL,
       l_shipmode     CHAR(10) NOT NULL,
-      l_comment      VARCHAR(44) NOT NULL
+      l_comment      VARCHAR(44) NOT NULL,
+      lo_orderdate    DATE NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
@@ -94,38 +96,38 @@ suite("other_join_conjuncts_inner") {
     """
 
     sql """ insert into lineitem values
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 7.6, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (2, 4, 3, 4, 5.5, 6.5, 7.6, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (3, 2, 4, 4, 5.5, 6.6, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (4, 3, 3, 4, 5.5, 6.6, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx'),
-    (5, 2, 3, 6, 7.6, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-08'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.6, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-08'),
+    (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-09'),
+    (2, 4, 3, 4, 5.5, 6.5, 7.6, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-09'),
+    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-10'),
+    (3, 2, 4, 4, 5.5, 6.6, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-10'),
+    (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-11'),
+    (4, 3, 3, 4, 5.5, 6.6, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-11'),
+    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx', '2023-12-12'),
+    (5, 2, 3, 6, 7.6, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx', '2023-12-12');
     """
 
     sql """
     insert into orders values
-    (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-07', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (2, 1, 'o', 11.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (2, 1, 'o', 11.5, '2023-12-11', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-12', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 33.5, '2023-12-13', 'a', 'b', 1, 'yy'),
-    (4, 2, 'o', 43.2, '2023-12-10', 'c','d',2, 'mm'),
-    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
-    (4, 2, 'o', 43.2, '2023-12-13', 'c','d',2, 'mm'),
-    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'),
-    (5, 2, 'o', 56.2, '2023-12-14', 'c','d',2, 'mi'),
-    (5, 2, 'o', 56.2, '2023-12-16', 'c','d',2, 'mi'),
-    (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
+    (1, 1, 'o', 9.5,  '2023-12-08', 'a', 'b', 1, 'yy','2023-12-08'),
+    (1, 1, 'o', 10.5, '2023-12-09', 'a', 'b', 1, 'yy','2023-12-09'),
+    (1, 1, 'o', 10.5, '2023-12-07', 'a', 'b', 1, 'yy','2023-12-07'),
+    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy','2023-12-08'),
+    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy','2023-12-09'),
+    (2, 1, 'o', 11.5, '2023-12-08', 'a', 'b', 1, 'yy','2023-12-08'),
+    (2, 1, 'o', 11.5, '2023-12-11', 'a', 'b', 1, 'yy','2023-12-11'),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy','2023-12-10'),
+    (3, 1, 'o', 12.5, '2023-12-09', 'a', 'b', 1, 'yy','2023-12-09'),
+    (3, 1, 'o', 12.5, '2023-12-12', 'a', 'b', 1, 'yy','2023-12-12'),
+    (3, 1, 'o', 33.5, '2023-12-13', 'a', 'b', 1, 'yy','2023-12-13'),
+    (4, 2, 'o', 43.2, '2023-12-10', 'c','d',2, 'mm'  ,'2023-12-10'),
+    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'  ,'2023-12-11'),
+    (4, 2, 'o', 43.2, '2023-12-13', 'c','d',2, 'mm'  ,'2023-12-13'),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'  ,'2023-12-12'),
+    (5, 2, 'o', 56.2, '2023-12-14', 'c','d',2, 'mi'  ,'2023-12-14'),
+    (5, 2, 'o', 56.2, '2023-12-16', 'c','d',2, 'mi'  ,'2023-12-16'),
+    (5, 2, 'o', 1.2,  '2023-12-12', 'c','d',2, 'mi'  ,'2023-12-12');  
     """
 
     sql """
@@ -163,6 +165,54 @@ suite("other_join_conjuncts_inner") {
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
+    def mv1_6 =
+            """
+            select l_orderkey, o_orderdate
+            from
+            lineitem
+            inner join
+            orders on l_shipdate <= o_orderdate and l_orderkey = o_orderkey
+            inner join partsupp on l_orderkey + o_orderkey != ps_availqty and ps_partkey = l_partkey;
+            """
+    def query1_6 =
+            """
+            select l_orderkey, o_orderdate
+            from
+            lineitem
+            inner join
+            orders on l_shipdate <= o_orderdate and l_orderkey = o_orderkey
+            inner join partsupp on l_orderkey + o_orderkey != ps_availqty and ps_partkey = l_partkey;
+            """
+    order_qt_query1_6_before "${query1_6}"
+    // other conjuncts is before equal conjuncts, should success
+    async_mv_rewrite_success(db, mv1_6, query1_6, "mv1_6")
+    order_qt_query1_6_after "${query1_6}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_6"""
+
+
+    def mv1_7 =
+            """
+            select l_orderkey, o_orderdate
+            from
+            lineitem
+            inner join
+            orders on l_shipdate <= o_orderdate and l_orderkey = o_orderkey and lineitem.lo_orderdate <= orders.lo_orderdate
+            inner join partsupp on l_orderkey + o_orderkey != ps_availqty and ps_partkey = l_partkey;
+            """
+    def query1_7 =
+            """
+            select l_orderkey, o_orderdate
+            from
+            lineitem
+            inner join
+            orders on l_shipdate <= o_orderdate and l_orderkey = o_orderkey and lineitem.lo_orderdate <= orders.lo_orderdate
+            inner join partsupp on l_orderkey + o_orderkey != ps_availqty and ps_partkey = l_partkey;
+            """
+    order_qt_query1_7_before "${query1_7}"
+    // other conjuncts has the same column name
+    async_mv_rewrite_success(db, mv1_7, query1_7, "mv1_7")
+    order_qt_query1_7_after "${query1_7}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_7"""
 
     def mv1_1 =
             """
@@ -183,6 +233,7 @@ suite("other_join_conjuncts_inner") {
             inner join partsupp on ps_partkey = l_partkey and l_orderkey + o_orderkey != ps_availqty;
             """
     order_qt_query1_1_before "${query1_1}"
+    // query other conjucts is different from mv
     async_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
@@ -254,7 +305,7 @@ suite("other_join_conjuncts_inner") {
             inner join partsupp on ps_partkey;
             """
     order_qt_query1_4_before "${query1_4}"
-    // mv has other the conjuncts but query not
+    // mv has the other conjuncts but query not
     async_mv_rewrite_fail(db, mv1_4, query1_4, "mv1_4")
     order_qt_query1_4_after "${query1_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
@@ -349,6 +400,7 @@ suite("other_join_conjuncts_inner") {
               where l_orderkey + o_orderkey != ps_availqty and l_shipdate < o_orderdate;
             """
     order_qt_query2_1_before "${query2_1}"
+    // query other conjucts is different from mv
     async_mv_rewrite_fail(db, mv2_1, query2_1, "mv2_1")
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
@@ -482,6 +534,41 @@ suite("other_join_conjuncts_inner") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_5"""
 
 
+    def mv2_6 =
+            """
+            select
+              o_ordeRdatE,
+              o_shippriority,
+              o_commenT,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              inner join lineitem on l_orderkey = o_orderkey
+              inner join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty and l_shipdatE <= o_orderdatE;
+            """
+    def query2_6 =
+            """
+            select
+              o_orderdate,
+              o_shippriority,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders 
+              inner join lineitem on l_orderkey = o_orderkey
+              inner join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty and l_shipdate <= o_orderdate;
+            """
+    order_qt_query2_6_before "${query2_6}"
+    // Case sensitivity of column names in query and mv, should success
+    async_mv_rewrite_success(db, mv2_6, query2_6, "mv2_6")
+    order_qt_query2_6_after "${query2_6}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_6"""
+
+
     // other conjuncts both above join and in join other conjuncts
     def mv3_0 =
             """
@@ -517,6 +604,111 @@ suite("other_join_conjuncts_inner") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
 
+    def mv3_6 =
+            """
+            select
+              o_orderdate,
+              o_shippriority,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              left outer join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
+              inner join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    def query3_6 =
+            """
+            select
+              o_orderdate,
+              o_shippriority,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              left outer join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
+              inner join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    order_qt_query3_6_before "${query3_6}"
+    // Combinations of different join types
+    async_mv_rewrite_success(db, mv3_6, query3_6, "mv3_6")
+    order_qt_query3_6_after "${query3_6}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_6"""
+
+
+
+    def mv3_7 =
+            """
+            select
+              o_orderdate,
+              o_shippriority,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              inner join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
+              left outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    def query3_7 =
+            """
+            select
+              o_orderdate,
+              o_shippriority,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              inner join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
+              left outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    order_qt_query3_7_before "${query3_7}"
+    // Combinations of different join types
+    async_mv_rewrite_success(db, mv3_7, query3_7, "mv3_7")
+    order_qt_query3_7_after "${query3_7}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_7"""
+
+
+    def mv3_8 =
+            """
+            select
+              o_orderdate,
+              o_shippriority,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              inner join lineitem on l_orderkey = o_orderkey and date_trunc(l_shipdate, 'day') <= o_orderdate
+              left outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    def query3_8 =
+            """
+            select
+              o_orderdate,
+              o_shippriority,
+              o_comment,
+              l_orderkey,
+              ps_partkey
+            from
+              orders
+              inner join lineitem on l_orderkey = o_orderkey and date_trunc(l_shipdate, 'day') <= o_orderdate
+              left outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
+            """
+    order_qt_query3_8_before "${query3_8}"
+    // Complex expressions
+    async_mv_rewrite_success(db, mv3_8, query3_8, "mv3_8")
+    order_qt_query3_8_after "${query3_8}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_8"""
+
     def mv3_1 =
             """
             select
@@ -546,6 +738,7 @@ suite("other_join_conjuncts_inner") {
               where l_orderkey + o_orderkey != ps_availqty;
             """
     order_qt_query3_1_before "${query3_1}"
+    // query other conjucts is different from mv
     async_mv_rewrite_fail(db, mv3_1, query3_1, "mv3_1")
     order_qt_query3_1_after "${query3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""

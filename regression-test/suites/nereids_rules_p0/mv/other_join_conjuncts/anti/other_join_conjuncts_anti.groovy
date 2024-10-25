@@ -35,7 +35,8 @@ suite("other_join_conjuncts_anti") {
       o_orderpriority  CHAR(15) NOT NULL,  
       o_clerk          CHAR(15) NOT NULL, 
       o_shippriority   INTEGER NOT NULL,
-      O_COMMENT        VARCHAR(79) NOT NULL
+      O_COMMENT        VARCHAR(79) NOT NULL,
+      lo_orderdate    DATE NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
@@ -65,7 +66,8 @@ suite("other_join_conjuncts_anti") {
       l_receiptdate DATE NOT NULL,
       l_shipinstruct CHAR(25) NOT NULL,
       l_shipmode     CHAR(10) NOT NULL,
-      l_comment      VARCHAR(44) NOT NULL
+      l_comment      VARCHAR(44) NOT NULL,
+      lo_orderdate    DATE NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
@@ -94,40 +96,44 @@ suite("other_join_conjuncts_anti") {
     """
 
     sql """ insert into lineitem values
-    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (1, 2, 3, 4, 5.5, 6.5, 7.6, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (3, 2, 4, 4, 5.5, 6.6, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (4, 3, 3, 4, 5.5, 6.6, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
-    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx'),
-    (5, 2, 3, 6, 7.6, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
+    (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-08'),
+    (1, 2, 3, 4, 5.5, 6.5, 7.6, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-08'),
+    (2, 4, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-09'),
+    (2, 4, 3, 4, 5.5, 6.5, 7.6, 8.5, 'o', 'k', '2023-12-09', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-09'),
+    (3, 2, 4, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-10'),
+    (3, 2, 4, 4, 5.5, 6.6, 7.5, 8.5, 'o', 'k', '2023-12-10', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-10'),
+    (4, 3, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-11'),
+    (4, 3, 3, 4, 5.5, 6.6, 7.5, 8.5, 'o', 'k', '2023-12-11', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy' ,'2023-12-11'),
+    (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx', '2023-12-12'),
+    (5, 2, 3, 6, 7.6, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx', '2023-12-12');
     """
 
     sql """
     insert into orders values
-    (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-07', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (2, 1, 'o', 11.5, '2023-12-08', 'a', 'b', 1, 'yy'),
-    (2, 1, 'o', 11.5, '2023-12-11', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-09', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 12.5, '2023-12-12', 'a', 'b', 1, 'yy'),
-    (3, 1, 'o', 33.5, '2023-12-13', 'a', 'b', 1, 'yy'),
-    (4, 2, 'o', 43.2, '2023-12-10', 'c','d',2, 'mm'),
-    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'),
-    (4, 2, 'o', 43.2, '2023-12-13', 'c','d',2, 'mm');
+    (1, 1, 'o', 9.5,  '2023-12-08', 'a', 'b', 1, 'yy','2023-12-08'),
+    (1, 1, 'o', 10.5, '2023-12-09', 'a', 'b', 1, 'yy','2023-12-09'),
+    (1, 1, 'o', 10.5, '2023-12-07', 'a', 'b', 1, 'yy','2023-12-07'),
+    (1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy','2023-12-08'),
+    (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy','2023-12-09'),
+    (2, 1, 'o', 11.5, '2023-12-08', 'a', 'b', 1, 'yy','2023-12-08'),
+    (2, 1, 'o', 11.5, '2023-12-11', 'a', 'b', 1, 'yy','2023-12-11'),
+    (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy','2023-12-10'),
+    (3, 1, 'o', 12.5, '2023-12-09', 'a', 'b', 1, 'yy','2023-12-09'),
+    (3, 1, 'o', 12.5, '2023-12-12', 'a', 'b', 1, 'yy','2023-12-12'),
+    (3, 1, 'o', 33.5, '2023-12-13', 'a', 'b', 1, 'yy','2023-12-13'),
+    (4, 2, 'o', 43.2, '2023-12-10', 'c','d',2, 'mm'  ,'2023-12-10'),
+    (4, 2, 'o', 43.2, '2023-12-11', 'c','d',2, 'mm'  ,'2023-12-11'),
+    (4, 2, 'o', 43.2, '2023-12-13', 'c','d',2, 'mm'  ,'2023-12-13'),
+    (5, 2, 'o', 56.2, '2023-12-12', 'c','d',2, 'mi'  ,'2023-12-12'),
+    (5, 2, 'o', 56.2, '2023-12-14', 'c','d',2, 'mi'  ,'2023-12-14'),
+    (5, 2, 'o', 56.2, '2023-12-16', 'c','d',2, 'mi'  ,'2023-12-16'),
+    (5, 2, 'o', 1.2,  '2023-12-12', 'c','d',2, 'mi'  ,'2023-12-12');  
     """
 
     sql """
     insert into partsupp values
     (2, 3, 9, 10.01, 'supply1'),
-    (1, 2, 9, 10.01, 'supply1'),
-    (3, 4, 9, 10.01, 'supply1'),
-    (5, 6, 10, 11.01, 'supply2');
+    (2, 3, 10, 11.01, 'supply2');
     """
 
     sql """analyze table partsupp with sync"""
@@ -158,6 +164,57 @@ suite("other_join_conjuncts_anti") {
     async_mv_rewrite_success_without_check_chosen(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
+
+
+    def mv1_4 =
+            """
+            select l_orderkey
+            from
+            lineitem
+            left anti join
+            orders on l_shipdate <= o_orderdate and l_orderkey = o_orderkey 
+            left anti join partsupp on l_orderkey != ps_availqty and ps_partkey = l_partkey;
+            """
+    def query1_4 =
+            """
+            select l_orderkey
+            from
+            lineitem
+            left anti join
+            orders on l_shipdate <= o_orderdate and l_orderkey = o_orderkey
+            left anti join partsupp on l_orderkey != ps_availqty and ps_partkey = l_partkey;
+            """
+    order_qt_query1_4_before "${query1_4}"
+    // other conjuncts is before equal conjuncts, should success
+    async_mv_rewrite_success_without_check_chosen(db, mv1_4, query1_4, "mv1_4")
+    order_qt_query1_4_after "${query1_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
+
+
+
+    def mv1_5 =
+            """
+            select l_orderkey
+            from
+            lineitem
+            left anti join
+            orders on l_shipdate <= o_orderdate and l_orderkey = o_orderkey and lineitem.lo_orderdate <= orders.lo_orderdate
+            left anti join partsupp on l_orderkey != ps_availqty and ps_partkey = l_partkey;
+            """
+    def query1_5 =
+            """
+            select l_orderkey
+            from
+            lineitem
+            left anti join
+            orders on l_shipdate <= o_orderdate and l_orderkey = o_orderkey and lineitem.lo_orderdate <= orders.lo_orderdate
+            left anti join partsupp on l_orderkey != ps_availqty and ps_partkey = l_partkey;
+            """
+    order_qt_query1_5_before "${query1_5}"
+    // other conjuncts has the same column name
+    async_mv_rewrite_success_without_check_chosen(db, mv1_5, query1_5, "mv1_5")
+    order_qt_query1_5_after "${query1_5}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_5"""
 
 
     def mv1_1 =
@@ -247,7 +304,7 @@ suite("other_join_conjuncts_anti") {
             right anti join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate;
             """
     order_qt_query2_0_before "${query2_0}"
-    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
@@ -311,6 +368,48 @@ suite("other_join_conjuncts_anti") {
     async_mv_rewrite_fail(db, mv2_3, query2_3, "mv2_3")
     order_qt_query2_3_after "${query2_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
+
+
+    def mv2_4 =
+            """
+            select L_orderkeY
+            from
+            orders
+            right anti join lineitem on l_orderkey = o_orderkey and l_shipdatE <= o_orderdatE;
+            """
+    def query2_4 =
+            """
+            select l_orderkey
+            from
+            orders
+            right anti join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate;
+            """
+    order_qt_query2_4_before "${query2_4}"
+    // Case sensitivity of column names in query and mv, should success
+    async_mv_rewrite_success_without_check_chosen(db, mv2_4, query2_4, "mv2_4")
+    order_qt_query2_4_after "${query2_4}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_4"""
+
+
+    def mv2_5 =
+            """
+            select L_orderkeY
+            from
+            orders
+            right anti join lineitem on l_orderkey = o_orderkey and date_trunc(l_shipdatE, 'day') <= o_orderdatE;
+            """
+    def query2_5 =
+            """
+            select l_orderkey
+            from
+            orders
+            right anti join lineitem on l_orderkey = o_orderkey and date_trunc(l_shipdate, 'day') <= o_orderdate;
+            """
+    order_qt_query2_5_before "${query2_5}"
+    // Complex expressions
+    async_mv_rewrite_success_without_check_chosen(db, mv2_5, query2_5, "mv2_5")
+    order_qt_query2_5_after "${query2_5}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_5"""
 
 
     // left self join
