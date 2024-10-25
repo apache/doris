@@ -162,6 +162,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     public Optional<NereidsSpecifyInstances<ScanSource>> specifyInstances = Optional.empty();
 
     public TQueryCacheParam queryCacheParam;
+    private int numBackends = 0;
 
     /**
      * C'tor for fragment with specific partition; the output is by default broadcast.
@@ -504,37 +505,22 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return planRoot.isNullAwareLeftAntiJoin();
     }
 
-    private boolean isMergingFragment() {
-        return planRoot.isMerging();
-    }
-
     public boolean useSerialSource(ConnectContext context) {
         return context != null
                 && context.getSessionVariable().isIgnoreStorageDataDistribution()
+                && queryCacheParam == null
                 && !hasNullAwareLeftAntiJoin()
-                // If input data partition is UNPARTITIONED and sink is DataStreamSink and root node is not a serial
-                // operator, we use local exchange to improve parallelism
-                && getDataPartition() == DataPartition.UNPARTITIONED && !children.isEmpty()
+                // If planRoot is not a serial operator and has serial children, we can use serial source and improve
+                // parallelism of non-serial operators.
                 && sink instanceof DataStreamSink && !planRoot.isSerialOperator()
-                /**
-                 * If table `t1` has unique key `k1` and value column `v1`.
-                 * Now use plan below to load data into `t1`:
-                 * ```
-                 * FRAGMENT 0:
-                 *  Merging Exchange (id = 1)
-                 *   NL Join (id = 2)
-                 *  DataStreamSender (id = 3, dst_id = 3) (TABLET_SINK_SHUFFLE_PARTITIONED)
-                 *
-                 * FRAGMENT 1:
-                 *  Exchange (id = 3)
-                 *  OlapTableSink (id = 4) ```
-                 *
-                 * In this plan, `Exchange (id = 1)` needs to do merge sort using column `k1` and `v1` so parallelism
-                 * of FRAGMENT 0 must be 1 and data will be shuffled to FRAGMENT 1 which also has only 1 instance
-                 * because this loading job relies on the global ordering of column `k1` and `v1`.
-                 *
-                 * So FRAGMENT 0 should not use serial source.
-                 */
-                && !isMergingFragment();
+                && planRoot.hasSerialChildren();
+    }
+
+    public int getNumBackends() {
+        return numBackends;
+    }
+
+    public void setNumBackends(int numBackends) {
+        this.numBackends = numBackends;
     }
 }
