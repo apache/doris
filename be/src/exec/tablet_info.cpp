@@ -173,7 +173,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 std::string is_null_str = tcolumn_desc.is_allow_null ? "true" : "false";
                 TPrimitiveType::type col_type = has_invalid_type ? TPrimitiveType::INVALID_TYPE
                                                                  : tcolumn_desc.column_type.type;
-                std::string data_type_str = std::to_string(int64_t(col_type));
+                std::string data_type_str = std::to_string(int64_t(thrift_to_type(col_type)));
                 auto it = slots_map.find(to_lower(tcolumn_desc.column_name) + "+" + data_type_str +
                                          is_null_str);
                 if (it == slots_map.end()) {
