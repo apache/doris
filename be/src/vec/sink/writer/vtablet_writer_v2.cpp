@@ -503,7 +503,8 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
     }
     {
         SCOPED_TIMER(_wait_mem_limit_timer);
-        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_memtable_flush();
+        ExecEnv::GetInstance()->memtable_memory_limiter()->handle_workload_group_memtable_flush(
+                _state->workload_group());
     }
     SCOPED_TIMER(_write_memtable_timer);
     st = delta_writer->write(block.get(), rows.row_idxes);

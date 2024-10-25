@@ -69,6 +69,8 @@ public:
 
     bool is_high_priority() const { return _is_high_priority; }
 
+    WorkloadGroupPtr workload_group() const { return _query_thread_context.wg_wptr.lock(); }
+
     RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
     RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
 

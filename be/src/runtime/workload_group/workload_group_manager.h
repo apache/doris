@@ -105,14 +105,20 @@ public:
 
     void handle_paused_queries();
 
-    void update_load_memtable_usage(const std::map<uint64_t, MemtableUsage>& wg_memtable_usages);
-
 private:
-    bool handle_single_query(std::shared_ptr<QueryContext> query_ctx, size_t size_to_reserve,
-                             Status paused_reason);
-    void handle_non_overcommit_wg_paused_queries();
-    void handle_overcommit_wg_paused_queries();
-    void update_queries_limit(WorkloadGroupPtr wg, bool enable_hard_limit);
+    int64_t cancel_top_query_in_overcommit_group_(int64_t need_free_mem, int64_t lower_bound,
+                                                  RuntimeProfile* profile);
+    int64_t flush_memtable_from_current_group_(std::shared_ptr<QueryContext> requestor,
+                                               WorkloadGroupPtr wg, int64_t need_free_mem);
+    bool handle_single_query_(std::shared_ptr<QueryContext> query_ctx, size_t size_to_reserve,
+                              Status paused_reason);
+    int64_t revoke_memory_from_other_group_(std::shared_ptr<QueryContext> requestor,
+                                            bool hard_limit, int64_t need_free_mem);
+    int64_t revoke_overcommited_memory_(std::shared_ptr<QueryContext> requestor,
+                                        int64_t need_free_mem, RuntimeProfile* profile);
+    int64_t revoke_memtable_from_overcommited_groups_(int64_t need_free_mem,
+                                                      RuntimeProfile* profile);
+    void update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit);
 
 private:
     std::shared_mutex _group_mutex;
