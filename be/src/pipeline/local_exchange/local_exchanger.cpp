@@ -17,6 +17,7 @@
 
 #include "pipeline/local_exchange/local_exchanger.h"
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
@@ -170,7 +171,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
 Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                                      vectorized::Block* block,
                                      LocalExchangeSinkLocalState& local_state) {
-    const auto rows = int32_t(block->rows());
+    const auto rows = cast_set<int32_t>(block->rows());
     auto row_idx = std::make_shared<vectorized::PODArray<uint32_t>>(rows);
     {
         local_state._partition_rows_histogram.assign(_num_partitions + 1, 0);
@@ -212,7 +213,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
          */
         const auto& map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
                                   ._shuffle_idx_to_instance_idx;
-        new_block_wrapper->ref(int(map.size()));
+        new_block_wrapper->ref(cast_set<int>(map.size()));
         for (const auto& it : map) {
             DCHECK(it.second >= 0 && it.second < _num_partitions)
                     << it.first << " : " << it.second << " " << _num_partitions;
@@ -500,7 +501,7 @@ Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
                                                  const uint32_t* __restrict channel_ids,
                                                  vectorized::Block* block,
                                                  LocalExchangeSinkLocalState& local_state) {
-    const auto rows = int32_t(block->rows());
+    const auto rows = cast_set<int32_t>(block->rows());
     auto row_idx = std::make_shared<std::vector<uint32_t>>(rows);
     {
         local_state._partition_rows_histogram.assign(_num_partitions + 1, 0);

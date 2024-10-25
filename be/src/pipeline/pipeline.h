@@ -25,6 +25,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
@@ -122,7 +123,8 @@ public:
         for (int i = 0; i < _operators.size(); i++) {
             fmt::format_to(debug_string_buffer, "\n{}", _operators[i]->debug_string(i));
         }
-        fmt::format_to(debug_string_buffer, "\n{}", _sink->debug_string(int(_operators.size())));
+        fmt::format_to(debug_string_buffer, "\n{}",
+                       _sink->debug_string(cast_set<int>(_operators.size())));
         return fmt::to_string(debug_string_buffer);
     }
 
