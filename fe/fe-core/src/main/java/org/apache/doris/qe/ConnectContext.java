@@ -1272,11 +1272,6 @@ public class ConnectContext {
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
             choseWay = "default compute group";
-            if (!Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
-                    cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-                throw new ComputeGroupException(String.format("default compute group %s check auth failed", cluster),
-                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
-            }
         } else {
             CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
             if (cloudClusterTypeAndName != null && !Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {
