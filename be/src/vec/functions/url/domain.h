@@ -270,8 +270,7 @@ struct CutToFirstSignificantSubdomain {
         Pos tmp_data = data;
         size_t tmp_length;
         Pos domain_end = data;
-        ExtractFirstSignificantSubdomain<true>::execute(data, size, tmp_data, tmp_length,
-                                                        &domain_end);
+        ExtractFirstSignificantSubdomain::execute(data, size, tmp_data, tmp_length, &domain_end);
 
         if (tmp_length == 0) {
             return;
