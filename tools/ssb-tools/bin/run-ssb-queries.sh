@@ -97,7 +97,7 @@ run_sql() {
     echo "$@"
     mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D"${DB}" -e "$@"
     if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute the SQL command: '$@'"
+        echo "Error: Failed to execute the SQL command: $@"
         exit 1
     fi
 }
