@@ -106,3 +106,67 @@ insert into serde_test4 values(1, "abc"),(2, "def");
 insert into serde_test5 values(1, "abc"),(2, "def");
 insert into serde_test6 values(1, "abc"),(2, "def");
 insert into serde_test7 values(1, null),(2, "|||"),(3, "aaa"),(4, "\"null\"");
+
+CREATE TABLE test_open_csv_default_prop (
+    id INT,
+    name STRING,
+    age INT,
+    salary DOUBLE,
+    is_active BOOLEAN,
+    hire_date DATE,
+    last_login TIMESTAMP,
+    rating FLOAT,
+    description STRING
+)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+STORED AS TEXTFILE;
+
+CREATE TABLE test_open_csv_standard_prop (
+    id INT,
+    name STRING,
+    age INT,
+    salary DOUBLE,
+    is_active BOOLEAN,
+    hire_date DATE,
+    last_login TIMESTAMP,
+    rating FLOAT,
+    description STRING
+)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+WITH SERDEPROPERTIES (
+    "separatorChar" = ",",
+    "quoteChar"     = "\"",
+    "escapeChar"    = "\\"
+)
+STORED AS TEXTFILE;
+
+CREATE TABLE test_open_csv_custom_prop (
+    id INT,
+    name STRING,
+    age INT,
+    salary DOUBLE,
+    is_active BOOLEAN,
+    hire_date DATE,
+    last_login TIMESTAMP,
+    rating FLOAT,
+    description STRING
+)
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.OpenCSVSerde'
+WITH SERDEPROPERTIES (
+    "separatorChar" = "\t",
+    "quoteChar"     = "\'",
+    "escapeChar"    = "|"
+)
+STORED AS TEXTFILE;
+
+INSERT INTO TABLE test_open_csv_default_prop VALUES 
+(1, 'John Doe', 28, 50000.75, true, '2022-01-15', '2023-10-21 14:30:00', 4.5, 'Senior Developer'),
+(2, 'Jane,Smith', NULL, NULL, false, '2020-05-20', NULL, NULL, '\"Project Manager\"');
+
+INSERT INTO TABLE test_open_csv_standard_prop VALUES 
+(1, 'John Doe', 28, 50000.75, true, '2022-01-15', '2023-10-21 14:30:00', 4.5, 'Senior Developer'),
+(2, 'Jane,Smith', NULL, NULL, false, '2020-05-20', NULL, NULL, '\"Project Manager\"');
+
+INSERT INTO TABLE test_open_csv_custom_prop VALUES 
+(1, 'John Doe', 28, 50000.75, true, '2022-01-15', '2023-10-21 14:30:00', 4.5, 'Senior Developer'),
+(2, 'Jane,Smith', NULL, NULL, false, '2020-05-20', NULL, NULL, '\"Project Manager\"');
