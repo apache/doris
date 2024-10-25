@@ -72,9 +72,8 @@ Status ResultFileSinkOperatorX::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     if (state->query_options().enable_parallel_outfile) {
-        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->query_id(), _buf_size, &_sender, state->execution_timeout(),
-                state->batch_size()));
+        RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->query_id(), _buf_size,
+                                                                       &_sender, state));
     }
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
@@ -92,8 +91,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         _sender = _parent->cast<ResultFileSinkOperatorX>()._sender;
     } else {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), p._buf_size, &_sender, state->execution_timeout(),
-                state->batch_size()));
+                state->fragment_instance_id(), p._buf_size, &_sender, state));
     }
     _sender->set_dependency(state->fragment_instance_id(), _dependency->shared_from_this());
 

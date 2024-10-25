@@ -27,6 +27,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.service.arrowflight.results.FlightSqlResultCacheEntry;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.protobuf.Any;
@@ -224,24 +225,40 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                     }
                 } else {
                     // Now only query stmt will pull results from BE.
-                    final ByteString handle;
-                    if (connectContext.getSessionVariable().enableParallelResultSink()) {
-                        handle = ByteString.copyFromUtf8(DebugUtil.printId(connectContext.queryId()) + ":" + query);
-                    } else {
-                        // only one instance
-                        handle = ByteString.copyFromUtf8(DebugUtil.printId(connectContext.getFinstId()) + ":" + query);
-                    }
                     Schema schema = flightSQLConnectProcessor.fetchArrowFlightSchema(5000);
                     if (schema == null) {
                         throw CallStatus.INTERNAL.withDescription("fetch arrow flight schema is null")
                                 .toRuntimeException();
                     }
+
+                    TUniqueId queryId = connectContext.queryId();
+                    if (!connectContext.getSessionVariable().enableParallelResultSink()) {
+                        // only one instance
+                        queryId = connectContext.getFinstId();
+                    }
+                    // Ticket contains the IP and Brpc Port of the Doris BE node where the query result is located.
+                    final ByteString handle = ByteString.copyFromUtf8(
+                            DebugUtil.printId(queryId) + "&" + connectContext.getResultInternalServiceAddr().hostname
+                                    + "&" + connectContext.getResultInternalServiceAddr().port + "&" + query);
                     TicketStatementQuery ticketStatement = TicketStatementQuery.newBuilder().setStatementHandle(handle)
                             .build();
                     Ticket ticket = new Ticket(Any.pack(ticketStatement).toByteArray());
                     // TODO Support multiple endpoints.
-                    Location location = Location.forGrpcInsecure(connectContext.getResultFlightServerAddr().hostname,
-                            connectContext.getResultFlightServerAddr().port);
+                    Location location;
+                    if (flightSQLConnectProcessor.getPublicAccessAddr().isSetHostname()) {
+                        // In a production environment, it is often inconvenient to expose Doris BE nodes
+                        // to the external network.
+                        // However, a reverse proxy (such as nginx) can be added to all Doris BE nodes,
+                        // and the external client will be randomly routed to a Doris BE node when connecting to nginx.
+                        // The query results of Arrow Flight SQL will be randomly saved on a Doris BE node.
+                        // If it is different from the Doris BE node randomly routed by nginx,
+                        // data forwarding needs to be done inside the Doris BE node.
+                        location = Location.forGrpcInsecure(flightSQLConnectProcessor.getPublicAccessAddr().hostname,
+                                flightSQLConnectProcessor.getPublicAccessAddr().port);
+                    } else {
+                        location = Location.forGrpcInsecure(connectContext.getResultFlightServerAddr().hostname,
+                                connectContext.getResultFlightServerAddr().port);
+                    }
                     List<FlightEndpoint> endpoints = Collections.singletonList(new FlightEndpoint(ticket, location));
                     // TODO Set in BE callback after query end, Client will not callback.
                     return new FlightInfo(schema, descriptor, endpoints, -1, -1);
