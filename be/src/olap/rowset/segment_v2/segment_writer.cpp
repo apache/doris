@@ -208,8 +208,7 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
 
     opts.need_bitmap_index = column.has_bitmap_index();
     bool skip_inverted_index = false;
-    // if dual_write_inverted_index_enable is true, do not skip write inverted index on index compaction columns
-    if (_opts.rowset_ctx != nullptr && !config::dual_write_inverted_index_enable) {
+    if (_opts.rowset_ctx != nullptr) {
         // skip write inverted index for index compaction column
         skip_inverted_index =
                 _opts.rowset_ctx->columns_to_do_index_compaction.count(column.unique_id()) > 0;
