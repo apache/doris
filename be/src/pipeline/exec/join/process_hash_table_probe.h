@@ -58,7 +58,7 @@ struct ProcessHashTableProbe {
     template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
     Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                    vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
-                   size_t probe_rows, bool is_mark_join, bool have_other_join_conjunct);
+                   uint32_t probe_rows, bool is_mark_join, bool have_other_join_conjunct);
 
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
@@ -68,7 +68,7 @@ struct ProcessHashTableProbe {
               bool with_other_conjuncts, bool is_mark_join>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                       vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
-                      size_t probe_rows);
+                      uint32_t probe_rows);
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
@@ -93,7 +93,7 @@ struct ProcessHashTableProbe {
 
     /// For null aware join with other conjuncts, if the probe key of one row on left side is null,
     /// we should make this row match with all rows in build side.
-    size_t _process_probe_null_key(uint32_t probe_idx);
+    uint32_t _process_probe_null_key(uint32_t probe_idx);
 
     pipeline::HashJoinProbeLocalState* _parent = nullptr;
     const int _batch_size;
@@ -138,8 +138,8 @@ struct ProcessHashTableProbe {
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
 
-    int _right_col_idx;
-    int _right_col_len;
+    size_t _right_col_idx;
+    size_t _right_col_len;
 };
 
 } // namespace pipeline
