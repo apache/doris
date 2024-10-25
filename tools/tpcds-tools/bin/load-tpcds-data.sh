@@ -222,6 +222,10 @@ echo "analyze database ${DB}"
 run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to execute the SQL command: '$*'"
+        exit 1
+    fi
 }
 start=$(date +%s)
 run_sql "analyze database ${DB} with full with sync;"

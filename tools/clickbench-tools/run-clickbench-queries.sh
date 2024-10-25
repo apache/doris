@@ -110,15 +110,16 @@ get_session_variable() {
   v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
 
   if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-    echo "Error: Failed to execute SQL command: show variables like '${k}'\G"
-    exit 1
+      echo "Error: Failed to execute SQL command: show variables like '${k}'\G"
+      exit 1
   fi
+
   if [[ ${PIPESTATUS[1]} -eq 1 ]]; then
-    echo "Warning: No lines containing ' Value: ' were found."
-    exit 1
-  elif [[ ${PIPESTATUS[1]} -eq 2 ]]; then
-    echo "Error: An error occurred while running grep."
-    exit 1
+      echo "Warning: No lines containing 'Value: ' were found for variable '${k}'."
+      return 1
+  else
+      echo "Error: An error occurred while running grep."
+      exit 1
   fi
   echo "${v/*Value: /}"
 }

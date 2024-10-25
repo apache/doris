@@ -104,19 +104,39 @@ echo "DB: ${DB}"
 echo "SF: ${SCALE_FACTOR}"
 
 mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE IF NOT EXISTS ${DB}"
+if [[ $? -ne 0 ]]; then
+    echo "Error: Failed to create database '${DB}'."
+    exit 1
+fi
 
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpch-tables-sf1.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables-sf1.sql
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to execute SQLs from create-tpch-tables-sf1.sql"
+        exit 1
+    fi
 elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpch-tables-sf100.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables-sf100.sql
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to execute SQLs from create-tpch-tables-sf100.sql"
+        exit 1
+    fi
 elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpch-tables-sf1000.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables-sf1000.sql
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to execute SQLs from create-tpch-tables-sf1000.sql"
+        exit 1
+    fi
 elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpch-tables-sf10000.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables-sf10000.sql
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to execute SQLs from create-tpch-tables-sf10000.sql"
+        exit 1
+    fi
 else
     echo "${SCALE_FACTOR} scale is NOT supported currently"
 fi

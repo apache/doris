@@ -119,10 +119,26 @@ echo "Time Unit: ms"
 run_sql() {
     echo "$*"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to execute SQL command: '$*'"
+        exit 1
+    fi
 }
 get_session_variable() {
     k="$1"
     v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
+        echo "Error: Failed to execute SQL command: show variables like '${k}'\G"
+        exit 1
+    fi
+
+    if [[ ${PIPESTATUS[1]} -eq 1 ]]; then
+        echo "Warning: No lines containing 'Value: ' were found for variable '${k}'."
+        return 1
+    elif [[ ${PIPESTATUS[1]} -ne 0 ]]; then
+        echo "Error: An error occurred while running grep."
+        exit 1
+    fi
     echo "${v/*Value: /}"
 }
 backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
@@ -165,18 +181,30 @@ for i in ${query_array[@]}; do
     echo -ne "q${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
     mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log"
+        continue 
+    fi
     end=$(date +%s%3N)
     cold=$((end - start))
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
     mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to execute query q${i} (hot run 1). Check the log: ${RESULT_DIR}/result${i}.log"
+        continue 
+    fi
     end=$(date +%s%3N)
     hot1=$((end - start))
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
     mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    if [[ $? -ne 0 ]]; then
+        echo "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log"
+        continue 
+    fi
     end=$(date +%s%3N)
     hot2=$((end - start))
     echo -ne "${hot2}\t" | tee -a result.csv
