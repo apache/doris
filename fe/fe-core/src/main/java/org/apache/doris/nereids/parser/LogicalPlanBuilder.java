@@ -3880,7 +3880,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             type = SetType.SESSION;
         }
         String name = stripQuotes(ctx.identifier().getText());
-        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : NullLiteral.INSTANCE;
+        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
         return new SetSessionVarOp(type, name, expression);
     }
 
@@ -3893,7 +3893,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             type = SetType.SESSION;
         }
         String name = stripQuotes(ctx.identifier().getText());
-        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : NullLiteral.INSTANCE;
+        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
         return new SetSessionVarOp(type, name, expression);
     }
 
@@ -3903,17 +3903,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String host;
         boolean isDomain;
         String passwordText;
-        boolean isPlain;
         UserIdentity userIdentity = null;
         if (ctx.userIdentify() != null) {
             user = stripQuotes(ctx.userIdentify().user.getText());
             host = ctx.userIdentify().host != null ? stripQuotes(ctx.userIdentify().host.getText()) : "%";
-            isDomain = ctx.userIdentify().LEFT_PAREN() != null;
+            isDomain = ctx.userIdentify().ATSIGN() != null;
             userIdentity = new UserIdentity(user, host, isDomain);
         }
         passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
-        isPlain = ctx.LEFT_PAREN() != null;
-        return new SetPassVarOp(userIdentity, new PassVar(passwordText, isPlain));
+        return new SetPassVarOp(userIdentity, new PassVar(passwordText, ctx.isPlain != null));
     }
 
     @Override
@@ -3937,7 +3935,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public SetVarOp visitSetLdapAdminPassword(SetLdapAdminPasswordContext ctx) {
         String passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
-        boolean isPlain = ctx.LEFT_PAREN() != null;
+        boolean isPlain = ctx.PASSWORD() != null;
         return new SetLdapPassVarOp(new PassVar(passwordText, isPlain));
     }
 

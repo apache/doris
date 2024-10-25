@@ -52,20 +52,23 @@ public class SetSessionVarOp extends SetVarOp {
     private String name;
     private final Expression expression;
     private Literal value;
+    private final boolean isDefault;
 
     /** constructor*/
     public SetSessionVarOp(SetType type, String name, Expression expression) {
         super(type);
         this.name = name;
         this.expression = expression;
+        this.isDefault = expression == null;
     }
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        value = ExpressionUtils.analyzeAndFoldToLiteral(ctx, expression);
-        if (value.isNullLiteral()) {
+        if (isDefault) {
+            value = new StringLiteral("default");
             return;
         }
+        value = ExpressionUtils.analyzeAndFoldToLiteral(ctx, expression);
 
         if (getType() == SetType.GLOBAL) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
@@ -134,11 +137,15 @@ public class SetSessionVarOp extends SetVarOp {
 
     // TODO delete this method after removing dependence of SetVar in VariableMgr
     private SetVar translateToLegacyVar(ConnectContext ctx) {
-        LogicalEmptyRelation plan = new LogicalEmptyRelation(
-                ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
-        CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
-                PhysicalProperties.ANY);
-        Expr expr = ExpressionTranslator.translate(value, new PlanTranslatorContext(cascadesContext));
-        return new SetVar(getType(), name, expr.isNullLiteral() ? null : expr);
+        if (isDefault) {
+            return new SetVar(getType(), name, null);
+        } else {
+            LogicalEmptyRelation plan = new LogicalEmptyRelation(
+                    ConnectContext.get().getStatementContext().getNextRelationId(), new ArrayList<>());
+            CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
+                    PhysicalProperties.ANY);
+            Expr expr = ExpressionTranslator.translate(value, new PlanTranslatorContext(cascadesContext));
+            return new SetVar(getType(), name, expr);
+        }
     }
 }

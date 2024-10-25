@@ -116,14 +116,4 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         throw new RuntimeException("Command do not implement withGroupExpression");
     }
-
-    public String toSql() {
-        return "";
-    }
-
-    public boolean needAuditEncryption() {
-        return false;
-    }
-
-    public void afterForwardToMaster(ConnectContext ctx) throws Exception {}
 }

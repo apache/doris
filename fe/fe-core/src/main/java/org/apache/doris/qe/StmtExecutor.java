@@ -1202,9 +1202,9 @@ public class StmtExecutor {
         masterOpExecutor.execute();
         if (parsedStmt instanceof LogicalPlanAdapter) {
             // for nereids command
-            if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command) {
-                Command command = (Command) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-                command.afterForwardToMaster(context);
+            if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
+                Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+                forward.afterForwardToMaster(context);
             }
         } else if (parsedStmt instanceof SetStmt) {
             SetStmt setStmt = (SetStmt) parsedStmt;
