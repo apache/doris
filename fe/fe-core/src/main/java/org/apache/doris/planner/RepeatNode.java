@@ -201,6 +201,7 @@ public class RepeatNode extends PlanNode {
         return output.toString();
     }
 
+    // Determined by its child.
     @Override
     public boolean isSerialOperator() {
         return children.get(0).isSerialOperator();
