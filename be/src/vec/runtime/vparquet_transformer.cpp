@@ -71,6 +71,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
         : _file_writer(file_writer), _cur_pos(0), _written_len(0) {
