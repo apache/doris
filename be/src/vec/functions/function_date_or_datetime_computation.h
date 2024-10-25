@@ -27,6 +27,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -645,7 +646,7 @@ struct DateTimeAddIntervalImpl {
                                         col_to->get_data(), null_map->get_data(),
                                         delta_vec_column->get_data());
                 } else {
-                    Op::constant_vector(sources_const->template get_value<FromType2>(),
+                    Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(), null_map->get_data(),
                                         *not_nullable_column_ptr_arg1);
                 }
@@ -675,7 +676,7 @@ struct DateTimeAddIntervalImpl {
                     Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(), delta_vec_column->get_data());
                 } else {
-                    Op::constant_vector(sources_const->template get_value<FromType2>(),
+                    Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(),
                                         *block.get_by_position(arguments[1]).column);
                 }
@@ -876,7 +877,7 @@ struct CurrentDateTimeImpl {
         if constexpr (WithPrecision) {
             if (const auto* const_column = check_and_get_column<ColumnConst>(
                         block.get_by_position(arguments[0]).column)) {
-                int scale = const_column->get_int(0);
+                int64_t scale = const_column->get_int(0);
                 dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->nano_seconds(),
                                   context->state()->timezone_obj(), scale);
@@ -1002,6 +1003,7 @@ struct CurrentTimeImpl {
 };
 
 struct TimeToSecImpl {
+    // rethink the func should return int32
     using ReturnType = DataTypeInt32;
     static constexpr auto name = "time_to_sec";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -1012,7 +1014,8 @@ struct TimeToSecImpl {
 
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = static_cast<int64_t>(column_data.get_element(i)) / (1000 * 1000);
+            res_data[i] =
+                    cast_set<int>(static_cast<int64_t>(column_data.get_element(i)) / (1000 * 1000));
         }
         block.replace_by_position(result, std::move(res_col));
 
