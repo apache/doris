@@ -18,7 +18,6 @@
 #include "olap/compaction.h"
 
 #include <fmt/format.h>
-#include <gen_cpp/olap_common.pb.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
@@ -36,8 +35,6 @@
 #include <shared_mutex>
 #include <utility>
 
-#include "CLucene/config/repl_wchar.h"
-#include "CLucene/index/Terms.h"
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "common/config.h"
@@ -622,7 +619,6 @@ Status Compaction::do_inverted_index_compaction() {
     // Some columns have already been indexed
     // key: seg_id, value: inverted index file size
     std::unordered_map<int, int64_t> compacted_idx_file_size;
-    auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
     for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
         std::string index_path_prefix {
                 InvertedIndexDescriptor::get_index_file_path_prefix(ctx.segment_path(seg_id))};
@@ -648,12 +644,6 @@ Status Compaction::do_inverted_index_compaction() {
                 }
                 compacted_idx_file_size[seg_id] = fsize;
             }
-            // if dual_write_inverted_index_enable is true, we need to write inverted index to tmp dir
-            if (config::dual_write_inverted_index_enable) {
-                auto tmp_index_path_prefix =
-                        tmp_file_dir / (dest_rowset_id.to_string() + "_" + std::to_string(seg_id));
-                index_path_prefix = tmp_index_path_prefix;
-            }
             auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                     ctx.fs(), index_path_prefix, ctx.rowset_id.to_string(), seg_id,
                     _cur_tablet_schema->get_inverted_index_storage_format());
@@ -677,6 +667,7 @@ Status Compaction::do_inverted_index_compaction() {
     }
 
     // use tmp file dir to store index files
+    auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
     auto index_tmp_path = tmp_file_dir / dest_rowset_id.to_string();
     LOG(INFO) << "start index compaction"
               << ". tablet=" << _tablet->tablet_id() << ", source index size=" << src_segment_num
@@ -763,70 +754,6 @@ Status Compaction::do_inverted_index_compaction() {
         return status;
     }
 
-    // check idx file correctness only when dual_write_inverted_index_enable is true
-    if (config::dual_write_inverted_index_enable) {
-        for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
-            auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
-            const auto* index_meta = _cur_tablet_schema->get_inverted_index(col);
-            for (int dest_segment_id = 0; dest_segment_id < dest_segment_num; dest_segment_id++) {
-                // create index file reader for normal compaction index file
-                std::string index_path_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                        ctx.segment_path(dest_segment_id))};
-                io::Path cfs_path;
-                if (_cur_tablet_schema->get_inverted_index_storage_format() !=
-                    doris::InvertedIndexStorageFormatPB::V1) {
-                    cfs_path = InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
-                } else {
-                    cfs_path = InvertedIndexDescriptor::get_index_file_path_v1(
-                            index_path_prefix, index_meta->index_id(),
-                            index_meta->get_index_suffix());
-                }
-                auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
-                        ctx.fs(), index_path_prefix,
-                        _cur_tablet_schema->get_inverted_index_storage_format());
-                bool open_idx_file_cache = false;
-                auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                           open_idx_file_cache);
-                if (!st.ok()) {
-                    LOG(FATAL) << "inverted_index_file_reader init failed in index compaction "
-                                  "correctness check, error:"
-                               << st;
-                }
-                auto index_reader = DORIS_TRY(inverted_index_file_reader->open(index_meta));
-
-                // create index file reader for tmp index compaction index file
-                auto tmp_index_path_prefix = tmp_file_dir / (dest_rowset_id.to_string() + "_" +
-                                                             std::to_string(dest_segment_id));
-                auto tmp_inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
-                        doris::io::global_local_filesystem(), tmp_index_path_prefix,
-                        _cur_tablet_schema->get_inverted_index_storage_format());
-                st = tmp_inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                          open_idx_file_cache);
-                if (!st.ok()) {
-                    LOG(FATAL) << "tmp_inverted_index_file_reader init failed in index compaction "
-                                  "correctness check, error:"
-                               << st;
-                }
-                auto tmp_index_reader = DORIS_TRY(tmp_inverted_index_file_reader->open(index_meta));
-
-                st = check_idx_file_correctness(*index_reader, *tmp_index_reader);
-                if (!st.ok()) {
-                    LOG(FATAL) << "index compaction correctness check failed"
-                               << ", tablet=" << _tablet->tablet_id() << ", index_path=" << cfs_path
-                               << ", tmp_index_path="
-                               << (tmp_index_path_prefix.string() + "_" +
-                                   std::to_string(index_meta->index_id()) + ".idx")
-                               << ", error=" << st.msg();
-                }
-                LOG(INFO) << "index compaction correctness check succeed"
-                          << ", tablet=" << _tablet->tablet_id() << ", index_path=" << cfs_path
-                          << ", tmp_index_path="
-                          << (tmp_index_path_prefix.string() + "_" +
-                              std::to_string(index_meta->index_id()) + ".idx");
-            }
-        }
-    }
-
     // index compaction should update total disk size and index disk size
     _output_rowset->rowset_meta()->set_data_disk_size(_output_rowset->data_disk_size() +
                                                       inverted_index_file_size);
@@ -845,82 +772,6 @@ Status Compaction::do_inverted_index_compaction() {
               << ", output_rowset_size=" << _output_rowset->data_disk_size()
               << ", inverted index file size=" << inverted_index_file_size
               << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
-
-    return Status::OK();
-}
-
-Status Compaction::check_idx_file_correctness(DorisCompoundReader& index_reader,
-                                              DorisCompoundReader& tmp_index_reader) {
-    lucene::index::IndexReader* idx_reader = lucene::index::IndexReader::open(&index_reader);
-    lucene::index::IndexReader* tmp_idx_reader =
-            lucene::index::IndexReader::open(&tmp_index_reader);
-
-    // compare numDocs
-    if (idx_reader->numDocs() != tmp_idx_reader->numDocs()) {
-        return Status::InternalError(
-                "index compaction correctness check failed, numDocs not equal, idx_numDocs={}, "
-                "tmp_idx_numDocs={}",
-                idx_reader->numDocs(), tmp_idx_reader->numDocs());
-    }
-
-    lucene::index::TermEnum* term_enum = idx_reader->terms();
-    lucene::index::TermEnum* tmp_term_enum = tmp_idx_reader->terms();
-
-    // iterate TermEnum
-    while (term_enum->next() && tmp_term_enum->next()) {
-        std::string token = lucene_wcstoutf8string(term_enum->term(false)->text(),
-                                                   term_enum->term(false)->textLength());
-        std::string field = lucene_wcstoutf8string(term_enum->term(false)->field(),
-                                                   lenOfString(term_enum->term(false)->field()));
-        std::string tmp_token = lucene_wcstoutf8string(tmp_term_enum->term(false)->text(),
-                                                       tmp_term_enum->term(false)->textLength());
-        std::string tmp_field =
-                lucene_wcstoutf8string(tmp_term_enum->term(false)->field(),
-                                       lenOfString(tmp_term_enum->term(false)->field()));
-        // compare token and field
-        if (field != tmp_field) {
-            return Status::InternalError(
-                    "index compaction correctness check failed, fields not equal, field={}, "
-                    "tmp_field={}",
-                    field, field);
-        }
-        if (token != tmp_token) {
-            return Status::InternalError(
-                    "index compaction correctness check failed, tokens not equal, token={}, "
-                    "tmp_token={}",
-                    token, tmp_token);
-        }
-
-        // get term's docId and freq
-        lucene::index::TermDocs* term_docs = idx_reader->termDocs(term_enum->term());
-        lucene::index::TermDocs* tmp_term_docs = tmp_idx_reader->termDocs(tmp_term_enum->term());
-
-        // compare term's docId and freq
-        while (term_docs->next() && tmp_term_docs->next()) {
-            if (term_docs->doc() != tmp_term_docs->doc() ||
-                term_docs->freq() != tmp_term_docs->freq()) {
-                return Status::InternalError(
-                        "index compaction correctness check failed, docId or freq not equal, "
-                        "docId={}, tmp_docId={}, freq={}, tmp_freq={}",
-                        term_docs->doc(), tmp_term_docs->doc(), term_docs->freq(),
-                        tmp_term_docs->freq());
-            }
-        }
-
-        // check if there are remaining docs
-        if (term_docs->next() || tmp_term_docs->next()) {
-            return Status::InternalError(
-                    "index compaction correctness check failed, number of docs not equal for "
-                    "term={}, tmp_term={}",
-                    token, tmp_token);
-        }
-    }
-
-    // check if there are remaining terms
-    if (term_enum->next() || tmp_term_enum->next()) {
-        return Status::InternalError(
-                "index compaction correctness check failed, number of terms not equal");
-    }
 
     return Status::OK();
 }
