@@ -121,7 +121,7 @@ public:
                 _tasks[j][i]->stop_if_finished();
             }
         }
-    };
+    }
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
@@ -140,7 +140,8 @@ private:
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorPtr& op,
                                                    PipelinePtr& cur_pipe, int parent_idx,
-                                                   int child_idx);
+                                                   int child_idx,
+                                                   const doris::TPipelineFragmentParams& request);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,
@@ -224,6 +225,7 @@ private:
     int _num_instances = 1;
 
     int _timeout = -1;
+    bool _use_serial_source = false;
 
     OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
