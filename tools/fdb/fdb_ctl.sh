@@ -81,8 +81,8 @@ function download_fdb() {
         return
     fi
 
-    arch=`uname -m`
-    if [ $arch == "x86_64" ]; then
+    arch=$(uname -m)
+    if [[ "${arch}" == "x86_64" ]]; then
         local URL="https://github.com/apple/foundationdb/releases/download/${FDB_VERSION}/"
         local TMP="${FDB_PKG_DIR}-tmp"
 
@@ -94,7 +94,7 @@ function download_fdb() {
         wget "${URL}/fdbcli.x86_64" -O "${TMP}/fdbcli"
         wget "${URL}/fdbmonitor.x86_64" -O "${TMP}/fdbmonitor"
         wget "${URL}/libfdb_c.x86_64.so" -O "${TMP}/libfdb_c.x86_64.so"
-    elif [ $arch == "aarch64" ]; then
+    elif [[ "${arch}" == "aarch64" ]]; then
         local URL="https://gavin-tmp-bj.oss-cn-beijing.aliyuncs.com/luwei/fdb/${FDB_VERSION}"
         local TMP="${FDB_PKG_DIR}-tmp"
 
@@ -107,7 +107,7 @@ function download_fdb() {
         wget "${URL}/fdbmonitor" -O "${TMP}/fdbmonitor"
         wget "${URL}/libfdb_c.aarch64.so" -O "${TMP}/libfdb_c.aarch64.so"
     else
-        echo "Unsupported architecture: "$arch
+        echo "Unsupported architecture: ""${arch}"
     fi
 
     chmod +x "${TMP}"/fdb*
