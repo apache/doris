@@ -30,6 +30,47 @@ import time
 LOG = utils.get_logger()
 
 
+def wait_ready_service(wait_timeout, cluster, fe_ids, be_ids):
+
+    def is_fe_ready_service(ip):
+        return utils.is_socket_avail(ip, CLUSTER.FE_QUERY_PORT)
+
+    def is_be_ready_service(ip):
+        return utils.is_socket_avail(ip, CLUSTER.BE_HEARTBEAT_PORT)
+
+    if wait_timeout == 0:
+        return
+    if wait_timeout == -1:
+        wait_timeout = 1000000000
+    expire_ts = time.time() + wait_timeout
+    while True:
+        db_mgr = database.get_db_mgr(cluster.name, False)
+        dead_frontends = []
+        for id in fe_ids:
+            fe = cluster.get_node(CLUSTER.Node.TYPE_FE, id)
+            fe_state = db_mgr.get_fe(id)
+            if not fe_state or not fe_state.alive or not is_fe_ready_service(
+                    fe.get_ip()):
+                dead_frontends.append(id)
+        dead_backends = []
+        for id in be_ids:
+            be = cluster.get_node(CLUSTER.Node.TYPE_BE, id)
+            be_state = db_mgr.get_be(id)
+            if not be_state or not be_state.alive or not is_be_ready_service(
+                    be.get_ip()):
+                dead_backends.append(id)
+        if not dead_frontends and not dead_backends:
+            break
+        if time.time() >= expire_ts:
+            err = ""
+            if dead_frontends:
+                err += "dead fe: " + str(dead_frontends) + ". "
+            if dead_backends:
+                err += "dead be: " + str(dead_backends) + ". "
+            raise Exception(err)
+        time.sleep(1)
+
+
 # return for_all, related_nodes, related_node_num
 def get_ids_related_nodes(cluster,
                           fe_ids,
@@ -156,10 +197,11 @@ class SimpleCommand(Command):
         parser.add_argument("NAME", help="Specify cluster name.")
         self._add_parser_ids_args(parser)
         self._add_parser_common_args(parser)
+        return parser
 
     def run(self, args):
         cluster = CLUSTER.Cluster.load(args.NAME)
-        _, related_nodes, related_node_num = get_ids_related_nodes(
+        for_all, related_nodes, related_node_num = get_ids_related_nodes(
             cluster, args.fe_id, args.be_id, args.ms_id, args.recycle_id,
             args.fdb_id)
         utils.exec_docker_compose_command(cluster.get_compose_file(),
@@ -169,6 +211,31 @@ class SimpleCommand(Command):
         LOG.info(
             utils.render_green("{} succ, total related node num {}".format(
                 show_cmd, related_node_num)))
+
+        if for_all:
+            related_nodes = cluster.get_all_nodes()
+        return cluster, related_nodes
+
+
+class NeedStartCommand(SimpleCommand):
+
+    def add_parser(self, args_parsers):
+        parser = super().add_parser(args_parsers)
+        parser.add_argument(
+            "--wait-timeout",
+            type=int,
+            default=0,
+            help=
+            "Specify wait seconds for fe/be ready for service: 0 not wait (default), "\
+            "> 0 max wait seconds, -1 wait unlimited."
+        )
+        return parser
+
+    def run(self, args):
+        cluster, related_nodes = super().run(args)
+        fe_ids = [node.id for node in related_nodes if node.is_fe()]
+        be_ids = [node.id for node in related_nodes if node.is_be()]
+        wait_ready_service(args.wait_timeout, cluster, fe_ids, be_ids)
 
 
 class UpCommand(Command):
@@ -568,33 +635,8 @@ class UpCommand(Command):
 
                 db_mgr.create_default_storage_vault(cloud_store_config)
 
-            if args.wait_timeout != 0:
-                if args.wait_timeout == -1:
-                    args.wait_timeout = 1000000000
-                expire_ts = time.time() + args.wait_timeout
-                while True:
-                    db_mgr = database.get_db_mgr(args.NAME, False)
-                    dead_frontends = []
-                    for id in add_fe_ids:
-                        fe_state = db_mgr.get_fe(id)
-                        if not fe_state or not fe_state.alive:
-                            dead_frontends.append(id)
-                    dead_backends = []
-                    for id in add_be_ids:
-                        be_state = db_mgr.get_be(id)
-                        if not be_state or not be_state.alive:
-                            dead_backends.append(id)
-                    if not dead_frontends and not dead_backends:
-                        break
-                    if time.time() >= expire_ts:
-                        err = ""
-                        if dead_frontends:
-                            err += "dead fe: " + str(dead_frontends) + ". "
-                        if dead_backends:
-                            err += "dead be: " + str(dead_backends) + ". "
-                        raise Exception(err)
-                    time.sleep(1)
-
+            wait_ready_service(args.wait_timeout, cluster, add_fe_ids,
+                               add_be_ids)
             LOG.info(
                 utils.render_green(
                     "Up cluster {} succ, related node num {}".format(
@@ -1216,9 +1258,9 @@ class GetCloudIniCommand(Command):
 ALL_COMMANDS = [
     UpCommand("up"),
     DownCommand("down"),
-    SimpleCommand("start", "Start the doris containers. "),
+    NeedStartCommand("start", "Start the doris containers. "),
     SimpleCommand("stop", "Stop the doris containers. "),
-    SimpleCommand("restart", "Restart the doris containers. "),
+    NeedStartCommand("restart", "Restart the doris containers. "),
     SimpleCommand("pause", "Pause the doris containers. "),
     SimpleCommand("unpause", "Unpause the doris containers. "),
     GetCloudIniCommand("get-cloud-ini"),
