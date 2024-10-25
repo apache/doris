@@ -15,25 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+suite("test_index_rqg_bug5", "test_index_rqg_bug"){
+    def table = "test_index_rqg_bug5"
+    sql "drop table if exists ${table}"
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+    sql """
+      create table ${table} (
+        pk int,
+        col1 int not null,
+        col2 bigint not null,
+        INDEX col1_idx (`col1`) USING INVERTED,
+        INDEX col2_idx (`col2`) USING INVERTED
+      ) engine=olap
+      DUPLICATE KEY(pk, col1)
+      distributed by hash(pk)
+      properties("replication_num" = "1");;
+    """
 
-/**
- * Rewrite es plan to set the conjuncts.
- */
-public class PushConjunctsIntoEsScan extends OneRewriteRuleFactory {
+    sql """ insert into ${table} values (10, 20, 30); """
 
-    @Override
-    public Rule build() {
-        return logicalFilter(logicalEsScan()).thenApply(ctx -> {
-            LogicalFilter<LogicalEsScan> filter = ctx.root;
-            LogicalEsScan scan = filter.child();
-            LogicalEsScan rewrittenScan = scan.withConjuncts(filter.getConjuncts());
-            return rewrittenScan;
-        }).toRule(RuleType.PUSH_CONJUNCTS_INTO_ES_SCAN);
-    }
+    qt_sql """ select count() from ${table} where col2 + col1 > 20 or col1 > 20; """
 }

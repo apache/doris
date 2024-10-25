@@ -86,7 +86,7 @@ Status SetSourceOperatorX<is_intersect>::get_block(RuntimeState* state, vectoriz
                     __builtin_unreachable();
                 }
             },
-            *local_state._shared_state->hash_table_variants);
+            local_state._shared_state->hash_table_variants->method_variant);
     RETURN_IF_ERROR(st);
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
                                                            block->columns()));

@@ -120,6 +120,9 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl, "objectCreated", true);
         Deencapsulation.setField(tbl, "schemaUpdateTime", NOW);
         Deencapsulation.setField(tbl, "eventUpdateTime", 0);
+        Deencapsulation.setField(tbl, "catalog", hmsCatalog);
+        Deencapsulation.setField(tbl, "dbName", "hms_db");
+        Deencapsulation.setField(tbl, "name", "hms_tbl");
         new Expectations(tbl) {
             {
                 tbl.getId();
@@ -167,6 +170,9 @@ public class HmsQueryCacheTest extends AnalyzeCheckTestBase {
         Deencapsulation.setField(tbl2, "objectCreated", true);
         Deencapsulation.setField(tbl2, "schemaUpdateTime", NOW);
         Deencapsulation.setField(tbl2, "eventUpdateTime", 0);
+        Deencapsulation.setField(tbl2, "catalog", hmsCatalog);
+        Deencapsulation.setField(tbl2, "dbName", "hms_db");
+        Deencapsulation.setField(tbl2, "name", "hms_tbl2");
         new Expectations(tbl2) {
             {
                 tbl2.getId();

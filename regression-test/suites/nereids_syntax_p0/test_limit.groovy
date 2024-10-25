@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_limit") {
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
-
-    
     sql """
     drop table if exists test1
     """
@@ -32,6 +28,7 @@ suite("test_limit") {
 
     sql """ insert into test1 values(1) """
     sql """ insert into test1 values(1) """
+
     test {
         sql "select * from test1 limit 2 offset 1"
         result([[1]])
@@ -60,21 +57,22 @@ suite("test_limit") {
 
     sql """ INSERT INTO row_number_limit_tbl VALUES (7788, 'SCOTT', 'ANALYST', 7566, '1987-04-19', 3000, 0, 20); """
     sql """ INSERT INTO row_number_limit_tbl VALUES (7844, 'TURNER', 'SALESMAN', 7698, '1981-09-08', 1500, 0, 30); """
-    sleep(1000)
-
     qt_limit1 """
-            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t limit 1 offset 1;
+            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t order by k6s limit 1 offset 1;
         """
 
     sql """ truncate table row_number_limit_tbl; """
-    sleep(1000)
 
     sql """ INSERT INTO row_number_limit_tbl VALUES (7788, 'SCOTT', 'ANALYST', 7566, '1987-04-19', 3000, 0, 20); """
     sql """ INSERT INTO row_number_limit_tbl VALUES (7844, 'TURNER', 'SALESMAN', 7698, '1981-09-08', 1500, 0, 30); """
     sql """ INSERT INTO row_number_limit_tbl VALUES (7934, 'MILLER', 'CLERK', 7782, '1982-01-23', 1300, 0, 10); """
-    sleep(1000)
 
     qt_lmit2 """
+            select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t limit 1 offset 2;
+        """
+
+    sql """ set parallel_pipeline_task_num = 1; """
+    qt_lmit3 """
             select row_number() over(order by k6 desc) k6s, t.* from row_number_limit_tbl t limit 1 offset 2;
         """
 }

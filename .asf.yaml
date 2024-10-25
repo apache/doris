@@ -158,7 +158,7 @@ github:
     - wm1581066
     - KassieZ
     - yujun777
-    - gavinchou
+    - doris-robot
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

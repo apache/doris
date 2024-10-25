@@ -488,6 +488,11 @@ public class AggregationNode extends PlanNode {
         }
     }
 
+    @Override
+    public boolean isSerialOperator() {
+        return aggInfo.getGroupingExprs().isEmpty() && needsFinalize;
+    }
+
     public void setColocate(boolean colocate) {
         isColocate = colocate;
     }

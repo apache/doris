@@ -26,7 +26,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
         : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent),
           _process_hashtable_ctx_variants(std::make_unique<HashTableCtxVariants>()) {}
@@ -311,7 +311,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                         st = Status::InternalError("uninited hash table probe");
                     }
                 },
-                *local_state._shared_state->hash_table_variants,
+                local_state._shared_state->hash_table_variants->method_variant,
                 *local_state._process_hashtable_ctx_variants,
                 vectorized::make_bool_variant(local_state._need_null_map_for_probe),
                 vectorized::make_bool_variant(local_state._shared_state->probe_ignore_null));
@@ -332,7 +332,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                             st = Status::InternalError("uninited hash table probe");
                         }
                     },
-                    *local_state._shared_state->hash_table_variants,
+                    local_state._shared_state->hash_table_variants->method_variant,
                     *local_state._process_hashtable_ctx_variants);
         } else {
             *eos = true;
@@ -645,7 +645,7 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
         }
     }
 
-    const int right_col_idx =
+    const size_t right_col_idx =
             (_is_right_semi_anti && !_have_other_join_conjunct) ? 0 : _left_table_data_types.size();
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {

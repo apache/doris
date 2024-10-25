@@ -116,4 +116,9 @@ public class AssertNumRowsNode extends PlanNode {
     public int getNumInstances() {
         return 1;
     }
+
+    @Override
+    public boolean isSerialOperator() {
+        return true;
+    }
 }

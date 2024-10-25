@@ -128,6 +128,9 @@ protected:
     RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
+
+    RuntimeProfile::Counter* _scan_rows = nullptr;
+    RuntimeProfile::Counter* _scan_bytes = nullptr;
 };
 
 template <typename LocalStateType>

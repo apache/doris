@@ -224,6 +224,8 @@ public:
 
     RuntimeState* runtime_state() const { return _state; }
 
+    RuntimeProfile* get_task_profile() const { return _task_profile.get(); }
+
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
     void stop_if_finished() {

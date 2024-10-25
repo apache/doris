@@ -15,25 +15,38 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.mtmv;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
+import com.google.gson.annotations.SerializedName;
 
 /**
- * Rewrite jdbc plan to set the conjuncts.
+ * EnvInfo
  */
-public class PushConjunctsIntoJdbcScan extends OneRewriteRuleFactory {
+@Deprecated
+public class EnvInfo {
+    @SerializedName("ci")
+    private long ctlId;
+    @SerializedName("di")
+    private long dbId;
+
+    public EnvInfo(long ctlId, long dbId) {
+        this.ctlId = ctlId;
+        this.dbId = dbId;
+    }
+
+    public long getCtlId() {
+        return ctlId;
+    }
+
+    public long getDbId() {
+        return dbId;
+    }
 
     @Override
-    public Rule build() {
-        return logicalFilter(logicalJdbcScan()).thenApply(ctx -> {
-            LogicalFilter<LogicalJdbcScan> filter = ctx.root;
-            LogicalJdbcScan scan = filter.child();
-            LogicalJdbcScan rewrittenScan = scan.withConjuncts(filter.getConjuncts());
-            return new LogicalFilter<>(filter.getConjuncts(), rewrittenScan);
-        }).toRule(RuleType.PUSH_CONJUNCTS_INTO_JDBC_SCAN);
+    public String toString() {
+        return "EnvInfo{"
+                + "ctlId='" + ctlId + '\''
+                + ", dbId='" + dbId + '\''
+                + '}';
     }
 }

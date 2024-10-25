@@ -52,15 +52,9 @@ suite ("multi_slot4") {
 
     order_qt_select_star "select * from multi_slot4 order by k1;"
 
-    explain {
-        sql("select k1+1,sum(abs(k2+2)+k3+3) from multi_slot4 group by k1+1 order by k1+1;")
-        contains "(k1p2ap3ps)"
-    }
+    mv_rewrite_success("select k1+1,sum(abs(k2+2)+k3+3) from multi_slot4 group by k1+1 order by k1+1;", "k1p2ap3ps")
     order_qt_select_mv "select k1+1,sum(abs(k2+2)+k3+3) from multi_slot4 group by k1+1 order by k1+1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1+1,sum(abs(k2+2)+k3+3) from multi_slot4 group by k1+1 order by k1+1;")
-        contains "(k1p2ap3ps)"
-    }
+    mv_rewrite_success("select k1+1,sum(abs(k2+2)+k3+3) from multi_slot4 group by k1+1 order by k1+1;", "k1p2ap3ps")
 }

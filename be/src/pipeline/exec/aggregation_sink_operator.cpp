@@ -554,8 +554,8 @@ void AggSinkLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* p
 
                            SCOPED_TIMER(_hash_table_emplace_timer);
                            for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                   creator_for_null_key);
+                               places[i] = *agg_method.lazy_emplace(state, i, creator,
+                                                                    creator_for_null_key);
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);
@@ -655,8 +655,8 @@ bool AggSinkLocalState::_emplace_into_hash_table_limit(vectorized::AggregateData
 
                             SCOPED_TIMER(_hash_table_emplace_timer);
                             for (i = 0; i < num_rows; ++i) {
-                                places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                    creator_for_null_key);
+                                places[i] = *agg_method.lazy_emplace(state, i, creator,
+                                                                     creator_for_null_key);
                             }
                             COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                             return true;
@@ -694,9 +694,9 @@ void AggSinkLocalState::_find_in_hash_table(vectorized::AggregateDataPtr* places
 }
 
 Status AggSinkLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    RETURN_IF_ERROR(
-            init_agg_hash_method(_agg_data, probe_exprs,
-                                 Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase));
+    RETURN_IF_ERROR(init_hash_method<AggregatedDataVariants>(
+            _agg_data, get_data_types(probe_exprs),
+            Base::_parent->template cast<AggSinkOperatorX>()._is_first_phase));
     return Status::OK();
 }
 
@@ -717,7 +717,10 @@ AggSinkOperatorX::AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPla
                                    : tnode.agg_node.grouping_exprs),
           _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate),
           _require_bucket_distribution(require_bucket_distribution),
-          _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
+          _agg_fn_output_row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
+          _without_key(tnode.agg_node.grouping_exprs.empty()) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status AggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<AggSinkLocalState>::init(tnode, state));

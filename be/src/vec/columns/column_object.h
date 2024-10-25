@@ -294,6 +294,8 @@ public:
     // create root with type and column if missing
     void create_root(const DataTypePtr& type, MutableColumnPtr&& column);
 
+    DataTypePtr get_most_common_type() const;
+
     // root is null or type nothing
     bool is_null_root() const;
 

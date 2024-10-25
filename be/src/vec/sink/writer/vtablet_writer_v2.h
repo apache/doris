@@ -69,6 +69,7 @@
 namespace doris {
 class DeltaWriterV2;
 class LoadStreamStub;
+class LoadStreamStubs;
 class LoadStreamMap;
 class ObjectPool;
 class RowDescriptor;
@@ -84,8 +85,6 @@ class OlapTableBlockConvertor;
 class OlapTabletFinder;
 class VTabletWriterV2;
 class DeltaWriterV2Map;
-
-using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 
 struct Rows {
     int64_t partition_id;
@@ -130,7 +129,7 @@ private:
 
     Status _open_streams();
 
-    Status _open_streams_to_backend(int64_t dst_id, Streams& streams);
+    Status _open_streams_to_backend(int64_t dst_id, LoadStreamStubs& streams);
 
     Status _incremental_open_streams(const std::vector<TOlapTablePartition>& partitions);
 
@@ -145,7 +144,7 @@ private:
                            const Rows& rows);
 
     Status _select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
-                           Streams& streams);
+                           std::vector<std::shared_ptr<LoadStreamStub>>& streams);
 
     void _calc_tablets_to_commit();
 
@@ -228,7 +227,6 @@ private:
 
     std::shared_ptr<LoadStreamMap> _load_stream_map;
 
-    size_t _stream_index = 0;
     std::shared_ptr<DeltaWriterV2Map> _delta_writer_for_tablet;
 
     VRowDistribution _row_distribution;

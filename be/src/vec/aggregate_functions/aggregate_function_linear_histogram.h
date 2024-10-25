@@ -157,10 +157,9 @@ public:
                     left += interval;
                     bucket_json.AddMember("upper", left, allocator);
                     count = (idx == key) ? count_ : 0;
-                    bucket_json.AddMember("count", count, allocator);
+                    bucket_json.AddMember("count", static_cast<uint64_t>(count), allocator);
                     acc_count += count;
-                    bucket_json.AddMember("acc_count", acc_count, allocator);
-
+                    bucket_json.AddMember("acc_count", static_cast<uint64_t>(acc_count), allocator);
                     bucket_arr.PushBack(bucket_json, allocator);
                 }
             }

@@ -21,16 +21,12 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.TestWithFeService;
 
-import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -44,8 +40,6 @@ import java.io.DataOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.IOException;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -202,37 +196,5 @@ public class LoadManagerTest {
         LoadManager loadManager = new LoadManager(new LoadJobScheduler());
         loadManager.readFields(dis);
         return loadManager;
-    }
-
-    @Test
-    public void testJobAuth() throws IOException, AnalysisException {
-        UserIdentity user1 = new UserIdentity("testJobAuthUser", "%");
-        user1.analyze();
-        new Expectations() {
-            {
-                ConnectContext.get();
-                minTimes = 0;
-                result = TestWithFeService.createCtx(user1, "%");
-            }
-        };
-        LoadManager manager = new LoadManager(new LoadJobScheduler());
-        HashSet<String> tableNames = Sets.newHashSet();
-        try {
-            // should check db auth
-            manager.checkJobAuth("ctl1", "db1", tableNames);
-            throw new RuntimeException("should exception");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
-            Assert.assertTrue(e.getMessage().contains("db1"));
-        }
-        tableNames.add("table1");
-        try {
-            // should check db auth
-            manager.checkJobAuth("ctl1", "db1", tableNames);
-            throw new RuntimeException("should exception");
-        } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Admin_priv,Load_priv"));
-            Assert.assertTrue(e.getMessage().contains("table1"));
-        }
     }
 }

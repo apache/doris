@@ -69,7 +69,10 @@ protected:
 
     Status do_inverted_index_compaction();
 
-    void construct_skip_inverted_index(RowsetWriterContext& ctx);
+    Status check_idx_file_correctness(DorisCompoundReader& index_reader,
+                                      DorisCompoundReader& tmp_index_reader);
+
+    void construct_index_compaction_columns(RowsetWriterContext& ctx);
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 

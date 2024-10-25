@@ -168,7 +168,6 @@ public:
         int producer_size;
         uint64_t global_size;
         TRuntimeFilterDesc runtime_filter_desc;
-        std::vector<doris::TRuntimeFilterTargetParams> target_info;
         std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
         IRuntimeFilter* filter = nullptr;
         std::unordered_set<UniqueId> arrive_id;
