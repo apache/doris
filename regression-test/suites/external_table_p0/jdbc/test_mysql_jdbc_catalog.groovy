@@ -24,7 +24,14 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     // String driver_url = "mysql-connector-java-8.0.25.jar"
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
+        return;
+    }
+
+    for (String driver_class : ["com.mysql.jdbc.Driver", "com.mysql.cj.jdbc.Driver"]) {
+        if (driver_class.equals("com.mysql.jdbc.Driver")) {
+            driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-5.1.49.jar"
+        }
         String user = "test_jdbc_user";
         String pwd = '123456';
         def tokens = context.config.jdbcUrl.split('/')
@@ -68,7 +75,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
-        sql """create database if not exists ${internal_db_name}; """
+        sql """drop database if exists ${internal_db_name}; """
+        sql """create database ${internal_db_name}; """
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -78,7 +86,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "${driver_class}"
         );"""
 
         sql """use ${internal_db_name}"""
@@ -226,7 +234,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "driver_class" = "${driver_class}",
             "only_specified_database" = "true"
         );"""
 
@@ -243,7 +251,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "driver_class" = "${driver_class}",
             "only_specified_database" = "true",
             "include_database_list" = "doris_test"
         );"""
@@ -261,7 +269,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "driver_class" = "${driver_class}",
             "only_specified_database" = "true",
             "exclude_database_list" = "doris_test"
         );"""
@@ -281,7 +289,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "driver_class" = "${driver_class}",
             "only_specified_database" = "true",
             "include_database_list" = "doris_test",
             "exclude_database_list" = "doris_test"
@@ -302,7 +310,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "jdbc.password"="123456",
             "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "jdbc.driver_url" = "${driver_url}",
-            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
+            "jdbc.driver_class" = "${driver_class}");
         """
         sql """ switch ${catalog_name} """
 
@@ -339,7 +347,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "jdbc.password"="123456",
             "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "jdbc.driver_url" = "${driver_url}",
-            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
+            "jdbc.driver_class" = "${driver_class}");
         """
         qt_mysql_view """ select * from view_catalog.doris_test.mysql_view order by col_1;"""
         sql """ drop catalog if exists view_catalog; """
@@ -351,7 +359,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "jdbc.password"="123456",
             "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "jdbc.driver_url" = "${driver_url}",
-            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
+            "jdbc.driver_class" = "${driver_class}");
         """
 
         sql """switch mysql_fun_push_catalog"""
@@ -498,7 +506,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "${driver_class}"
         );"""
 
         sql """switch ${catalog_name}"""
@@ -529,7 +537,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                     "password"="123456",
                     "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
                     "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "driver_class" = "${driver_class}",
                     "lower_case_meta_names" = "true",
                     "meta_names_mapping" = '{"databases": [{"remoteDatabase": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","mapping": "doris_2"},{"remoteDatabase": "doris","mapping": "doris_3"}],"tables": [{"remoteDatabase": "Doris","remoteTable": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","remoteTable": "Doris","mapping": "doris_2"},{"remoteDatabase": "Doris","remoteTable": "doris","mapping": "doris_3"}]}'
             );
@@ -550,7 +558,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                         "password"="123456",
                         "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
                         "driver_url" = "${driver_url}",
-                        "driver_class" = "com.mysql.cj.jdbc.Driver",
+                        "driver_class" = "${driver_class}",
                         "lower_case_table_names" = "true",
                         "meta_names_mapping" = '{"databases": [{"remoteDatabase": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","mapping": "doris_2"},{"remoteDatabase": "doris","mapping": "doris_3"}],"tables": [{"remoteDatabase": "Doris","remoteTable": "DORIS","mapping": "doris_1"},{"remoteDatabase": "Doris","remoteTable": "Doris","mapping": "doris_2"},{"remoteDatabase": "Doris","remoteTable": "doris","mapping": "doris_3"}]}'
                     );
@@ -565,7 +573,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
                     "password"="123456",
                     "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
                     "driver_url" = "${driver_url}",
-                    "driver_class" = "com.mysql.cj.jdbc.Driver",
+                    "driver_class" = "${driver_class}",
                     "lower_case_meta_names" = "true",
                     "meta_names_mapping" = "{\\\"databases\\\": [{\\\"remoteDatabase\\\": \\\"DORIS\\\",\\\"mapping\\\": \\\"doris_1\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"mapping\\\": \\\"doris_2\\\"},{\\\"remoteDatabase\\\": \\\"doris\\\",\\\"mapping\\\": \\\"doris_3\\\"}],\\\"tables\\\": [{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"DORIS\\\",\\\"mapping\\\": \\\"doris_1\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"Doris\\\",\\\"mapping\\\": \\\"doris_2\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"doris\\\",\\\"mapping\\\": \\\"doris_3\\\"}]}"
                     );
@@ -580,7 +588,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver",
+            "driver_class" = "${driver_class}",
             "metadata_refresh_interval_sec" = "5"
         );"""
 
@@ -592,7 +600,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "${driver_class}"
         );"""
 
         qt_sql """select count(*) from mysql_rename1.doris_test.ex_tb1;"""
@@ -611,7 +619,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             "password"="123456",
             "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
             "driver_url" = "${driver_url}",
-            "driver_class" = "com.mysql.cj.jdbc.Driver"
+            "driver_class" = "${driver_class}"
         );"""
 
         order_qt_sql """SELECT * FROM mysql_conjuncts.doris_test.compoundpredicate_test WHERE (pk > 4) OR ((pk < 6 OR pk > 7) AND col_int_undef_signed < 1);"""
