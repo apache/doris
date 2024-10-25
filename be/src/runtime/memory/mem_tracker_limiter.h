@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "runtime/memory/mem_counter.h"
+#include "runtime/memory/mem_tracker.h"
 #include "runtime/query_statistics.h"
 #include "util/string_util.h"
 #include "util/uid_util.h"
@@ -45,6 +46,7 @@ class RuntimeProfile;
 class MemTrackerLimiter;
 
 constexpr size_t MEM_TRACKER_GROUP_NUM = 1000;
+constexpr size_t QUERY_MIN_MEMORY = 32 * 1024 * 1024;
 
 struct TrackerLimiterGroup {
     // Note! in order to enable ExecEnv::mem_tracker_limiter_pool support resize,
@@ -132,6 +134,7 @@ public:
     ~MemTrackerLimiter();
 
     Type type() const { return _type; }
+    void set_overcommit(bool enable) { _enable_overcommit = enable; }
     const std::string& label() const { return _label; }
     std::shared_ptr<QueryStatistics> get_query_statistics() { return _query_statistics; }
     int64_t group_num() const { return _group_num; }
@@ -141,7 +144,6 @@ public:
     Status check_limit(int64_t bytes = 0);
     // Log the memory usage when memory limit is exceeded.
     std::string tracker_limit_exceeded_str();
-    bool is_overcommit_tracker() const { return type() == Type::QUERY || type() == Type::LOAD; }
     void set_limit(int64_t new_mem_limit) { _limit = new_mem_limit; }
     bool is_query_cancelled() { return _is_query_cancelled; }
     void set_is_query_cancelled(bool is_cancelled) { _is_query_cancelled.store(is_cancelled); }
@@ -208,7 +210,8 @@ public:
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
-        bool rt = _mem_counter.try_add(bytes, _limit);
+        // Reserve will check limit, should ignore load buffer size.
+        bool rt = _mem_counter.try_add(bytes - _load_buffer_size, _limit);
         if (rt && _query_statistics) {
             _query_statistics->set_max_peak_memory_bytes(peak_consumption());
             _query_statistics->set_current_used_memory_bytes(consumption());
@@ -233,6 +236,15 @@ public:
     static std::string make_type_trackers_profile_str(MemTrackerLimiter::Type type);
     static void make_top_consumption_tasks_tracker_profile(RuntimeProfile* profile, int top_num);
     static void make_all_tasks_tracker_profile(RuntimeProfile* profile);
+
+    void push_load_buffer(std::shared_ptr<MemTracker> memtable_tracker) {
+        std::lock_guard l(_load_buffer_lock);
+        _load_buffers.push_back(memtable_tracker);
+    }
+
+    void update_load_buffer_size();
+
+    int64_t load_buffer_size() const { return _load_buffer_size; }
 
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
@@ -300,6 +312,7 @@ private:
     */
 
     Type _type;
+    bool _enable_overcommit = true;
 
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
@@ -326,6 +339,10 @@ private:
     bool _enable_print_log_usage = false;
 
     std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
+
+    std::mutex _load_buffer_lock;
+    std::vector<std::weak_ptr<MemTracker>> _load_buffers;
+    std::atomic<int64_t> _load_buffer_size = 0;
 
     struct AddressSanitizer {
         size_t size;
@@ -356,10 +373,11 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
-    if (bytes <= 0 || (is_overcommit_tracker() && config::enable_query_memory_overcommit)) {
+    if (bytes <= 0 || _enable_overcommit) {
         return Status::OK();
     }
-    if (_limit > 0 && consumption() + bytes > _limit) {
+    // check limit should ignore memtable size, because it is treated as a cache
+    if (_limit > 0 && consumption() - _load_buffer_size + bytes > _limit) {
         return Status::MemoryLimitExceeded(fmt::format("failed alloc size {}, {}",
                                                        MemCounter::print_bytes(bytes),
                                                        tracker_limit_exceeded_str()));

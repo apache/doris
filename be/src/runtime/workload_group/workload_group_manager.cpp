@@ -162,18 +162,16 @@ struct WorkloadGroupMemInfo {
     std::list<std::shared_ptr<MemTrackerLimiter>> tracker_snapshots =
             std::list<std::shared_ptr<MemTrackerLimiter>>();
 };
+
 void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
     std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
 
     // 1. make all workload groups memory snapshots(refresh workload groups total memory used at the same time)
     // and calculate total memory used of all queries.
     int64_t all_workload_groups_mem_usage = 0;
-    std::unordered_map<uint64_t, WorkloadGroupMemInfo> wgs_mem_info;
     bool has_wg_exceed_limit = false;
     for (auto& [wg_id, wg] : _workload_groups) {
-        wgs_mem_info[wg_id].total_mem_used =
-                wg->make_memory_tracker_snapshots(&wgs_mem_info[wg_id].tracker_snapshots);
-        all_workload_groups_mem_usage += wgs_mem_info[wg_id].total_mem_used;
+        all_workload_groups_mem_usage += wg->refresh_memory_usage();
         if (wg->exceed_limit()) {
             has_wg_exceed_limit = true;
         }
@@ -219,7 +217,7 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
             weighted_memory_limit_ratio);
     LOG_EVERY_T(INFO, 60) << debug_msg;
     for (auto& wg : _workload_groups) {
-        update_queries_limit(wg.second, false);
+        update_queries_limit_(wg.second, false);
     }
 }
 
@@ -265,42 +263,26 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
 }
 
 /**
- * 1. When Process's memory is lower than soft limit, then all workload group will be converted to hard limit (Exception: there is only one workload group).
- * 2. Reserve logic for workload group that is soft limit take no effect, it will always return success.
- * 3. QueryLimit for streamload,routineload,group commit, take no affect, it will always return success, but workload group's hard limit will take affect.
- * 4. See handle_non_overcommit_wg_paused_queries for hard limit logic.
- */
-void WorkloadGroupMgr::handle_paused_queries() {
-    handle_non_overcommit_wg_paused_queries();
-    handle_overcommit_wg_paused_queries();
-}
-
-/**
  * Strategy 1: A revocable query should not have any running task(PipelineTask).
  * strategy 2: If the workload group has any task exceed workload group memlimit, then set all queryctx's memlimit
  * strategy 3: If any query exceed process memlimit, then should clear all caches.
  * strategy 4: If any query exceed query's memlimit, then do spill disk or cancel it.
  * strategy 5: If any query exceed process's memlimit and cache is zero, then do following:
- * 1. cancel other wg's(soft limit) query that exceed limit
- * 2. spill disk
- * 3. cancel it self.
  */
-void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
+void WorkloadGroupMgr::handle_paused_queries() {
     const int64_t TIMEOUT_IN_QUEUE = 1000L * 10;
     std::unique_lock<std::mutex> lock(_paused_queries_lock);
-    std::vector<std::weak_ptr<QueryContext>> resume_after_gc;
+    bool has_revoked_from_other_group = false;
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
         auto& queries_list = it->second;
         const auto& wg = it->first;
-        if (queries_list.empty()) {
-            it = _paused_queries_list.erase(it);
-            continue;
-        }
+
         bool is_low_wartermark = false;
         bool is_high_wartermark = false;
-
         wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+
         bool has_changed_hard_limit = false;
+        int64_t flushed_memtable_bytes = 0;
         // If the query is paused because its limit exceed the query itself's memlimit, then just spill disk.
         // The query's memlimit is set using slot mechanism and its value is set using the user settings, not
         // by weighted value. So if reserve failed, then it is actually exceed limit.
@@ -317,29 +299,12 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
                 query_it = queries_list.erase(query_it);
                 continue;
             }
-            bool wg_changed_to_hard_limit = wg->has_changed_to_hard_limit();
-            // Only deal with non overcommit workload group.
-            if (wg->enable_memory_overcommit() && !wg_changed_to_hard_limit &&
-                !query_ctx->paused_reason().is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
-                // Soft limit wg will only reserve failed when process limit exceed. But in some corner case,
-                // when reserve, the wg is hard limit, the query reserve failed, but when this loop run
-                // the wg is converted to soft limit.
-                // So that should resume the query.
-                LOG(WARNING) << "query: " << print_id(query_ctx->query_id())
-                             << " reserve memory failed, but workload group not converted to hard "
-                                "limit, it should not happen, resume it again. paused reason: "
-                             << query_ctx->paused_reason();
-                query_ctx->set_memory_sufficient(true);
-                query_it = queries_list.erase(query_it);
-                continue;
-            }
 
             if (query_ctx->paused_reason().is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
-                CHECK(!wg->enable_memory_overcommit() || wg_changed_to_hard_limit);
                 // Streamload, kafka load, group commit will never have query memory exceeded error because
                 // their  query limit is very large.
-                bool spill_res = handle_single_query(query_ctx, query_it->reserve_size_,
-                                                     query_ctx->paused_reason());
+                bool spill_res = handle_single_query_(query_ctx, query_it->reserve_size_,
+                                                      query_ctx->paused_reason());
                 if (!spill_res) {
                     ++query_it;
                     continue;
@@ -348,7 +313,21 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
                     continue;
                 }
             } else if (query_ctx->paused_reason().is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
-                CHECK(!wg->enable_memory_overcommit() || wg_changed_to_hard_limit);
+                // Only deal with non overcommit workload group.
+                if (wg->enable_memory_overcommit()) {
+                    // Soft limit wg will only reserve failed when process limit exceed. But in some corner case,
+                    // when reserve, the wg is hard limit, the query reserve failed, but when this loop run
+                    // the wg is converted to soft limit.
+                    // So that should resume the query.
+                    LOG(WARNING)
+                            << "query: " << print_id(query_ctx->query_id())
+                            << " reserve memory failed because exceed workload group memlimit, it "
+                               "should not happen, resume it again. paused reason: "
+                            << query_ctx->paused_reason();
+                    query_ctx->set_memory_sufficient(true);
+                    query_it = queries_list.erase(query_it);
+                    continue;
+                }
                 // check if the reserve is too large, if it is too large,
                 // should set the query's limit only.
                 // Check the query's reserve with expected limit.
@@ -358,55 +337,34 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
                     query_ctx->set_memory_sufficient(true);
                     LOG(INFO) << "workload group memory reserve failed because "
                               << query_ctx->debug_string() << " reserve size "
-                              << query_it->reserve_size_ << " is too large, set hard limit to "
-                              << query_ctx->expected_mem_limit() << " and resume running.";
+                              << PrettyPrinter::print_bytes(query_it->reserve_size_)
+                              << " is too large, set hard limit to "
+                              << PrettyPrinter::print_bytes(query_ctx->expected_mem_limit())
+                              << " and resume running.";
                     query_it = queries_list.erase(query_it);
                     continue;
                 }
+                if (flushed_memtable_bytes < 0) {
+                    flushed_memtable_bytes = flush_memtable_from_current_group_(
+                            query_ctx, wg, query_it->reserve_size_);
+                }
+                if (flushed_memtable_bytes > 0) {
+                    // Flushed some memtable, just wait flush finished and not do anything more.
+                    wg->enable_load_buffer_limit(true);
+                    ++query_it;
+                    continue;
+                } else {
+                    // If could not revoke memory by flush memtable, then disable load buffer limit
+                    wg->enable_load_buffer_limit(false);
+                }
                 if (!has_changed_hard_limit) {
-                    update_queries_limit(wg, true);
+                    update_queries_limit_(wg, true);
                     has_changed_hard_limit = true;
                     LOG(INFO) << "query: " << print_id(query_ctx->query_id())
                               << " reserve memory failed due to workload group memory exceed, "
                                  "should set the workload group work in memory insufficent mode, "
                                  "so that other query will reduce their memory. wg: "
                               << wg->debug_string();
-                }
-                // If there are a lot of memtable memory, then wait them flush finished.
-                MemTableMemoryLimiter* memtable_limiter =
-                        doris::ExecEnv::GetInstance()->memtable_memory_limiter();
-                // Not use memlimit, should use high water mark.
-                int64_t memtable_active_bytes = 0;
-                int64_t memtable_queue_bytes = 0;
-                int64_t memtable_flush_bytes = 0;
-                wg->get_load_mem_usage(&memtable_active_bytes, &memtable_queue_bytes,
-                                       &memtable_flush_bytes);
-                // TODO: should add a signal in memtable limiter to prevent new batch
-                // For example, streamload, it will not reserve many memory, but it will occupy many memtable memory.
-                // TODO: 0.2 should be a workload group properties. For example, the group is optimized for load,then the value
-                // should be larged, if the group is optimized for query, then the value should be smaller.
-                int64_t max_wg_memtable_bytes = wg->load_buffer_limit();
-                if (memtable_active_bytes + memtable_queue_bytes + memtable_flush_bytes >
-                    max_wg_memtable_bytes) {
-                    // There are many table in flush queue, just waiting them flush finished.
-                    if (memtable_active_bytes < (int64_t)(max_wg_memtable_bytes * 0.6)) {
-                        LOG_EVERY_T(INFO, 60)
-                                << wg->name() << " load memtable size is: " << memtable_active_bytes
-                                << ", " << memtable_queue_bytes << ", " << memtable_flush_bytes
-                                << ", load buffer limit is: " << max_wg_memtable_bytes
-                                << " wait for flush finished to release more memory";
-                        continue;
-                    } else {
-                        // Flush some memtables(currently written) to flush queue.
-                        memtable_limiter->flush_workload_group_memtables(
-                                wg->id(),
-                                memtable_active_bytes - (int64_t)(max_wg_memtable_bytes * 0.6));
-                        LOG_EVERY_T(INFO, 60)
-                                << wg->name() << " load memtable size is: " << memtable_active_bytes
-                                << ", " << memtable_queue_bytes << ", " << memtable_flush_bytes
-                                << ", flush some active memtable to revoke memory";
-                        continue;
-                    }
                 }
                 // Should not put the query back to task scheduler immediately, because when wg's memory not sufficient,
                 // and then set wg's flag, other query may not free memory very quickly.
@@ -415,13 +373,12 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
                     LOG(INFO) << "query: " << print_id(query_ctx->query_id()) << " will be resume.";
                     query_ctx->set_memory_sufficient(true);
                     query_it = queries_list.erase(query_it);
+                    continue;
                 } else {
                     ++query_it;
+                    continue;
                 }
-                continue;
             } else {
-                // PROCESS Reserve logic using hard limit, if reached here, should try to spill or cancel.
-                // GC Logic also work at hard limit, so GC may cancel some query and could not spill here.
                 // If wg's memlimit not exceed, but process memory exceed, it means cache or other metadata
                 // used too much memory. Should clean all cache here.
                 // 1. Check cache used, if cache is larger than > 0, then just return and wait for it to 0 to release some memory.
@@ -437,34 +394,43 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
                                  "to 0 now";
                 }
                 if (query_it->cache_ratio_ < 0.001) {
-                    if (query_it->any_wg_exceed_limit_) {
-                        if (wg->enable_memory_overcommit()) {
-                            if (query_it->elapsed_time() > TIMEOUT_IN_QUEUE) {
-                                resume_after_gc.push_back(query_ctx);
+                    // 1. Check if could revoke some memory from memtable
+                    if (flushed_memtable_bytes < 0) {
+                        flushed_memtable_bytes = flush_memtable_from_current_group_(
+                                query_ctx, wg, query_it->reserve_size_);
+                    }
+                    if (flushed_memtable_bytes > 0) {
+                        // Flushed some memtable, just wait flush finished and not do anything more.
+                        ++query_it;
+                        continue;
+                    }
+                    // TODO should wait here to check if the process has release revoked_size memory and then continue.
+                    if (!has_revoked_from_other_group) {
+                        int64_t revoked_size = revoke_memory_from_other_group_(
+                                query_ctx, wg->enable_memory_overcommit(), query_it->reserve_size_);
+                        if (revoked_size > 0) {
+                            has_revoked_from_other_group = true;
+                            query_ctx->set_memory_sufficient(true);
+                            query_it = queries_list.erase(query_it);
+                            // Do not care if the revoked_size > reserve size, and try to run again.
+                            continue;
+                        } else {
+                            bool spill_res = handle_single_query_(
+                                    query_ctx, query_it->reserve_size_, query_ctx->paused_reason());
+                            if (spill_res) {
                                 query_it = queries_list.erase(query_it);
                                 continue;
                             } else {
                                 ++query_it;
                                 continue;
                             }
-                        } else {
-                            // current workload group is hard limit, should not wait other wg with
-                            // soft limit, just cancel
-                            resume_after_gc.push_back(query_ctx);
-                            query_it = queries_list.erase(query_it);
-                            continue;
                         }
                     } else {
-                        // TODO: Find other exceed limit workload group and cancel query.
-                        bool spill_res = handle_single_query(query_ctx, query_it->reserve_size_,
-                                                             query_ctx->paused_reason());
-                        if (!spill_res) {
-                            ++query_it;
-                            continue;
-                        } else {
-                            query_it = queries_list.erase(query_it);
-                            continue;
-                        }
+                        // If any query is cancelled during process limit stage, should resume other query and
+                        // do not do any check now.
+                        query_ctx->set_memory_sufficient(true);
+                        query_it = queries_list.erase(query_it);
+                        continue;
                     }
                 }
                 if (doris::GlobalMemoryArbitrator::last_affected_cache_capacity_adjust_weighted <
@@ -479,68 +445,148 @@ void WorkloadGroupMgr::handle_non_overcommit_wg_paused_queries() {
                 ++query_it;
             }
         }
+        // Not need waiting flush memtable and below low watermark disable load buffer limit
+        if (flushed_memtable_bytes <= 0 && !is_low_wartermark) {
+            wg->enable_load_buffer_limit(false);
+        }
 
-        // Finished deal with one workload group, and should deal with next one.
-        ++it;
-    }
-    // TODO minor GC to release some query
-    if (!resume_after_gc.empty()) {
-    }
-    for (auto resume_it = resume_after_gc.begin(); resume_it != resume_after_gc.end();
-         ++resume_it) {
-        auto query_ctx = resume_it->lock();
-        if (query_ctx != nullptr) {
-            query_ctx->set_memory_sufficient(true);
+        if (queries_list.empty()) {
+            it = _paused_queries_list.erase(it);
+            continue;
+        } else {
+            // Finished deal with one workload group, and should deal with next one.
+            ++it;
         }
     }
+}
+
+// Return the expected free bytes if memtable could flush
+int64_t WorkloadGroupMgr::flush_memtable_from_current_group_(
+        std::shared_ptr<QueryContext> requestor, WorkloadGroupPtr wg, int64_t need_free_mem) {
+    // If there are a lot of memtable memory, then wait them flush finished.
+    MemTableMemoryLimiter* memtable_limiter =
+            doris::ExecEnv::GetInstance()->memtable_memory_limiter();
+    int64_t memtable_active_bytes = 0;
+    int64_t memtable_queue_bytes = 0;
+    int64_t memtable_flush_bytes = 0;
+    memtable_limiter->get_workload_group_memtable_usage(
+            wg->id(), &memtable_active_bytes, &memtable_queue_bytes, &memtable_flush_bytes);
+    // TODO: should add a signal in memtable limiter to prevent new batch
+    // For example, streamload, it will not reserve many memory, but it will occupy many memtable memory.
+    // TODO: 0.2 should be a workload group properties. For example, the group is optimized for load,then the value
+    // should be larged, if the group is optimized for query, then the value should be smaller.
+    int64_t max_wg_memtable_bytes = wg->load_buffer_limit();
+    if (memtable_active_bytes + memtable_queue_bytes + memtable_flush_bytes >
+        max_wg_memtable_bytes) {
+        // There are many table in flush queue, just waiting them flush finished.
+        if (memtable_active_bytes < (int64_t)(max_wg_memtable_bytes * 0.6)) {
+            LOG_EVERY_T(INFO, 60) << wg->name()
+                                  << " load memtable size is: " << memtable_active_bytes << ", "
+                                  << memtable_queue_bytes << ", " << memtable_flush_bytes
+                                  << ", load buffer limit is: " << max_wg_memtable_bytes
+                                  << " wait for flush finished to release more memory";
+            return memtable_queue_bytes + memtable_flush_bytes;
+        } else {
+            // Flush some memtables(currently written) to flush queue.
+            memtable_limiter->flush_workload_group_memtables(
+                    wg->id(), memtable_active_bytes - (int64_t)(max_wg_memtable_bytes * 0.6));
+            LOG_EVERY_T(INFO, 60) << wg->name()
+                                  << " load memtable size is: " << memtable_active_bytes << ", "
+                                  << memtable_queue_bytes << ", " << memtable_flush_bytes
+                                  << ", flush some active memtable to revoke memory";
+            return memtable_queue_bytes + memtable_flush_bytes + memtable_active_bytes -
+                   (int64_t)(max_wg_memtable_bytes * 0.6);
+        }
+    }
+    return 0;
+}
+
+int64_t WorkloadGroupMgr::revoke_memory_from_other_group_(std::shared_ptr<QueryContext> requestor,
+                                                          bool hard_limit, int64_t need_free_mem) {
+    int64_t total_freed_mem = 0;
+    std::unique_ptr<RuntimeProfile> profile = std::make_unique<RuntimeProfile>("RevokeMemory");
+    // 1. memtable like memory
+    // 2. query exceed workload group limit
+    int64_t freed_mem = revoke_overcommited_memory_(requestor, need_free_mem, profile.get());
+    total_freed_mem += freed_mem;
+    // The revoke process may kill current requestor, so should return now.
+    if (need_free_mem - total_freed_mem < 0 || requestor->is_cancelled()) {
+        return total_freed_mem;
+    }
+    if (hard_limit) {
+        freed_mem = cancel_top_query_in_overcommit_group_(need_free_mem - total_freed_mem,
+                                                          doris::QUERY_MIN_MEMORY, profile.get());
+    } else {
+        freed_mem = cancel_top_query_in_overcommit_group_(
+                need_free_mem - total_freed_mem, requestor->get_mem_tracker()->consumption(),
+                profile.get());
+    }
+    total_freed_mem += freed_mem;
+    // The revoke process may kill current requestor, so should return now.
+    if (need_free_mem - total_freed_mem < 0 || requestor->is_cancelled()) {
+        return total_freed_mem;
+    }
+    return total_freed_mem;
+}
+
+// Revoke memory from workload group that exceed it's limit. For example, if the wg's limit is 10g, but used 12g
+// then should revoke 2g from the group.
+int64_t WorkloadGroupMgr::revoke_overcommited_memory_(std::shared_ptr<QueryContext> requestor,
+                                                      int64_t need_free_mem,
+                                                      RuntimeProfile* profile) {
+    int64_t total_freed_mem = 0;
+    // 1. check memtable usage, and try to free them.
+    int64_t freed_mem = revoke_memtable_from_overcommited_groups_(need_free_mem, profile);
+    total_freed_mem += freed_mem;
+    // The revoke process may kill current requestor, so should return now.
+    if (need_free_mem - total_freed_mem < 0 || requestor->is_cancelled()) {
+        return total_freed_mem;
+    }
+    // 2. Cancel top usage query, one by one
+    std::map<WorkloadGroupPtr, int64_t> wg_mem_usage;
+    using WorkloadGroupMem = std::pair<WorkloadGroupPtr, int64_t>;
+    auto cmp = [](WorkloadGroupMem left, WorkloadGroupMem right) {
+        return left.second < right.second;
+    };
+    std::priority_queue<WorkloadGroupMem, std::vector<WorkloadGroupMem>, decltype(cmp)> heap(cmp);
+    {
+        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+        for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
+            heap.emplace(iter->second, iter->second->memory_used());
+        }
+    }
+    while (!heap.empty() && need_free_mem - total_freed_mem > 0 && !requestor->is_cancelled()) {
+        auto [wg, sort_mem] = heap.top();
+        heap.pop();
+        freed_mem = wg->free_overcommited_memory(need_free_mem - total_freed_mem, profile);
+        total_freed_mem += freed_mem;
+    }
+    return total_freed_mem;
+}
+
+// If the memtable is too large, then flush them and wait for finished.
+int64_t WorkloadGroupMgr::revoke_memtable_from_overcommited_groups_(int64_t need_free_mem,
+                                                                    RuntimeProfile* profile) {
+    return 0;
+}
+
+// 1. Sort all memory limiter in all overcommit wg, and cancel the top usage task that with most memory.
+// 2. Maybe not valid because it's memory not exceed limit.
+int64_t WorkloadGroupMgr::cancel_top_query_in_overcommit_group_(int64_t need_free_mem,
+                                                                int64_t lower_bound,
+                                                                RuntimeProfile* profile) {
+    return 0;
 }
 
 // streamload, kafka routine load, group commit
 // insert into select
 // select
 
-void WorkloadGroupMgr::handle_overcommit_wg_paused_queries() {
-    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    // If there is only one workload group and it is overcommit, then do nothing.
-    // And should also start MinorGC logic.
-    if (_workload_groups.size() == 1) {
-        return;
-    }
-    // soft_limit - 10%, will change workload group to hard limit.
-    // soft limit, process memory reserve failed.
-    // hard limit, FullGC will kill query randomly.
-    if (doris::GlobalMemoryArbitrator::is_exceed_soft_mem_limit(
-                (int64_t)(MemInfo::mem_limit() * 0.1))) {
-        for (auto& [wg_id, wg] : _workload_groups) {
-            if (wg->enable_memory_overcommit() && !wg->has_changed_to_hard_limit()) {
-                wg->change_to_hard_limit(true);
-                LOG(INFO) << "Process memory usage + 10% will exceed soft limit, change all "
-                             "workload "
-                             "group with overcommit to hard limit now. "
-                          << wg->debug_string();
-            }
-        }
-    }
-    // If current memory usage is below soft memlimit - 15%, then enable wg's overcommit
-    if (!doris::GlobalMemoryArbitrator::is_exceed_soft_mem_limit(
-                (int64_t)(MemInfo::mem_limit() * 0.15))) {
-        for (auto& [wg_id, wg] : _workload_groups) {
-            if (wg->enable_memory_overcommit() && wg->has_changed_to_hard_limit()) {
-                wg->change_to_hard_limit(false);
-                LOG(INFO) << "Process memory usage is lower than soft limit, enable all workload "
-                             "group overcommit now. "
-                          << wg->debug_string();
-            }
-        }
-    }
-}
-
-// If the query could release some memory, for example, spill disk, flush memtable then the return value is true.
+// If the query could release some memory, for example, spill disk, then the return value is true.
 // If the query could not release memory, then cancel the query, the return value is true.
-// If the query is not ready to do these tasks, it means just wait.
-bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_ctx,
-                                           size_t size_to_reserve, Status paused_reason) {
-    // TODO: If the query is an insert into select query, should consider memtable as revoke memory.
+// If the query is not ready to do these tasks, it means just wait, then return value is false.
+bool WorkloadGroupMgr::handle_single_query_(std::shared_ptr<QueryContext> query_ctx,
+                                            size_t size_to_reserve, Status paused_reason) {
     size_t revocable_size = 0;
     size_t memory_usage = 0;
     bool has_running_task = false;
@@ -556,6 +602,8 @@ bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_c
     if (revocable_tasks.empty()) {
         if (paused_reason.is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
             const auto limit = query_ctx->get_mem_limit();
+            // During waiting time, another operator in the query may finished and release
+            // many memory and we could run.
             if ((memory_usage + size_to_reserve) < limit) {
                 LOG(INFO) << "query: " << query_id << ", usage(" << memory_usage << " + "
                           << size_to_reserve << ") less than limit(" << limit << "), resume it.";
@@ -564,7 +612,8 @@ bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_c
             } else {
                 // Use MEM_LIMIT_EXCEEDED so that FE could parse the error code and do try logic
                 query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
-                        "query({}) reserve memory failed, but could not find  memory that could "
+                        "query({}) reserve memory failed, but could not find  memory that "
+                        "could "
                         "release or spill to disk(usage:{}, limit: {})",
                         query_id, memory_usage, query_ctx->get_mem_limit()));
             }
@@ -584,7 +633,8 @@ bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_c
                       << ", wg info: " << query_ctx->workload_group()->memory_debug_string();
             query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
                     "The query({}) reserved memory failed because process limit exceeded, and "
-                    "there is no cache now. And could not find task to spill. Maybe you should set "
+                    "there is no cache now. And could not find task to spill. Maybe you should "
+                    "set "
                     "the workload group's limit to a lower value.",
                     query_id));
         }
@@ -595,21 +645,15 @@ bool WorkloadGroupMgr::handle_single_query(std::shared_ptr<QueryContext> query_c
     return true;
 }
 
-void WorkloadGroupMgr::update_queries_limit(WorkloadGroupPtr wg, bool enable_hard_limit) {
+void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit) {
     auto wg_mem_limit = wg->memory_limit();
-    auto wg_weighted_mem_limit = int64_t(wg_mem_limit * 1);
-    wg->set_weighted_memory_limit(wg_weighted_mem_limit);
     auto all_query_ctxs = wg->queries();
     bool is_low_wartermark = false;
     bool is_high_wartermark = false;
     wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
     int64_t wg_high_water_mark_limit =
             (int64_t)(wg_mem_limit * wg->spill_threshold_high_water_mark() * 1.0 / 100);
-    int64_t memtable_active_bytes = 0;
-    int64_t memtable_queue_bytes = 0;
-    int64_t memtable_flush_bytes = 0;
-    wg->get_load_mem_usage(&memtable_active_bytes, &memtable_queue_bytes, &memtable_flush_bytes);
-    int64_t memtable_usage = memtable_active_bytes + memtable_queue_bytes + memtable_flush_bytes;
+    int64_t memtable_usage = wg->load_mem_used();
     int64_t wg_high_water_mark_except_load = wg_high_water_mark_limit;
     if (memtable_usage > wg->load_buffer_limit()) {
         wg_high_water_mark_except_load = wg_high_water_mark_limit - wg->load_buffer_limit();
@@ -620,19 +664,22 @@ void WorkloadGroupMgr::update_queries_limit(WorkloadGroupPtr wg, bool enable_har
     std::string debug_msg;
     if (is_high_wartermark || is_low_wartermark) {
         debug_msg = fmt::format(
-                "\nWorkload Group {}: mem limit: {}, mem used: {}, weighted mem limit: {}, "
+                "\nWorkload Group {}: mem limit: {}, mem used: {}, "
                 "high water mark mem limit: {}, load memtable usage: {}, used ratio: {}",
                 wg->name(), PrettyPrinter::print(wg->memory_limit(), TUnit::BYTES),
                 PrettyPrinter::print(wg->total_mem_used(), TUnit::BYTES),
-                PrettyPrinter::print(wg_weighted_mem_limit, TUnit::BYTES),
                 PrettyPrinter::print(wg_high_water_mark_limit, TUnit::BYTES),
                 PrettyPrinter::print(memtable_usage, TUnit::BYTES),
-                (double)(wg->total_mem_used()) / wg_weighted_mem_limit);
+                (double)(wg->total_mem_used()) / wg_mem_limit);
     }
 
     // If the wg enable over commit memory, then it is no need to update query memlimit
-    if (wg->enable_memory_overcommit() && !wg->has_changed_to_hard_limit()) {
+    if (wg->enable_memory_overcommit()) {
         return;
+    }
+    // If reached low watermark then enable load buffer limit
+    if (is_low_wartermark) {
+        wg->enable_load_buffer_limit(true);
     }
     int32_t total_used_slot_count = 0;
     int32_t total_slot_count = wg->total_query_slot_count();
@@ -657,7 +704,7 @@ void WorkloadGroupMgr::update_queries_limit(WorkloadGroupPtr wg, bool enable_har
         int64_t query_weighted_mem_limit = 0;
         int64_t expected_query_weighted_mem_limit = 0;
         // If the query enable hard limit, then it should not use the soft limit
-        if (query_ctx->enable_query_slot_hard_limit()) {
+        if (!query_ctx->enable_mem_overcommit()) {
             if (total_slot_count < 1) {
                 LOG(WARNING)
                         << "query " << print_id(query_ctx->query_id())
@@ -698,23 +745,6 @@ void WorkloadGroupMgr::update_queries_limit(WorkloadGroupPtr wg, bool enable_har
 void WorkloadGroupMgr::stop() {
     for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
         iter->second->try_stop_schedulers();
-    }
-}
-
-void WorkloadGroupMgr::update_load_memtable_usage(
-        const std::map<uint64_t, MemtableUsage>& wg_memtable_usages) {
-    // Use readlock here, because it will not modify workload_groups
-    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-    for (auto it = _workload_groups.begin(); it != _workload_groups.end(); ++it) {
-        auto wg_usage = wg_memtable_usages.find(it->first);
-        if (wg_usage != wg_memtable_usages.end()) {
-            it->second->update_load_mem_usage(wg_usage->second.active_mem_usage,
-                                              wg_usage->second.queue_mem_usage,
-                                              wg_usage->second.flush_mem_usage);
-        } else {
-            // Not anything in memtable limiter, then set to 0
-            it->second->update_load_mem_usage(0, 0, 0);
-        }
     }
 }
 

@@ -111,6 +111,21 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     return need_flush - _queue_mem_usage;
 }
 
+void MemTableMemoryLimiter::handle_workload_group_memtable_flush(WorkloadGroupPtr wg) {
+    // It means some query is pending on here to flush memtable and to continue running.
+    // So that should wait here.
+    // Wait at most 1s, because this code is not aware cancel flag. If the load task is cancelled
+    // Should releae memory quickly.
+    using namespace std::chrono_literals;
+    int32_t sleep_times = 10;
+    while (wg != nullptr && wg->enable_load_buffer_limit() && sleep_times > 0) {
+        std::this_thread::sleep_for(100ms);
+        --sleep_times;
+    }
+    // Check process memory again.
+    handle_memtable_flush();
+}
+
 void MemTableMemoryLimiter::handle_memtable_flush() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
@@ -150,20 +165,39 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
     LOG(INFO) << "waited " << time_ms << " ms for memtable memory limit";
 }
 
-void MemTableMemoryLimiter::flush_workload_group_memtables(uint64_t wg_id,
-                                                           int64_t need_flush_bytes) {
+int64_t MemTableMemoryLimiter::flush_workload_group_memtables(uint64_t wg_id, int64_t need_flush) {
     std::unique_lock<std::mutex> l(_lock);
-    _flush_active_memtables(wg_id, need_flush_bytes);
+    return _flush_active_memtables(wg_id, need_flush);
 }
 
-void MemTableMemoryLimiter::_flush_active_memtables(uint64_t wg_id, int64_t need_flush) {
+void MemTableMemoryLimiter::get_workload_group_memtable_usage(uint64_t wg_id, int64_t* active_bytes,
+                                                              int64_t* queue_bytes,
+                                                              int64_t* flush_bytes) {
+    std::unique_lock<std::mutex> l(_lock);
+    *active_bytes = 0;
+    *queue_bytes = 0;
+    *flush_bytes = 0;
+    for (auto it = _writers.begin(); it != _writers.end(); ++it) {
+        if (auto writer = it->lock()) {
+            // If wg id is specified, but wg id not match, then not need flush
+            if (writer->workload_group_id() != wg_id) {
+                continue;
+            }
+            *active_bytes += writer->active_memtable_mem_consumption();
+            *queue_bytes += writer->mem_consumption(MemType::WRITE_FINISHED);
+            *flush_bytes += writer->mem_consumption(MemType::FLUSH);
+        }
+    }
+}
+
+int64_t MemTableMemoryLimiter::_flush_active_memtables(uint64_t wg_id, int64_t need_flush) {
     if (need_flush <= 0) {
-        return;
+        return 0;
     }
 
     _refresh_mem_tracker();
     if (_active_writers.size() == 0) {
-        return;
+        return 0;
     }
 
     using WriterMem = std::pair<std::weak_ptr<MemTableWriter>, int64_t>;
@@ -211,6 +245,7 @@ void MemTableMemoryLimiter::_flush_active_memtables(uint64_t wg_id, int64_t need
     }
     LOG(INFO) << "flushed " << num_flushed << " out of " << _active_writers.size()
               << " active writers, flushed size: " << PrettyPrinter::print_bytes(mem_flushed);
+    return mem_flushed;
 }
 
 void MemTableMemoryLimiter::refresh_mem_tracker() {
@@ -245,29 +280,20 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     _flush_mem_usage = 0;
     _queue_mem_usage = 0;
     _active_mem_usage = 0;
-    std::map<uint64_t, doris::MemtableUsage> wg_mem_usages;
     _active_writers.clear();
     for (auto it = _writers.begin(); it != _writers.end();) {
         if (auto writer = it->lock()) {
-            if (wg_mem_usages.find(writer->workload_group_id()) == wg_mem_usages.end()) {
-                wg_mem_usages.insert({writer->workload_group_id(), {0, 0, 0}});
-            }
-            auto& wg_mem_usage = wg_mem_usages.find(writer->workload_group_id())->second;
-
             // The memtable is currently used by writer to insert blocks.
             auto active_usage = writer->active_memtable_mem_consumption();
-            wg_mem_usage.active_mem_usage += active_usage;
             _active_mem_usage += active_usage;
             if (active_usage > 0) {
                 _active_writers.push_back(writer);
             }
 
             auto flush_usage = writer->mem_consumption(MemType::FLUSH);
-            wg_mem_usage.flush_mem_usage += flush_usage;
             _flush_mem_usage += flush_usage;
 
             auto write_usage = writer->mem_consumption(MemType::WRITE_FINISHED);
-            wg_mem_usage.queue_mem_usage += write_usage;
             _queue_mem_usage += write_usage;
             ++it;
         } else {

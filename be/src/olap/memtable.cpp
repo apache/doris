@@ -78,6 +78,7 @@ MemTable::MemTable(int64_t tablet_id, std::shared_ptr<TabletSchema> tablet_schem
     // TODO: Support ZOrderComparator in the future
     _init_columns_offset_by_slot_descs(slot_descs, tuple_desc);
     _mem_tracker = std::make_shared<MemTracker>();
+    _query_thread_context.query_mem_tracker->push_load_buffer(_mem_tracker);
 }
 
 void MemTable::_init_columns_offset_by_slot_descs(const std::vector<SlotDescriptor*>* slot_descs,

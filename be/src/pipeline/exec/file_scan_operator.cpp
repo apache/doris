@@ -63,7 +63,7 @@ void FileScanLocalState::set_scan_ranges(RuntimeState* state,
     auto wg_ptr = state->get_query_ctx()->workload_group();
     _max_scanners =
             config::doris_scanner_thread_pool_thread_num / state->query_parallel_instance_num();
-    if (wg_ptr && state->get_query_ctx()->enable_query_slot_hard_limit()) {
+    if (wg_ptr && !state->get_query_ctx()->enable_mem_overcommit()) {
         const auto total_slots = wg_ptr->total_query_slot_count();
         const auto query_slots = state->get_query_ctx()->get_slot_count();
         _max_scanners = _max_scanners * query_slots / total_slots;
