@@ -18,7 +18,7 @@
 name: Auto Cherry-Pick to Branch
 
 on:
-  pull_request:
+  pull_request_target:
     types:
       - closed
     branches:
@@ -27,7 +27,6 @@ permissions:
   checks: write
   contents: write
   pull-requests: write
-  repository-projects: write
 jobs:
   auto_cherry_pick:
     runs-on: ubuntu-latest
@@ -44,7 +43,16 @@ jobs:
       - name: Install dependencies
         run: |
           pip install PyGithub
-
+      - name: Check SHA
+        run: |
+            expected_sha="1941de05514e15c216067778e0287b4c3ebcd6f6042ee189a12257bfd0cdd9f764e18c7dae5de868e9b7128ce3be98dc8f78252932cee7d55552fc0cf8b69496"
+            calculated_sha=$(sha512sum tools/auto-pick-script.py | awk '{ print $1 }')
+            if [ "$calculated_sha" != "$expected_sha" ]; then
+              echo "SHA mismatch! Expected: $expected_sha, but got: $calculated_sha"
+              exit 1
+            else
+              echo "SHA matches: $calculated_sha"
+            fi
       - name: Auto cherry-pick
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
