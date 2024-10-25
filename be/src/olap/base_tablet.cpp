@@ -467,13 +467,9 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int i = num_segments - 1; i >= 0; i--) {
-            // If mow table has cluster keys, the key bounds is short keys, not primary keys
-            // use PrimaryKeyIndexMetaPB in primary key index?
-            if (schema->cluster_key_idxes().empty()) {
-                if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
-                    key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
-                    continue;
-                }
+            if (key_without_seq.compare(segments_key_bounds[i].max_key()) > 0 ||
+                key_without_seq.compare(segments_key_bounds[i].min_key()) < 0) {
+                continue;
             }
             picked_segments.emplace_back(i);
         }
