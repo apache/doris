@@ -232,7 +232,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         sql """switch ${catalog_name}"""
 
-        qt_specified_database_1   """ show databases; """
+        qt_specified_database_1   """ show databases; """ // only has doris_test
 
         sql """ drop catalog if exists ${catalog_name} """
 
@@ -250,7 +250,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         sql """switch ${catalog_name}"""
 
-        qt_specified_database_2   """ show databases; """
+        qt_specified_database_2   """ show databases; """ // only has doris_test
 
         sql """ drop catalog if exists ${catalog_name} """
 
@@ -268,7 +268,9 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         sql """switch ${catalog_name}"""
 
-        qt_specified_database_3   """ show databases; """
+        List<List<Object>> show_result3 = sql "show databases"
+        assertTrue(show_result3.size() > 0) // has other databases
+        qt_specified_database_3   """ show databases like "doris_test"; """ // does not have doris_test
 
         sql """ drop catalog if exists ${catalog_name} """
 
@@ -287,7 +289,9 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
 
         sql """switch ${catalog_name}"""
 
-        qt_specified_database_4   """ show databases; """
+        List<List<Object>> show_result4 = sql "show databases"
+        assertTrue(show_result4.size() > 0) // has other databases
+        qt_specified_database_4   """ show databases like "doris_test"; """ // does not have doris_test
 
         sql """ drop catalog if exists ${catalog_name} """
 
