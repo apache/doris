@@ -1142,22 +1142,14 @@ void DeleteBitmap::add_to_remove_queue(
 
 void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector) {
     std::shared_lock l(stale_delete_bitmap_lock);
-    //<rowset_id, start_version, end_version>
-    std::vector<std::tuple<std::string, uint64_t, uint64_t>> to_delete;
-    auto tablet_id = -1;
     for (auto& version_str : vector) {
         auto it = _stale_delete_bitmap.find(version_str);
         if (it != _stale_delete_bitmap.end()) {
             auto delete_bitmap_vector = it->second;
             for (auto& delete_bitmap_tuple : it->second) {
-                if (tablet_id < 0) {
-                    tablet_id = std::get<0>(delete_bitmap_tuple);
-                }
                 auto start_bmk = std::get<1>(delete_bitmap_tuple);
                 auto end_bmk = std::get<2>(delete_bitmap_tuple);
                 remove(start_bmk, end_bmk);
-                to_delete.emplace_back(std::make_tuple(std::get<0>(start_bmk).to_string(), 0,
-                                                       std::get<2>(end_bmk)));
             }
             _stale_delete_bitmap.erase(version_str);
         }
