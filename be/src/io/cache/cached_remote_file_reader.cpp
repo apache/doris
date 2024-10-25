@@ -193,9 +193,8 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             stats.skip_cache = true;
             break;
         case FileBlock::State::DOWNLOADING:
-            stats.hit_cache = false;
-            break;
         case FileBlock::State::DOWNLOADED:
+            stats.hit_cache = false;
             break;
         }
     }
