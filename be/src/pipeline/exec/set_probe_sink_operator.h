@@ -96,8 +96,6 @@ public:
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
-    bool require_shuffled_data_distribution() const override { return true; }
-
     std::shared_ptr<BasicSharedState> create_shared_state() const override { return nullptr; }
 
 private:
