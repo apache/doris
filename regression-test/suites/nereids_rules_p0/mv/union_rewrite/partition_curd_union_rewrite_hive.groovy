@@ -206,15 +206,9 @@ suite ("partition_curd_union_rewrite_hive") {
         waitingMTMVTaskFinished(getJobName(db, mv_name))
 
         // All partition is valid, test query and rewrite by materialized view
-        explain {
-            sql("${all_partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(all_partition_sql, mv_name)
         compare_res(all_partition_sql + order_by_stmt)
-        explain {
-            sql("${partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(partition_sql, mv_name)
         compare_res(partition_sql + order_by_stmt)
 
         // Part partition is invalid, test can not use partition 2023-10-17 to rewrite
@@ -224,30 +218,17 @@ suite ("partition_curd_union_rewrite_hive") {
             """
         // wait partition is invalid
         sleep(5000)
-        explain {
-            sql("${all_partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(all_partition_sql, mv_name)
         assertTrue(compare_res(all_partition_sql + order_by_stmt) == false)
-        explain {
-            sql("${partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(partition_sql, mv_name)
         assertTrue(compare_res(all_partition_sql + order_by_stmt) == false)
 
 
         sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
         waitingMTMVTaskFinished(getJobName(db, mv_name))
-        explain {
-            sql("${all_partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(all_partition_sql, mv_name)
         compare_res(all_partition_sql + order_by_stmt)
-
-        explain {
-            sql("${partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(partition_sql, mv_name)
         compare_res(partition_sql + order_by_stmt)
 
 
@@ -258,29 +239,17 @@ suite ("partition_curd_union_rewrite_hive") {
             """
         // Wait partition is invalid
         sleep(5000)
-        explain {
-            sql("${all_partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(all_partition_sql, mv_name)
         assertTrue(compare_res(all_partition_sql + order_by_stmt) == false)
-        explain {
-            sql("${partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(partition_sql, mv_name)
         compare_res(partition_sql + order_by_stmt)
 
         // Test when base table delete partition test
         sql "REFRESH MATERIALIZED VIEW ${mv_name} AUTO"
         waitingMTMVTaskFinished(getJobName(db, mv_name))
-        explain {
-            sql("${all_partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(all_partition_sql, mv_name)
         compare_res(all_partition_sql + order_by_stmt)
-        explain {
-            sql("${partition_sql}")
-            contains("${mv_name}(${mv_name})")
-        }
+        mv_rewrite_success(partition_sql, mv_name)
         compare_res(partition_sql + order_by_stmt)
 
     }

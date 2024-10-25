@@ -124,20 +124,14 @@ suite("mtmv_range_date_datetrunc_date_part_up") {
                 if (select_lists[i].replaceAll("`l_shipdate`", "").indexOf("l_shipdate") != -1) {
                     create_mv(mv_name, str, "l_shipdate", "day")
                     waitingMTMVTaskFinishedByMvName(mv_name)
-                    explain {
-                        sql("${str}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(str, mv_name)
                     compare_res(str + " order by 1,2,3")
                 }
 
                 if (select_lists[i].indexOf("col1") != -1) {
                     create_mv(mv_name, str, "col1", "day")
                     waitingMTMVTaskFinishedByMvName(mv_name)
-                    explain {
-                        sql("${str}")
-                        contains "${mv_name}(${mv_name})"
-                    }
+                    mv_rewrite_success(str, mv_name)
                     compare_res(str + " order by 1,2,3")
                 }
 
