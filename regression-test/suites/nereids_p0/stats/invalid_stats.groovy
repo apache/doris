@@ -103,7 +103,7 @@ suite("invalid_stats") {
     //         from (select r_name, r_regionkey + 1 x from region) T join nation on T.x=n_regionkey
     //         """
     //     notContains("join reorder with unknown column statistics")
-    }
+    // }
 }
 // disable jo: alter table region modify column r_regionkey set stats ('ndv'='0', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='0');
 // disable jo: alter table region modify column r_regionkey set stats ('ndv'='11', 'num_nulls'='0', 'min_value'='0', 'max_value'='4', 'row_count'='1');
