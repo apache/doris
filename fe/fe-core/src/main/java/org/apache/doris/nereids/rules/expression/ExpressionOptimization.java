@@ -25,8 +25,6 @@ import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.LikeToEqualRewrite;
 import org.apache.doris.nereids.rules.expression.rules.NullSafeEqualToEqual;
 import org.apache.doris.nereids.rules.expression.rules.OrToIn;
-import org.apache.doris.nereids.rules.expression.rules.RegrAvgXToAvg;
-import org.apache.doris.nereids.rules.expression.rules.RegrAvgYToAvg;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyInPredicate;
@@ -55,9 +53,7 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     CaseWhenToIf.INSTANCE,
                     TopnToMax.INSTANCE,
                     NullSafeEqualToEqual.INSTANCE,
-                    LikeToEqualRewrite.INSTANCE,
-                    RegrAvgXToAvg.INSTANCE,
-                    RegrAvgYToAvg.INSTANCE
+                    LikeToEqualRewrite.INSTANCE
             )
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);

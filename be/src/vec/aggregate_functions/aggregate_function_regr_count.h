@@ -62,11 +62,10 @@ public:
         if (columns[1]->is_nullable()) {
             second = !assert_cast<const ColumnNullable&>(*columns[1]).is_null_at(row_num);
         }
-
         data(place).count += first && second;
     }
 
-    void reset(AggregateDataPtr __restrict place) const override { this->data(place).count = 0; }
+    void reset(AggregateDataPtr __restrict place) const override { data(place).count = 0; }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
