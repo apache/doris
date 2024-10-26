@@ -63,7 +63,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                                 valid_element_in_hash_tbl = arg.hash_table->size();
                             }
                         },
-                        *local_state._shared_state->hash_table_variants);
+                        local_state._shared_state->hash_table_variants->method_variant);
             }
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
@@ -100,7 +100,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                     __builtin_unreachable();
                 }
             },
-            *local_state._shared_state->hash_table_variants);
+            local_state._shared_state->hash_table_variants->method_variant);
 
     return Status::OK();
 }
@@ -166,6 +166,10 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     }
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
     _shared_state->child_quantity = parent._child_quantity;
+    _shared_state->build_not_ignore_null.resize(_child_exprs.size());
+
+    RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
+
     return Status::OK();
 }
 
@@ -177,17 +181,8 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
 
     auto& parent = _parent->cast<Parent>();
     DCHECK(parent._cur_child_id == 0);
-    auto& child_exprs_lists = _shared_state->child_exprs_lists;
-    _shared_state->build_not_ignore_null.resize(child_exprs_lists[parent._cur_child_id].size());
-    _shared_state->hash_table_variants = std::make_unique<SetHashTableVariants>();
-
-    for (const auto& ctl : child_exprs_lists) {
-        for (int i = 0; i < ctl.size(); ++i) {
-            _shared_state->build_not_ignore_null[i] =
-                    _shared_state->build_not_ignore_null[i] || ctl[i]->root()->is_nullable();
-        }
-    }
-    _shared_state->hash_table_init();
+    _shared_state->hash_table_variants = std::make_unique<SetDataVariants>();
+    RETURN_IF_ERROR(_shared_state->hash_table_init());
     return Status::OK();
 }
 
@@ -212,14 +207,9 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
-    return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
-}
-
-template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
     return vectorized::VExpr::open(_child_exprs, state);
 }
 

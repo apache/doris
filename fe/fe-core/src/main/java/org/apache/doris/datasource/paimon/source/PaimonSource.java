@@ -31,7 +31,6 @@ import org.apache.paimon.table.Table;
 public class PaimonSource {
     private final PaimonExternalTable paimonExtTable;
     private final Table originTable;
-
     private final TupleDescriptor desc;
 
     public PaimonSource(TupleDescriptor desc) {
@@ -60,7 +59,7 @@ public class PaimonSource {
         return paimonExtTable.getCatalog();
     }
 
-    public String getFileFormat() {
-        return originTable.options().getOrDefault(PaimonProperties.FILE_FORMAT, "orc");
+    public String getFileFormatFromTableProperties() {
+        return originTable.options().getOrDefault(PaimonProperties.FILE_FORMAT, "parquet");
     }
 }

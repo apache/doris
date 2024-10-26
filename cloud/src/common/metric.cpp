@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "common/bvars.h"
+#include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 
 namespace doris::cloud {
@@ -228,8 +229,14 @@ static void export_fdb_status_details(const std::string& status_str) {
 }
 
 void FdbMetricExporter::export_fdb_metrics(TxnKv* txn_kv) {
+    int64_t busyness = 0;
     std::string fdb_status = get_fdb_status(txn_kv);
     export_fdb_status_details(fdb_status);
+    if (auto* kv = dynamic_cast<FdbTxnKv*>(txn_kv); kv != nullptr) {
+        busyness = static_cast<int64_t>(kv->get_client_thread_busyness() * 100);
+        g_bvar_fdb_client_thread_busyness_percent.set_value(busyness);
+    }
+    LOG(INFO) << "finish to collect fdb metric, client busyness: " << busyness << "%";
 }
 
 FdbMetricExporter::~FdbMetricExporter() {
@@ -250,7 +257,6 @@ int FdbMetricExporter::start() {
             std::unique_lock l(running_mtx_);
             running_cond_.wait_for(l, std::chrono::milliseconds(sleep_interval_ms_),
                                    [this]() { return !running_.load(std::memory_order_acquire); });
-            LOG(INFO) << "finish to collect fdb metric";
         }
     });
     return 0;

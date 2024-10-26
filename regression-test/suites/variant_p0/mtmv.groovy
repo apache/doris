@@ -92,4 +92,16 @@ suite("regression_test_variant_mtmv"){
     """ 
     def job_name_2 = getJobName(db, "mv2") 
     waitingMTMVTaskFinished(job_name_2)
+
+    sql """DROP TABLE IF EXISTS tbl1"""
+    sql """
+        CREATE TABLE tbl1 ( pk int, var VARIANT NULL ) engine=olap DUPLICATE KEY(pk) distributed by hash(pk) buckets 10 properties("replication_num"
+= "1");
+    """
+    sql """insert into tbl1 values (1, '{"a":1}')"""
+    sql """DROP MATERIALIZED VIEW IF EXISTS tbl1_mv"""
+    sql """
+        CREATE MATERIALIZED VIEW tbl1_mv BUILD IMMEDIATE REFRESH AUTO ON MANUAL DISTRIBUTED BY RANDOM BUCKETS 10 PROPERTIES
+('replication_num' = '1') AS SELECT * FROM tbl1;
+    """
 }

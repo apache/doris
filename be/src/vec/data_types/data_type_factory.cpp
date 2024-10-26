@@ -57,6 +57,7 @@
 #include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_jsonb.h"
 #include "vec/data_types/data_type_map.h"
+#include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_object.h"
@@ -155,7 +156,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_DATETIME:
         nested = std::make_shared<vectorized::DataTypeDateTime>();
         break;
-    case TYPE_TIME:
     case TYPE_TIMEV2:
         nested = std::make_shared<vectorized::DataTypeTimeV2>(col_desc.scale);
         break;
@@ -329,6 +329,9 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
     case TypeIndex::JSONB:
         nested = std::make_shared<vectorized::DataTypeJsonb>();
         break;
+    case TypeIndex::Nothing:
+        nested = std::make_shared<vectorized::DataTypeNothing>();
+        break;
     case TypeIndex::BitMap:
         nested = std::make_shared<vectorized::DataTypeBitMap>();
         break;
@@ -343,7 +346,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeIndex& type_index, bool 
         nested = std::make_shared<vectorized::DataTypeTimeV2>();
         break;
     default:
-        DCHECK(false) << "invalid typeindex:" << getTypeName(type_index);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "invalid typeindex: {}",
+                               getTypeName(type_index));
         break;
     }
 
@@ -430,7 +434,6 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = vectorized::create_decimal(precision, scale, false);
         break;
     default:
-        DCHECK(false) << "Invalid FieldType:" << (int)type;
         result = nullptr;
         break;
     }
@@ -592,7 +595,11 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     if (pcolumn.type() == static_cast<int>(FieldType::OLAP_FIELD_TYPE_AGG_STATE)) {
         DataTypes data_types;
         for (auto child : pcolumn.children_columns()) {
-            data_types.push_back(DataTypeFactory::instance().create_data_type(child));
+            auto type = DataTypeFactory::instance().create_data_type(child);
+            // may have length column with OLAP_FIELD_TYPE_UNSIGNED_BIGINT, then type will be nullptr
+            if (type) {
+                data_types.push_back(type);
+            }
         }
         nested = std::make_shared<vectorized::DataTypeAggState>(
                 data_types, pcolumn.result_is_nullable(), pcolumn.function_name(),
@@ -622,94 +629,6 @@ DataTypePtr DataTypeFactory::create_data_type(const segment_v2::ColumnMetaPB& pc
     }
 
     if (pcolumn.is_nullable() && nested) {
-        return make_nullable(nested);
-    }
-    return nested;
-}
-
-DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool is_nullable) {
-    DataTypePtr nested = nullptr;
-    switch (type->id()) {
-    case ::arrow::Type::BOOL:
-        nested = std::make_shared<vectorized::DataTypeUInt8>();
-        break;
-    case ::arrow::Type::INT8:
-        nested = std::make_shared<vectorized::DataTypeInt8>();
-        break;
-    case ::arrow::Type::UINT8:
-        nested = std::make_shared<vectorized::DataTypeUInt8>();
-        break;
-    case ::arrow::Type::INT16:
-        nested = std::make_shared<vectorized::DataTypeInt16>();
-        break;
-    case ::arrow::Type::UINT16:
-        nested = std::make_shared<vectorized::DataTypeUInt16>();
-        break;
-    case ::arrow::Type::INT32:
-        nested = std::make_shared<vectorized::DataTypeInt32>();
-        break;
-    case ::arrow::Type::UINT32:
-        nested = std::make_shared<vectorized::DataTypeUInt32>();
-        break;
-    case ::arrow::Type::INT64:
-        nested = std::make_shared<vectorized::DataTypeInt64>();
-        break;
-    case ::arrow::Type::UINT64:
-        nested = std::make_shared<vectorized::DataTypeUInt64>();
-        break;
-    case ::arrow::Type::HALF_FLOAT:
-    case ::arrow::Type::FLOAT:
-        nested = std::make_shared<vectorized::DataTypeFloat32>();
-        break;
-    case ::arrow::Type::DOUBLE:
-        nested = std::make_shared<vectorized::DataTypeFloat64>();
-        break;
-    case ::arrow::Type::DATE32:
-        nested = std::make_shared<vectorized::DataTypeDate>();
-        break;
-    case ::arrow::Type::DATE64:
-    case ::arrow::Type::TIMESTAMP:
-        nested = std::make_shared<vectorized::DataTypeDateTime>();
-        break;
-    case ::arrow::Type::BINARY:
-    case ::arrow::Type::FIXED_SIZE_BINARY:
-    case ::arrow::Type::STRING:
-        nested = std::make_shared<vectorized::DataTypeString>();
-        break;
-    case ::arrow::Type::DECIMAL:
-        nested = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128V2>>();
-        break;
-    case ::arrow::Type::LIST:
-        DCHECK(type->num_fields() == 1);
-        nested = std::make_shared<vectorized::DataTypeArray>(
-                create_data_type(type->field(0)->type().get(), true));
-        break;
-    case ::arrow::Type::MAP:
-        DCHECK(type->num_fields() == 2);
-        nested = std::make_shared<vectorized::DataTypeMap>(
-                create_data_type(type->field(0)->type().get(), true),
-                create_data_type(type->field(1)->type().get(), true));
-        break;
-    case ::arrow::Type::STRUCT: {
-        size_t field_num = type->num_fields();
-        DCHECK(type->num_fields() >= 1);
-        vectorized::DataTypes dataTypes;
-        vectorized::Strings names;
-        dataTypes.reserve(field_num);
-        names.reserve(field_num);
-        for (size_t i = 0; i < field_num; i++) {
-            dataTypes.push_back(create_data_type(type->field(i)->type().get(), true));
-            names.push_back(type->field(i)->name());
-        }
-        nested = std::make_shared<vectorized::DataTypeStruct>(dataTypes, names);
-        break;
-    }
-    default:
-        DCHECK(false) << "invalid arrow type:" << (int)(type->id());
-        break;
-    }
-
-    if (nested && is_nullable) {
         return make_nullable(nested);
     }
     return nested;

@@ -28,7 +28,7 @@ import lombok.Getter;
  * DROP STAGE [IF EXISTS] stage_name
  **/
 @AllArgsConstructor
-public class DropStageStmt extends DdlStmt {
+public class DropStageStmt extends DdlStmt implements NotFallbackInParser {
 
     @Getter
     private final boolean ifExists;

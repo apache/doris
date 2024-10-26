@@ -129,6 +129,8 @@ public class CreateReplicaTask extends AgentTask {
     private Map<Object, Object> objectPool;
     private List<Integer> rowStoreColumnUniqueIds;
 
+    private boolean variantEnableFlattenNested;
+
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
                              KeysType keysType, TStorageType storageType,
@@ -153,7 +155,8 @@ public class CreateReplicaTask extends AgentTask {
                              BinlogConfig binlogConfig,
                              List<Integer> rowStoreColumnUniqueIds,
                              Map<Object, Object> objectPool,
-                             long rowStorePageSize) {
+                             long rowStorePageSize,
+                             boolean variantEnableFlattenNested) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -200,6 +203,7 @@ public class CreateReplicaTask extends AgentTask {
         this.binlogConfig = binlogConfig;
         this.objectPool = objectPool;
         this.rowStorePageSize = rowStorePageSize;
+        this.variantEnableFlattenNested = variantEnableFlattenNested;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -227,6 +231,23 @@ public class CreateReplicaTask extends AgentTask {
             latch.countDownToZero(new Status(TStatusCode.CANCELLED, errMsg));
             if (LOG.isDebugEnabled()) {
                 LOG.debug("CreateReplicaTask download to zero. error msg: {}", errMsg);
+            }
+        }
+    }
+
+    @Override
+    public void failedWithMsg(String errMsg) {
+        super.failedWithMsg(errMsg);
+
+        // CreateReplicaTask will not trigger a retry in ReportTask. Therefore, it needs to
+        // be marked as failed here and all threads waiting for the result of
+        // CreateReplicaTask need to be awakened.
+        if (this.latch != null) {
+            Status s = new Status(TStatusCode.CANCELLED, errMsg);
+            latch.markedCountDownWithStatus(getBackendId(), getTabletId(), s);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("CreateReplicaTask failed with msg: {}, tablet: {}, backend: {}",
+                        errMsg, getTabletId(), getBackendId());
             }
         }
     }
@@ -339,6 +360,7 @@ public class CreateReplicaTask extends AgentTask {
         }
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
+        tSchema.setVariantEnableFlattenNested(variantEnableFlattenNested);
         tSchema.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction);
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);

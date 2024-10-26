@@ -285,8 +285,8 @@ public class LogicalWindow<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                     if (curPartitionLimit < chosenRowNumberPartitionLimit) {
                         chosenRowNumberPartitionLimit = curPartitionLimit;
                         chosenWindowFunc = windowFunc;
+                        hasRowNumber = true;
                     }
-                    hasRowNumber = true;
                 } else if (!hasRowNumber) {
                     // if no row_number, choose the one with minimal limit value
                     if (curPartitionLimit < chosenPartitionLimit) {

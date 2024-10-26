@@ -60,7 +60,7 @@ public class IcebergHadoopExternalCatalog extends IcebergExternalCatalog {
         String warehouse = catalogProperty.getHadoopProperties().get(CatalogProperties.WAREHOUSE_LOCATION);
         hadoopCatalog.setConf(conf);
         catalogProperties.put(CatalogProperties.WAREHOUSE_LOCATION, warehouse);
-        hadoopCatalog.initialize(icebergCatalogType, catalogProperties);
+        hadoopCatalog.initialize(getName(), catalogProperties);
         catalog = hadoopCatalog;
     }
 }

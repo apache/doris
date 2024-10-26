@@ -17,6 +17,8 @@
 
 #include "result_sink_operator.h"
 
+#include <sys/select.h>
+
 #include <memory>
 #include <utility>
 
@@ -81,7 +83,8 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;
-        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
+        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema,
+                                                       state->timezone()));
         if (state->query_options().enable_parallel_result_sink) {
             state->exec_env()->result_mgr()->register_arrow_schema(state->query_id(), arrow_schema);
         } else {
@@ -118,7 +121,8 @@ ResultSinkOperatorX::ResultSinkOperatorX(int operator_id, const RowDescriptor& r
     _name = "ResultSink";
 }
 
-Status ResultSinkOperatorX::prepare(RuntimeState* state) {
+Status ResultSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<ResultSinkLocalState>::open(state));
     // prepare output_expr
     // From the thrift expressions create the real exprs.
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
@@ -136,10 +140,6 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
                 state->query_id(), _result_sink_buffer_size_rows, &_sender,
                 state->execution_timeout(), state->batch_size()));
     }
-    return Status::OK();
-}
-
-Status ResultSinkOperatorX::open(RuntimeState* state) {
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
@@ -190,6 +190,10 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
             // close file writer failed, should return this error to client
             final_status = st;
         }
+
+        LOG_INFO("Query {} result sink closed with status {} and has written {} rows",
+                 print_id(state->query_id()), final_status.to_string_no_stack(),
+                 _writer->get_written_rows());
     }
 
     // close sender, this is normal path end

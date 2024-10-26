@@ -28,6 +28,7 @@
 #include <string_view>
 #include <thread>
 
+#include "meta-service/txn_lazy_committer.h"
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 
@@ -101,13 +102,17 @@ private:
 
     WhiteBlackList instance_filter_;
     std::unique_ptr<Checker> checker_;
+
     RecyclerThreadPoolGroup _thread_pool_group;
+
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
 class InstanceRecycler {
 public:
     explicit InstanceRecycler(std::shared_ptr<TxnKv> txn_kv, const InstanceInfoPB& instance,
-                              RecyclerThreadPoolGroup thread_pool_group);
+                              RecyclerThreadPoolGroup thread_pool_group,
+                              std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
     ~InstanceRecycler();
 
     // returns 0 for success otherwise error
@@ -239,7 +244,10 @@ private:
     std::mutex recycle_tasks_mutex;
     // <task_name, start_time>>
     std::map<std::string, int64_t> running_recycle_tasks;
+
     RecyclerThreadPoolGroup _thread_pool_group;
+
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer_;
 };
 
 } // namespace doris::cloud

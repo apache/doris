@@ -39,8 +39,10 @@
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/functions/function.h"
 
@@ -116,15 +118,13 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
-    // execute current expr with inverted index to filter block. Given a roaringbitmap of match rows
-    virtual Status eval_inverted_index(
-            VExprContext* context,
-            const std::unordered_map<ColumnId, std::pair<vectorized::IndexFieldNameAndTypePair,
-                                                         segment_v2::InvertedIndexIterator*>>&
-                    colid_to_inverted_index_iter,
-            uint32_t num_rows, roaring::Roaring* bitmap) const {
-        return Status::NotSupported("Not supported execute_with_inverted_index");
+    // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
+    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+        return Status::OK();
     }
+
+    Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
+                                    uint32_t segment_num_rows);
 
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
@@ -154,6 +154,17 @@ public:
     void add_child(const VExprSPtr& expr) { _children.push_back(expr); }
     VExprSPtr get_child(int i) const { return _children[i]; }
     int get_num_children() const { return _children.size(); }
+
+    virtual bool is_rf_wrapper() const {
+        return std::ranges::any_of(_children.begin(), _children.end(),
+                                   [](VExprSPtr child) { return child->is_rf_wrapper(); });
+    }
+
+    virtual void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) {
+        for (auto child : _children) {
+            child->do_judge_selectivity(filter_rows, input_rows);
+        }
+    }
 
     static Status create_expr_tree(const TExpr& texpr, VExprContextSPtr& ctx);
 
@@ -233,18 +244,10 @@ public:
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                      size_t input_rows_count, const std::string& function_name);
-
-    std::string gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
-                                          const std::string& function_name) const;
+    bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
+                      int* result_column_id);
 
     virtual bool can_push_down_to_index() const { return false; }
-    virtual bool can_fast_execute() const { return false; }
-    virtual Status eval_inverted_index(VExprContext* context, segment_v2::FuncExprParams& params,
-                                       std::shared_ptr<roaring::Roaring>& result) {
-        return Status::NotSupported("Not supported execute_with_inverted_index");
-    }
     virtual bool equals(const VExpr& other);
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }
@@ -283,7 +286,8 @@ protected:
     /// 1. Set constant columns result of function arguments.
     /// 2. Call function's prepare() to initialize function state, fragment-local or
     /// thread-local according the input `FunctionStateScope` argument.
-    Status init_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
+    Status init_function_context(RuntimeState* state, VExprContext* context,
+                                 FunctionContext::FunctionStateScope scope,
                                  const FunctionBasePtr& function) const;
 
     /// Helper function to close function context, fragment-local or thread-local according
@@ -317,6 +321,7 @@ protected:
     // ensuring uniqueness during index traversal
     uint32_t _index_unique_id = 0;
     bool _can_fast_execute = false;
+    bool _enable_inverted_index_query = true;
 };
 
 } // namespace vectorized
@@ -367,7 +372,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
         (*node).__set_large_int_literal(large_int_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
-    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIMEV2)) {
         const auto* origin_value = reinterpret_cast<const VecDateTimeValue*>(data);
         TDateLiteral date_literal;
         char convert_buffer[30];
@@ -380,7 +385,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         } else if (origin_value->type() == TimeType::TIME_DATETIME) {
             (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
         } else if (origin_value->type() == TimeType::TIME_TIME) {
-            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIMEV2));
         }
     } else if constexpr (T == TYPE_DATEV2) {
         const auto* origin_value = reinterpret_cast<const DateV2Value<DateV2ValueType>*>(data);
@@ -463,6 +468,20 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         string_literal.__set_value(*origin_value);
         (*node).__set_string_literal(string_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
+    } else if constexpr (T == TYPE_IPV4) {
+        const auto* origin_value = reinterpret_cast<const IPv4*>(data);
+        (*node).__set_node_type(TExprNodeType::IPV4_LITERAL);
+        TIPv4Literal literal;
+        literal.__set_value(*origin_value);
+        (*node).__set_ipv4_literal(literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV4));
+    } else if constexpr (T == TYPE_IPV6) {
+        const auto* origin_value = reinterpret_cast<const IPv6*>(data);
+        (*node).__set_node_type(TExprNodeType::IPV6_LITERAL);
+        TIPv6Literal literal;
+        literal.__set_value(vectorized::DataTypeIPv6::to_string(*origin_value));
+        (*node).__set_ipv6_literal(literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_IPV6));
     } else {
         return Status::InvalidArgument("Invalid argument type!");
     }

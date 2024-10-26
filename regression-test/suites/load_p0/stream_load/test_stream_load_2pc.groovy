@@ -27,7 +27,7 @@ suite("test_stream_load_2pc", "p0") {
 
     // for test dup, mow, uniq, agg tables, we use sql statement concat these parameters
     // due to dynamic partition is different from others, it's the reason why we concat create sql statement 
-    def tables = ["stream_load_dup_tbl_basic", "stream_load_mow_tbl_basic", "stream_load_uniq_tbl_basic", "stream_load_agg_tbl_basic"]
+    def tables = ["stream_load_dup_tbl_basic_2pc", "stream_load_mow_tbl_basic_2pc", "stream_load_uniq_tbl_basic_2pc", "stream_load_agg_tbl_basic_2pc"]
 
     def columns_stream_load = [
         """k00, k01, k02, k03, k04, k05, k06, k07, k08, k09, k10, k11, k12, k13, k14, k15, k16, k17, k18""",
@@ -39,7 +39,7 @@ suite("test_stream_load_2pc", "p0") {
 
     def create_table_sql = [
         """
-        CREATE TABLE stream_load_dup_tbl_basic
+        CREATE TABLE ${tables[0]}
         (
                 k00 INT             NOT NULL,
                 k01 DATE            NOT NULL,
@@ -95,7 +95,7 @@ suite("test_stream_load_2pc", "p0") {
         DUPLICATE KEY(k00)""",
 
         """
-            CREATE TABLE stream_load_mow_tbl_basic
+            CREATE TABLE ${tables[1]}
             (
                 k00 INT             NOT NULL,
                 k01 DATE            NULL,
@@ -148,7 +148,7 @@ suite("test_stream_load_2pc", "p0") {
         """,
 
         """
-            CREATE TABLE stream_load_uniq_tbl_basic
+            CREATE TABLE ${tables[2]}
             (
                 k00 INT             NOT NULL,
                 k01 DATE            NOT NULL,
@@ -198,7 +198,7 @@ suite("test_stream_load_2pc", "p0") {
         """,
 
         """
-            CREATE TABLE stream_load_agg_tbl_basic
+            CREATE TABLE ${tables[3]}
             (
                 k00 INT             NOT NULL,
                 k01 DATE            NOT NULL,
@@ -566,7 +566,7 @@ suite("test_stream_load_2pc", "p0") {
         def expected = [1, 3, 3, 5, 21] 
         // we recreate table for each partition, then load data with stream load and check the result
         for (i = 0; i < tables.size(); ++i) {
-            if (isCloudMode() && tables[i] == "stream_load_mow_tbl_basic") {
+            if (isCloudMode() && tables[i].equals("stream_load_mow_tbl_basic_2pc")) {
                 log.info("Skip stream load mow table in cloud mode")
                 continue;
             }

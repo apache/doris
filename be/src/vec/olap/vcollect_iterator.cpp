@@ -257,18 +257,7 @@ Status VCollectIterator::_topn_next(Block* block) {
     }
 
     // clear TEMP columns to avoid column align problem
-    auto clear_temp_columns = [](Block* block) {
-        auto all_column_names = block->get_names();
-        for (auto& name : all_column_names) {
-            if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
-                // clear TEMP columns from block to prevent from storage engine merge with this
-                // fake column
-                block->erase(name);
-            }
-        }
-    };
-
-    clear_temp_columns(block);
+    block->erase_tmp_columns();
     auto clone_block = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
 
@@ -305,7 +294,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                     eof = true;
                     if (block->rows() == 0) {
                         // clear TEMP columns to avoid column align problem in segment iterator
-                        clear_temp_columns(block);
+                        block->erase_tmp_columns();
                         break;
                     }
                 } else {
@@ -317,7 +306,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
             // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
-            clear_temp_columns(block);
+            block->erase_tmp_columns();
 
             // update read rows
             read_rows += block->rows();
@@ -501,10 +490,16 @@ int64_t VCollectIterator::Level0Iterator::version() const {
 }
 
 Status VCollectIterator::Level0Iterator::refresh_current_row() {
+    RuntimeState* runtime_state = nullptr;
+    if (_reader != nullptr) {
+        runtime_state = _reader->_reader_context.runtime_state;
+    }
+
     do {
         if (_block == nullptr && !_get_data_by_ref) {
             _block = std::make_shared<Block>(_schema.create_block(
                     _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+            _ref.block = _block;
         }
 
         if (!_is_empty() && _current_valid()) {
@@ -512,6 +507,10 @@ Status VCollectIterator::Level0Iterator::refresh_current_row() {
         } else {
             _reset();
             auto res = _refresh();
+
+            if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+                return runtime_state->cancel_reason();
+            }
             if (!res.ok() && !res.is<END_OF_FILE>()) {
                 return res;
             }
@@ -688,8 +687,17 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
 }
 
 Status VCollectIterator::Level1Iterator::ensure_first_row_ref() {
+    RuntimeState* runtime_state = nullptr;
+    if (_reader != nullptr) {
+        runtime_state = _reader->_reader_context.runtime_state;
+    }
+
     for (auto iter = _children.begin(); iter != _children.end();) {
         auto s = (*iter)->ensure_first_row_ref();
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+            return runtime_state->cancel_reason();
+        }
+
         if (!s.ok()) {
             iter = _children.erase(iter);
             if (!s.is<END_OF_FILE>()) {
@@ -861,6 +869,8 @@ Status VCollectIterator::Level1Iterator::_normal_next(Block* block) {
     while (res.is<END_OF_FILE>() && !_children.empty()) {
         _cur_child = std::move(*(_children.begin()));
         _children.pop_front();
+        // clear TEMP columns to avoid column align problem
+        block->erase_tmp_columns();
         res = _cur_child->next(block);
     }
 

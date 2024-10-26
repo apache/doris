@@ -26,7 +26,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 enum AnalyticFnScope { PARTITION, RANGE, ROWS };
 
 class AnalyticSourceOperatorX;
@@ -67,7 +67,7 @@ private:
         return need_more_input;
     }
     BlockRowPos _get_partition_by_end();
-    BlockRowPos _compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+    BlockRowPos _compare_row_to_find_end(int64_t idx, BlockRowPos start, BlockRowPos end,
                                          bool need_check_first = false);
     bool _whether_need_next_partition(BlockRowPos& found_partition_end);
 
@@ -122,7 +122,6 @@ public:
     bool is_source() const override { return true; }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
 private:
@@ -157,3 +156,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

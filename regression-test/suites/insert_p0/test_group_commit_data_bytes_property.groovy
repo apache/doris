@@ -43,12 +43,10 @@ suite("test_group_commit_data_bytes_property") {
     }
 
 
-
-    for (item in ["legacy", "nereids"]) {
-        try {
-            def test_table = table + "_" + item;
-            sql """ drop table if exists ${test_table} force; """
-            sql """
+    try {
+        def test_table = table
+        sql """ drop table if exists ${test_table} force; """
+        sql """
             CREATE table ${test_table} (
                 k bigint,  
                 v bigint
@@ -61,17 +59,9 @@ suite("test_group_commit_data_bytes_property") {
                 );
             """
 
-            connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
+        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
 
             sql """ set group_commit = async_mode; """
-
-            if (item == "nereids") {
-                sql """ set enable_nereids_dml = true; """
-                sql """ set enable_nereids_planner=true; """
-                sql """ set enable_fallback_to_original_planner=false; """
-            } else {
-                sql """ set enable_nereids_dml = false; """
-            }
 
             def res1 = sql """show create table ${test_table}"""
             assertTrue(res1.toString().contains("\"group_commit_data_bytes\" = \"1024\""))
@@ -80,7 +70,7 @@ suite("test_group_commit_data_bytes_property") {
 
             def msg2 = group_commit_insert """insert into ${test_table} values(2,2) """, 1
 
-            assertEquals(msg1.substring(msg1.indexOf("group_commit")+11, msg1.indexOf("group_commit")+43), msg2.substring(msg2.indexOf("group_commit")+11, msg2.indexOf("group_commit")+43));
+            assertEquals(msg1.substring(msg1.indexOf("group_commit") + 11, msg1.indexOf("group_commit") + 43), msg2.substring(msg2.indexOf("group_commit") + 11, msg2.indexOf("group_commit") + 43));
 
             sql "ALTER table ${test_table} SET (\"group_commit_data_bytes\"=\"1\"); "
 
@@ -94,27 +84,26 @@ suite("test_group_commit_data_bytes_property") {
             // add a retry for can not get a block queue because the data bytes is too small
             def msg4 = ""
             Awaitility.await().atMost(10, SECONDS).until(
-                {
-                    try {
-                        sql """ set group_commit = async_mode; """
-                        msg4 = group_commit_insert """insert into ${test_table} values(4,4); """, 1
-                        return true
-                    } catch (Exception e) {
-                        logger.info("get exception: ${e.getMessage()}")
-                        if (e.getMessage().contains("can not get a block queue")) {
-                            return false
-                        } else {
-                            throw e
+                    {
+                        try {
+                            sql """ set group_commit = async_mode; """
+                            msg4 = group_commit_insert """insert into ${test_table} values(4,4); """, 1
+                            return true
+                        } catch (Exception e) {
+                            logger.info("get exception: ${e.getMessage()}")
+                            if (e.getMessage().contains("can not get a block queue")) {
+                                return false
+                            } else {
+                                throw e
+                            }
                         }
                     }
-                }
             )
 
-            assertNotEquals(msg3.substring(msg3.indexOf("group_commit")+11, msg3.indexOf("group_commit")+43), msg4.substring(msg4.indexOf("group_commit")+11, msg4.indexOf("group_commit")+43));
+            assertNotEquals(msg3.substring(msg3.indexOf("group_commit") + 11, msg3.indexOf("group_commit") + 43), msg4.substring(msg4.indexOf("group_commit") + 11, msg4.indexOf("group_commit") + 43));
 
-            }
-        } finally {
-                // try_sql("DROP TABLE ${table}")
         }
+    } finally {
+        // try_sql("DROP TABLE ${table}")
     }
 }

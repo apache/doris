@@ -24,6 +24,7 @@
 #include <charconv>
 #include <chrono>
 #include <numeric>
+#include <regex>
 #include <string>
 #include <tuple>
 
@@ -39,6 +40,14 @@
 #include "meta-service/txn_kv_error.h"
 
 using namespace std::chrono;
+
+namespace {
+constexpr char pattern_str[] = "^[a-zA-Z][0-9a-zA-Z_]*$";
+bool is_valid_storage_vault_name(const std::string& str) {
+    const std::regex pattern(pattern_str);
+    return std::regex_match(str, pattern);
+}
+} // namespace
 
 namespace doris::cloud {
 
@@ -244,6 +253,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
             return;
         }
     }
+
+    response->set_enable_storage_vault(instance.enable_storage_vault());
 
     // Iterate all the resources to return to the rpc caller
     if (!instance.resource_ids().empty()) {
@@ -510,13 +521,114 @@ static void set_default_vault_log_helper(const InstanceInfoPB& instance,
     LOG(INFO) << vault_msg;
 }
 
+static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
+                                    const StorageVaultPB& vault, MetaServiceCode& code,
+                                    std::string& msg) {
+    if (!vault.has_hdfs_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "There is no hdfs vault provided";
+        msg = ss.str();
+        return -1;
+    }
+    const auto& hdfs_info = vault.hdfs_info();
+    if (hdfs_info.has_prefix() || !hdfs_info.has_build_conf() ||
+        hdfs_info.build_conf().has_fs_name()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "You can not alter prefix or fs name because it might lose previoud written data";
+        msg = ss.str();
+        return -1;
+    }
+    const auto& name = vault.name();
+    // Here we try to get mutable iter since we might need to alter the vault name
+    auto name_itr = std::find_if(instance.mutable_storage_vault_names()->begin(),
+                                 instance.mutable_storage_vault_names()->end(),
+                                 [&](const auto& vault_name) { return name == vault_name; });
+    if (name_itr == instance.storage_vault_names().end()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << "invalid storage vault name, not found, name =" << name;
+        msg = ss.str();
+        return -1;
+    }
+    auto pos = name_itr - instance.storage_vault_names().begin();
+    std::string vault_id = instance.resource_ids().begin()[pos];
+    auto vault_key = storage_vault_key({instance.instance_id(), vault_id});
+    std::string val;
+
+    auto err = txn->get(vault_key, &val);
+    LOG(INFO) << "get vault_key=" << hex(vault_key);
+
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        std::stringstream ss;
+        ss << "failed to get storage vault, vault_id=" << vault_id << ", vault_name="
+           << "" << name << " err=" << err;
+        msg = ss.str();
+        return -1;
+    }
+    StorageVaultPB new_vault;
+    new_vault.ParseFromString(val);
+    auto origin_vault_info = new_vault.DebugString();
+    if (vault.has_alter_name()) {
+        if (!is_valid_storage_vault_name(vault.alter_name())) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            std::stringstream ss;
+            ss << "invalid storage vault name =" << vault.alter_name() << " the name must satisfy "
+               << pattern_str;
+            msg = ss.str();
+            return -1;
+        }
+        new_vault.set_name(vault.alter_name());
+        *name_itr = vault.alter_name();
+    }
+    auto* alter_hdfs_info = new_vault.mutable_hdfs_info();
+    if (hdfs_info.build_conf().has_hdfs_kerberos_keytab()) {
+        alter_hdfs_info->mutable_build_conf()->set_hdfs_kerberos_keytab(
+                hdfs_info.build_conf().hdfs_kerberos_keytab());
+    }
+    if (hdfs_info.build_conf().has_hdfs_kerberos_principal()) {
+        alter_hdfs_info->mutable_build_conf()->set_hdfs_kerberos_principal(
+                hdfs_info.build_conf().hdfs_kerberos_principal());
+    }
+    if (hdfs_info.build_conf().has_user()) {
+        alter_hdfs_info->mutable_build_conf()->set_user(hdfs_info.build_conf().user());
+    }
+    if (0 != hdfs_info.build_conf().hdfs_confs_size()) {
+        alter_hdfs_info->mutable_build_conf()->mutable_hdfs_confs()->Add(
+                hdfs_info.build_conf().hdfs_confs().begin(),
+                hdfs_info.build_conf().hdfs_confs().end());
+    }
+    auto new_vault_info = new_vault.DebugString();
+
+    val = new_vault.SerializeAsString();
+    if (val.empty()) {
+        msg = "failed to serialize";
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        return -1;
+    }
+
+    txn->put(vault_key, val);
+    LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
+              << ", origin vault=" << origin_vault_info << ", new_vault=" << new_vault_info;
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit kv txn, err={}", err);
+        LOG(WARNING) << msg;
+    }
+
+    return 0;
+}
+
 static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Transaction> txn,
                                   const StorageVaultPB& vault, MetaServiceCode& code,
                                   std::string& msg) {
     if (!vault.has_obj_info()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
         std::stringstream ss;
-        ss << "Only s3 vault can be altered";
+        ss << "There is no s3 vault provided";
         msg = ss.str();
         return -1;
     }
@@ -530,8 +642,9 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         return -1;
     }
     const auto& name = vault.name();
-    auto name_itr = std::find_if(instance.storage_vault_names().begin(),
-                                 instance.storage_vault_names().end(),
+    // Here we try to get mutable iter since we might need to alter the vault name
+    auto name_itr = std::find_if(instance.mutable_storage_vault_names()->begin(),
+                                 instance.mutable_storage_vault_names()->end(),
                                  [&](const auto& vault_name) { return name == vault_name; });
     if (name_itr == instance.storage_vault_names().end()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
@@ -541,35 +654,39 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         return -1;
     }
     auto pos = name_itr - instance.storage_vault_names().begin();
-    auto id_itr = instance.resource_ids().begin() + pos;
-    auto vault_key = storage_vault_key({instance.instance_id(), *id_itr});
+    std::string vault_id = instance.resource_ids().begin()[pos];
+    auto vault_key = storage_vault_key({instance.instance_id(), vault_id});
     std::string val;
 
     auto err = txn->get(vault_key, &val);
-    LOG(INFO) << "get instance_key=" << hex(vault_key);
+    LOG(INFO) << "get vault_key=" << hex(vault_key);
 
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::READ>(err);
         std::stringstream ss;
-        ss << "failed to get storage vault, vault_id=" << *name_itr << ", vault_name="
+        ss << "failed to get storage vault, vault_id=" << vault_id << ", vault_name="
            << "" << name << " err=" << err;
         msg = ss.str();
         return -1;
     }
-    StorageVaultPB alter;
-    alter.ParseFromString(val);
-    AkSkPair pre {alter.obj_info().ak(), alter.obj_info().sk()};
-    const auto& plain_ak = obj_info.has_ak() ? obj_info.ak() : alter.obj_info().ak();
-    const auto& plain_sk = obj_info.has_ak() ? obj_info.sk() : alter.obj_info().sk();
-    auto obfuscating_sk = [](const auto& sk) -> std::string {
-        if (sk.empty()) {
-            return "";
+    StorageVaultPB new_vault;
+    new_vault.ParseFromString(val);
+    if (vault.has_alter_name()) {
+        if (!is_valid_storage_vault_name(vault.alter_name())) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            std::stringstream ss;
+            ss << "invalid storage vault name =" << vault.alter_name() << " the name must satisfy "
+               << pattern_str;
+            msg = ss.str();
+            return -1;
         }
-        std::string result(sk.length(), '*');
-        result.replace(0, 2, sk, 0, 2);
-        result.replace(result.length() - 2, 2, sk, sk.length() - 2, 2);
-        return result;
-    };
+        new_vault.set_name(vault.alter_name());
+        *name_itr = vault.alter_name();
+    }
+    auto origin_vault_info = new_vault.DebugString();
+    AkSkPair pre {new_vault.obj_info().ak(), new_vault.obj_info().sk()};
+    const auto& plain_ak = obj_info.has_ak() ? obj_info.ak() : new_vault.obj_info().ak();
+    const auto& plain_sk = obj_info.has_ak() ? obj_info.sk() : new_vault.obj_info().sk();
     AkSkPair plain_ak_sk_pair {plain_ak, plain_sk};
     AkSkPair cipher_ak_sk_pair;
     EncryptionInfoPB encryption_info;
@@ -581,11 +698,12 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
         LOG(WARNING) << msg;
         return -1;
     }
-    alter.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
-    alter.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
-    alter.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
+    new_vault.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
+    new_vault.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
+    new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
 
-    val = alter.SerializeAsString();
+    auto new_vault_info = new_vault.DebugString();
+    val = new_vault.SerializeAsString();
     if (val.empty()) {
         msg = "failed to serialize";
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
@@ -593,10 +711,8 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     }
 
     txn->put(vault_key, val);
-    LOG(INFO) << "put vault_id=" << *id_itr << ", instance_key=" << hex(vault_key)
-              << ", previous ak=" << pre.first << ", previous sk=" << obfuscating_sk(pre.second)
-              << ", new ak=" << cipher_ak_sk_pair.first
-              << ", new sk=" << obfuscating_sk(cipher_ak_sk_pair.second);
+    LOG(INFO) << "put vault_id=" << vault_id << ", vault_key=" << hex(vault_key)
+              << ", origin vault=" << origin_vault_info << ", new vault=" << new_vault_info;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -737,6 +853,8 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
         break;
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT:
+        break;
+    case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT:
         break;
     case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT:
         break;
@@ -925,12 +1043,12 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             return;
         }
         auto pos = name_itr - instance.storage_vault_names().begin();
-        auto id_itr = instance.resource_ids().begin() + pos;
+        std::string vault_id = instance.resource_ids().begin()[pos];
         response->set_default_storage_vault_replaced(instance.has_default_storage_vault_id());
-        set_default_vault_log_helper(instance, name, *id_itr);
-        instance.set_default_storage_vault_id(*id_itr);
+        set_default_vault_log_helper(instance, name, vault_id);
+        instance.set_default_storage_vault_id(vault_id);
         instance.set_default_storage_vault_name(name);
-        response->set_storage_vault_id(*id_itr);
+        response->set_storage_vault_id(vault_id);
         break;
     }
     case AlterObjStoreInfoRequest::UNSET_DEFAULT_VAULT: {
@@ -943,6 +1061,10 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
     }
     case AlterObjStoreInfoRequest::ALTER_S3_VAULT: {
         alter_s3_storage_vault(instance, std::move(txn), request->vault(), code, msg);
+        return;
+    }
+    case AlterObjStoreInfoRequest::ALTER_HDFS_VAULT: {
+        alter_hdfs_storage_vault(instance, std::move(txn), request->vault(), code, msg);
         return;
     }
     case AlterObjStoreInfoRequest::DROP_S3_VAULT:
@@ -2216,9 +2338,8 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                      [](const std::string& name) { return name == BUILT_IN_STORAGE_VAULT_NAME; }) ==
                 instance.storage_vault_names().end()) {
-        code = MetaServiceCode::STORAGE_VAULT_NOT_FOUND;
-        msg = "instance has no built in storage vault";
-        return;
+        LOG_EVERY_N(INFO, 100) << "There is no builtin vault in instance "
+                               << instance.instance_id();
     }
 
     auto get_cluster_mysql_user = [](const ClusterPB& c, std::set<std::string>* mysql_users) {

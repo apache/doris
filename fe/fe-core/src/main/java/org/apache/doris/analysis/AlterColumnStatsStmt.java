@@ -59,7 +59,7 @@ import java.util.Optional;
  * Note: partition stats injection is mainly convenient for test cost estimation,
  * and can be removed after the related functions are completed.
  */
-public class AlterColumnStatsStmt extends DdlStmt {
+public class AlterColumnStatsStmt extends DdlStmt implements NotFallbackInParser {
 
     private static final ImmutableSet<StatsType> CONFIGURABLE_PROPERTIES_SET = new ImmutableSet.Builder<StatsType>()
             .add(StatsType.ROW_COUNT)

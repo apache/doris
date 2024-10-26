@@ -202,40 +202,7 @@ bca	2022-11-02	2022-11-02	8012	vivo
 2	2
 
 -- !information_schema --
-active_queries
-backend_active_tasks
-character_sets
-collations
-column_privileges
-column_statistics
-columns
-engines
-events
-files
-global_variables
-key_column_usage
-metadata_name_ids
-parameters
-partitions
 processlist
-profiling
-referential_constraints
-routines
-rowsets
-schema_privileges
-schemata
-session_variables
-statistics
-table_constraints
-table_options
-table_privileges
-tables
-triggers
-user_privileges
-views
-workload_group_privileges
-workload_groups
-workload_policy
 
 -- !dt --
 2023-06-17T10:00	2023-06-17T10:00:01	2023-06-17T10:00:02	2023-06-17T10:00:03	2023-06-17T10:00:04	2023-06-17T10:00:05	2023-06-17T10:00:06

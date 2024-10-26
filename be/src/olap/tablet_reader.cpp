@@ -31,6 +31,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exprs/bitmapfilter_predicate.h"
@@ -114,9 +115,6 @@ TabletReader::~TabletReader() {
         delete pred;
     }
     for (auto* pred : _value_col_predicates) {
-        delete pred;
-    }
-    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
         delete pred;
     }
 }
@@ -242,7 +240,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.read_orderby_key_columns =
             !_orderby_key_columns.empty() ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;
-    _reader_context.predicates_except_leafnode_of_andnode = &_col_preds_except_leafnode_of_andnode;
     _reader_context.value_predicates = &_value_col_predicates;
     _reader_context.lower_bound_keys = &_keys_param.start_keys;
     _reader_context.is_lower_keys_included = &_is_lower_keys_included;
@@ -257,6 +254,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
     _reader_context.record_rowids = read_params.record_rowids;
+    _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
@@ -273,7 +271,12 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
     }
     TabletColumn column_with_cast_type = orig;
     auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
-    column_with_cast_type.set_type(TabletColumn::get_field_type_by_type(cast_type));
+    FieldType filed_type = TabletColumn::get_field_type_by_type(cast_type.type);
+    if (filed_type == FieldType::OLAP_FIELD_TYPE_UNKNOWN) {
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid type for variant column: {}",
+                               cast_type.type);
+    }
+    column_with_cast_type.set_type(filed_type);
     return column_with_cast_type;
 }
 
@@ -289,7 +292,6 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _reader_context.target_cast_type_for_variants = read_params.target_cast_type_for_variants;
 
     RETURN_IF_ERROR(_init_conditions_param(read_params));
-    RETURN_IF_ERROR(_init_conditions_param_except_leafnode_of_andnode(read_params));
 
     Status res = _init_delete_condition(read_params);
     if (!res.ok()) {
@@ -560,25 +562,6 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             _col_predicates.push_back(predicate);
         }
     }
-    return Status::OK();
-}
-
-Status TabletReader::_init_conditions_param_except_leafnode_of_andnode(
-        const ReaderParams& read_params) {
-    for (const auto& condition : read_params.conditions_except_leafnode_of_andnode) {
-        TCondition tmp_cond = condition;
-        const auto& column = *DORIS_TRY(_tablet_schema->column(tmp_cond.column_name));
-        const auto& mcolumn = materialize_column(column);
-        uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
-        ColumnPredicate* predicate =
-                parse_to_predicate(mcolumn, index, tmp_cond, _predicate_arena.get());
-        if (predicate != nullptr) {
-            auto predicate_params = predicate->predicate_params();
-            predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
-            predicate_params->values = condition.condition_values;
-            _col_preds_except_leafnode_of_andnode.push_back(predicate);
-        }
-    }
 
     for (int id : read_params.topn_filter_source_node_ids) {
         auto& runtime_predicate =
@@ -653,11 +636,8 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     // However, queries will not use this condition but generate special where predicates to filter data.
     // (Though a lille bit confused, it is how the current logic working...)
     _filter_delete = _delete_sign_available || cumu_delete;
-    auto* runtime_state = read_params.runtime_state;
-    bool enable_sub_pred_v2 =
-            runtime_state == nullptr ? true : runtime_state->enable_delete_sub_pred_v2();
     return _delete_handler.init(_tablet_schema, read_params.delete_predicates,
-                                read_params.version.second, enable_sub_pred_v2);
+                                read_params.version.second);
 }
 
 Status TabletReader::init_reader_params_and_create_block(

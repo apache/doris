@@ -64,7 +64,7 @@ public:
 
     void insert_data(const char*, size_t) override { ++s; }
 
-    void clear() override {};
+    void clear() override { s = 0; }
 
     StringRef serialize_value_into_arena(size_t /*n*/, Arena& arena,
                                          char const*& begin) const override {

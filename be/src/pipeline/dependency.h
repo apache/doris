@@ -31,10 +31,12 @@
 #include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
+#include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
+#include "vec/core/block.h"
 #include "vec/core/types.h"
 #include "vec/spill/spill_stream.h"
 
@@ -109,19 +111,19 @@ public:
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready();
     void set_ready_to_read() {
-        DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
+        DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
     void set_block_to_read() {
-        DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
+        DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->block();
     }
     void set_ready_to_write() {
-        DCHECK(_shared_state->sink_deps.size() == 1) << debug_string();
+        DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
         _shared_state->sink_deps.front()->set_ready();
     }
     void set_block_to_write() {
-        DCHECK(_shared_state->sink_deps.size() == 1) << debug_string();
+        DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
         _shared_state->sink_deps.front()->block();
     }
 
@@ -172,7 +174,7 @@ struct FakeSharedState final : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(FakeSharedState)
 };
 
-struct CountedFinishDependency final : public Dependency {
+class CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
@@ -316,7 +318,6 @@ public:
     vectorized::VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
-    std::unique_ptr<vectorized::Arena> agg_profile_arena;
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -324,11 +325,6 @@ public:
     vectorized::Sizes offsets_of_aggregate_states;
     std::vector<size_t> make_nullable_keys;
 
-    struct MemoryRecord {
-        int64_t used_in_arena {};
-        int64_t used_in_state {};
-    };
-    MemoryRecord mem_usage_record;
     bool agg_data_created_without_key = false;
     bool enable_spill = false;
     bool reach_limit = false;
@@ -542,6 +538,12 @@ public:
     const int _child_count;
 };
 
+struct CacheSharedState : public BasicSharedState {
+    ENABLE_FACTORY_CREATOR(CacheSharedState)
+public:
+    DataQueue data_queue;
+};
+
 class MultiCastDataStreamer;
 
 struct MultiCastSharedState : public BasicSharedState {
@@ -609,7 +611,7 @@ struct HashJoinSharedState : public JoinSharedState {
     std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
 
     // maybe share hash table with other fragment instances
-    std::shared_ptr<HashTableVariants> hash_table_variants = std::make_shared<HashTableVariants>();
+    std::shared_ptr<JoinDataVariants> hash_table_variants = std::make_shared<JoinDataVariants>();
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
     std::shared_ptr<vectorized::Block> build_block;
@@ -649,24 +651,6 @@ public:
     std::mutex sink_eos_lock;
 };
 
-using SetHashTableVariants =
-        std::variant<std::monostate,
-                     vectorized::MethodSerialized<HashMap<StringRef, RowRefListWithFlags>>,
-                     vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt8>,
-                     vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt16>,
-                     vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt32>,
-                     vectorized::SetPrimaryTypeHashTableContext<UInt64>,
-                     vectorized::SetPrimaryTypeHashTableContext<UInt128>,
-                     vectorized::SetPrimaryTypeHashTableContext<UInt256>,
-                     vectorized::SetFixedKeyHashTableContext<UInt64, true>,
-                     vectorized::SetFixedKeyHashTableContext<UInt64, false>,
-                     vectorized::SetFixedKeyHashTableContext<UInt128, true>,
-                     vectorized::SetFixedKeyHashTableContext<UInt128, false>,
-                     vectorized::SetFixedKeyHashTableContext<UInt256, true>,
-                     vectorized::SetFixedKeyHashTableContext<UInt256, false>,
-                     vectorized::SetFixedKeyHashTableContext<UInt136, true>,
-                     vectorized::SetFixedKeyHashTableContext<UInt136, false>>;
-
 struct SetSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SetSharedState)
 public:
@@ -681,8 +665,12 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
+    std::unique_ptr<SetDataVariants> hash_table_variants = nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
+
+    // The SET operator's child might have different nullable attributes.
+    // If a calculation involves both nullable and non-nullable columns, the final output should be a nullable column
+    Status update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs);
 
     /// init in both upstream side.
     //The i-th result expr list refers to the i-th child.
@@ -699,58 +687,7 @@ public:
     std::atomic<bool> ready_for_read = false;
 
     /// called in setup_local_state
-    void hash_table_init() {
-        using namespace vectorized;
-        if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
-            // Single column optimization
-            switch (child_exprs_lists[0][0]->root()->result_type()) {
-            case TYPE_BOOLEAN:
-            case TYPE_TINYINT:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt8>>();
-                break;
-            case TYPE_SMALLINT:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt16>>();
-                break;
-            case TYPE_INT:
-            case TYPE_FLOAT:
-            case TYPE_DATEV2:
-            case TYPE_DECIMAL32:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt32>>();
-                break;
-            case TYPE_BIGINT:
-            case TYPE_DOUBLE:
-            case TYPE_DATETIME:
-            case TYPE_DATE:
-            case TYPE_DECIMAL64:
-            case TYPE_DATETIMEV2:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
-                break;
-            case TYPE_LARGEINT:
-            case TYPE_DECIMALV2:
-            case TYPE_DECIMAL128I:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt128>>();
-                break;
-            default:
-                hash_table_variants->emplace<SetSerializedHashTableContext>();
-            }
-            return;
-        }
-
-        // here need to change type to nullable, because some case eg:
-        // (select 0) intersect (select null) the build side hash table should not
-        // ignore null value.
-        std::vector<DataTypePtr> data_types;
-        for (int i = 0; i < child_exprs_lists[0].size(); i++) {
-            const auto& ctx = child_exprs_lists[0][i];
-            data_types.emplace_back(build_not_ignore_null[i]
-                                            ? make_nullable(ctx->root()->data_type())
-                                            : ctx->root()->data_type());
-        }
-        if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
-                    *hash_table_variants, data_types)) {
-            hash_table_variants->emplace<SetSerializedHashTableContext>();
-        }
-    }
+    Status hash_table_init();
 };
 
 enum class ExchangeType : uint8_t {
@@ -813,13 +750,13 @@ public:
     LocalExchangeSharedState(int num_instances);
     ~LocalExchangeSharedState() override;
     std::unique_ptr<ExchangerBase> exchanger {};
-    std::vector<MemTracker*> mem_trackers;
+    std::vector<RuntimeProfile::Counter*> mem_counters;
     std::atomic<int64_t> mem_usage = 0;
     // We need to make sure to add mem_usage first and then enqueue, otherwise sub mem_usage may cause negative mem_usage during concurrent dequeue.
     std::mutex le_lock;
-    virtual void create_dependencies(int operator_id, int node_id) {
+    virtual void create_dependencies(int local_exchange_id) {
         for (auto& source_dep : source_deps) {
-            source_dep = std::make_shared<Dependency>(operator_id, node_id,
+            source_dep = std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
                                                       "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
             source_dep->set_shared_state(this);
         }
@@ -849,21 +786,23 @@ public:
     }
 
     void add_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
-        mem_trackers[channel_id]->consume(delta);
+        mem_counters[channel_id]->update(delta);
         if (update_total_mem_usage) {
             add_total_mem_usage(delta, channel_id);
         }
     }
 
-    void sub_mem_usage(int channel_id, size_t delta) { mem_trackers[channel_id]->release(delta); }
+    void sub_mem_usage(int channel_id, size_t delta) {
+        mem_counters[channel_id]->update(-(int64_t)delta);
+    }
 
-    virtual void add_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void add_total_mem_usage(size_t delta, int channel_id) {
         if (mem_usage.fetch_add(delta) + delta > config::local_exchange_buffer_mem_limit) {
             sink_deps.front()->block();
         }
     }
 
-    virtual void sub_total_mem_usage(size_t delta, int channel_id = 0) {
+    virtual void sub_total_mem_usage(size_t delta, int channel_id) {
         auto prev_usage = mem_usage.fetch_sub(delta);
         DCHECK_GE(prev_usage - delta, 0) << "prev_usage: " << prev_usage << " delta: " << delta
                                          << " channel_id: " << channel_id;
@@ -874,6 +813,7 @@ public:
 };
 
 struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
+    ENABLE_FACTORY_CREATOR(LocalMergeExchangeSharedState);
     LocalMergeExchangeSharedState(int num_instances)
             : LocalExchangeSharedState(num_instances),
               _queues_mem_usage(num_instances),
@@ -883,14 +823,16 @@ struct LocalMergeExchangeSharedState : public LocalExchangeSharedState {
         }
     }
 
-    void create_dependencies(int operator_id, int node_id) override {
+    void create_dependencies(int local_exchange_id) override {
         sink_deps.resize(source_deps.size());
         for (size_t i = 0; i < source_deps.size(); i++) {
-            source_deps[i] = std::make_shared<Dependency>(operator_id, node_id,
-                                                          "LOCAL_EXCHANGE_OPERATOR_DEPENDENCY");
+            source_deps[i] =
+                    std::make_shared<Dependency>(local_exchange_id, local_exchange_id,
+                                                 "LOCAL_MERGE_EXCHANGE_OPERATOR_DEPENDENCY");
             source_deps[i]->set_shared_state(this);
             sink_deps[i] = std::make_shared<Dependency>(
-                    operator_id, node_id, "LOCAL_EXCHANGE_OPERATOR_SINK_DEPENDENCY", true);
+                    local_exchange_id, local_exchange_id,
+                    "LOCAL_MERGE_EXCHANGE_OPERATOR_SINK_DEPENDENCY", true);
             sink_deps[i]->set_shared_state(this);
         }
     }

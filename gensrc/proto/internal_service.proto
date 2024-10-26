@@ -107,6 +107,7 @@ message PTabletWriterOpenRequest {
     optional bool write_file_cache = 17;
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
+    optional int64 workload_group_id = 20;
 };
 
 message PTabletWriterOpenResult {
@@ -232,6 +233,7 @@ enum PFragmentRequestVersion {
     VERSION_1 = 1;  // only one TExecPlanFragmentParams in request
     VERSION_2 = 2;  // multi TExecPlanFragmentParams in request
     VERSION_3 = 3;  // multi TPipelineFragmentParams in request
+    VERSION_4 = 4; // multi TPipelineFragmentParams with optimized common fields in request. Used by 2.1
 };
 
 message PExecPlanFragmentRequest {
@@ -517,16 +519,18 @@ enum PColumnType {
     COLUMN_TYPE_DECIMAL64 = 18;
     COLUMN_TYPE_DECIMAL128I = 19;
     COLUMN_TYPE_DECIMAL256 = 20;
+    COLUMN_TYPE_IPV4 = 21;
+    COLUMN_TYPE_IPV6 = 22;
 }
 
 message PMinMaxFilter {
-    required PColumnType column_type = 1;
+    required PColumnType column_type = 1; // Deprecated
     required PColumnValue min_val = 2;
     required PColumnValue max_val = 3;
 };
 
 message PInFilter {
-    required PColumnType column_type = 1;
+    required PColumnType column_type = 1; // Deprecated
     repeated PColumnValue values = 2;
     optional string ignored_msg = 3;
 }
@@ -609,6 +613,7 @@ message PPublishFilterRequestV2 {
     optional int64 merge_time = 9;
     optional bool contain_null = 10;
     optional bool ignored = 11;
+    repeated int32 fragment_ids = 12;
 };
 
 message PPublishFilterResponse {

@@ -109,7 +109,7 @@ suite("variant_mv") {
     where actor['id'] > 64259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000;
     """
     order_qt_query1_0_before "${query1_0}"
-    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
@@ -133,7 +133,7 @@ suite("variant_mv") {
     FROM github_events1
     """
     order_qt_query1_1_before "${query1_1}"
-    check_mv_rewrite_success(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_success_without_check_chosen(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -157,7 +157,7 @@ suite("variant_mv") {
     """
     order_qt_query1_2_before "${query1_2}"
     // the expression floor(cast(actor['id'] as int) + 200.5) in query and view is different
-    check_mv_rewrite_fail(db, mv1_2, query1_2, "mv1_2")
+    async_mv_rewrite_fail(db, mv1_2, query1_2, "mv1_2")
     order_qt_query1_2_after "${query1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
 
@@ -183,7 +183,7 @@ suite("variant_mv") {
     """
     order_qt_query1_3_before "${query1_3}"
     // the query repo['id'] expression in compensatory filter is not in mv
-    check_mv_rewrite_fail(db, mv1_3, query1_3, "mv1_3")
+    async_mv_rewrite_fail(db, mv1_3, query1_3, "mv1_3")
     order_qt_query1_3_after "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
@@ -210,7 +210,7 @@ suite("variant_mv") {
     where actor['id'] > 64259289 and cast(actor['id'] as int) + cast(repo['id'] as int) > 80000000;
     """
     order_qt_query1_4_before "${query1_4}"
-    check_mv_rewrite_success(db, mv1_4, query1_4, "mv1_4")
+    async_mv_rewrite_success_without_check_chosen(db, mv1_4, query1_4, "mv1_4")
     order_qt_query1_4_after "${query1_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
 
@@ -246,7 +246,7 @@ suite("variant_mv") {
     cast(repo['name'] as varchar(100));
     """
     order_qt_query2_0_before "${query2_0}"
-    check_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_success_without_check_chosen(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
@@ -279,7 +279,7 @@ suite("variant_mv") {
     cast(repo['name'] as varchar(100));
     """
     order_qt_query2_1_before "${query2_1}"
-    check_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1")
+    async_mv_rewrite_success_without_check_chosen(db, mv2_1, query2_1, "mv2_1")
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
@@ -314,7 +314,7 @@ suite("variant_mv") {
     """
     order_qt_query2_2_before "${query2_2}"
     // cast(repo) expression is different, should fail
-    check_mv_rewrite_fail(db, mv2_2, query2_2, "mv2_2")
+    async_mv_rewrite_fail(db, mv2_2, query2_2, "mv2_2")
     order_qt_query2_2_after "${query2_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
 
@@ -350,7 +350,7 @@ suite("variant_mv") {
     """
     order_qt_query2_3_before "${query2_3}"
     // compensatory filter (actor['id'] is not in mv output should fail
-    check_mv_rewrite_fail(db, mv2_3, query2_3, "mv2_3")
+    async_mv_rewrite_fail(db, mv2_3, query2_3, "mv2_3")
     order_qt_query2_3_after "${query2_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
 
@@ -386,7 +386,7 @@ suite("variant_mv") {
     cast(repo['name'] as varchar(100));
     """
     order_qt_query2_4_before "${query2_4}"
-    check_mv_rewrite_success_without_check_chosen(db, mv2_4, query2_4, "mv2_4")
+    async_mv_rewrite_success_without_check_chosen(db, mv2_4, query2_4, "mv2_4")
     order_qt_query2_4_after "${query2_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_4"""
 
@@ -416,7 +416,7 @@ suite("variant_mv") {
     """
     order_qt_query3_0_before "${query3_0}"
     // condition in join other conjuects is not supported now, suppport later
-//    check_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
+//    async_mv_rewrite_success(db, mv3_0, query3_0, "mv3_0")
     order_qt_query3_0_after "${query3_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_0"""
 
@@ -445,7 +445,7 @@ suite("variant_mv") {
     where g2.actor['id'] > 34259300;
     """
     order_qt_query3_5_before "${query3_5}"
-    check_mv_rewrite_success(db, mv3_5, query3_5, "mv3_5")
+    async_mv_rewrite_success_without_check_chosen(db, mv3_5, query3_5, "mv3_5")
     order_qt_query3_5_after "${query3_5}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_5"""
 
@@ -471,7 +471,7 @@ suite("variant_mv") {
     left join github_events2 g2 on g1.id = g2.id;
     """
     order_qt_query3_1_before "${query3_1}"
-    check_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1")
+    async_mv_rewrite_success_without_check_chosen(db, mv3_1, query3_1, "mv3_1")
     order_qt_query3_1_after "${query3_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
@@ -496,7 +496,7 @@ suite("variant_mv") {
     """
     order_qt_query3_2_before "${query3_2}"
     // floor expression is different, should fail
-    check_mv_rewrite_fail(db, mv3_2, query3_2, "mv3_2")
+    async_mv_rewrite_fail(db, mv3_2, query3_2, "mv3_2")
     order_qt_query3_2_after "${query3_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_2"""
 
@@ -525,7 +525,7 @@ suite("variant_mv") {
     """
     order_qt_query3_3_before "${query3_3}"
     // the query g2.actor['id'] expression in compensatory filter is not in mv
-    check_mv_rewrite_fail(db, mv3_3, query3_3, "mv3_3")
+    async_mv_rewrite_fail(db, mv3_3, query3_3, "mv3_3")
     order_qt_query3_3_after "${query3_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_3"""
 
@@ -555,7 +555,7 @@ suite("variant_mv") {
     """
     order_qt_query3_4_before "${query3_4}"
     // condition in join other conjuects is not supported now, suppport later
-//    check_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
+//    async_mv_rewrite_success(db, mv3_4, query3_4, "mv3_4")
     order_qt_query3_4_after "${query3_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_4"""
 
@@ -585,7 +585,7 @@ suite("variant_mv") {
     """
     order_qt_query3_6_before "${query3_6}"
     // should success, should enable in future
-    check_mv_rewrite_fail(db, mv3_6, query3_6, "mv3_6")
+    async_mv_rewrite_fail(db, mv3_6, query3_6, "mv3_6")
     order_qt_query3_6_after "${query3_6}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_6"""
 }

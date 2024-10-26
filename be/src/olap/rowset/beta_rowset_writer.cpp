@@ -195,7 +195,7 @@ BaseBetaRowsetWriter::BaseBetaRowsetWriter()
           _num_rows_written(0),
           _total_data_size(0),
           _total_index_size(0),
-          _segment_creator(_context, _seg_files) {}
+          _segment_creator(_context, _seg_files, _idx_files_info) {}
 
 BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
         : _engine(engine), _segcompaction_worker(std::make_shared<SegcompactionWorker>(this)) {}
@@ -259,7 +259,7 @@ Status BaseBetaRowsetWriter::add_block(const vectorized::Block* block) {
 Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     SCOPED_RAW_TIMER(&_delete_bitmap_ns);
     if (!_context.tablet->enable_unique_key_merge_on_write() ||
-        (_context.partial_update_info && _context.partial_update_info->is_partial_update)) {
+        (_context.partial_update_info && _context.partial_update_info->is_partial_update())) {
         return Status::OK();
     }
     RowsetSharedPtr rowset_ptr;
@@ -282,8 +282,17 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << _context.tablet->tablet_id()
               << ", rowset_ids: " << _context.mow_context->rowset_ids.size()
               << ", cur max_version: " << _context.mow_context->max_version
-              << ", transaction_id: " << _context.mow_context->txn_id
+              << ", transaction_id: " << _context.mow_context->txn_id << ", delete_bitmap_count: "
+              << _context.tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count()
               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) {
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::init(rowset_writer_context));
+    if (_segcompaction_worker) {
+        _segcompaction_worker->init_mem_tracker(rowset_writer_context);
+    }
     return Status::OK();
 }
 
@@ -514,26 +523,27 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     return Status::OK();
 }
 
-// return true if there isn't any flying segcompaction, otherwise return false
-bool BetaRowsetWriter::_check_and_set_is_doing_segcompaction() {
-    return !_is_doing_segcompaction.exchange(true);
-}
-
 Status BetaRowsetWriter::_segcompaction_if_necessary() {
     Status status = Status::OK();
-    // leave _check_and_set_is_doing_segcompaction as the last condition
-    // otherwise _segcompacting_cond will never get notified
+    // if not doing segcompaction, just check segment number
     if (!config::enable_segcompaction || !_context.enable_segcompaction ||
         !_context.tablet_schema->cluster_key_idxes().empty() ||
-        _context.tablet_schema->num_variant_columns() > 0 ||
-        !_check_and_set_is_doing_segcompaction()) {
+        _context.tablet_schema->num_variant_columns() > 0) {
+        return _check_segment_number_limit(_num_segment);
+    }
+    // leave _is_doing_segcompaction as the last condition
+    // otherwise _segcompacting_cond will never get notified
+    if (_is_doing_segcompaction.exchange(true)) {
         return status;
     }
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>(
                 "BetaRowsetWriter::_segcompaction_if_necessary meet invalid state, error code: {}",
                 _segcompaction_status.load());
-    } else if ((_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
+    } else {
+        status = _check_segment_number_limit(_num_segcompacted);
+    }
+    if (status.ok() && (_num_segment - _segcompacted_point) >= config::segcompaction_batch_size) {
         SegCompactionCandidatesSharedPtr segments;
         status = _find_longest_consecutive_small_segment(segments);
         if (LIKELY(status.ok()) && (!segments->empty())) {
@@ -719,7 +729,8 @@ Status BetaRowsetWriter::_close_file_writers() {
 Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     RETURN_IF_ERROR(_close_file_writers());
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(),
+    const auto total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_segment_number_limit(total_segment_num),
                                    "too many segments when build new rowset");
     RETURN_IF_ERROR(_build_rowset_meta(_rowset_meta.get(), true));
     if (_is_pending) {
@@ -736,6 +747,14 @@ Status BetaRowsetWriter::build(RowsetSharedPtr& rowset) {
     auto rowset_schema = _context.merged_tablet_schema != nullptr ? _context.merged_tablet_schema
                                                                   : _context.tablet_schema;
     _rowset_meta->set_tablet_schema(rowset_schema);
+
+    if (auto idx_files_info = _idx_files_info.get_inverted_files_info(_segment_start_id);
+        !idx_files_info.has_value()) [[unlikely]] {
+        LOG(ERROR) << "expected inverted index files info, but none presents: "
+                   << idx_files_info.error();
+    } else {
+        _rowset_meta->add_inverted_index_files_info(idx_files_info.value());
+    }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,
                                                                 _rowset_meta, &rowset),
@@ -846,13 +865,7 @@ Status BaseBetaRowsetWriter::_build_tmp(RowsetSharedPtr& rowset_ptr) {
 
 Status BaseBetaRowsetWriter::_create_file_writer(const std::string& path,
                                                  io::FileWriterPtr& file_writer) {
-    io::FileWriterOptions opts {
-            .write_file_cache = _context.write_file_cache,
-            .is_cold_data = _context.is_hot_data,
-            .file_cache_expiration =
-                    _context.file_cache_ttl_sec > 0 && _context.newest_write_timestamp > 0
-                            ? _context.newest_write_timestamp + _context.file_cache_ttl_sec
-                            : 0};
+    io::FileWriterOptions opts = _context.get_file_writer_options();
     Status st = _context.fs()->create_file(path, &file_writer, &opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
@@ -906,28 +919,28 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
     return Status::OK();
 }
 
-Status BaseBetaRowsetWriter::_check_segment_number_limit() {
-    size_t total_segment_num = _num_segment + 1;
+Status BaseBetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     DBUG_EXECUTE_IF("BetaRowsetWriter._check_segment_number_limit_too_many_segments",
-                    { total_segment_num = dp->param("segnum", 1024); });
-    if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
+                    { segnum = dp->param("segnum", 1024); });
+    if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, "
-                "_num_segment:{}, rowset_num_rows:{}",
+                "_num_segment:{}, rowset_num_rows:{}. Please check if the bucket number is too "
+                "small or if the data is skewed.",
                 _context.tablet_id, _context.rowset_id.to_string(),
                 config::max_segment_num_per_rowset, _num_segment, get_rowset_num_rows());
     }
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_check_segment_number_limit() {
-    size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
+Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
     DBUG_EXECUTE_IF("BetaRowsetWriter._check_segment_number_limit_too_many_segments",
-                    { total_segment_num = dp->param("segnum", 1024); });
-    if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
+                    { segnum = dp->param("segnum", 1024); });
+    if (UNLIKELY(segnum > config::max_segment_num_per_rowset)) {
         return Status::Error<TOO_MANY_SEGMENTS>(
                 "too many segments in rowset. tablet_id:{}, rowset_id:{}, max:{}, _num_segment:{}, "
-                "_segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}",
+                "_segcompacted_point:{}, _num_segcompacted:{}, rowset_num_rows:{}. Please check if "
+                "the bucket number is too small or if the data is skewed.",
                 _context.tablet_id, _context.rowset_id.to_string(),
                 config::max_segment_num_per_rowset, _num_segment, _segcompacted_point,
                 _num_segcompacted, get_rowset_num_rows());
@@ -995,8 +1008,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + (*writer)->get_inverted_index_file_size();
-    segstat.index_size = index_size + (*writer)->get_inverted_index_file_size();
+    segstat.data_size = segment_size + (*writer)->get_inverted_index_total_size();
+    segstat.index_size = index_size + (*writer)->get_inverted_index_total_size();
     segstat.key_bounds = key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);

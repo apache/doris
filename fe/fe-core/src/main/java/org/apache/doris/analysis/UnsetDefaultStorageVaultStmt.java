@@ -28,7 +28,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-public class UnsetDefaultStorageVaultStmt extends DdlStmt {
+public class UnsetDefaultStorageVaultStmt extends DdlStmt implements NotFallbackInParser {
 
     public UnsetDefaultStorageVaultStmt() {}
 

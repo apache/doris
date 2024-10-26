@@ -80,7 +80,7 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
             if (inner_sink_state_) {
                 auto inner_sink_state =
                         assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state_);
-                return inner_sink_state->_build_side_mem_used;
+                return inner_sink_state->_build_blocks_memory_usage->value();
             }
         }
         return 0;
@@ -102,7 +102,7 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
 Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeState* state) {
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     _shared_state->inner_shared_state->hash_table_variants.reset();
-    auto row_desc = p._child_x->row_desc();
+    auto row_desc = p._child->row_desc();
     const auto num_slots = row_desc.num_slots();
     vectorized::Block build_block;
     auto inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
@@ -161,7 +161,7 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
 
             {
                 SCOPED_TIMER(_partition_timer);
-                (void)_partitioner->do_partitioning(state, &sub_block, _mem_tracker.get());
+                (void)_partitioner->do_partitioning(state, &sub_block);
             }
 
             const auto* channel_ids = _partitioner->get_channel_ids().get<uint32_t>();
@@ -294,7 +294,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
                         return Status::OK();
                     }();
 
-                    if (!status.OK()) {
+                    if (!status.ok()) {
                         std::unique_lock<std::mutex> lock(_spill_lock);
                         _dependency->set_ready();
                         _spill_status_ok = false;
@@ -334,7 +334,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
     {
         /// TODO: DO NOT execute build exprs twice(when partition and building hash table)
         SCOPED_TIMER(_partition_timer);
-        RETURN_IF_ERROR(_partitioner->do_partitioning(state, in_block, _mem_tracker.get()));
+        RETURN_IF_ERROR(_partitioner->do_partitioning(state, in_block));
     }
 
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
@@ -424,13 +424,10 @@ Status PartitionedHashJoinSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     return Status::OK();
 }
 
-Status PartitionedHashJoinSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(_inner_sink_operator->set_child(_child_x));
-    RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
-    return _inner_sink_operator->prepare(state);
-}
-
 Status PartitionedHashJoinSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>::open(state));
+    RETURN_IF_ERROR(_inner_sink_operator->set_child(_child));
+    RETURN_IF_ERROR(_partitioner->prepare(state, _child->row_desc()));
     RETURN_IF_ERROR(_partitioner->open(state));
     return _inner_sink_operator->open(state);
 }

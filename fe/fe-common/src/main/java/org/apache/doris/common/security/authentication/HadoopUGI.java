@@ -61,7 +61,27 @@ public class HadoopUGI {
                 throw new RuntimeException(e);
             }
         } else {
-            return new HadoopSimpleAuthenticator((SimpleAuthenticationConfig) config).getUGI();
+            String hadoopUserName = ((SimpleAuthenticationConfig) config).getUsername();
+            if (hadoopUserName == null) {
+                hadoopUserName = "hadoop";
+                ((SimpleAuthenticationConfig) config).setUsername(hadoopUserName);
+                LOG.debug(AuthenticationConfig.HADOOP_USER_NAME + " is unset, use default user: hadoop");
+            }
+
+            UserGroupInformation ugi;
+            try {
+                ugi = UserGroupInformation.getLoginUser();
+                if (ugi.getUserName().equals(hadoopUserName)) {
+                    return ugi;
+                }
+            } catch (IOException e) {
+                LOG.warn("A SecurityException occurs with simple, do login immediately.", e);
+            }
+
+            ugi = UserGroupInformation.createRemoteUser(hadoopUserName);
+            UserGroupInformation.setLoginUser(ugi);
+            LOG.debug("Login by proxy user, hadoop.username: {}", hadoopUserName);
+            return ugi;
         }
     }
 

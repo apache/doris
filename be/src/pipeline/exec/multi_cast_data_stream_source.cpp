@@ -24,7 +24,7 @@
 #include "vec/core/materialize_block.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 MultiCastDataStreamSourceLocalState::MultiCastDataStreamSourceLocalState(RuntimeState* state,
                                                                          OperatorXBase* parent)
         : Base(state, parent),
@@ -99,7 +99,6 @@ Status MultiCastDataStreamerSourceOperatorX::get_block(RuntimeState* state,
                 local_state._output_expr_contexts, *output_block, block, true));
         vectorized::materialize_block_inplace(*block);
     }
-    COUNTER_UPDATE(local_state._rows_returned_counter, block->rows());
     return Status::OK();
 }
 

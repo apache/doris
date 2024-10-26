@@ -84,7 +84,6 @@ NewOlapScanner::NewOlapScanner(pipeline::ScanLocalStateBase* parent,
                   .bloom_filters {},
                   .bitmap_filters {},
                   .in_filters {},
-                  .conditions_except_leafnode_of_andnode {},
                   .function_filters {},
                   .delete_predicates {},
                   .target_cast_type_for_variants {},
@@ -125,10 +124,6 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
     return read_columns_string;
 }
 
-Status NewOlapScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
-    return VScanner::prepare(state, conjuncts);
-}
-
 Status NewOlapScanner::init() {
     _is_init = true;
     auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
@@ -156,10 +151,10 @@ Status NewOlapScanner::init() {
             !olap_scan_node.columns_desc.empty() &&
             olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
             tablet->tablet_schema()->num_variant_columns() == 0) {
-            schema_key = SchemaCache::get_schema_key(
-                    tablet->tablet_id(), olap_scan_node.columns_desc, olap_scan_node.schema_version,
-                    SchemaCache::Type::TABLET_SCHEMA);
-            cached_schema = SchemaCache::instance()->get_schema<TabletSchemaSPtr>(schema_key);
+            schema_key =
+                    SchemaCache::get_schema_key(tablet->tablet_id(), olap_scan_node.columns_desc,
+                                                olap_scan_node.schema_version);
+            cached_schema = SchemaCache::instance()->get_schema(schema_key);
         }
         if (cached_schema) {
             tablet_schema = cached_schema;
@@ -249,10 +244,6 @@ Status NewOlapScanner::open(RuntimeState* state) {
     return Status::OK();
 }
 
-void NewOlapScanner::set_compound_filters(const std::vector<TCondition>& compound_filters) {
-    _compound_filters = compound_filters;
-}
-
 // it will be called under tablet read lock because capture rs readers need
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,
@@ -297,10 +288,6 @@ Status NewOlapScanner::_init_tablet_reader_params(
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);
     }
-
-    std::copy(_compound_filters.cbegin(), _compound_filters.cend(),
-              std::inserter(_tablet_reader_params.conditions_except_leafnode_of_andnode,
-                            _tablet_reader_params.conditions_except_leafnode_of_andnode.begin()));
 
     std::copy(filter_predicates.bloom_filters.cbegin(), filter_predicates.bloom_filters.cend(),
               std::inserter(_tablet_reader_params.bloom_filters,
@@ -553,14 +540,15 @@ Status NewOlapScanner::close(RuntimeState* state) {
 void NewOlapScanner::_update_realtime_counters() {
     pipeline::OlapScanLocalState* local_state =
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
-    auto& stats = _tablet_reader->stats();
+    const OlapReaderStatistics& stats = _tablet_reader->stats();
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
-    _compressed_bytes_read += stats.compressed_bytes_read;
+    COUNTER_UPDATE(local_state->_scan_bytes, stats.compressed_bytes_read);
+    _scan_bytes += stats.compressed_bytes_read;
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
 
-    COUNTER_UPDATE(local_state->_raw_rows_counter, stats.raw_rows_read);
+    COUNTER_UPDATE(local_state->_scan_rows, stats.raw_rows_read);
+    _scan_rows += stats.raw_rows_read;
     // if raw_rows_read is reset, scanNode will scan all table rows which may cause BE crash
-    _raw_rows_read += stats.raw_rows_read;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
 }
 
@@ -577,7 +565,8 @@ void NewOlapScanner::_collect_profile_before_close() {
 #define INCR_COUNTER(Parent)                                                                      \
     COUNTER_UPDATE(Parent->_io_timer, stats.io_ns);                                               \
     COUNTER_UPDATE(Parent->_read_compressed_counter, stats.compressed_bytes_read);                \
-    _compressed_bytes_read += stats.compressed_bytes_read;                                        \
+    COUNTER_UPDATE(Parent->_scan_bytes, stats.compressed_bytes_read);                             \
+    _scan_bytes += stats.compressed_bytes_read;                                                   \
     COUNTER_UPDATE(Parent->_decompressor_timer, stats.decompress_ns);                             \
     COUNTER_UPDATE(Parent->_read_uncompressed_counter, stats.uncompressed_bytes_read);            \
     COUNTER_UPDATE(Parent->_block_load_timer, stats.block_load_ns);                               \
@@ -585,8 +574,8 @@ void NewOlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(Parent->_block_fetch_timer, stats.block_fetch_ns);                             \
     COUNTER_UPDATE(Parent->_delete_bitmap_get_agg_timer, stats.delete_bitmap_get_agg_ns);         \
     COUNTER_UPDATE(Parent->_block_convert_timer, stats.block_convert_ns);                         \
-    COUNTER_UPDATE(Parent->_raw_rows_counter, stats.raw_rows_read);                               \
-    _raw_rows_read += _tablet_reader->mutable_stats()->raw_rows_read;                             \
+    COUNTER_UPDATE(Parent->_scan_rows, stats.raw_rows_read);                                      \
+    _scan_rows += _tablet_reader->mutable_stats()->raw_rows_read;                                 \
     COUNTER_UPDATE(Parent->_vec_cond_timer, stats.vec_cond_ns);                                   \
     COUNTER_UPDATE(Parent->_short_cond_timer, stats.short_cond_ns);                               \
     COUNTER_UPDATE(Parent->_expr_filter_timer, stats.expr_filter_ns);                             \
@@ -655,6 +644,8 @@ void NewOlapScanner::_collect_profile_before_close() {
                    stats.inverted_index_searcher_cache_hit);                                      \
     COUNTER_UPDATE(Parent->_inverted_index_searcher_cache_miss_counter,                           \
                    stats.inverted_index_searcher_cache_miss);                                     \
+    COUNTER_UPDATE(Parent->_inverted_index_downgrade_count_counter,                               \
+                   stats.inverted_index_downgrade_count);                                         \
     if (config::enable_file_cache) {                                                              \
         io::FileCacheProfileReporter cache_profile(Parent->_segment_profile.get());               \
         cache_profile.update(&stats.file_cache_stats);                                            \
@@ -668,17 +659,17 @@ void NewOlapScanner::_collect_profile_before_close() {
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
 
-    pipeline::OlapScanLocalState* local_state = (pipeline::OlapScanLocalState*)_local_state;
+    auto* local_state = (pipeline::OlapScanLocalState*)_local_state;
     INCR_COUNTER(local_state);
 
 #undef INCR_COUNTER
 #endif
     // Update metrics
-    DorisMetrics::instance()->query_scan_bytes->increment(_compressed_bytes_read);
-    DorisMetrics::instance()->query_scan_rows->increment(_raw_rows_read);
+    DorisMetrics::instance()->query_scan_bytes->increment(_scan_bytes);
+    DorisMetrics::instance()->query_scan_rows->increment(_scan_rows);
     auto& tablet = _tablet_reader_params.tablet;
-    tablet->query_scan_bytes->increment(_compressed_bytes_read);
-    tablet->query_scan_rows->increment(_raw_rows_read);
+    tablet->query_scan_bytes->increment(_scan_bytes);
+    tablet->query_scan_rows->increment(_scan_rows);
     tablet->query_scan_count->increment(1);
     if (_query_statistics) {
         _query_statistics->add_scan_bytes_from_local_storage(

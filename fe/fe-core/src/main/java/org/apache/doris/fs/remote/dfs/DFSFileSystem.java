@@ -26,6 +26,7 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
+import org.apache.doris.fs.remote.RemoteFSPhantomManager;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 
@@ -75,8 +76,14 @@ public class DFSFileSystem extends RemoteFileSystem {
     @VisibleForTesting
     @Override
     public FileSystem nativeFileSystem(String remotePath) throws UserException {
+        if (closed.get()) {
+            throw new UserException("FileSystem is closed.");
+        }
         if (dfsFileSystem == null) {
             synchronized (this) {
+                if (closed.get()) {
+                    throw new UserException("FileSystem is closed.");
+                }
                 if (dfsFileSystem == null) {
                     Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
                     for (Map.Entry<String, String> propEntry : properties.entrySet()) {
@@ -96,6 +103,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                         throw new UserException(e);
                     }
                     operations = new HDFSFileOperations(dfsFileSystem);
+                    RemoteFSPhantomManager.registerPhantomReference(this);
                 }
             }
         }

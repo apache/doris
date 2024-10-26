@@ -63,6 +63,20 @@ suite("push_down_multi_filter_through_window") {
     }
 
     explain {
+        sql ("select * from (select rank() over(partition by c1 order by c3) as rk, row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rk <= 1;")
+        contains "VPartitionTopN"
+        contains "functions: rank"
+        contains "partition limit: 1"
+    }
+
+    explain {
+        sql ("select * from (select rank() over(partition by c1 order by c3) as rk, row_number() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 10;")
+        contains "VPartitionTopN"
+        contains "functions: row_number"
+        contains "partition limit: 10"
+    }
+
+    explain {
         sql ("select * from (select rank() over(partition by c1 order by c3) as rk, rank() over(partition by c1, c2 order by c3) as rn from push_down_multi_predicate_through_window_t) t where rn <= 1 and rk <= 10;")
         contains "VPartitionTopN"
         contains "functions: rank"

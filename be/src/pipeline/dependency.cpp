@@ -199,7 +199,7 @@ void LocalExchangeSharedState::sub_running_source_operators(
 
 LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     source_deps.resize(num_instances, nullptr);
-    mem_trackers.resize(num_instances, nullptr);
+    mem_counters.resize(num_instances, nullptr);
 }
 
 vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
@@ -400,5 +400,30 @@ Status AggSharedState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
 }
 
 LocalExchangeSharedState::~LocalExchangeSharedState() = default;
+
+Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprContextSPtrs& ctxs) {
+    if (ctxs.size() > build_not_ignore_null.size()) {
+        return Status::InternalError("build_not_ignore_null not initialized");
+    }
+
+    for (int i = 0; i < ctxs.size(); ++i) {
+        build_not_ignore_null[i] = build_not_ignore_null[i] || ctxs[i]->root()->is_nullable();
+    }
+
+    return Status::OK();
+}
+
+Status SetSharedState::hash_table_init() {
+    std::vector<vectorized::DataTypePtr> data_types;
+    for (size_t i = 0; i != child_exprs_lists[0].size(); ++i) {
+        auto& ctx = child_exprs_lists[0][i];
+        auto data_type = ctx->root()->data_type();
+        if (build_not_ignore_null[i]) {
+            data_type = vectorized::make_nullable(data_type);
+        }
+        data_types.emplace_back(std::move(data_type));
+    }
+    return init_hash_method<SetDataVariants>(hash_table_variants.get(), data_types, true);
+}
 
 } // namespace doris::pipeline

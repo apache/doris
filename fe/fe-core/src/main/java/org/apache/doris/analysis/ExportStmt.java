@@ -60,7 +60,7 @@ import java.util.stream.Collectors;
 //          [PROPERTIES("key"="value")]
 //          WITH BROKER 'broker_name' [( $broker_attrs)]
 @Getter
-public class ExportStmt extends StatementBase {
+public class ExportStmt extends StatementBase implements NotFallbackInParser {
     public static final String PARALLELISM = "parallelism";
     public static final String LABEL = "label";
     public static final String DATA_CONSISTENCY = "data_consistency";

@@ -22,10 +22,13 @@
 #include <stdint.h>
 
 #include "exec/schema_scanner/schema_helper.h"
-#include "runtime/decimalv2_value.h"
-#include "runtime/define_primitive_type.h"
-#include "util/runtime_profile.h"
+#include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
+#include "util/thrift_rpc_helper.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 class RuntimeState;
@@ -63,9 +66,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns 
 };
 
 SchemaPartitionsScanner::SchemaPartitionsScanner()
-        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_PARTITIONS),
-          _db_index(0),
-          _table_index(0) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_PARTITIONS) {}
 
 SchemaPartitionsScanner::~SchemaPartitionsScanner() {}
 
@@ -75,21 +76,14 @@ Status SchemaPartitionsScanner::start(RuntimeState* state) {
     }
     SCOPED_TIMER(_get_db_timer);
     TGetDbsParams db_params;
-    if (nullptr != _param->common_param->db) {
+    if (_param->common_param->db) {
         db_params.__set_pattern(*(_param->common_param->db));
     }
-    if (nullptr != _param->common_param->catalog) {
+    if (_param->common_param->catalog) {
         db_params.__set_catalog(*(_param->common_param->catalog));
     }
-    if (nullptr != _param->common_param->current_user_ident) {
+    if (_param->common_param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->common_param->current_user_ident));
-    } else {
-        if (nullptr != _param->common_param->user) {
-            db_params.__set_user(*(_param->common_param->user));
-        }
-        if (nullptr != _param->common_param->user_ip) {
-            db_params.__set_user_ip(*(_param->common_param->user_ip));
-        }
     }
 
     if (nullptr != _param->common_param->ip && 0 != _param->common_param->port) {
@@ -98,17 +92,109 @@ Status SchemaPartitionsScanner::start(RuntimeState* state) {
     } else {
         return Status::InternalError("IP or port doesn't exists");
     }
+    _block_rows_limit = state->batch_size();
+    _rpc_timeout_ms = state->execution_timeout() * 1000;
     return Status::OK();
+}
+
+Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+
+    TSchemaTableRequestParams schema_table_request_params;
+    for (int i = 0; i < _s_tbls_columns.size(); i++) {
+        schema_table_request_params.__isset.columns_name = true;
+        schema_table_request_params.columns_name.emplace_back(_s_tbls_columns[i].name);
+    }
+    schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
+    schema_table_request_params.__set_catalog(*_param->common_param->catalog);
+    schema_table_request_params.__set_dbId(dbId);
+
+    TFetchSchemaTableDataRequest request;
+    request.__set_schema_table_name(TSchemaTableName::PARTITIONS);
+    request.__set_schema_table_params(schema_table_request_params);
+
+    TFetchSchemaTableDataResult result;
+
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, &result](FrontendServiceConnection& client) {
+                client->fetchSchemaTableData(result, request);
+            },
+            _rpc_timeout_ms));
+
+    Status status(Status::create(result.status));
+    if (!status.ok()) {
+        LOG(WARNING) << "fetch table options from FE failed, errmsg=" << status;
+        return status;
+    }
+    std::vector<TRow> result_data = result.data_batch;
+
+    _partitions_block = vectorized::Block::create_unique();
+    for (int i = 0; i < _s_tbls_columns.size(); ++i) {
+        TypeDescriptor descriptor(_s_tbls_columns[i].type);
+        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+        _partitions_block->insert(vectorized::ColumnWithTypeAndName(
+                data_type->create_column(), data_type, _s_tbls_columns[i].name));
+    }
+    _partitions_block->reserve(_block_rows_limit);
+    if (result_data.size() > 0) {
+        int col_size = result_data[0].column_value.size();
+        if (col_size != _s_tbls_columns.size()) {
+            return Status::InternalError<false>("table options schema is not match for FE and BE");
+        }
+    }
+
+    for (int i = 0; i < result_data.size(); i++) {
+        TRow row = result_data[i];
+        for (int j = 0; j < _s_tbls_columns.size(); j++) {
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _partitions_block.get(),
+                                                _s_tbls_columns[j].type));
+        }
+    }
+    return Status::OK();
+}
+
+bool SchemaPartitionsScanner::check_and_mark_eos(bool* eos) const {
+    if (_row_idx == _total_rows) {
+        *eos = true;
+        if (_db_index < _db_result.db_ids.size()) {
+            *eos = false;
+        }
+        return true;
+    }
+    return false;
 }
 
 Status SchemaPartitionsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
+
     if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    *eos = true;
+
+    if ((_partitions_block == nullptr) || (_row_idx == _total_rows)) {
+        if (_db_index < _db_result.db_ids.size()) {
+            RETURN_IF_ERROR(get_onedb_info_from_fe(_db_result.db_ids[_db_index]));
+            _row_idx = 0; // reset row index so that it start filling for next block.
+            _total_rows = _partitions_block->rows();
+            _db_index++;
+        }
+    }
+
+    if (check_and_mark_eos(eos)) {
+        return Status::OK();
+    }
+
+    int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
+    vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
+    RETURN_IF_ERROR(mblock.add_rows(_partitions_block.get(), _row_idx, current_batch_rows));
+    _row_idx += current_batch_rows;
+
+    if (!check_and_mark_eos(eos)) {
+        *eos = false;
+    }
     return Status::OK();
 }
 

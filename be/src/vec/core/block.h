@@ -247,7 +247,7 @@ public:
 
     // Default column size = -1 means clear all column in block
     // Else clear column [0, column_size) delete column [column_size, data.size)
-    void clear_column_data(int column_size = -1) noexcept;
+    void clear_column_data(int64_t column_size = -1) noexcept;
 
     bool mem_reuse() { return !data.empty(); }
 
@@ -294,11 +294,11 @@ public:
     static void filter_block_internal(Block* block, const IColumn::Filter& filter);
 
     static Status filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
-                               int filter_column_id, int column_to_keep);
+                               size_t filter_column_id, size_t column_to_keep);
 
-    static Status filter_block(Block* block, int filter_column_id, int column_to_keep);
+    static Status filter_block(Block* block, size_t filter_column_id, size_t column_to_keep);
 
-    static void erase_useless_column(Block* block, int column_to_keep) {
+    static void erase_useless_column(Block* block, size_t column_to_keep) {
         block->erase_tail(column_to_keep);
     }
 
@@ -398,6 +398,14 @@ public:
     // return string contains use_count() of each columns
     // for debug purpose.
     std::string print_use_count();
+
+    // remove tmp columns in block
+    // in inverted index apply logic, in order to optimize query performance,
+    // we built some temporary columns into block
+    void erase_tmp_columns() noexcept;
+
+    void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
+                                   bool need_keep_first);
 
 private:
     void erase_impl(size_t position);

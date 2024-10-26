@@ -42,7 +42,7 @@ import java.util.Set;
 //
 // syntax:
 //      SHOW LOAD [FROM db] [LIKE mask]
-public class ShowLoadStmt extends ShowStmt {
+public class ShowLoadStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowLoadStmt.class);
 
     private String dbName;

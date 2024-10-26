@@ -23,7 +23,7 @@
 #include "vec/sink/vtablet_block_convertor.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
         _remove_estimated_wal_bytes();
@@ -46,8 +46,6 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
     _vpartition = std::make_unique<doris::VOlapTablePartitionParam>(p._schema, p._partition);
     RETURN_IF_ERROR(_vpartition->init());
     _state = state;
-    // profile must add to state's object pool
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     _block_convertor = std::make_unique<vectorized::OlapTableBlockConvertor>(p._output_tuple_desc);
     _block_convertor->init_autoinc_info(p._schema->db_id(), p._schema->table_id(),
@@ -259,19 +257,15 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     return Status::OK();
 }
 
-Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
+Status GroupCommitBlockSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(Base::open(state));
     // get table's tuple descriptor
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_desc_id);
     if (_output_tuple_desc == nullptr) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
         return Status::InternalError("unknown destination tuple descriptor");
     }
-    return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-}
-
-Status GroupCommitBlockSinkOperatorX::open(RuntimeState* state) {
-    // Prepare the exprs to run.
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     return vectorized::VExpr::open(_output_vexpr_ctxs, state);
 }
 
@@ -280,7 +274,6 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
-    SCOPED_CONSUME_MEM_TRACKER(local_state._mem_tracker.get());
     if (!local_state._load_block_queue) {
         RETURN_IF_ERROR(local_state._initialize_load_queue());
     }
@@ -300,7 +293,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
                 int64_t num_selected_rows =
                         state->num_rows_load_total() - state->num_rows_load_unselected();
                 if (num_selected_rows > 0 &&
-                    (double)state->num_rows_load_filtered() / num_selected_rows >
+                    (double)state->num_rows_load_filtered() / (double)num_selected_rows >
                             _max_filter_ratio) {
                     return Status::DataQualityError("too many filtered rows");
                 }

@@ -28,6 +28,7 @@
 #include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/dependency.h"
 #include "runtime/descriptors.h"
+#include "runtime/types.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
@@ -108,6 +109,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _peak_running_scanner = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _scanner_peak_memory_usage = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
@@ -116,7 +119,6 @@ protected:
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
@@ -126,6 +128,9 @@ protected:
     RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
+
+    RuntimeProfile::Counter* _scan_rows = nullptr;
+    RuntimeProfile::Counter* _scan_bytes = nullptr;
 };
 
 template <typename LocalStateType>
@@ -207,7 +212,7 @@ protected:
         RETURN_IF_ERROR(_normalize_conjuncts(state));
         return Status::OK();
     }
-    virtual bool _should_push_down_common_expr(const vectorized::VExprSPtr& expr) { return false; }
+    virtual bool _should_push_down_common_expr() { return false; }
 
     virtual bool _storage_no_merge() { return false; }
     virtual bool _push_down_topn(const vectorized::RuntimePredicate& predicate) { return false; }
@@ -282,45 +287,10 @@ protected:
                                              vectorized::VExprContext* expr_ctx,
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
                                              PushDownType* pdt);
-
-    void _normalize_compound_predicate(
-            vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, PushDownType* pdt,
-            bool is_runtimer_filter_predicate,
-            const std::function<bool(const vectorized::VExprSPtrs&,
-                                     std::shared_ptr<vectorized::VSlotRef>&,
-                                     vectorized::VExprSPtr&)>& in_predicate_checker,
-            const std::function<bool(const vectorized::VExprSPtrs&,
-                                     std::shared_ptr<vectorized::VSlotRef>&,
-                                     vectorized::VExprSPtr&)>& eq_predicate_checker);
-
-    template <PrimitiveType T>
-    Status _normalize_binary_compound_predicate(vectorized::VExpr* expr,
-                                                vectorized::VExprContext* expr_ctx,
-                                                SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                                PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_in_and_not_in_compound_predicate(vectorized::VExpr* expr,
-                                                       vectorized::VExprContext* expr_ctx,
-                                                       SlotDescriptor* slot,
-                                                       ColumnValueRange<T>& range,
-                                                       PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_match_compound_predicate(vectorized::VExpr* expr,
-                                               vectorized::VExprContext* expr_ctx,
-                                               SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                               PushDownType* pdt);
-
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
                                         PushDownType* pdt);
-
-    template <PrimitiveType T>
-    Status _normalize_match_predicate(vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-                                      SlotDescriptor* slot, ColumnValueRange<T>& range,
-                                      PushDownType* pdt);
 
     bool _ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr);
 
@@ -340,7 +310,7 @@ protected:
     void get_cast_types_for_variants();
     void _filter_and_collect_cast_type_for_variant(
             const vectorized::VExpr* expr,
-            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+            std::unordered_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types);
 
     Status _get_topn_filters(RuntimeState* state);
 
@@ -357,7 +327,7 @@ protected:
     std::vector<FunctionFilter> _push_down_functions;
 
     // colname -> cast dst type
-    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+    std::map<std::string, TypeDescriptor> _cast_types_for_variants;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
@@ -367,19 +337,6 @@ protected:
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
 
-    /**
-     * _colname_to_value_range only store the leaf of and in the conjunct expr tree,
-     * we use _compound_value_ranges to store conresponding value ranges
-     * in the one compound relationship except the leaf of and node,
-     * such as `where a > 1 or b > 10 and c < 200`, the expr tree like:
-     *     or
-     *   /   \
-     *  a     and
-     *       /   \
-     *      b     c
-     * the value ranges of column a,b,c will all store into _compound_value_ranges
-     */
-    std::vector<ColumnValueRangeType> _compound_value_ranges;
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
     // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
@@ -401,12 +358,19 @@ template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
     Status open(RuntimeState* state) override;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                     bool* eos) override {
-        return get_block(state, block, eos);
+        Status status = get_block(state, block, eos);
+        if (status.ok()) {
+            if (auto rows = block->rows()) {
+                auto* local_state = state->get_local_state(operator_id());
+                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
+                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
+            }
+        }
+        return status;
     }
     [[nodiscard]] bool is_source() const override { return true; }
 
@@ -451,8 +415,8 @@ protected:
     std::unordered_map<std::string, int> _colname_to_slot_id;
 
     // These two values are from query_options
-    int _max_scan_key_num;
-    int _max_pushdown_conditions_per_column;
+    int _max_scan_key_num = 48;
+    int _max_pushdown_conditions_per_column = 1024;
 
     // If the query like select * from table limit 10; then the query should run in
     // single scanner to avoid too many scanners which will cause lots of useless read.

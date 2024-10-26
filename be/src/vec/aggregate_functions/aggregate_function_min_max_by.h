@@ -73,7 +73,8 @@ public:
 
     void change(const IColumn& column, size_t row_num, Arena*) {
         has_value = true;
-        value = assert_cast<const ColumnBitmap&>(column).get_data()[row_num];
+        value = assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(column)
+                        .get_data()[row_num];
     }
 
     void change(const Self& to, Arena*) {
@@ -242,7 +243,8 @@ template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data>
 AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
                                                           const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
+                                                          const bool result_is_nullable,
+                                                          const AggregateFunctionAttr& attr) {
     if (argument_types.size() != 2) {
         return nullptr;
     }

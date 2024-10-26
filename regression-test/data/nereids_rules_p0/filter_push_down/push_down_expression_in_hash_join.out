@@ -64,7 +64,7 @@ PhysicalResultSink
 
 -- !pushdown_left_semi_join_subquery --
 PhysicalResultSink
---hashJoin[LEFT_SEMI_JOIN] hashCondition=((expr_(id + 1) = expr_cast(id as BIGINT))) otherCondition=()
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
 ----PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
 
@@ -78,7 +78,7 @@ PhysicalResultSink
 
 -- !pushdown_left_anti_join_subquery --
 PhysicalResultSink
---hashJoin[NULL_AWARE_LEFT_ANTI_JOIN] hashCondition=((expr_(id + 1) = expr_cast(id as BIGINT))) otherCondition=()
+--hashJoin[NULL_AWARE_LEFT_ANTI_JOIN] hashCondition=((expr_cast(id as BIGINT) = expr_(cast(id as BIGINT) - 1))) otherCondition=()
 ----PhysicalOlapScan[t1]
 ----PhysicalOlapScan[t2]
 

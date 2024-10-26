@@ -22,13 +22,12 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
 import org.apache.doris.common.proc.ProcResult;
-import org.apache.doris.common.profile.ProfileTreeNode;
-import org.apache.doris.common.profile.ProfileTreePrinter;
+import org.apache.doris.common.profile.ProfileManager;
+import org.apache.doris.common.profile.ProfileManager.ProfileElement;
 import org.apache.doris.common.util.NetUtils;
-import org.apache.doris.common.util.ProfileManager;
-import org.apache.doris.common.util.ProfileManager.ProfileElement;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.mysql.privilege.Auth;
@@ -38,6 +37,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -49,7 +49,6 @@ import com.google.gson.reflect.TypeToken;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
-import org.json.simple.JSONObject;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -75,9 +74,8 @@ import javax.servlet.http.HttpServletResponse;
  * 2. /sql/{query_id}
  * 3. /profile/{format}/{query_id}
  * 4. /trace_id/{trace_id}
- * 5. /profile/fragments/{query_id}
- * 6. /current_queries
- * 7. /kill/{query_id}
+ * 5. /current_queries
+ * 6. /kill/{query_id}
  */
 @RestController
 @RequestMapping("/rest/v2/manager/query")
@@ -253,20 +251,13 @@ public class QueryProfileAction extends RestBaseController {
      * 1. Text: return the entire profile of the specified query id
      * eg: {"profile": "text_xxx"}
      * <p>
-     * 2. Graph: return the profile in ascii graph. If fragmentId and instanceId are specified, it will
-     * return the instance profile, otherwise, it will return the fragment profile.
-     * eg: {"profile" : "graph_xxx"}
-     * <p>
-     * 3. Json: return the profile in json. If fragmentId and instanceId are specified, it will
-     * return the instance profile, otherwise, it will return the fragment profile.
+     * 2. Json: return the profile in json.
      * Json format is mainly used for front-end UI drawing.
      * eg: {"profile" : "json_xxx"}
      */
     @RequestMapping(path = "/profile/{format}/{query_id}", method = RequestMethod.GET)
     public Object queryProfileText(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("format") String format, @PathVariable("query_id") String queryId,
-            @RequestParam(value = FRAGMENT_ID, required = false) String fragmentId,
-            @RequestParam(value = INSTANCE_ID, required = false) String instanceId,
             @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
         executeCheckPassword(request, response);
 
@@ -280,10 +271,8 @@ public class QueryProfileAction extends RestBaseController {
 
         if (format.equals("text")) {
             return getTextProfile(request, queryId, isAllNode);
-        } else if (format.equals("graph")) {
-            return getGraphProfile(request, queryId, fragmentId, instanceId, isAllNode);
         } else if (format.equals("json")) {
-            return getJsonProfile(request, queryId, fragmentId, instanceId, isAllNode);
+            return getJsonProfile(request, queryId, isAllNode);
         } else {
             return ResponseEntityBuilder.badRequest("Invalid profile format: " + format);
         }
@@ -357,47 +346,6 @@ public class QueryProfileAction extends RestBaseController {
         return ResponseEntity.ok(GsonUtils.GSON.toJson(statsErrorEstimator));
     }
 
-    @RequestMapping(path = "/profile/fragments/{query_id}", method = RequestMethod.GET)
-    public Object fragments(HttpServletRequest request, HttpServletResponse response,
-            @PathVariable("query_id") String queryId,
-            @RequestParam(value = IS_ALL_NODE_PARA, required = false, defaultValue = "true") boolean isAllNode) {
-        executeCheckPassword(request, response);
-
-        if (isAllNode) {
-            String httpPath = "/rest/v2/manager/query/profile/fragments/" + queryId;
-            ImmutableMap<String, String> arguments =
-                    ImmutableMap.<String, String>builder().put(IS_ALL_NODE_PARA, "false").build();
-            List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
-            ImmutableMap<String, String> header = ImmutableMap.<String, String>builder()
-                    .put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION)).build();
-            for (Pair<String, Integer> ipPort : frontends) {
-                String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
-                try {
-                    String responseJson = HttpUtils.doGet(url, header);
-                    int code = JsonParser.parseString(responseJson).getAsJsonObject().get("code").getAsInt();
-                    if (code == HttpUtils.REQUEST_SUCCESS_CODE) {
-                        return responseJson;
-                    }
-                } catch (Exception e) {
-                    LOG.warn(e);
-                }
-            }
-        } else {
-            try {
-                checkAuthByUserAndQueryId(queryId);
-            } catch (AuthenticationException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
-            }
-
-            try {
-                return ResponseEntityBuilder.ok(ProfileManager.getInstance().getFragmentsAndInstances(queryId));
-            } catch (AnalysisException e) {
-                return ResponseEntityBuilder.badRequest(e.getMessage());
-            }
-        }
-        return ResponseEntityBuilder.badRequest("not found query id");
-    }
-
     @NotNull
     private ResponseEntity getTextProfile(HttpServletRequest request, String queryId, boolean isAllNode) {
         Map<String, String> profileMap = Maps.newHashMap();
@@ -413,52 +361,16 @@ public class QueryProfileAction extends RestBaseController {
     }
 
     @NotNull
-    private ResponseEntity getGraphProfile(HttpServletRequest request, String queryId, String fragmentId,
-            String instanceId, boolean isAllNode) {
-        Map<String, String> graph = Maps.newHashMap();
-        List<String> results;
-        if (isAllNode) {
-            return getProfileFromAllFrontends(request, "graph", queryId, fragmentId, instanceId);
-        } else {
-            try {
-                if (Strings.isNullOrEmpty(fragmentId) || Strings.isNullOrEmpty(instanceId)) {
-                    ProfileTreeNode treeRoot = ProfileManager.getInstance().getFragmentProfileTree(queryId, queryId);
-                    results = Lists.newArrayList(ProfileTreePrinter.printFragmentTree(treeRoot));
-                } else {
-                    ProfileTreeNode treeRoot = ProfileManager.getInstance().getInstanceProfileTree(queryId, queryId,
-                            fragmentId, instanceId);
-                    results = Lists.newArrayList(ProfileTreePrinter.printInstanceTree(treeRoot));
-                }
-                graph.put("graph", results.get(0));
-            } catch (Exception e) {
-                LOG.warn("get profile graph error, queryId:{}, fragementId:{}, instanceId:{}", queryId, fragmentId,
-                        instanceId, e);
-            }
-        }
-        return ResponseEntityBuilder.ok(graph);
-    }
-
-    @NotNull
-    private ResponseEntity getJsonProfile(HttpServletRequest request, String queryId, String fragmentId,
-            String instanceId, boolean isAllNode) {
+    private ResponseEntity getJsonProfile(HttpServletRequest request, String queryId, boolean isAllNode) {
         Map<String, String> graph = Maps.newHashMap();
         if (isAllNode) {
-            return getProfileFromAllFrontends(request, "json", queryId, fragmentId, instanceId);
+            return getProfileFromAllFrontends(request, "json", queryId, null, null);
         } else {
             try {
-                JSONObject json;
-                if (Strings.isNullOrEmpty(fragmentId) || Strings.isNullOrEmpty(instanceId)) {
-                    String brief = ProfileManager.getInstance().getProfileBrief(queryId);
-                    graph.put("profile", brief);
-                } else {
-                    ProfileTreeNode treeRoot = ProfileManager.getInstance()
-                            .getInstanceProfileTree(queryId, queryId, fragmentId, instanceId);
-                    json = ProfileTreePrinter.printFragmentTreeInJson(treeRoot, ProfileTreePrinter.PrintLevel.INSTANCE);
-                    graph.put("profile", json.toJSONString());
-                }
+                String brief = ProfileManager.getInstance().getProfileBrief(queryId);
+                graph.put("profile", brief);
             } catch (Exception e) {
-                LOG.warn("get profile graph error, queryId:{}, fragementId:{}, instanceId:{}", queryId, fragmentId,
-                        instanceId, e);
+                LOG.warn("get profile graph error, queryId:{}", queryId, e);
             }
         }
         return ResponseEntityBuilder.ok(graph);
@@ -576,7 +488,7 @@ public class QueryProfileAction extends RestBaseController {
         }
 
         ExecuteEnv env = ExecuteEnv.getInstance();
-        env.getScheduler().cancelQuery(queryId);
+        env.getScheduler().cancelQuery(queryId, new Status(TStatusCode.CANCELLED, "cancel query by rest api"));
         return ResponseEntityBuilder.ok();
     }
 }

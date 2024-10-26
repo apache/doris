@@ -95,12 +95,17 @@ struct FileCacheSettings {
     size_t query_queue_elements {0};
     size_t max_file_block_size {0};
     size_t max_query_cache_size {0};
+    std::string storage;
+
+    // to string
+    std::string to_string() const;
 };
 
 FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cache_size,
                                           size_t normal_percent = DEFAULT_NORMAL_PERCENT,
                                           size_t disposable_percent = DEFAULT_DISPOSABLE_PERCENT,
-                                          size_t index_percent = DEFAULT_INDEX_PERCENT);
+                                          size_t index_percent = DEFAULT_INDEX_PERCENT,
+                                          const std::string& storage = "disk");
 
 struct CacheContext {
     CacheContext(const IOContext* io_context) {

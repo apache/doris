@@ -146,6 +146,15 @@ public:
 
     size_t on_response_data(const void* data, size_t length);
 
+    // The file name of the variant column with the inverted index contains %
+    // such as: 020000000000003f624c4c322c568271060f9b5b274a4a95_0_10133@properties%2Emessage.idx
+    //  {rowset_id}_{seg_num}_{index_id}_{variant_column_name}{%2E}{extracted_column_name}.idx
+    // We need to handle %, otherwise it will cause an HTTP 404 error.
+    // Because the percent ("%") character serves as the indicator for percent-encoded octets,
+    // it must be percent-encoded as "%25" for that octet to be used as data within a URI.
+    // https://datatracker.ietf.org/doc/html/rfc3986
+    Status _escape_url(const std::string& url, std::string* escaped_url);
+
 private:
     const char* _to_errmsg(CURLcode code);
 

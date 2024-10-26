@@ -63,7 +63,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             new Column("SucceedTaskCount", ScalarType.createStringType()),
             new Column("FailedTaskCount", ScalarType.createStringType()),
             new Column("CanceledTaskCount", ScalarType.createStringType())
-            );
+    );
     @SerializedName(value = "jid")
     private Long jobId;
 
@@ -212,8 +212,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     }
 
     public List<T> commonCreateTasks(TaskType taskType, C taskContext) {
-        if (!getJobStatus().equals(JobStatus.RUNNING)) {
-            log.warn("job is not running, job id is {}", jobId);
+        if (!canCreateTask(taskType)) {
+            log.info("job is not ready for scheduling, job id is {},job status is {}, taskType is {}", jobId,
+                    jobStatus, taskType);
             return new ArrayList<>();
         }
         if (!isReadyForScheduling(taskContext)) {
@@ -232,6 +233,19 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             return tasks;
         } finally {
             createTaskLock.unlock();
+        }
+    }
+
+    private boolean canCreateTask(TaskType taskType) {
+        JobStatus currentJobStatus = getJobStatus();
+
+        switch (taskType) {
+            case SCHEDULED:
+                return currentJobStatus.equals(JobStatus.RUNNING);
+            case MANUAL:
+                return currentJobStatus.equals(JobStatus.RUNNING) || currentJobStatus.equals(JobStatus.PAUSED);
+            default:
+                throw new IllegalArgumentException("Unsupported TaskType: " + taskType);
         }
     }
 
@@ -307,7 +321,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onTaskFail(T task) throws JobException {
         failedTaskCount.incrementAndGet();
-        updateJobStatusIfEnd(false);
+        updateJobStatusIfEnd(false, task.getTaskType());
         runningTasks.remove(task);
         logUpdateOperation();
     }
@@ -315,16 +329,16 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public void onTaskSuccess(T task) throws JobException {
         succeedTaskCount.incrementAndGet();
-        updateJobStatusIfEnd(true);
+        updateJobStatusIfEnd(true, task.getTaskType());
         runningTasks.remove(task);
         logUpdateOperation();
 
     }
 
 
-    private void updateJobStatusIfEnd(boolean taskSuccess) throws JobException {
+    private void updateJobStatusIfEnd(boolean taskSuccess, TaskType taskType) throws JobException {
         JobExecuteType executeType = getJobConfig().getExecuteType();
-        if (executeType.equals(JobExecuteType.MANUAL)) {
+        if (executeType.equals(JobExecuteType.MANUAL) || taskType.equals(TaskType.MANUAL)) {
             return;
         }
         switch (executeType) {
@@ -399,6 +413,23 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public TRow getTvfInfo() {
         return getCommonTvfInfo();
+    }
+
+    /**
+     * Generates a common error message when the execution queue is full.
+     *
+     * @param taskId                The ID of the task.
+     * @param queueConfigName       The name of the queue configuration.
+     * @param executeThreadConfigName The name of the execution thread configuration.
+     * @return A formatted error message.
+     */
+    protected String commonFormatMsgWhenExecuteQueueFull(Long taskId, String queueConfigName,
+                                                            String executeThreadConfigName) {
+        return String.format("Dispatch task failed, jobId: %d, jobName: %s, taskId: %d, the queue size is full, "
+                        + "you can increase the queue size by setting the property "
+                        + "%s in the fe.conf file or increase the value of "
+                        + "the property %s in the fe.conf file", getJobId(), getJobName(), taskId, queueConfigName,
+                executeThreadConfigName);
     }
 
     @Override

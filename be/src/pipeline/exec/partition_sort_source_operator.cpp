@@ -27,7 +27,7 @@ namespace pipeline {
 Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<PartitionSortNodeSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
-    SCOPED_TIMER(_open_timer);
+    SCOPED_TIMER(_init_timer);
     _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
     _sorted_partition_output_rows_counter =
             ADD_COUNTER(profile(), "SortedPartitionOutputRows", TUnit::UNIT);
@@ -58,7 +58,6 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                 }
             }
             if (!output_block->empty()) {
-                COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
                 local_state._num_rows_returned += output_block->rows();
             }
             return Status::OK();
@@ -80,7 +79,6 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
                local_state._sort_idx >= local_state._shared_state->partition_sorts.size();
     }
     if (!output_block->empty()) {
-        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
         local_state._num_rows_returned += output_block->rows();
     }
     return Status::OK();
@@ -95,12 +93,10 @@ Status PartitionSortSourceOperatorX::get_sorted_block(RuntimeState* state,
     if (local_state._sort_idx < local_state._shared_state->partition_sorts.size()) {
         RETURN_IF_ERROR(local_state._shared_state->partition_sorts[local_state._sort_idx]->get_next(
                 state, output_block, &current_eos));
+        COUNTER_UPDATE(local_state._sorted_partition_output_rows_counter, output_block->rows());
     }
     if (current_eos) {
-        //current sort have eos, so get next idx
-        auto rows = local_state._shared_state->partition_sorts[local_state._sort_idx]
-                            ->get_output_rows();
-        COUNTER_UPDATE(local_state._sorted_partition_output_rows_counter, rows);
+        // current sort have eos, so get next idx
         local_state._shared_state->partition_sorts[local_state._sort_idx].reset(nullptr);
         local_state._sort_idx++;
     }

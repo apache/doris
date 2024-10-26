@@ -134,5 +134,9 @@ public class ResourcePattern implements Writable, GsonPostProcessable {
         if ("*".equals(resourceName)) {
             resourceName = "%";
         }
+        // 2.x -> 3.0 compatibility logic
+        if (resourceType == null) {
+            resourceType = ResourceTypeEnum.GENERAL;
+        }
     }
 }

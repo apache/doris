@@ -18,14 +18,12 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.common.Config;
-import org.apache.doris.nereids.analyzer.PlaceholderExpression;
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
-import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -336,7 +334,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 || this instanceof Lambda
                 || this instanceof MaxValue
                 || this instanceof OrderExpression
-                || this instanceof PlaceholderExpression
                 || this instanceof Properties
                 || this instanceof SubqueryExpr
                 || this instanceof UnboundVariable
@@ -350,7 +347,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         if (this instanceof LeafExpression) {
             return this instanceof Literal;
         } else {
-            return !(this instanceof Nondeterministic) && ExpressionUtils.allMatch(children(), Expression::isConstant);
+            return this.isDeterministic() && ExpressionUtils.allMatch(children(), Expression::isConstant);
         }
     }
 

@@ -42,7 +42,7 @@ private:
     BlockQueueSharedPtr _queue;
 
     // Owned by the RuntimeState.
-    VExprContextSPtrs _output_vexpr_ctxs;
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
 };
@@ -52,7 +52,6 @@ public:
     MemoryScratchSinkOperatorX(const RowDescriptor& row_desc, int operator_id,
                                const std::vector<TExpr>& t_output_expr);
     Status init(const TDataSink& thrift_sink) override;
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
@@ -62,7 +61,7 @@ private:
     const RowDescriptor& _row_desc;
     cctz::time_zone _timezone_obj;
     const std::vector<TExpr>& _t_output_expr;
-    VExprContextSPtrs _output_vexpr_ctxs;
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 };
 
 } // namespace doris::pipeline

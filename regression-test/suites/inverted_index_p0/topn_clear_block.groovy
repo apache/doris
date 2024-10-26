@@ -40,6 +40,7 @@ suite("test_clear_block") {
     }
 
     sql """ set enable_match_without_inverted_index = false; """
+    sql """ set enable_common_expr_pushdown = true """
     // sql """ set 
     def dupTableName = "dup_httplogs"
     sql """ drop table if exists ${dupTableName} """
@@ -78,7 +79,17 @@ suite("test_clear_block") {
     sql """ delete from dup_httplogs where size = 24736; """
     sql """ delete from dup_httplogs where request = 'GET /images/hm_bg.jpg HTTP/1.0'; """
 
+    sql """ set enable_match_without_inverted_index = false """
     sql """ sync """
 
     qt_sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY id LIMIT 2 """
+        
+    def result1 = sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY id LIMIT 5000 """
+    def result2 = sql """ SELECT clientip from ${dupTableName} WHERE clientip NOT IN (NULL, '') or clientip IN ('17.0.0.0') ORDER BY id LIMIT 5000 """
+    if (result1 != result2) {
+        logger.info("result1 is: {}", result1)
+        logger.info("result2 is: {}", result2)
+        assertTrue(false)
+    }
+    
 }

@@ -210,12 +210,13 @@ suite("test_single_compaction_with_variant_inverted", "p2") {
         }
     }
 
-    sql """ INSERT INTO ${tableName} VALUES (1, "a", 100, '{"a" : 1234, "point" : 1, "xxxx" : "ddddd"}'); """
-    sql """ INSERT INTO ${tableName} VALUES (1, "b", 100, '{"%a" : 1234, "@point" : 1, "[xxxx" : "ddddd"}'); """
-    sql """ INSERT INTO ${tableName} VALUES (2, "a", 100, '{"@a" : 1234, "%point" : 1, "]xxxx" : "ddddd"}'); """
-    sql """ INSERT INTO ${tableName} VALUES (2, "b", 100, '{"%a" : 1234, "%point" : 1, "{xxxx" : "ddddd"}'); """
-    sql """ INSERT INTO ${tableName} VALUES (3, "a", 100, '{"@a" : 1234, "@point" : 1, "}xxxx" : "ddddd"}'); """
-    sql """ INSERT INTO ${tableName} VALUES (3, "b", 100, '{"a" : 1234, "point" : 1, "|xxxx" : "ddddd"}'); """
+    sql """ INSERT INTO ${tableName} VALUES (1, "b", 100, '{"%a" : 1234, "@point" : 1, "xxxx" : "ddddd"}'); """
+    sql """ INSERT INTO ${tableName} VALUES (2, "a", 100, '{"@a" : 1234, "%point" : 1, "xxxx" : "ddddd"}'); """
+    sql """ INSERT INTO ${tableName} VALUES (2, "b", 100, '{"%a" : 1234, "%point" : 1, "xxxx" : "ddddd"}'); """
+    sql """ INSERT INTO ${tableName} VALUES (3, "a", 100, '{"@a" : 1234, "@point" : 1, "xxxx" : "ddddd"}'); """
+    sql """ INSERT INTO ${tableName} VALUES (3, "b", 100, '{"a" : 1234, "point" : 1, "xxxx" : "ddddd"}'); """
+    sql """ INSERT INTO ${tableName} VALUES (3, "b", 100, '{"a" : 1234, "point" : 1, "xxxx" : "ddddd"}'); """
+
 
     // trigger master be to do full compaction
     assertTrue(triggerCompaction(backendId_to_backendIP[master_backend_id], backendId_to_backendHttpPort[master_backend_id],
@@ -233,7 +234,7 @@ suite("test_single_compaction_with_variant_inverted", "p2") {
     checkTabletFileCrc.call()
 
     qt_sql """
-    select count() from  ${tableName} where properties MATCH_ANY 'point xxxx';
+    select count() from  ${tableName} where cast(properties['xxxx'] as string) MATCH_ANY 'ddddd';
     """
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """

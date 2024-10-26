@@ -48,8 +48,7 @@ RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParams
     _state = state;
     _state->runtime_filter_mgr = this;
     _query_mem_tracker = query_mem_tracker;
-    _tracker = std::make_unique<MemTracker>("RuntimeFilterMgr(experimental)",
-                                            _query_mem_tracker.get());
+    _tracker = std::make_unique<MemTracker>("RuntimeFilterMgr(experimental)");
 }
 
 RuntimeFilterMgr::~RuntimeFilterMgr() {
@@ -130,6 +129,7 @@ Status RuntimeFilterMgr::register_local_merge_producer_filter(
             RETURN_IF_ERROR(IRuntimeFilter::create(_state, &desc, &options,
                                                    RuntimeFilterRole::PRODUCER, -1, &merge_filter,
                                                    build_bf_exactly, true));
+            merge_filter->set_ignored();
             iter->second.filters.emplace_back(merge_filter);
         }
         iter->second.merge_time++;
@@ -151,7 +151,6 @@ Status RuntimeFilterMgr::get_local_merge_producer_filters(
     }
     *local_merge_filters = &iter->second;
     DCHECK(!iter->second.filters.empty());
-    DCHECK_GT(iter->second.merge_time, 0);
     return Status::OK();
 }
 
@@ -229,13 +228,13 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     // so we need to copy to cnt_val
     cnt_val->producer_size = producer_size;
     cnt_val->runtime_filter_desc = *runtime_filter_desc;
-    cnt_val->target_info = *target_info;
     cnt_val->pool.reset(new ObjectPool());
     cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
 
     auto filter_id = runtime_filter_desc->filter_id;
     RETURN_IF_ERROR(cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options,
                                                     -1, false));
+    cnt_val->filter->set_ignored();
     _filter_map.emplace(filter_id, cnt_val);
     return Status::OK();
 }
@@ -254,6 +253,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
     auto filter_id = runtime_filter_desc->filter_id;
     RETURN_IF_ERROR(cnt_val->filter->init_with_desc(&cnt_val->runtime_filter_desc, query_options));
+    cnt_val->filter->set_ignored();
 
     std::unique_lock<std::shared_mutex> guard(_filter_map_mutex);
     _filter_map.emplace(filter_id, cnt_val);
@@ -264,8 +264,7 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
                                                 const TRuntimeFilterParams& runtime_filter_params,
                                                 const TQueryOptions& query_options) {
     _query_id = query_id;
-    _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity(experimental)",
-                                                ExecEnv::GetInstance()->details_mem_tracker_set());
+    _mem_tracker = std::make_shared<MemTracker>("RuntimeFilterMergeControllerEntity(experimental)");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     if (runtime_filter_params.__isset.rid_to_runtime_filter) {
         for (const auto& filterid_to_desc : runtime_filter_params.rid_to_runtime_filter) {
@@ -324,10 +323,17 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
     cnt_val->global_size += request->filter_size();
     cnt_val->source_addrs.push_back(request->source_addr());
 
+    Status st = Status::OK();
     if (cnt_val->source_addrs.size() == cnt_val->producer_size) {
         for (auto addr : cnt_val->source_addrs) {
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
+            if (stub == nullptr) {
+                LOG(WARNING) << "Failed to init rpc to " << addr.hostname() << ":" << addr.port();
+                st = Status::InternalError("Failed to init rpc to {}:{}", addr.hostname(),
+                                           addr.port());
+                continue;
+            }
 
             auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
                                               DummyBrpcCallback<PSyncFilterSizeResponse>>::
@@ -338,16 +344,17 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             pquery_id->set_hi(_state->query_id.hi());
             pquery_id->set_lo(_state->query_id.lo());
             closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
+            closure->cntl_->ignore_eovercrowded();
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val->global_size);
 
             stub->sync_filter_size(closure->cntl_.get(), closure->request_.get(),
-                                   closure->response_.get(), brpc::DoNothing());
+                                   closure->response_.get(), closure.get());
             closure.release();
         }
     }
-    return Status::OK();
+    return st;
 }
 
 Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
@@ -376,6 +383,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     int64_t start_merge = MonotonicMillis();
     auto filter_id = request->filter_id();
     std::map<int, CntlValwithLock>::iterator iter;
+    Status st = Status::OK();
     {
         std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
         iter = _filter_map.find(filter_id);
@@ -425,7 +433,11 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
         }
 
         if (data != nullptr && len > 0) {
-            request_attachment.append(data, len);
+            void* allocated = malloc(len);
+            memcpy(allocated, data, len);
+            // control the memory by doris self to avoid using brpc's thread local storage
+            // because the memory of tls will not be released
+            request_attachment.append_user_data(allocated, len, [](void* ptr) { free(ptr); });
             has_attachment = true;
         }
 
@@ -445,25 +457,39 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                 closure->cntl_->request_attachment().append(request_attachment);
             }
             closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
+            closure->cntl_->ignore_eovercrowded();
             // set fragment-id
-            for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
-                PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
-                cur_id->set_hi(target_fragment_instance_id.hi);
-                cur_id->set_lo(target_fragment_instance_id.lo);
+            if (target.__isset.target_fragment_ids) {
+                for (auto& target_fragment_id : target.target_fragment_ids) {
+                    closure->request_->add_fragment_ids(target_fragment_id);
+                }
+            } else {
+                // FE not upgraded yet.
+                for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
+                    PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
+                    cur_id->set_hi(target_fragment_instance_id.hi);
+                    cur_id->set_lo(target_fragment_instance_id.lo);
+                }
             }
 
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                             target.target_fragment_instance_addr));
             if (stub == nullptr) {
+                LOG(WARNING) << "Failed to init rpc to "
+                             << target.target_fragment_instance_addr.hostname << ":"
+                             << target.target_fragment_instance_addr.port;
+                st = Status::InternalError("Failed to init rpc to {}:{}",
+                                           target.target_fragment_instance_addr.hostname,
+                                           target.target_fragment_instance_addr.port);
                 continue;
             }
             stub->apply_filterv2(closure->cntl_.get(), closure->request_.get(),
-                                 closure->response_.get(), brpc::DoNothing());
+                                 closure->response_.get(), closure.get());
             closure.release();
         }
     }
-    return Status::OK();
+    return st;
 }
 
 Status RuntimeFilterMergeController::acquire(

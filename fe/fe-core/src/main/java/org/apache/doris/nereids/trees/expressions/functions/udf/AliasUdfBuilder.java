@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.ReflectionUtils;
 import org.apache.doris.nereids.analyzer.Scope;
@@ -25,7 +26,6 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
-import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
@@ -51,6 +51,11 @@ public class AliasUdfBuilder extends UdfBuilder {
     @Override
     public List<DataType> getArgTypes() {
         return aliasUdf.getArgTypes();
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return aliasUdf.getSignatures();
     }
 
     @Override
@@ -108,18 +113,5 @@ public class AliasUdfBuilder extends UdfBuilder {
         };
 
         return Pair.of(udfAnalyzer.analyze(aliasUdf.getUnboundFunction()), boundAliasFunction);
-    }
-
-    private static class SlotReplacer extends DefaultExpressionRewriter<Map<SlotReference, Expression>> {
-        public static final SlotReplacer INSTANCE = new SlotReplacer();
-
-        public Expression replace(Expression expression, Map<SlotReference, Expression> context) {
-            return expression.accept(this, context);
-        }
-
-        @Override
-        public Expression visitSlotReference(SlotReference slot, Map<SlotReference, Expression> context) {
-            return context.get(slot);
-        }
     }
 }

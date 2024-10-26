@@ -38,14 +38,10 @@ public class PartitionColumnStatistic {
 
     private static final Logger LOG = LogManager.getLogger(PartitionColumnStatistic.class);
 
-    public static PartitionColumnStatistic UNKNOWN = new PartitionColumnStatisticBuilder().setAvgSizeByte(1)
-            .setNdv(new Hll128()).setNumNulls(1).setCount(1).setMaxValue(Double.POSITIVE_INFINITY)
+    public static PartitionColumnStatistic UNKNOWN = new PartitionColumnStatisticBuilder(1).setAvgSizeByte(1)
+            .setNdv(new Hll128()).setNumNulls(1).setMaxValue(Double.POSITIVE_INFINITY)
             .setMinValue(Double.NEGATIVE_INFINITY)
             .setIsUnknown(true).setUpdatedTime("")
-            .build();
-
-    public static PartitionColumnStatistic ZERO = new PartitionColumnStatisticBuilder().setAvgSizeByte(0)
-            .setNdv(new Hll128()).setNumNulls(0).setCount(0).setMaxValue(Double.NaN).setMinValue(Double.NaN)
             .build();
 
     public final double count;
@@ -109,9 +105,8 @@ public class PartitionColumnStatistic {
             return PartitionColumnStatistic.UNKNOWN;
         }
 
-        PartitionColumnStatisticBuilder partitionStatisticBuilder = new PartitionColumnStatisticBuilder();
         double count = Double.parseDouble(row.get(6));
-        partitionStatisticBuilder.setCount(count);
+        PartitionColumnStatisticBuilder partitionStatisticBuilder = new PartitionColumnStatisticBuilder(count);
         String ndv = row.get(7);
         Base64.Decoder decoder = Base64.getDecoder();
         DataInputStream dis = new DataInputStream(new ByteArrayInputStream(decoder.decode(ndv)));

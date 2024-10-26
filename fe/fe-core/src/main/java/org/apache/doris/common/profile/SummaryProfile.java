@@ -66,9 +66,9 @@ public class SummaryProfile {
     public static final String PARALLEL_FRAGMENT_EXEC_INSTANCE = "Parallel Fragment Exec Instance Num";
     public static final String TRACE_ID = "Trace ID";
     public static final String WORKLOAD_GROUP = "Workload Group";
-    public static final String PHYSICAL_PLAN = "Physical Plan";
     public static final String DISTRIBUTED_PLAN = "Distributed Plan";
     public static final String SYSTEM_MESSAGE = "System Message";
+    public static final String EXECUTED_BY_FRONTEND = "Executed By Frontend";
     // Execution Summary
     public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
@@ -102,6 +102,8 @@ public class SummaryProfile {
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
     public static final String NEREIDS_TRANSLATE_TIME = "Nereids Translate Time";
     public static final String NEREIDS_DISTRIBUTE_TIME = "Nereids Distribute Time";
+    public static final String NEREIDS_GARBAGE_COLLECT_TIME = "Nereids GarbageCollect Time";
+    public static final String NEREIDS_BE_FOLD_CONST_TIME = "Nereids BeFoldConst Time";
 
     public static final String FRAGMENT_COMPRESSED_SIZE = "Fragment Compressed Size";
     public static final String FRAGMENT_RPC_COUNT = "Fragment RPC Count";
@@ -128,7 +130,6 @@ public class SummaryProfile {
             START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_CATALOG, DEFAULT_DB, SQL_STATEMENT);
     public static final ImmutableList<String> SUMMARY_KEYS = new ImmutableList.Builder<String>()
             .addAll(SUMMARY_CAPTIONS)
-            .add(PHYSICAL_PLAN)
             .add(DISTRIBUTED_PLAN)
             .build();
 
@@ -175,7 +176,8 @@ public class SummaryProfile {
             PARALLEL_FRAGMENT_EXEC_INSTANCE,
             TRACE_ID,
             TRANSACTION_COMMIT_TIME,
-            SYSTEM_MESSAGE
+            SYSTEM_MESSAGE,
+            EXECUTED_BY_FRONTEND
     );
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
@@ -229,6 +231,10 @@ public class SummaryProfile {
     private long nereidsOptimizeFinishTime = -1;
     @SerializedName(value = "nereidsTranslateFinishTime")
     private long nereidsTranslateFinishTime = -1;
+    @SerializedName(value = "nereidsGarbageCollectionTime")
+    private long nereidsGarbageCollectionTime = -1;
+    @SerializedName(value = "nereidsBeFoldConstTime")
+    private long nereidsBeFoldConstTime = 0;
     private long nereidsDistributeFinishTime = -1;
     // timestamp of query begin
     @SerializedName(value = "queryBeginTime")
@@ -408,6 +414,8 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
         executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
         executionSummaryProfile.addInfoString(NEREIDS_DISTRIBUTE_TIME, getPrettyNereidsDistributeTime());
+        executionSummaryProfile.addInfoString(NEREIDS_GARBAGE_COLLECT_TIME, getPrettyNereidsGarbageCollectionTime());
+        executionSummaryProfile.addInfoString(NEREIDS_BE_FOLD_CONST_TIME, getPrettyNereidsBeFoldConstTime());
         executionSummaryProfile.addInfoString(ANALYSIS_TIME,
                 getPrettyTime(queryAnalysisFinishTime, queryBeginTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(PLAN_TIME,
@@ -511,6 +519,14 @@ public class SummaryProfile {
 
     public void setNereidsTranslateTime() {
         this.nereidsTranslateFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setNereidsGarbageCollectionTime(long nereidsGarbageCollectionTime) {
+        this.nereidsGarbageCollectionTime = nereidsGarbageCollectionTime;
+    }
+
+    public void sumBeFoldTime(long beFoldConstTimeOnce) {
+        this.nereidsBeFoldConstTime += beFoldConstTimeOnce;
     }
 
     public void setNereidsDistributeTime() {
@@ -765,6 +781,14 @@ public class SummaryProfile {
         return getPrettyTime(nereidsTranslateFinishTime, nereidsOptimizeFinishTime, TUnit.TIME_MS);
     }
 
+    public String getPrettyNereidsGarbageCollectionTime() {
+        return RuntimeProfile.printCounter(nereidsGarbageCollectionTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyNereidsBeFoldConstTime() {
+        return RuntimeProfile.printCounter(nereidsBeFoldConstTime, TUnit.TIME_MS);
+    }
+
     public String getPrettyNereidsDistributeTime() {
         return getPrettyTime(nereidsDistributeFinishTime, nereidsTranslateFinishTime, TUnit.TIME_MS);
     }
@@ -902,7 +926,11 @@ public class SummaryProfile {
     }
 
     public void setSystemMessage(String msg) {
-        summaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
+        executionSummaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
+    }
+
+    public void setExecutedByFrontend(boolean executedByFrontend) {
+        executionSummaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
     }
 
     public void write(DataOutput output) throws IOException {

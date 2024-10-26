@@ -160,24 +160,7 @@ struct RefreshFSVaultVisitor {
 };
 
 Status CloudStorageEngine::open() {
-    cloud::StorageVaultInfos vault_infos;
-    do {
-        auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
-        if (st.ok()) {
-            break;
-        }
-
-        LOG(WARNING) << "failed to get vault info, retry after 5s, err=" << st;
-        std::this_thread::sleep_for(5s);
-    } while (vault_infos.empty());
-
-    for (auto& [id, vault_info, path_format] : vault_infos) {
-        if (auto st = std::visit(VaultCreateFSVisitor {id, path_format}, vault_info); !st.ok())
-                [[unlikely]] {
-            return vault_process_error(id, vault_info, std::move(st));
-        }
-    }
-    set_latest_fs(get_filesystem(std::get<0>(vault_infos.back())));
+    sync_storage_vault();
 
     // TODO(plat1ko): DeleteBitmapTxnManager
 
@@ -228,6 +211,14 @@ void CloudStorageEngine::stop() {
             t->join();
         }
     }
+
+    if (_base_compaction_thread_pool) {
+        _base_compaction_thread_pool->shutdown();
+    }
+    if (_cumu_compaction_thread_pool) {
+        _cumu_compaction_thread_pool->shutdown();
+    }
+    LOG(INFO) << "Cloud storage engine is stopped.";
 }
 
 bool CloudStorageEngine::stopped() {
@@ -266,7 +257,7 @@ Status CloudStorageEngine::start_bg_threads() {
 
     // add calculate tablet delete bitmap task thread pool
     RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalDeleteBitmapThreadPool")
-                            .set_min_threads(1)
+                            .set_min_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .build(&_calc_tablet_delete_bitmap_task_thread_pool));
 
@@ -332,7 +323,8 @@ void CloudStorageEngine::_check_file_cache_ttl_block_valid() {
 
 void CloudStorageEngine::sync_storage_vault() {
     cloud::StorageVaultInfos vault_infos;
-    auto st = _meta_mgr->get_storage_vault_info(&vault_infos);
+    bool enable_storage_vault = false;
+    auto st = _meta_mgr->get_storage_vault_info(&vault_infos, &enable_storage_vault);
     if (!st.ok()) {
         LOG(WARNING) << "failed to get storage vault info. err=" << st;
         return;
@@ -355,7 +347,7 @@ void CloudStorageEngine::sync_storage_vault() {
     }
 
     if (auto& id = std::get<0>(vault_infos.back());
-        latest_fs() == nullptr || latest_fs()->id() != id) {
+        (latest_fs() == nullptr || latest_fs()->id() != id) && !enable_storage_vault) {
         set_latest_fs(get_filesystem(id));
     }
 }
@@ -559,21 +551,23 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     std::function<bool(CloudTablet*)> filter_out;
     if (compaction_type == CompactionType::BASE_COMPACTION) {
         filter_out = [&submitted_base_compactions, &submitted_full_compactions](CloudTablet* t) {
-            return !!submitted_base_compactions.count(t->tablet_id()) ||
-                   !!submitted_full_compactions.count(t->tablet_id()) ||
+            return submitted_base_compactions.contains(t->tablet_id()) ||
+                   submitted_full_compactions.contains(t->tablet_id()) ||
                    t->tablet_state() != TABLET_RUNNING;
         };
     } else if (config::enable_parallel_cumu_compaction) {
         filter_out = [&tablet_preparing_cumu_compaction](CloudTablet* t) {
-            return !!tablet_preparing_cumu_compaction.count(t->tablet_id()) ||
-                   t->tablet_state() != TABLET_RUNNING;
+            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+                   (t->tablet_state() != TABLET_RUNNING &&
+                    (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
         };
     } else {
         filter_out = [&tablet_preparing_cumu_compaction,
                       &submitted_cumu_compactions](CloudTablet* t) {
-            return !!tablet_preparing_cumu_compaction.count(t->tablet_id()) ||
-                   !!submitted_cumu_compactions.count(t->tablet_id()) ||
-                   t->tablet_state() != TABLET_RUNNING;
+            return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
+                   submitted_cumu_compactions.contains(t->tablet_id()) ||
+                   (t->tablet_state() != TABLET_RUNNING &&
+                    (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
         };
     }
 

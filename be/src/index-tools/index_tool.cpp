@@ -231,6 +231,24 @@ void check_terms_stats(lucene::store::Directory* dir) {
     _CLLDELETE(r);
 }
 
+std::unique_ptr<DorisCompoundReader> get_compound_reader(std::string file_path) {
+    CLuceneError err;
+    CL_NS(store)::IndexInput* index_input = nullptr;
+    auto ok = DorisFSDirectory::FSIndexInput::open(doris::io::global_local_filesystem(),
+                                                   file_path.c_str(), index_input, err, 4096, -1);
+    if (!ok) {
+        // now index_input = nullptr
+        if (err.number() == CL_ERR_FileNotFound) {
+            std::cerr << "file " << file_path << " not found" << std::endl;
+            exit(-1);
+        }
+        std::cerr << "file " << file_path << " open error:" << err.what() << std::endl;
+        exit(-1);
+    }
+
+    return std::make_unique<DorisCompoundReader>(index_input, 4096);
+}
+
 int main(int argc, char** argv) {
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
@@ -253,9 +271,7 @@ int main(int argc, char** argv) {
         }
         std::unique_ptr<DorisCompoundReader> reader;
         try {
-            reader = std::make_unique<DorisCompoundReader>(
-                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
-                    4096);
+            reader = get_compound_reader(file_path);
             std::vector<std::string> files;
             std::cout << "Nested files for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
@@ -288,9 +304,7 @@ int main(int argc, char** argv) {
         }
         std::unique_ptr<DorisCompoundReader> reader;
         try {
-            reader = std::make_unique<DorisCompoundReader>(
-                    DorisFSDirectoryFactory::getDirectory(fs, dir_str.c_str()), file_str.c_str(),
-                    4096);
+            reader = get_compound_reader(file_path);
             std::cout << "Term statistics for " << file_str << std::endl;
             std::cout << "==================================" << std::endl;
             check_terms_stats(reader.get());
@@ -332,9 +346,8 @@ int main(int argc, char** argv) {
                         if (!file_str.ends_with(".idx")) {
                             continue;
                         }
-                        reader = std::make_unique<DorisCompoundReader>(
-                                DorisFSDirectoryFactory::getDirectory(fs, file_str.c_str()),
-                                file_str.c_str(), 4096);
+                        const auto file_path = FLAGS_directory + "/" + file_str;
+                        reader = get_compound_reader(file_path);
                         std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                                   << file_str << std::endl;
                         std::cout << "==================================" << std::endl;
@@ -356,9 +369,7 @@ int main(int argc, char** argv) {
                     std::cerr << "file " << file_path << " not found" << std::endl;
                     return -1;
                 }
-                reader = std::make_unique<DorisCompoundReader>(
-                        DorisFSDirectoryFactory::getDirectory(fs, FLAGS_directory.c_str()),
-                        FLAGS_idx_file_name.c_str(), 4096);
+                reader = get_compound_reader(file_path);
                 std::cout << "Search " << FLAGS_column_name << ":" << FLAGS_term << " from "
                           << FLAGS_idx_file_name << std::endl;
                 std::cout << "==================================" << std::endl;
@@ -448,9 +459,9 @@ int main(int argc, char** argv) {
             // format: rowsetId_segmentId_indexId.idx
             std::string src_idx_full_name =
                     src_index_files[i] + "_" + std::to_string(index_id) + ".idx";
-            DorisCompoundReader* reader = new DorisCompoundReader(
-                    DorisFSDirectoryFactory::getDirectory(fs, tablet_path.c_str()),
-                    src_idx_full_name.c_str());
+            const auto file_path = tablet_path + "/" + src_idx_full_name;
+            auto reader_ptr = get_compound_reader(file_path);
+            DorisCompoundReader* reader = reader_ptr.release();
             src_index_dirs[i] = reader;
         }
 

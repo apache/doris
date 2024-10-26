@@ -258,6 +258,7 @@ struct TFileTextScanRangeParams {
     4: optional string mapkv_delimiter;
     5: optional i8 enclose;
     6: optional i8 escape;
+    7: optional string null_format;
 }
 
 struct TFileScanSlotInfo {
@@ -308,6 +309,7 @@ struct TIcebergFileDesc {
     // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
     6: optional string original_file_path;
+    7: optional i64 row_count;
 }
 
 struct TPaimonDeletionFileDesc {
@@ -329,6 +331,7 @@ struct TPaimonFileDesc {
     10: optional i64 last_update_time
     11: optional string file_format
     12: optional TPaimonDeletionFileDesc deletion_file;
+    13: optional map<string, string> hadoop_conf
 }
 
 struct TTrinoConnectorFileDesc {
@@ -346,7 +349,10 @@ struct TTrinoConnectorFileDesc {
 }
 
 struct TMaxComputeFileDesc {
-    1: optional string partition_spec
+    1: optional string partition_spec // deprecated 
+    2: optional string session_id 
+    3: optional string table_batch_read_session
+
 }
 
 struct THudiFileDesc {
@@ -439,6 +445,8 @@ struct TFileScanRangeParams {
     20: optional list<Exprs.TExpr> pre_filter_exprs_list
     21: optional Types.TUniqueId load_id
     22: optional TTextSerdeType  text_serde_type 
+    // used by flexible partial update
+    23: optional string sequence_map_col
 }
 
 struct TFileRangeDesc {
@@ -534,6 +542,12 @@ struct TPartitionsMetadataParams {
   3: optional string table
 }
 
+struct TPartitionValuesMetadataParams {
+  1: optional string catalog
+  2: optional string database
+  3: optional string table
+}
+
 struct TJobsMetadataParams {
   1: optional string type
   2: optional Types.TUserIdentity current_user_ident
@@ -551,6 +565,10 @@ struct TQueriesMetadataParams {
   4: optional TJobsMetadataParams jobs_params
   5: optional TTasksMetadataParams tasks_params
   6: optional TPartitionsMetadataParams partitions_params
+  7: optional TPartitionValuesMetadataParams partition_values_params
+}
+
+struct TMetaCacheStatsParams {
 }
 
 struct TMetaScanRange {
@@ -563,6 +581,8 @@ struct TMetaScanRange {
   7: optional TJobsMetadataParams jobs_params
   8: optional TTasksMetadataParams tasks_params
   9: optional TPartitionsMetadataParams partitions_params
+  10: optional TMetaCacheStatsParams meta_cache_stats_params
+  11: optional TPartitionValuesMetadataParams partition_values_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -1346,6 +1366,7 @@ struct TPlanNode {
   49: optional i64 push_down_count
 
   50: optional list<list<Exprs.TExpr>> distribute_expr_lists
+  51: optional bool is_serial_operator
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

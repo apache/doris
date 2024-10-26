@@ -165,14 +165,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
     int seg_id = this->_num_segment.fetch_add(1, std::memory_order_relaxed);
 
     io::FileWriterPtr file_writer;
-    io::FileWriterOptions opts {
-            .write_file_cache = this->_context.write_file_cache,
-            .is_cold_data = this->_context.is_hot_data,
-            .file_cache_expiration = this->_context.file_cache_ttl_sec > 0 &&
-                                                     this->_context.newest_write_timestamp > 0
-                                             ? this->_context.newest_write_timestamp +
-                                                       this->_context.file_cache_ttl_sec
-                                             : 0};
+    io::FileWriterOptions opts = this->_context.get_file_writer_options();
 
     auto path = context.segment_path(seg_id);
     auto& fs = context.fs_ref();
@@ -212,8 +205,10 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
             return st;
         }
-        this->_total_data_size += segment_size + segment_writer->get_inverted_index_file_size();
-        this->_total_index_size += segment_writer->get_inverted_index_file_size();
+        this->_total_data_size += segment_size + segment_writer->get_inverted_index_total_size();
+        this->_total_index_size += segment_writer->get_inverted_index_total_size();
+        this->_idx_files_info.add_file_info(segment_writer->get_segment_id(),
+                                            segment_writer->get_inverted_index_file_info());
         segment_writer.reset();
     }
     return Status::OK();

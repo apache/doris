@@ -71,12 +71,14 @@ suite("test_base_mtmv","mtmv") {
     sql """
         alter table ${tableName} add COLUMN new_col INT AFTER username;
     """
+    assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
     order_qt_add_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     // rename column
     sql """
         alter table ${tableName} rename COLUMN new_col new_col_1;
     """
+    assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
     order_qt_rename_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
@@ -88,6 +90,7 @@ suite("test_base_mtmv","mtmv") {
     sql """
         alter table ${tableName} modify COLUMN new_col_1 BIGINT;
     """
+    assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
     order_qt_modify_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO
@@ -99,6 +102,7 @@ suite("test_base_mtmv","mtmv") {
     sql """
         alter table ${tableName} drop COLUMN new_col_1;
     """
+    assertEquals("FINISHED", getAlterColumnFinalState("${tableName}"))
     order_qt_drop_column "select Name,State,RefreshState  from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} AUTO

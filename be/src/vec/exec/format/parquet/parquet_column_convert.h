@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "vec/core/types.h"
+#include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exec/format/column_type_convert.h"
 #include "vec/exec/format/format_common.h"
@@ -39,6 +40,9 @@ struct ConvertParams {
     int64_t scale_to_nano_factor = 1;
     DecimalScaleParams decimal_scale;
     FieldSchema* field_schema = nullptr;
+
+    //For UInt8 -> Int16,UInt16 -> Int32,UInt32 -> Int64,UInt64 -> Int128.
+    bool is_type_compatibility = false;
 
     /**
      * Some frameworks like paimon maybe writes non-standard parquet files. Timestamp field doesn't have
@@ -108,6 +112,7 @@ struct ConvertParams {
             t.from_unixtime(0, *ctz);
             offset_days = t.day() == 31 ? -1 : 0;
         }
+        is_type_compatibility = field_schema_->is_type_compatibility;
     }
 
     template <typename DecimalPrimitiveType>
@@ -273,6 +278,67 @@ class LittleIntPhysicalConverter : public PhysicalToLogicalConverter {
     }
 };
 
+template <PrimitiveType type>
+struct UnsignedTypeTraits;
+
+template <>
+struct UnsignedTypeTraits<TYPE_SMALLINT> {
+    using UnsignedCppType = UInt8;
+    //https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#unsigned-integers
+    //INT(8, false), INT(16, false), and INT(32, false) must annotate an int32 primitive type and INT(64, false)
+    //must annotate an int64 primitive type.
+    using StorageCppType = Int32;
+    using StorageColumnType = vectorized::ColumnInt32;
+};
+
+template <>
+struct UnsignedTypeTraits<TYPE_INT> {
+    using UnsignedCppType = UInt16;
+    using StorageCppType = Int32;
+    using StorageColumnType = vectorized::ColumnInt32;
+};
+
+template <>
+struct UnsignedTypeTraits<TYPE_BIGINT> {
+    using UnsignedCppType = UInt32;
+    using StorageCppType = Int32;
+    using StorageColumnType = vectorized::ColumnInt32;
+};
+
+template <>
+struct UnsignedTypeTraits<TYPE_LARGEINT> {
+    using UnsignedCppType = UInt64;
+    using StorageCppType = Int64;
+    using StorageColumnType = vectorized::ColumnInt64;
+};
+
+template <PrimitiveType IntPrimitiveType>
+class UnsignedIntegerConverter : public PhysicalToLogicalConverter {
+    Status physical_convert(ColumnPtr& src_physical_col, ColumnPtr& src_logical_column) override {
+        using UnsignedCppType = typename UnsignedTypeTraits<IntPrimitiveType>::UnsignedCppType;
+        using StorageCppType = typename UnsignedTypeTraits<IntPrimitiveType>::StorageCppType;
+        using StorageColumnType = typename UnsignedTypeTraits<IntPrimitiveType>::StorageColumnType;
+        using DstColumnType = typename PrimitiveTypeTraits<IntPrimitiveType>::ColumnType;
+
+        ColumnPtr from_col = remove_nullable(src_physical_col);
+        MutableColumnPtr to_col = remove_nullable(src_logical_column)->assume_mutable();
+        auto& src_data = static_cast<const StorageColumnType*>(from_col.get())->get_data();
+
+        size_t rows = src_data.size();
+        size_t start_idx = to_col->size();
+        to_col->resize(start_idx + rows);
+        auto& data = static_cast<DstColumnType&>(*to_col.get()).get_data();
+
+        for (int i = 0; i < rows; i++) {
+            StorageCppType src_value = src_data[i];
+            auto unsigned_value = static_cast<UnsignedCppType>(src_value);
+            data[start_idx + i] = unsigned_value;
+        }
+
+        return Status::OK();
+    }
+};
+
 class FixedSizeBinaryConverter : public PhysicalToLogicalConverter {
 private:
     int _type_length;
@@ -336,7 +402,23 @@ public:
     M(13, int128_t)          \
     M(14, int128_t)          \
     M(15, int128_t)          \
-    M(16, int128_t)
+    M(16, int128_t)          \
+    M(17, wide::Int256)      \
+    M(18, wide::Int256)      \
+    M(19, wide::Int256)      \
+    M(20, wide::Int256)      \
+    M(21, wide::Int256)      \
+    M(22, wide::Int256)      \
+    M(23, wide::Int256)      \
+    M(24, wide::Int256)      \
+    M(25, wide::Int256)      \
+    M(26, wide::Int256)      \
+    M(27, wide::Int256)      \
+    M(28, wide::Int256)      \
+    M(29, wide::Int256)      \
+    M(30, wide::Int256)      \
+    M(31, wide::Int256)      \
+    M(32, wide::Int256)
 
         switch (_type_length) {
             APPLY_FOR_DECIMALS()

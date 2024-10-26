@@ -46,7 +46,41 @@ suite("fold_constant_by_be") {
     log.info("result: {}, {}", res1, res2)
     assertEquals(res1[0][0], res2[0][0])
 
-    qt_sql "explain select sleep(sign(1)*100);"
+    explain {
+         sql "select sleep(sign(1)*100);"
+         contains "sleep(100)"
+    }
+
     sql 'set query_timeout=12;'
-    qt_sql "select sleep(sign(1)*10);"
+    qt_sql "select sleep(sign(1)*5);"
+    
+    explain {
+        sql("verbose select substring('123456', 1, 3)")
+        contains "varchar(3)"
+    }
+
+    sql "drop table if exists table_200_undef_partitions2_keys3_properties4_distributed_by53"
+    sql """create table table_200_undef_partitions2_keys3_properties4_distributed_by53 (
+                    pk int,
+                    col_char_255__undef_signed char(255)  null  ,
+                    col_char_100__undef_signed char(100)  null  ,
+                    col_char_255__undef_signed_not_null char(255)  not null  ,
+                    col_char_100__undef_signed_not_null char(100)  not null  ,
+                    col_varchar_255__undef_signed varchar(255)  null  ,
+                    col_varchar_255__undef_signed_not_null varchar(255)  not null  ,
+                    col_varchar_1000__undef_signed varchar(1000)  null  ,
+                    col_varchar_1000__undef_signed_not_null varchar(1000)  not null  ,
+                    col_varchar_1001__undef_signed varchar(1001)  null  ,
+                    col_varchar_1001__undef_signed_not_null varchar(1001)  not null  
+                    ) engine=olap
+                    DUPLICATE KEY(pk, col_char_255__undef_signed, col_char_100__undef_signed)
+                    distributed by hash(pk) buckets 10
+                    properties("replication_num" = "1");"""
+    explain {
+        sql("select LAST_VALUE(col_char_255__undef_signed_not_null, false) over (partition by " +
+                "concat('GkIPbzAZSu', col_char_100__undef_signed), mask('JrqFkEDqeA') " +
+                "order by pk rows between unbounded preceding and 6 following) AS col_alias26947 " +
+                "from table_200_undef_partitions2_keys3_properties4_distributed_by53;")
+        notContains("mask")
+    }
 }

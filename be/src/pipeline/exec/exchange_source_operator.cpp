@@ -17,6 +17,7 @@
 
 #include "exchange_source_operator.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "pipeline/exec/operator.h"
@@ -29,7 +30,7 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
 
@@ -62,8 +63,8 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
-            profile(), p.is_merging());
+            state, this, p.input_row_desc(), state->fragment_instance_id(), p.node_id(),
+            p.num_senders(), profile(), p.is_merging());
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());
@@ -118,19 +119,13 @@ Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
     return Status::OK();
 }
 
-Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::prepare(state));
+Status ExchangeSourceOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::open(state));
     DCHECK_GT(_num_senders, 0);
 
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _row_descriptor, _row_descriptor));
     }
-
-    return Status::OK();
-}
-
-Status ExchangeSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::open(state));
     if (_is_merging) {
         RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     }
@@ -164,9 +159,10 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
                 local_state.num_rows_skipped += block->rows();
                 block->set_num_rows(0);
             } else if (local_state.num_rows_skipped < _offset) {
-                auto offset = _offset - local_state.num_rows_skipped;
+                int64_t offset = _offset - local_state.num_rows_skipped;
                 local_state.num_rows_skipped = _offset;
-                block->set_num_rows(block->rows() - offset);
+                // should skip some rows
+                block->skip_num_rows(offset);
             }
         }
         if (local_state.num_rows_returned() + block->rows() < _limit) {
@@ -177,8 +173,6 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             block->set_num_rows(limit);
             local_state.set_num_rows_returned(_limit);
         }
-        COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
-        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     }
     return status;
 }

@@ -21,12 +21,15 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.jobs.executor.AbstractBatchJobExecutor;
@@ -44,6 +47,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -62,6 +66,7 @@ import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ParseTree;
 import org.antlr.v4.runtime.tree.RuleNode;
@@ -69,6 +74,7 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.TreeMap;
 
 /** BaseViewInfo */
@@ -94,9 +100,6 @@ public class BaseViewInfo {
         if (logicalQuery instanceof LogicalFileSink) {
             throw new AnalysisException("Not support OUTFILE clause in CREATE VIEW statement");
         }
-        if (parsedViewPlan instanceof UnboundResultSink) {
-            parsedViewPlan = (LogicalPlan) ((UnboundResultSink<?>) parsedViewPlan).child();
-        }
         CascadesContext viewContextForStar = CascadesContext.initContext(
                 stmtCtx, parsedViewPlan, PhysicalProperties.ANY);
         AnalyzerForCreateView analyzerForStar = new AnalyzerForCreateView(viewContextForStar);
@@ -107,7 +110,15 @@ public class BaseViewInfo {
         analyzedPlan.accept(PlanSlotFinder.INSTANCE, ctx.getStatementContext());
     }
 
-    protected String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap) {
+    /**
+     * Add the full path to the field
+     *
+     * @param indexStringSqlMap key is the start and end position of the sql substring that needs to be replaced,
+     *         and value is the new string used for replacement.
+     * @param querySql origin query sql
+     * @return sql rewritten sql
+     */
+    public static String rewriteSql(TreeMap<Pair<Integer, Integer>, String> indexStringSqlMap, String querySql) {
         StringBuilder builder = new StringBuilder();
         int beg = 0;
         for (Map.Entry<Pair<Integer, Integer>, String> entry : indexStringSqlMap.entrySet()) {
@@ -150,7 +161,8 @@ public class BaseViewInfo {
     protected void createFinalCols(List<Slot> outputs) throws org.apache.doris.common.AnalysisException {
         if (simpleColumnDefinitions.isEmpty()) {
             for (Slot output : outputs) {
-                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType());
+                Column column = new Column(output.getName(), output.getDataType().toCatalogDataType(),
+                        output.nullable());
                 finalCols.add(column);
             }
         } else {
@@ -159,9 +171,26 @@ public class BaseViewInfo {
             }
             for (int i = 0; i < simpleColumnDefinitions.size(); ++i) {
                 Column column = new Column(simpleColumnDefinitions.get(i).getName(),
-                        outputs.get(i).getDataType().toCatalogDataType());
+                        outputs.get(i).getDataType().toCatalogDataType(), outputs.get(i).nullable());
                 column.setComment(simpleColumnDefinitions.get(i).getComment());
                 finalCols.add(column);
+            }
+        }
+    }
+
+    /**validate*/
+    public void validate(ConnectContext ctx) throws UserException {
+        NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
+        planner.planWithLock(new UnboundResultSink<>(logicalQuery), PhysicalProperties.ANY, ExplainLevel.NONE);
+        Set<String> colSets = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (Column col : finalCols) {
+            if (!colSets.add(col.getName())) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, col.getName());
+            }
+            try {
+                FeNameFormat.checkColumnName(col.getName());
+            } catch (org.apache.doris.common.AnalysisException e) {
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(e.getMessage(), e);
             }
         }
     }
@@ -245,8 +274,11 @@ public class BaseViewInfo {
         }
     }
 
-    private static class PlanSlotFinder extends DefaultPlanVisitor<Void, StatementContext> {
-        private static PlanSlotFinder INSTANCE = new PlanSlotFinder();
+    /**
+     * PlanSlotFinder
+     */
+    public static class PlanSlotFinder extends DefaultPlanVisitor<Void, StatementContext> {
+        public static PlanSlotFinder INSTANCE = new PlanSlotFinder();
 
         @Override
         public Void visitLogicalView(LogicalView<? extends Plan> alias, StatementContext context) {

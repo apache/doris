@@ -101,6 +101,7 @@ stmt :
      | drop_procedure_stmt
      | show_procedure_stmt
      | show_create_procedure_stmt
+     | show_config_stmt
      | exec_stmt
      | exit_stmt
      | fetch_stmt
@@ -342,6 +343,10 @@ show_procedure_stmt:
 show_create_procedure_stmt:
       SHOW CREATE PROCEDURE name=multipartIdentifier
     ;      
+
+show_config_stmt:
+      SHOW type=(FRONTEND | BACKEND) CONFIG (LIKE pattern=valueExpression)? (FROM backendId=INTEGER_VALUE)?
+    ;
 
 create_routine_params :
        LEFT_PAREN RIGHT_PAREN
@@ -821,6 +826,7 @@ non_reserved_words :                      // Tokens that are not reserved words 
      | DIR
      | DIRECTORY
      | DISTRIBUTE
+     | E
      | ESCAPED
      | EXEC
      | EXCEPTION

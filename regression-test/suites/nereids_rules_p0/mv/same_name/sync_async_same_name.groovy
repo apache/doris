@@ -39,11 +39,6 @@ suite("sync_async_same_name") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -63,28 +58,6 @@ suite("sync_async_same_name") {
     """
 
     sql """analyze table orders with sync;"""
-
-    def check_rewrite_but_not_chose = { mv_sql, query_sql, mv_name ->
-
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-
-        def job_name = getJobName(db, mv_name);
-        waitingMTMVTaskFinished(job_name)
-        explain {
-            sql("${query_sql}")
-            check {result ->
-                def splitResult = result.split("MaterializedViewRewriteFail")
-                splitResult.length == 2 ? splitResult[0].contains(mv_name) : false
-            }
-        }
-    }
 
     def common_mv_name = 'common_mv_name'
 
@@ -139,35 +112,14 @@ suite("sync_async_same_name") {
     createMV ("create materialized view ${common_mv_name} as ${mv_query};")
 
     // create async mv
-    sql """DROP MATERIALIZED VIEW IF EXISTS ${common_mv_name}"""
-    sql"""
-        CREATE MATERIALIZED VIEW ${common_mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mtmv_sql}
-        """
-    def job_name = getJobName(db, common_mv_name);
-    waitingMTMVTaskFinished(job_name)
+    create_async_mv(db, common_mv_name, mtmv_sql)
+
 
     // only async mv rewrite successfully
-    explain {
-        sql("${mtmv_query}")
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(common_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen(mtmv_query, common_mv_name)
 
     // both sync and async mv rewrite successfully
-    explain {
-        sql("${mv_query}")
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(common_mv_name)
-                    && splitResult[0].contains("orders#${common_mv_name}") : false
-        }
-    }
+    mv_rewrite_all_success_without_check_chosen(mv_query, [common_mv_name, "orders.${common_mv_name}"])
 
 
     order_qt_query_mv_after "${mv_query}"

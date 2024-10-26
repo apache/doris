@@ -7,8 +7,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalQuickSort[LOCAL_SORT]
 ----------PhysicalWindow
 ------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalProject
-----------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalDistribute[DistributionSpecHash]
+----------------PhysicalProject
 ------------------hashAgg[GLOBAL]
 --------------------PhysicalDistribute[DistributionSpecHash]
 ----------------------hashAgg[LOCAL]
@@ -21,7 +21,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2
 ------------------------------------PhysicalProject
---------------------------------------filter((((date_dim.d_year = 2001) OR ((date_dim.d_year = 2000) AND (date_dim.d_moy = 12))) OR ((date_dim.d_year = 2002) AND (date_dim.d_moy = 1))))
+--------------------------------------filter((((date_dim.d_year = 2001) OR ((date_dim.d_year = 2000) AND (date_dim.d_moy = 12))) OR ((date_dim.d_year = 2002) AND (date_dim.d_moy = 1))) and d_year IN (2000, 2001, 2002))
 ----------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalProject
 ----------------------------------PhysicalOlapScan[call_center]
@@ -33,13 +33,13 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((v1.cc_name = v1_lead.cc_name) and (v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1))) otherCondition=()
+--------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((v1.cc_name = v1_lead.cc_name) and (v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1))) otherCondition=() build RFs:RF7 i_category->[i_category,i_category];RF8 i_brand->[i_brand,i_brand];RF9 cc_name->[cc_name,cc_name];RF10 expr_(rn - 1)->[(rn + 1),rn]
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN shuffle] hashCondition=((v1.cc_name = v1_lag.cc_name) and (v1.i_brand = v1_lag.i_brand) and (v1.i_category = v1_lag.i_category) and (v1.rn = expr_(rn + 1))) otherCondition=()
+------------------hashJoin[INNER_JOIN shuffle] hashCondition=((v1.cc_name = v1_lag.cc_name) and (v1.i_brand = v1_lag.i_brand) and (v1.i_category = v1_lag.i_category) and (v1.rn = expr_(rn + 1))) otherCondition=() build RFs:RF3 i_category->[i_category];RF4 i_brand->[i_brand];RF5 cc_name->[cc_name];RF6 rn->[(rn + 1)]
 --------------------PhysicalProject
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF3 RF4 RF5 RF6 RF7 RF8 RF9 RF10
 --------------------filter((if((avg_monthly_sales > 0.0000), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000) and (v2.avg_monthly_sales > 0.0000) and (v2.d_year = 2001))
-----------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF7 RF8 RF9 RF10
 ----------------PhysicalProject
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 

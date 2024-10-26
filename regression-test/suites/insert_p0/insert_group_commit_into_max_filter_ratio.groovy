@@ -41,19 +41,6 @@ suite("insert_group_commit_into_max_filter_ratio") {
         }
     }
 
-    def normal_insert = { sql, expected_row_count ->
-        def stmt = prepareStatement """ ${sql}  """
-        def result = stmt.executeUpdate()
-        logger.info("insert result: " + result)
-        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
-        logger.info("result server info: " + serverInfo)
-        if (result != expected_row_count) {
-            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
-        }
-        assertTrue(serverInfo.contains("'status':'VISIBLE'"))
-            assertTrue(serverInfo.contains("'label':'label"))
-    }
-
     def group_commit_insert = { sql, expected_row_count ->
         def stmt = prepareStatement """ ${sql}  """
         def result = stmt.executeUpdate()
@@ -130,7 +117,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
         assertTrue(json.GroupCommit)
         // assertTrue(json.Label.startsWith("group_commit_"))
         assertEquals(total_rows, json.NumberTotalRows)
-        assertEquals(loaded_rows, json.NumberLoadedRows)
+        assertEquals(0, json.NumberLoadedRows)
         assertEquals(filtered_rows, json.NumberFilteredRows)
         assertEquals(unselected_rows, json.NumberUnselectedRows)
         if (filtered_rows > 0) {
@@ -172,7 +159,7 @@ suite("insert_group_commit_into_max_filter_ratio") {
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1",
-            "group_commit_interval_ms" = "1000"
+            "group_commit_interval_ms" = "200"
         );
     """
 
@@ -181,70 +168,49 @@ suite("insert_group_commit_into_max_filter_ratio") {
     // if enable strict mode
     // 100 rows(success, fail), 10000 rows(success, fail), 15000 rows(success, fail)
     // async mode, sync mode, off mode
-    for (item in ["legacy", "nereids"]) {
-        sql """ truncate table ${tableName} """
-        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-            if (item == "nereids") {
-                sql """ set enable_nereids_dml = true; """
-                sql """ set enable_nereids_planner=true; """
-                sql """ set enable_fallback_to_original_planner=false; """
-            } else {
-                sql """ set enable_nereids_dml = false; """
-            }
+    sql """ truncate table ${tableName} """
+    connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
 
-            sql """ set group_commit = sync_mode; """
-            group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10); """, 1
-            sql """ set group_commit = async_mode; """
-            group_commit_insert """ insert into ${dbTableName}(id) values(2); """, 1
+        sql """ set group_commit = sync_mode; """
+        group_commit_insert """ insert into ${dbTableName} values (1, 'a', 10); """, 1
+        sql """ set group_commit = async_mode; """
+        group_commit_insert """ insert into ${dbTableName}(id) values(2); """, 1
+        sql """ set group_commit = off_mode; """
+        off_mode_group_commit_insert """ insert into ${dbTableName} values (3, 'a', 10); """, 1
+
+        sql """ set group_commit = async_mode; """
+        group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
+        sql """ set enable_insert_strict = false; """
+        group_commit_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
+
+        // The row 6 and 7 is different between legacy and nereids
+        try {
             sql """ set group_commit = off_mode; """
-            off_mode_group_commit_insert """ insert into ${dbTableName} values (3, 'a', 10); """, 1
-
-            sql """ set group_commit = async_mode; """
-            if (item == "nereids") {
-                group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
-            } else {
-                fail_group_commit_insert """ insert into ${dbTableName} values (4, 'abc', 10); """, 0
-            }
-            sql """ set enable_insert_strict = false; """
-            group_commit_insert """ insert into ${dbTableName} values (5, 'abc', 10); """, 0
-
-            // The row 6 and 7 is different between legacy and nereids
-            try {
-                sql """ set group_commit = off_mode; """
-                sql """ set enable_insert_strict = true; """
-                sql """ insert into ${dbTableName} values (6, 'a', 'a'); """
-            } catch (Exception e) {
-                logger.info("exception: " + e)
-                assertTrue(e.toString().contains("Invalid number format"))
-            }
-
-            try {
-                sql """ set group_commit = off_mode; """
-                sql """ set enable_insert_strict = false; """
-                sql """ insert into ${dbTableName} values (7, 'a', 'a'); """
-            } catch (Exception e) {
-                logger.info("exception: " + e)
-                assertTrue(e.toString().contains("Invalid number format"))
-            }
-
-            // TODO should throw exception?
-            sql """ set group_commit = async_mode; """
             sql """ set enable_insert_strict = true; """
-            if (item == "nereids") {
-                // will write [8, a, null]
-                // group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 1
-            } else {
-                fail_group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 0
-            }
-            sql """ set group_commit = async_mode; """
+            sql """ insert into ${dbTableName} values (6, 'a', 'a'); """
+        } catch (Exception e) {
+            logger.info("exception: " + e)
+            assertTrue(e.toString().contains("Invalid number format"))
+        }
+
+        try {
+            sql """ set group_commit = off_mode; """
             sql """ set enable_insert_strict = false; """
-            group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 1
+            sql """ insert into ${dbTableName} values (7, 'a', 'a'); """
+        } catch (Exception e) {
+            logger.info("exception: " + e)
+            assertTrue(e.toString().contains("Invalid number format"))
         }
-        if (item == "nereids") {
-            get_row_count_with_retry(6)
-        } else {
-            get_row_count_with_retry(4)
-        }
+
+        // TODO should throw exception?
+        sql """ set group_commit = async_mode; """
+        sql """ set enable_insert_strict = true; """
+        // will write [8, a, null]
+        // group_commit_insert """ insert into ${dbTableName} values (8, 'a', 'a'); """, 1
+        sql """ set group_commit = async_mode; """
+        sql """ set enable_insert_strict = false; """
+        group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 1
+        get_row_count_with_retry(8)
         order_qt_sql """ select * from ${dbTableName} """
     }
     sql """ truncate table ${tableName} """

@@ -34,7 +34,7 @@ import java.util.stream.Collectors;
 /*
  * CANCEL ALTER COLUMN|ROLLUP FROM db_name.table_name
  */
-public class CancelAlterTableStmt extends CancelStmt {
+public class CancelAlterTableStmt extends CancelStmt implements NotFallbackInParser {
 
     private AlterType alterType;
 

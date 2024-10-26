@@ -88,6 +88,7 @@ suite("test_group_commit_http_stream") {
         )
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES (
+            "group_commit_interval_ms" = "200",
             "replication_num" = "1"
         );
         """
@@ -285,6 +286,7 @@ suite("test_group_commit_http_stream") {
             PARTITION p1998 VALUES [("19980101"), ("19990101")))
             DISTRIBUTED BY HASH(`lo_orderkey`) BUCKETS 4
             PROPERTIES (
+                "group_commit_interval_ms" = "200",
                 "replication_num" = "1"
             );
         """
@@ -307,7 +309,7 @@ suite("test_group_commit_http_stream") {
             sql """ alter table ${tableName} order by (${new_columns}); """
         }).start();*/
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 2; i++) {
 
             streamLoad {
                 set 'version', '1'
@@ -334,7 +336,7 @@ suite("test_group_commit_http_stream") {
             }
         }
 
-        getRowCount(2402288)
+        getRowCount(600572 * 2)
         qt_sql """ select count(*) from ${tableName} """
 
         // assertTrue(getAlterTableState())

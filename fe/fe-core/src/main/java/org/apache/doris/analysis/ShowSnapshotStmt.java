@@ -32,7 +32,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 
-public class ShowSnapshotStmt extends ShowStmt {
+public class ShowSnapshotStmt extends ShowStmt implements NotFallbackInParser {
     public enum SnapshotType {
         REMOTE,
         LOCAL

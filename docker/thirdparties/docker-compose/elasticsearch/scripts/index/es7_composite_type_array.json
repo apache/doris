@@ -1,0 +1,13 @@
+{
+  "settings": {
+    "number_of_shards": 1,
+    "number_of_replicas": 0
+  },
+  "mappings": {
+    "properties": {
+      "name": { "type": "keyword" },
+      "sports": { "type": "keyword", "doc_values": false},
+      "scores": { "type": "integer", "doc_values": false}
+    }
+  }
+}

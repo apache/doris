@@ -65,14 +65,6 @@ suite ("q_4_1_r1") {
         ) ENGINE=OLAP
         DUPLICATE KEY(`LO_ORDERDATE`, `LO_ORDERKEY`)
         COMMENT "OLAP"
-        PARTITION BY RANGE(`LO_ORDERDATE`)
-        (PARTITION p1992 VALUES [("-2147483648"), ("19930101")),
-        PARTITION p1993 VALUES [("19930101"), ("19940101")),
-        PARTITION p1994 VALUES [("19940101"), ("19950101")),
-        PARTITION p1995 VALUES [("19950101"), ("19960101")),
-        PARTITION p1996 VALUES [("19960101"), ("19970101")),
-        PARTITION p1997 VALUES [("19970101"), ("19980101")),
-        PARTITION p1998 VALUES [("19980101"), ("19990101")))
         DISTRIBUTED BY HASH(`LO_ORDERKEY`) BUCKETS 48
         PROPERTIES (
         "replication_num" = "1",
@@ -104,9 +96,8 @@ suite ("q_4_1_r1") {
 
     sql """analyze table lineorder_flat with sync;"""
     sql """set enable_stats=false;"""
-    
-    explain {
-        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+
+    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
             C_NATION,
             SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
             FROM lineorder_flat
@@ -115,9 +106,7 @@ suite ("q_4_1_r1") {
             AND S_REGION = 'AMERICA'
             AND P_MFGR IN ('MFGR#1', 'MFGR#2')
             GROUP BY YEAR, C_NATION
-            ORDER BY YEAR ASC, C_NATION ASC;""")
-        contains "(lineorder_mv)"
-    }
+            ORDER BY YEAR ASC, C_NATION ASC;""", "lineorder_mv")
 
     qt_select_mv """SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
                 C_NATION,
@@ -130,8 +119,7 @@ suite ("q_4_1_r1") {
                 GROUP BY YEAR, C_NATION
                 ORDER BY YEAR ASC, C_NATION ASC;"""
     sql """set enable_stats=true;"""
-    explain {
-        sql("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
+    mv_rewrite_success("""SELECT (LO_ORDERDATE DIV 10000) AS YEAR,
             C_NATION,
             SUM(LO_REVENUE - LO_SUPPLYCOST) AS profit
             FROM lineorder_flat
@@ -140,7 +128,5 @@ suite ("q_4_1_r1") {
             AND S_REGION = 'AMERICA'
             AND P_MFGR IN ('MFGR#1', 'MFGR#2')
             GROUP BY YEAR, C_NATION
-            ORDER BY YEAR ASC, C_NATION ASC;""")
-        contains "(lineorder_mv)"
-    }
+            ORDER BY YEAR ASC, C_NATION ASC;""", "lineorder_mv")
 }

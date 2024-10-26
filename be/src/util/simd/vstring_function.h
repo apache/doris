@@ -187,6 +187,23 @@ public:
         return p;
     }
 
+    // Iterate a UTF-8 string without exceeding a given length n.
+    // The function returns two values:
+    // the first represents the byte length traversed, and the second represents the char length traversed.
+    static inline std::pair<size_t, size_t> iterate_utf8_with_limit_length(const char* begin,
+                                                                           const char* end,
+                                                                           size_t n) {
+        const char* p = begin;
+        int char_size = 0;
+
+        size_t i = 0;
+        for (; i < n && p < end; ++i, p += char_size) {
+            char_size = UTF8_BYTE_LENGTH[static_cast<uint8_t>(*p)];
+        }
+
+        return {p - begin, i};
+    }
+
     // Gcc will do auto simd in this function
     static bool is_ascii(const StringRef& str) {
 #ifdef __AVX2__

@@ -433,6 +433,11 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
+                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                    for (size_t i = 0; i < size; ++i) {
+                        map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
+                    }
                 } else {
                     for (size_t i = 0; i < size; ++i) {
                         vec_to[i] = static_cast<ToFieldType>(vec_from[i]);
@@ -452,6 +457,12 @@ struct ConvertImpl {
                                         named_from.column->get_name(), Name::name);
         }
         return Status::OK();
+    }
+
+private:
+    static void map_ipv4_to_ipv6(IPv4 ipv4, UInt8* buf) {
+        unaligned_store<UInt64>(buf, 0x0000FFFF00000000ULL | static_cast<UInt64>(ipv4));
+        unaligned_store<UInt64>(buf + 8, 0);
     }
 };
 
@@ -720,8 +731,8 @@ struct ConvertImplGenericFromJsonb {
                 // add string to string column
                 if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
                     const auto* blob = static_cast<const JsonbBlobVal*>(value);
-                    assert_cast<ColumnString&>(*col_to).insert_data(blob->getBlob(),
-                                                                    blob->getBlobLen());
+                    assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(*col_to).insert_data(
+                            blob->getBlob(), blob->getBlobLen());
                     (*vec_null_map_to)[i] = 0;
                     continue;
                 }
@@ -806,6 +817,21 @@ struct ConvertImplGenericToJsonb {
 
         block.replace_by_position(
                 result, ColumnNullable::create(std::move(col_to), std::move(col_null_map_to)));
+        return Status::OK();
+    }
+};
+
+struct ConvertNothingToJsonb {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const size_t result, size_t input_rows_count) {
+        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+        const IColumn& col_from = *col_with_type_and_name.column;
+        auto data_type_to = block.get_by_position(result).type;
+        size_t size = col_from.size();
+        auto col_to = data_type_to->create_column_const_with_default_value(size);
+        ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 1);
+        block.replace_by_position(result, ColumnNullable::create(col_to->assume_mutable(),
+                                                                 std::move(col_null_map_to)));
         return Status::OK();
     }
 };
@@ -1525,7 +1551,15 @@ struct StringParsing {
         const ColumnString::Chars* chars = &col_from_string->get_chars();
         const IColumn::Offsets* offsets = &col_from_string->get_offsets();
 
+        [[maybe_unused]] UInt32 scale = 0;
+        if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
+            const auto* type = assert_cast<const DataTypeDateTimeV2*>(
+                    block.get_by_position(result).type.get());
+            scale = type->get_scale();
+        }
+
         size_t current_offset = 0;
+
         for (size_t i = 0; i < row; ++i) {
             size_t next_offset = (*offsets)[i];
             size_t string_size = next_offset - current_offset;
@@ -1541,10 +1575,7 @@ struct StringParsing {
                           res == StringParser::PARSE_OVERFLOW ||
                           res == StringParser::PARSE_UNDERFLOW);
             } else if constexpr (IsDataTypeDateTimeV2<ToDataType>) {
-                const auto* type = assert_cast<const DataTypeDateTimeV2*>(
-                        block.get_by_position(result).type.get());
-                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context,
-                                                    type->get_scale());
+                parsed = try_parse_impl<ToDataType>(vec_to[i], read_buffer, context, scale);
             } else {
                 parsed =
                         try_parse_impl<ToDataType, DataTypeString>(vec_to[i], read_buffer, context);
@@ -1997,6 +2028,8 @@ private:
             } else {
                 return &ConvertImplGenericFromString::execute;
             }
+        case TypeIndex::Nothing:
+            return &ConvertNothingToJsonb::execute;
         default:
             return &ConvertImplGenericToJsonb::execute;
         }
@@ -2277,8 +2310,7 @@ private:
 
             if constexpr (!(IsDataTypeDecimalOrNumber<ToDataType> || IsTimeType<ToDataType> ||
                             IsTimeV2Type<ToDataType> ||
-                            std::is_same_v<ToDataType, DataTypeTimeV2> ||
-                            std::is_same_v<ToDataType, DataTypeTime>)) {
+                            std::is_same_v<ToDataType, DataTypeTimeV2>)) {
                 return false;
             }
             return call_on_index_and_data_type<
@@ -2287,8 +2319,7 @@ private:
                 using FromDataType = typename Types2::LeftType;
                 if constexpr (!(IsDataTypeDecimalOrNumber<FromDataType> ||
                                 IsTimeType<FromDataType> || IsTimeV2Type<FromDataType> ||
-                                std::is_same_v<FromDataType, DataTypeTimeV2> ||
-                                std::is_same_v<FromDataType, DataTypeTime>)) {
+                                std::is_same_v<FromDataType, DataTypeTimeV2>)) {
                     return false;
                 }
                 if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
@@ -2439,7 +2470,6 @@ private:
                           std::is_same_v<ToDataType, DataTypeDateV2> ||
                           std::is_same_v<ToDataType, DataTypeDateTimeV2> ||
                           std::is_same_v<ToDataType, DataTypeTimeV2> ||
-                          std::is_same_v<ToDataType, DataTypeTime> ||
                           std::is_same_v<ToDataType, DataTypeIPv4> ||
                           std::is_same_v<ToDataType, DataTypeIPv6>) {
                 ret = create_wrapper(from_type, check_and_get_data_type<ToDataType>(to_type.get()),

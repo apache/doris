@@ -70,7 +70,7 @@ private:
 
 private:
     CloudStorageEngine& _engine;
-    CompactionActionType _type;
+    CompactionActionType _compaction_type;
 };
 
 } // end namespace doris

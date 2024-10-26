@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <bvar/bvar.h>
 #include <gen_cpp/BackendService_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -88,7 +89,8 @@ public:
             std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots);
     // call make_memory_tracker_snapshots, so also refresh total memory used.
     int64_t memory_used();
-    void refresh_memory(int64_t used_memory);
+
+    void do_sweep();
 
     int spill_threshold_low_water_mark() const {
         return _spill_low_watermark.load(std::memory_order_relaxed);
@@ -99,7 +101,8 @@ public:
 
     void set_weighted_memory_ratio(double ratio);
     bool add_wg_refresh_interval_memory_growth(int64_t size) {
-        auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+        auto realtime_total_mem_used =
+                _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
         if ((realtime_total_mem_used >
              ((double)_weighted_memory_limit *
               _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
@@ -124,12 +127,11 @@ public:
     }
 
     std::string debug_string() const;
+    std::string memory_debug_string() const;
 
     void check_and_update(const WorkloadGroupInfo& tg_info);
 
     void add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
-
-    void remove_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> mem_tracker_ptr);
 
     // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
     // because mem_limit is not a required property
@@ -151,11 +153,6 @@ public:
         return Status::OK();
     }
 
-    void remove_query(TUniqueId query_id) {
-        std::unique_lock<std::shared_mutex> wlock(_mutex);
-        _query_ctxs.erase(query_id);
-    }
-
     void shutdown() {
         std::unique_lock<std::shared_mutex> wlock(_mutex);
         _is_shutdown = true;
@@ -164,11 +161,6 @@ public:
     bool can_be_dropped() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _is_shutdown && _query_ctxs.empty();
-    }
-
-    int query_num() {
-        std::shared_lock<std::shared_mutex> r_lock(_mutex);
-        return _query_ctxs.size();
     }
 
     int64_t gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc);
@@ -194,6 +186,28 @@ public:
     std::shared_ptr<IOThrottle> get_remote_scan_io_throttle();
 
     void upsert_scan_io_throttle(WorkloadGroupInfo* tg_info);
+
+    void update_cpu_adder(int64_t delta_cpu_time);
+
+    void update_total_local_scan_io_adder(size_t scan_bytes);
+
+    int64_t get_mem_used() { return _mem_used_status->get_value(); }
+    uint64_t get_cpu_usage() { return _cpu_usage_per_second->get_value(); }
+    int64_t get_local_scan_bytes_per_second() {
+        return _total_local_scan_io_per_second->get_value();
+    }
+    int64_t get_remote_scan_bytes_per_second();
+
+    CgroupCpuCtl* get_cgroup_cpu_ctl_ptr() {
+        std::shared_lock<std::shared_mutex> rlock(_task_sched_lock);
+        return _cgroup_cpu_ctl.get();
+    }
+
+    ThreadPool* get_memtable_flush_pool_ptr() {
+        // no lock here because this is called by memtable flush,
+        // to avoid lock competition with the workload thread pool's update
+        return _memtable_flush_pool.get();
+    }
 
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
@@ -234,6 +248,13 @@ private:
 
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
     std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
+
+    // bvar metric
+    std::unique_ptr<bvar::Status<int64_t>> _mem_used_status;
+    std::unique_ptr<bvar::Adder<uint64_t>> _cpu_usage_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<uint64_t>>> _cpu_usage_per_second;
+    std::unique_ptr<bvar::Adder<size_t>> _total_local_scan_io_adder;
+    std::unique_ptr<bvar::PerSecond<bvar::Adder<size_t>>> _total_local_scan_io_per_second;
 };
 
 using WorkloadGroupPtr = std::shared_ptr<WorkloadGroup>;

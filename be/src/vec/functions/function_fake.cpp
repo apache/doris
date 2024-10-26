@@ -30,6 +30,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/table_function/table_function.h"
@@ -38,13 +39,23 @@
 
 namespace doris::vectorized {
 
-template <typename ReturnType, bool AlwaysNullable = false>
+template <typename ReturnType, bool AlwaysNullable = false, bool VARIADIC = false>
 struct FunctionFakeBaseImpl {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         if constexpr (AlwaysNullable) {
             return make_nullable(std::make_shared<ReturnType>());
         }
         return std::make_shared<ReturnType>();
+    }
+    static DataTypes get_variadic_argument_types() {
+        if constexpr (VARIADIC) {
+            if constexpr (AlwaysNullable) {
+                return {make_nullable(std::make_shared<ReturnType>())};
+            }
+            return {std::make_shared<ReturnType>()};
+        } else {
+            return {};
+        }
     }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
@@ -55,6 +66,7 @@ struct FunctionExplode {
         return make_nullable(
                 check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
     }
+    static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
 
@@ -67,6 +79,7 @@ struct FunctionExplodeMap {
         fieldTypes[1] = check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_value_type();
         return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
     }
+    static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
 
@@ -80,6 +93,7 @@ struct FunctionExplodeJsonObject {
         fieldTypes[1] = make_nullable(std::make_shared<DataTypeJsonb>());
         return make_nullable(std::make_shared<vectorized::DataTypeStruct>(fieldTypes));
     }
+    static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "Fake function do not support execute"; }
 };
 
@@ -87,6 +101,7 @@ struct FunctionEsquery {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
         return FunctionFakeBaseImpl<DataTypeUInt8>::get_return_type_impl(arguments);
     }
+    static DataTypes get_variadic_argument_types() { return {}; }
     static std::string get_error_msg() { return "esquery only supported on es table"; }
 };
 
@@ -102,11 +117,13 @@ void register_table_function_expand(SimpleFunctionFactory& factory, const std::s
     factory.register_function<FunctionFake<FunctionImpl>>(name + suffix);
 };
 
-template <typename ReturnType>
+template <typename ReturnType, bool VARIADIC>
 void register_table_function_expand_default(SimpleFunctionFactory& factory, const std::string& name,
                                             const std::string& suffix) {
-    factory.register_function<FunctionFake<FunctionFakeBaseImpl<ReturnType>>>(name);
-    factory.register_function<FunctionFake<FunctionFakeBaseImpl<ReturnType, true>>>(name + suffix);
+    factory.register_function<FunctionFake<FunctionFakeBaseImpl<ReturnType, false, VARIADIC>>>(
+            name);
+    factory.register_function<FunctionFake<FunctionFakeBaseImpl<ReturnType, true, VARIADIC>>>(
+            name + suffix);
 };
 
 template <typename FunctionImpl>
@@ -114,10 +131,11 @@ void register_table_function_expand_outer(SimpleFunctionFactory& factory, const 
     register_table_function_expand<FunctionImpl>(factory, name, COMBINATOR_SUFFIX_OUTER);
 };
 
-template <typename ReturnType>
+template <typename ReturnType, bool VARIADIC>
 void register_table_function_expand_outer_default(SimpleFunctionFactory& factory,
                                                   const std::string& name) {
-    register_table_function_expand_default<ReturnType>(factory, name, COMBINATOR_SUFFIX_OUTER);
+    register_table_function_expand_default<ReturnType, VARIADIC>(factory, name,
+                                                                 COMBINATOR_SUFFIX_OUTER);
 };
 
 void register_function_fake(SimpleFunctionFactory& factory) {
@@ -127,16 +145,21 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer<FunctionExplodeMap>(factory, "explode_map");
 
     register_table_function_expand_outer<FunctionExplodeJsonObject>(factory, "explode_json_object");
-    register_table_function_expand_outer_default<DataTypeString>(factory, "explode_split");
-    register_table_function_expand_outer_default<DataTypeInt32>(factory, "explode_numbers");
-    register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_json_array_int");
-    register_table_function_expand_outer_default<DataTypeString>(factory,
-                                                                 "explode_json_array_string");
-    register_table_function_expand_outer_default<DataTypeString>(factory,
-                                                                 "explode_json_array_json");
-    register_table_function_expand_outer_default<DataTypeFloat64>(factory,
-                                                                  "explode_json_array_double");
-    register_table_function_expand_outer_default<DataTypeInt64>(factory, "explode_bitmap");
+    register_table_function_expand_outer_default<DataTypeString, false>(factory, "explode_split");
+    register_table_function_expand_outer_default<DataTypeInt32, false>(factory, "explode_numbers");
+    register_table_function_expand_outer_default<DataTypeInt64, false>(factory,
+                                                                       "explode_json_array_int");
+    register_table_function_expand_outer_default<DataTypeString, false>(
+            factory, "explode_json_array_string");
+    register_table_function_expand_outer_default<DataTypeJsonb, true>(factory,
+                                                                      "explode_json_array_json");
+    register_table_function_expand_outer_default<DataTypeString, true>(factory,
+                                                                       "explode_json_array_json");
+    register_table_function_expand_outer_default<DataTypeFloat64, false>(
+            factory, "explode_json_array_double");
+    register_table_function_expand_outer_default<DataTypeInt64, false>(factory, "explode_bitmap");
+    register_table_function_expand_outer_default<DataTypeObject, false>(factory,
+                                                                        "explode_variant_array");
 }
 
 } // namespace doris::vectorized

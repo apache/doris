@@ -61,7 +61,8 @@ public class Validator extends PlanPostProcessor {
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
-        if (child instanceof PhysicalProject) {
+        // except that the project contains NoneMovableFunction
+        if (child instanceof PhysicalProject && !((PhysicalProject<?>) child).containsNoneMovableFunction()) {
             throw new AnalysisException(
                     "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
         }
@@ -80,9 +81,8 @@ public class Validator extends PlanPostProcessor {
             List<Slot> childrenOutput = plan.children().stream().flatMap(p -> p.getOutput().stream()).collect(
                     Collectors.toList());
             throw new AnalysisException("A expression contains slot not from children\n"
-                    + "Plan: " + plan + "\n"
-                    + "Children Output:" + childrenOutput + "\n"
-                    + "Slot: " + opt.get() + "\n");
+                    + "Slot: " + opt.get() + "  Children Output:" + childrenOutput + "\n"
+                    + "Plan: " + plan.treeString() + "\n");
         }
         return plan;
     }

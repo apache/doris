@@ -51,8 +51,10 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.LinkedHashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Multimap;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -261,14 +263,15 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalCTEConsumer(LogicalCTEConsumer cteConsumer, Map<ExprId, Slot> replaceMap) {
         Map<Slot, Slot> consumerToProducerOutputMap = new LinkedHashMap<>();
-        Map<Slot, Slot> producerToConsumerOutputMap = new LinkedHashMap<>();
+        Multimap<Slot, Slot> producerToConsumerOutputMap = LinkedHashMultimap.create();
         for (Slot producerOutputSlot : cteConsumer.getConsumerToProducerOutputMap().values()) {
             Slot newProducerOutputSlot = updateExpression(producerOutputSlot, replaceMap);
-            Slot newConsumerOutputSlot = cteConsumer.getProducerToConsumerOutputMap().get(producerOutputSlot)
-                    .withNullable(newProducerOutputSlot.nullable());
-            producerToConsumerOutputMap.put(newProducerOutputSlot, newConsumerOutputSlot);
-            consumerToProducerOutputMap.put(newConsumerOutputSlot, newProducerOutputSlot);
-            replaceMap.put(newConsumerOutputSlot.getExprId(), newConsumerOutputSlot);
+            for (Slot consumerOutputSlot : cteConsumer.getProducerToConsumerOutputMap().get(producerOutputSlot)) {
+                Slot newConsumerOutputSlot = consumerOutputSlot.withNullable(newProducerOutputSlot.nullable());
+                producerToConsumerOutputMap.put(newProducerOutputSlot, newConsumerOutputSlot);
+                consumerToProducerOutputMap.put(newConsumerOutputSlot, newProducerOutputSlot);
+                replaceMap.put(newConsumerOutputSlot.getExprId(), newConsumerOutputSlot);
+            }
         }
         return cteConsumer.withTwoMaps(consumerToProducerOutputMap, producerToConsumerOutputMap);
     }

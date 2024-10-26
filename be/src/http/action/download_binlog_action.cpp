@@ -197,7 +197,9 @@ void handle_get_rowset_meta(StorageEngine& engine, HttpRequest* req) {
 DownloadBinlogAction::DownloadBinlogAction(
         ExecEnv* exec_env, StorageEngine& engine,
         std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group)
-        : _exec_env(exec_env), _engine(engine), _rate_limit_group(std::move(rate_limit_group)) {}
+        : HttpHandlerWithAuth(exec_env),
+          _engine(engine),
+          _rate_limit_group(std::move(rate_limit_group)) {}
 
 void DownloadBinlogAction::handle(HttpRequest* req) {
     VLOG_CRITICAL << "accept one download binlog request " << req->debug_string();
@@ -244,8 +246,10 @@ Status DownloadBinlogAction::_check_token(HttpRequest* req) {
         return Status::InternalError("token is not specified.");
     }
 
-    if (token_str != _exec_env->token()) {
-        return Status::InternalError("invalid token.");
+    const std::string& local_token = _exec_env->token();
+    if (token_str != local_token) {
+        LOG(WARNING) << "invalid download token: " << token_str << ", local token: " << local_token;
+        return Status::NotAuthorized("invalid token {}", token_str);
     }
 
     return Status::OK();

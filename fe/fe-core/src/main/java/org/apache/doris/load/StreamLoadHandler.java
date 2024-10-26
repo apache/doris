@@ -42,6 +42,7 @@ import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
@@ -84,13 +85,12 @@ public class StreamLoadHandler {
      * Select a random backend in the given cloud cluster.
      *
      * @param clusterName cloud cluster name
-     * @param groupCommit if this selection is for group commit
      * @throws LoadException if there is no available backend
      */
-    public static Backend selectBackend(String clusterName, boolean groupCommit) throws LoadException {
+    public static Backend selectBackend(String clusterName) throws LoadException {
         List<Backend> backends = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(clusterName)
-                .stream().filter(be -> be.isAlive() && (!groupCommit || groupCommit && !be.isDecommissioned()))
+                .stream().filter(Backend::isAlive)
                 .collect(Collectors.toList());
 
         if (backends.isEmpty()) {
@@ -101,8 +101,7 @@ public class StreamLoadHandler {
         // TODO: add a more sophisticated algorithm to select backend
         SecureRandom rand = new SecureRandom();
         int randomIndex = rand.nextInt(backends.size());
-        Backend backend = backends.get(randomIndex);
-        return backend;
+        return backends.get(randomIndex);
     }
 
     public void setCloudCluster() throws UserException {
@@ -110,7 +109,9 @@ public class StreamLoadHandler {
             return;
         }
 
-        LOG.info("stream load put request: {}", request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stream load put request: {}", request);
+        }
         // create connect context
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
@@ -249,7 +250,9 @@ public class StreamLoadHandler {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
                 txnState.addTableIndexes(table);
-                if (request.isPartialUpdate()) {
+                TUniqueKeyUpdateMode uniqueKeyUpdateMode = request.getUniqueKeyUpdateMode();
+                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                        || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
                     txnState.setSchemaForPartialUpdate(table);
                 }
             }

@@ -41,6 +41,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.AnalyticEvalNode;
 import org.apache.doris.planner.PlanNode;
@@ -508,9 +509,6 @@ public class Analyzer {
 
     private final GlobalState globalState;
 
-    // Attached PrepareStmt
-    public PrepareStmt prepareStmt;
-
     private final InferPredicateState inferPredicateState;
 
     // An analyzer stores analysis state for a single select block. A select block can be
@@ -616,14 +614,6 @@ public class Analyzer {
 
     public int getCallDepth() {
         return callDepth;
-    }
-
-    public void setPrepareStmt(PrepareStmt stmt) {
-        prepareStmt = stmt;
-    }
-
-    public PrepareStmt getPrepareStmt() {
-        return prepareStmt;
     }
 
     public void setInlineView(boolean inlineView) {
@@ -843,11 +833,9 @@ public class Analyzer {
 
         if (table.isManagedTable() && (((OlapTable) table).getState() == OlapTableState.RESTORE
                 || ((OlapTable) table).getState() == OlapTableState.RESTORE_WITH_LOAD)) {
-            Boolean isNotRestoring = ((OlapTable) table).getPartitions().stream()
-                    .filter(partition -> partition.getState() == PartitionState.RESTORE).collect(Collectors.toList())
-                    .isEmpty();
-
-            if (!isNotRestoring) {
+            Boolean isAnyPartitionRestoring = ((OlapTable) table).getPartitions().stream()
+                    .anyMatch(partition -> partition.getState() == PartitionState.RESTORE);
+            if (isAnyPartitionRestoring) {
                 // if doing restore with partitions, the status check push down to OlapScanNode::computePartitionInfo to
                 // support query that partitions is not restoring.
             } else {
@@ -859,11 +847,14 @@ public class Analyzer {
         // Now hms table only support a bit of table kinds in the whole hive system.
         // So Add this strong checker here to avoid some undefine behaviour in doris.
         if (table.getType() == TableType.HMS_EXTERNAL_TABLE) {
-            if (!((HMSExternalTable) table).isSupportedHmsTable()) {
+            try {
+                ((HMSExternalTable) table).isSupportedHmsTable();
+            } catch (NotSupportedException e) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NONSUPPORT_HMS_TABLE,
                         table.getName(),
                         ((HMSExternalTable) table).getDbName(),
-                        tableName.getCtl());
+                        tableName.getCtl(),
+                        e.getMessage());
             }
             if (Config.enable_query_hive_views) {
                 if (((HMSExternalTable) table).isView()

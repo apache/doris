@@ -120,7 +120,7 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
         }
         try {
             this.coordinator.setGroupCommitBe(Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(table.getId(), ctx, false));
+                    .selectBackendForGroupCommit(table.getId(), ctx));
         } catch (LoadException | DdlException e) {
             throw new RuntimeException(e);
         }

@@ -17,15 +17,19 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.nereids.stats.StatsMathUtil;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 
 import java.text.DecimalFormat;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -40,15 +44,33 @@ public class Statistics {
     // the byte size of one tuple
     private double tupleSize;
 
-    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
-        this(rowCount, 1, expressionToColumnStats);
+    private double deltaRowCount = 0.0;
+
+    private long actualRowCount = -1L;
+
+    public Statistics(Statistics another) {
+        this.rowCount = another.rowCount;
+        this.widthInJoinCluster = another.widthInJoinCluster;
+        this.expressionToColumnStats = new HashMap<>(another.expressionToColumnStats);
+        this.tupleSize = another.tupleSize;
+        this.deltaRowCount = another.getDeltaRowCount();
     }
 
     public Statistics(double rowCount, int widthInJoinCluster,
-                      Map<Expression, ColumnStatistic> expressionToColumnStats) {
+            Map<Expression, ColumnStatistic> expressionToColumnStats, double deltaRowCount) {
         this.rowCount = rowCount;
         this.widthInJoinCluster = widthInJoinCluster;
         this.expressionToColumnStats = expressionToColumnStats;
+        this.deltaRowCount = deltaRowCount;
+    }
+
+    public Statistics(double rowCount, Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, 1, expressionToColumnStats, 0);
+    }
+
+    public Statistics(double rowCount, int widthInJoinCluster,
+            Map<Expression, ColumnStatistic> expressionToColumnStats) {
+        this(rowCount, widthInJoinCluster, expressionToColumnStats, 0);
     }
 
     public ColumnStatistic findColumnStatistics(Expression expression) {
@@ -76,40 +98,54 @@ public class Statistics {
      */
     public Statistics withRowCountAndEnforceValid(double rowCount) {
         Statistics statistics = new Statistics(rowCount, widthInJoinCluster, expressionToColumnStats);
-        statistics.enforceValid();
+        statistics.normalizeColumnStatistics();
         return statistics;
     }
 
-    public void enforceValid() {
+    // IMPORTANT: it is suggested to do this action after each estimation critical visiting,
+    // since statistics will have serious deviation during the partial deriving.
+    public void normalizeColumnStatistics() {
+        normalizeColumnStatistics(this.rowCount);
+    }
+
+    public void normalizeColumnStatistics(double inputRowCount) {
+        normalizeColumnStatistics(this.rowCount, false);
+    }
+
+    public void normalizeColumnStatistics(double inputRowCount, boolean isNumNullsDecreaseByProportion) {
+        double factor = isNumNullsDecreaseByProportion ? rowCount / inputRowCount : 1.0;
         for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
             ColumnStatistic columnStatistic = entry.getValue();
-            if (!checkColumnStatsValid(columnStatistic)) {
-                double ndv = Math.min(columnStatistic.ndv, rowCount);
+            // the following columnStatistic.isUnKnown() judgment is loop inside since current doris
+            // supports partial stats deriving, i.e, allowing part of tables have stats and other parts don't,
+            // or part of columns have stats but other parts don't, especially join and filter estimation.
+            if (!columnStatistic.isUnKnown() && (!checkColumnStatsValid(columnStatistic, rowCount)
+                    || isNumNullsDecreaseByProportion && columnStatistic.numNulls != 0)) {
                 ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(columnStatistic);
+                double ndv = Math.min(columnStatistic.ndv, rowCount);
+                double numNulls = Math.min(columnStatistic.numNulls * factor, rowCount - ndv);
+                columnStatisticBuilder.setNumNulls(numNulls);
                 columnStatisticBuilder.setNdv(ndv);
-                columnStatisticBuilder.setNumNulls(Math.min(columnStatistic.numNulls, rowCount - ndv));
-                columnStatisticBuilder.setCount(rowCount);
                 columnStatistic = columnStatisticBuilder.build();
                 expressionToColumnStats.put(entry.getKey(), columnStatistic);
             }
         }
     }
 
-    public boolean checkColumnStatsValid(ColumnStatistic columnStatistic) {
-        return columnStatistic.ndv <= rowCount
-                && columnStatistic.numNulls <= rowCount - columnStatistic.ndv;
+    public boolean checkColumnStatsValid(ColumnStatistic columnStatistic, double rowCount) {
+        return columnStatistic.ndv <= rowCount && columnStatistic.numNulls <= rowCount - columnStatistic.ndv;
     }
 
     public Statistics withSel(double sel) {
         return withSel(sel, 0);
     }
 
-    public Statistics withSel(double sel, double numNull) {
-        sel = StatsMathUtil.minNonNaN(sel, 1);
+    public Statistics withSel(double notNullSel, double numNull) {
+        notNullSel = StatsMathUtil.minNonNaN(notNullSel, 1);
         if (Double.isNaN(rowCount)) {
             return this;
         }
-        double newCount = rowCount * sel + numNull;
+        double newCount = rowCount * notNullSel + numNull;
         return new Statistics(newCount, widthInJoinCluster, new HashMap<>(expressionToColumnStats));
     }
 
@@ -130,7 +166,7 @@ public class Statistics {
             for (Slot slot : slots) {
                 ColumnStatistic s = expressionToColumnStats.get(slot);
                 if (s != null) {
-                    tempSize += s.avgSizeByte;
+                    tempSize += Math.max(1, Math.min(CharacterType.DEFAULT_WIDTH, s.avgSizeByte));
                 }
             }
             tupleSize = Math.max(1, tempSize);
@@ -149,22 +185,48 @@ public class Statistics {
     }
 
     public double dataSizeFactor(List<Slot> slots) {
-        return 0.05 * computeTupleSize(slots);
+        boolean allUnknown = true;
+        for (Slot slot : slots) {
+            if (slot instanceof SlotReference) {
+                Optional<Column> colOpt = ((SlotReference) slot).getColumn();
+                if (colOpt.isPresent() && colOpt.get().isVisible()) {
+                    ColumnStatistic colStats = expressionToColumnStats.get(slot);
+                    if (colStats != null && !colStats.isUnKnown) {
+                        allUnknown = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (allUnknown) {
+            double lowerBound = 0.03;
+            double upperBound = 0.07;
+            return Math.min(Math.max(computeTupleSize(slots) / K_BYTES, lowerBound), upperBound);
+        } else {
+            return 0.05 * computeTupleSize(slots);
+        }
     }
 
     @Override
     public String toString() {
+        StringBuilder builder = new StringBuilder();
         if (Double.isNaN(rowCount)) {
-            return "NaN";
+            builder.append("NaN");
+        } else if (Double.POSITIVE_INFINITY == rowCount) {
+            builder.append("Infinite");
+        } else if (Double.NEGATIVE_INFINITY == rowCount) {
+            builder.append("-Infinite");
+        } else {
+            DecimalFormat format = new DecimalFormat("#,###.##");
+            builder.append(format.format(rowCount));
         }
-        if (Double.POSITIVE_INFINITY == rowCount) {
-            return "Infinite";
+        if (deltaRowCount > 0) {
+            builder.append("(").append((long) deltaRowCount).append(")");
         }
-        if (Double.NEGATIVE_INFINITY == rowCount) {
-            return "-Infinite";
+        if (actualRowCount != -1) {
+            builder.append(" actualRows=").append(actualRowCount);
         }
-        DecimalFormat format = new DecimalFormat("#,###.##");
-        return format.format(rowCount);
+        return builder.toString();
     }
 
     public String printColumnStats() {
@@ -180,16 +242,8 @@ public class Statistics {
         return 1;
     }
 
-    public static Statistics zero(Statistics statistics) {
-        Statistics zero = new Statistics(0, new HashMap<>());
-        for (Map.Entry<Expression, ColumnStatistic> entry : statistics.expressionToColumnStats.entrySet()) {
-            zero.addColumnStats(entry.getKey(), ColumnStatistic.ZERO);
-        }
-        return zero;
-    }
-
-    public static double getValidSelectivity(double nullSel) {
-        return nullSel < 0 ? 0 : (nullSel > 1 ? 1 : nullSel);
+    public static double getValidSelectivity(double selectivity) {
+        return selectivity < 0 ? 0 : (selectivity > 1 ? 1 : selectivity);
     }
 
     /**
@@ -224,21 +278,19 @@ public class Statistics {
         return widthInJoinCluster;
     }
 
-    public Statistics normalizeByRatio(double originRowCount) {
-        if (rowCount >= originRowCount || rowCount <= 0) {
-            return this;
-        }
-        StatisticsBuilder builder = new StatisticsBuilder(this);
-        double ratio = rowCount / originRowCount;
-        for (Entry<Expression, ColumnStatistic> entry : expressionToColumnStats.entrySet()) {
-            ColumnStatistic colStats = entry.getValue();
-            if (colStats.numNulls != 0 || colStats.ndv > rowCount) {
-                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(colStats);
-                colStatsBuilder.setNumNulls(colStats.numNulls * ratio);
-                colStatsBuilder.setNdv(Math.min(rowCount - colStatsBuilder.getNumNulls(), colStats.ndv));
-                builder.putColumnStatistics(entry.getKey(), colStatsBuilder.build());
-            }
-        }
-        return builder.build();
+    public double getDeltaRowCount() {
+        return deltaRowCount;
+    }
+
+    public void setDeltaRowCount(double deltaRowCount) {
+        this.deltaRowCount = deltaRowCount;
+    }
+
+    public long getActualRowCount() {
+        return actualRowCount;
+    }
+
+    public void setActualRowCount(long actualRowCount) {
+        this.actualRowCount = actualRowCount;
     }
 }

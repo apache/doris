@@ -290,6 +290,8 @@ static std::string debug_info(const Request& req) {
         return "";
     } else if constexpr (is_any_v<Request, CreateRowsetRequest>) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
+    } else if constexpr (is_any_v<Request, RemoveDeleteBitmapRequest>) {
+        return fmt::format(" tablet_id={}", req.tablet_id());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -329,6 +331,9 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
             error_msg = cntl.ErrorText();
         } else if (res->status().code() == MetaServiceCode::OK) {
             return Status::OK();
+        } else if (res->status().code() == MetaServiceCode::INVALID_ARGUMENT) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("failed to {}: {}", op_name,
+                                                                     res->status().msg());
         } else if (res->status().code() != MetaServiceCode::KV_TXN_CONFLICT) {
             return Status::Error<ErrorCode::INTERNAL_ERROR, false>("failed to {}: {}", op_name,
                                                                    res->status().msg());
@@ -448,7 +453,10 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
         tablet->last_sync_time_s = now;
 
-        if (tablet->enable_unique_key_merge_on_write()) {
+        // If is mow, the tablet has no delete bitmap in base rowsets.
+        // So dont need to sync it.
+        if (tablet->enable_unique_key_merge_on_write() &&
+            tablet->tablet_state() == TABLET_RUNNING) {
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
             auto st = sync_tablet_delete_bitmap(tablet, old_max_version, resp.rowset_meta(),
@@ -709,7 +717,10 @@ Status CloudMetaMgr::prepare_rowset(const RowsetMeta& rs_meta,
                                     RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "prepare rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
-
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::prepare_rowset", ret_st);
+    }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -735,6 +746,10 @@ Status CloudMetaMgr::commit_rowset(const RowsetMeta& rs_meta,
                                    RowsetMetaSharedPtr* existed_rs_meta) {
     VLOG_DEBUG << "commit rowset, tablet_id: " << rs_meta.tablet_id()
                << ", rowset_id: " << rs_meta.rowset_id() << " txn_id: " << rs_meta.txn_id();
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_rowset", ret_st);
+    }
     CreateRowsetRequest req;
     CreateRowsetResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -835,12 +850,17 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
 Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     VLOG_DEBUG << "commit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label << ", is_2pc: " << is_2pc;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::commit_txn", ret_st);
+    }
     CommitTxnRequest req;
     CommitTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_db_id(ctx.db_id);
     req.set_txn_id(ctx.txn_id);
     req.set_is_2pc(is_2pc);
+    req.set_enable_txn_lazy_commit(config::enable_cloud_txn_lazy_commit);
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
@@ -853,9 +873,14 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
 Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     VLOG_DEBUG << "abort txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::abort_txn", ret_st);
+    }
     AbortTxnRequest req;
     AbortTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_reason(std::string(ctx.status.msg().substr(0, 1024)));
     if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
         req.set_label(ctx.label);
@@ -872,6 +897,10 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
 Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     VLOG_DEBUG << "precommit txn, db_id: " << ctx.db_id << ", txn_id: " << ctx.txn_id
                << ", label: " << ctx.label;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::precommit_txn", ret_st);
+    }
     PrecommitTxnRequest req;
     PrecommitTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -880,7 +909,7 @@ Status CloudMetaMgr::precommit_txn(const StreamLoadContext& ctx) {
     return retry_rpc("precommit txn", req, &res, &MetaService_Stub::precommit_txn);
 }
 
-Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
+Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool* is_vault_mode) {
     GetObjStoreInfoRequest req;
     GetObjStoreInfoResponse resp;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -889,6 +918,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
     if (!s.ok()) {
         return s;
     }
+
+    *is_vault_mode = resp.enable_storage_vault();
 
     auto add_obj_store = [&vault_infos](const auto& obj_store) {
         vault_infos->emplace_back(obj_store.id(), S3Conf::get_s3_conf(obj_store),
@@ -905,6 +936,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
         }
     });
 
+    // desensitization, hide secret
     for (int i = 0; i < resp.obj_info_size(); ++i) {
         resp.mutable_obj_info(i)->set_sk(resp.obj_info(i).sk().substr(0, 2) + "xxx");
     }
@@ -914,7 +946,8 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos) {
         j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
     }
 
-    LOG(INFO) << "get storage vault response: " << resp.ShortDebugString();
+    LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode
+              << " response=" << resp.ShortDebugString();
     return Status::OK();
 }
 
@@ -1016,16 +1049,43 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     return st;
 }
 
+Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                       DeleteBitmap* delete_bitmap) {
+    VLOG_DEBUG << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id();
+    UpdateDeleteBitmapRequest req;
+    UpdateDeleteBitmapResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_table_id(tablet.table_id());
+    req.set_partition_id(tablet.partition_id());
+    req.set_tablet_id(tablet.tablet_id());
+    // use a fake lock id to resolve compatibility issues
+    req.set_lock_id(-3);
+    req.set_unlock(true);
+    for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
+        req.add_rowset_ids(std::get<0>(key).to_string());
+        req.add_segment_ids(std::get<1>(key));
+        req.add_versions(std::get<2>(key));
+        // To save space, convert array and bitmap containers to run containers
+        bitmap.runOptimize();
+        std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+        bitmap.write(bitmap_data.data());
+        *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+    }
+    return retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
+}
+
 Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                                    int64_t initiator) {
-    VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id();
+    VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
+               << ",lock_id:" << lock_id;
     GetDeleteBitmapUpdateLockRequest req;
     GetDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_table_id(tablet.table_id());
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
-    req.set_expiration(10); // 10s expiration time for compaction and schema_change
+    // set expiration time for compaction and schema_change
+    req.set_expiration(config::delete_bitmap_lock_expiration_seconds);
     int retry_times = 0;
     Status st;
     std::default_random_engine rng = make_random_engine();
@@ -1043,6 +1103,24 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
     } while (++retry_times <= 100);
+    return st;
+}
+
+Status CloudMetaMgr::remove_old_version_delete_bitmap(
+        int64_t tablet_id,
+        const std::vector<std::tuple<std::string, uint64_t, uint64_t>>& to_delete) {
+    LOG(INFO) << "remove_old_version_delete_bitmap , tablet_id: " << tablet_id;
+    RemoveDeleteBitmapRequest req;
+    RemoveDeleteBitmapResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet_id);
+    for (auto& value : to_delete) {
+        req.add_rowset_ids(std::get<0>(value));
+        req.add_begin_versions(std::get<1>(value));
+        req.add_end_versions(std::get<2>(value));
+    }
+    auto st = retry_rpc("remove old delete bitmap", req, &res,
+                        &MetaService_Stub::remove_delete_bitmap);
     return st;
 }
 

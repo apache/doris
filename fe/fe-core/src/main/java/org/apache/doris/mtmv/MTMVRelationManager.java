@@ -187,7 +187,7 @@ public class MTMVRelationManager implements MTMVHookService {
      */
     @Override
     public void registerMTMV(MTMV mtmv, Long dbId) {
-        refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv.getId(), dbId));
+        refreshMTMVCache(mtmv.getRelation(), new BaseTableInfo(mtmv, dbId));
     }
 
     /**
@@ -232,7 +232,7 @@ public class MTMVRelationManager implements MTMVHookService {
      */
     @Override
     public void dropTable(Table table) {
-        processBaseTableChange(table, "The base table has been deleted:");
+        processBaseTableChange(new BaseTableInfo(table), "The base table has been deleted:");
     }
 
     /**
@@ -241,8 +241,10 @@ public class MTMVRelationManager implements MTMVHookService {
      * @param table
      */
     @Override
-    public void alterTable(Table table) {
-        processBaseTableChange(table, "The base table has been updated:");
+    public void alterTable(Table table, String oldTableName) {
+        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+        baseTableInfo.setTableName(oldTableName);
+        processBaseTableChange(baseTableInfo, "The base table has been updated:");
     }
 
     @Override
@@ -260,8 +262,7 @@ public class MTMVRelationManager implements MTMVHookService {
 
     }
 
-    private void processBaseTableChange(Table table, String msgPrefix) {
-        BaseTableInfo baseTableInfo = new BaseTableInfo(table);
+    private void processBaseTableChange(BaseTableInfo baseTableInfo, String msgPrefix) {
         Set<BaseTableInfo> mtmvsByBaseTable = getMtmvsByBaseTable(baseTableInfo);
         if (CollectionUtils.isEmpty(mtmvsByBaseTable)) {
             return;
@@ -269,9 +270,7 @@ public class MTMVRelationManager implements MTMVHookService {
         for (BaseTableInfo mtmvInfo : mtmvsByBaseTable) {
             Table mtmv = null;
             try {
-                mtmv = Env.getCurrentEnv().getInternalCatalog()
-                        .getDbOrAnalysisException(mtmvInfo.getDbId())
-                        .getTableOrAnalysisException(mtmvInfo.getTableId());
+                mtmv = (Table) MTMVUtil.getTable(mtmvInfo);
             } catch (AnalysisException e) {
                 LOG.warn(e);
                 continue;

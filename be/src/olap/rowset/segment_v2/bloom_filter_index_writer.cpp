@@ -320,9 +320,11 @@ Status BloomFilterIndexWriter::create(const BloomFilterOptions& bf_options,
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
         M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
+        M(FieldType::OLAP_FIELD_TYPE_IPV4)
+        M(FieldType::OLAP_FIELD_TYPE_IPV6)
 #undef M
     default:
-        return Status::NotSupported("unsupported type for bitmap index: {}",
+        return Status::NotSupported("unsupported type for bloom filter index: {}",
                                     std::to_string(int(type)));
     }
     return Status::OK();

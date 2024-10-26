@@ -174,6 +174,23 @@ void PlainCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* 
     }
 }
 
+void HiveCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
+    const char* data = line.data;
+    const size_t size = line.size;
+    size_t value_start = 0;
+    for (size_t i = 0; i < size; ++i) {
+        if (data[i] == _value_sep[0]) {
+            // hive will escape the field separator in string
+            if (_escape_char != 0 && i > 0 && data[i - 1] == _escape_char) {
+                continue;
+            }
+            process_value_func(data, value_start, i - value_start, _trimming_char, splitted_values);
+            value_start = i + _value_sep_len;
+        }
+    }
+    process_value_func(data, value_start, size - value_start, _trimming_char, splitted_values);
+}
+
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
                      const std::vector<SlotDescriptor*>& file_slot_descs, io::IOContext* io_ctx)
@@ -341,10 +358,10 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.text_params.mapkv_delimiter.size() == 0) {
         switch (_text_serde_type) {
         case TTextSerdeType::JSON_TEXT_SERDE:
-            _options.collection_delim = ':';
+            _options.map_key_delim = ':';
             break;
         case TTextSerdeType::HIVE_TEXT_SERDE:
-            _options.collection_delim = '\003';
+            _options.map_key_delim = '\003';
             break;
         default:
             break;
@@ -352,6 +369,12 @@ Status CsvReader::init_reader(bool is_load) {
     } else {
         _options.map_key_delim = _params.file_attributes.text_params.mapkv_delimiter[0];
     }
+
+    if (_params.file_attributes.text_params.__isset.null_format) {
+        _options.null_format = _params.file_attributes.text_params.null_format.data();
+        _options.null_len = _params.file_attributes.text_params.null_format.length();
+    }
+
     _use_nullable_string_opt.resize(_file_slot_descs.size());
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         auto data_type_ptr = _file_slot_descs[i]->get_data_type_ptr();
@@ -376,9 +399,14 @@ Status CsvReader::init_reader(bool is_load) {
     if (_enclose == 0) {
         text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _keep_cr);
-
-        _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
-                _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
+        if (_text_serde_type == TTextSerdeType::HIVE_TEXT_SERDE) {
+            _fields_splitter = std::make_unique<HiveCsvTextFieldSplitter>(
+                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1,
+                    _escape);
+        } else {
+            _fields_splitter = std::make_unique<PlainCsvTextFieldSplitter>(
+                    _trim_tailing_spaces, false, _value_separator, _value_separator_length, -1);
+        }
     } else {
         text_line_reader_ctx = std::make_shared<EncloseCsvLineReaderContext>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
@@ -594,7 +622,7 @@ template <bool from_json>
 Status CsvReader::deserialize_nullable_string(IColumn& column, Slice& slice) {
     auto& null_column = assert_cast<ColumnNullable&>(column);
     if (!(from_json && _options.converted_from_string && slice.trim_double_quotes())) {
-        if (slice.size == 2 && slice[0] == '\\' && slice[1] == 'N') {
+        if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
             null_column.insert_data(nullptr, 0);
             return Status::OK();
         }

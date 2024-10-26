@@ -23,6 +23,7 @@
 
 #include "common/status.h"
 #include "http/http_handler.h"
+#include "http/http_handler_with_auth.h"
 
 struct bufferevent_rate_limit_group;
 
@@ -32,7 +33,7 @@ class ExecEnv;
 class StorageEngine;
 class HttpRequest;
 
-class DownloadBinlogAction : public HttpHandler {
+class DownloadBinlogAction : public HttpHandlerWithAuth {
 public:
     DownloadBinlogAction(ExecEnv* exec_env, StorageEngine& engine,
                          std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group);
@@ -43,8 +44,6 @@ public:
 private:
     Status _check_token(HttpRequest* req);
 
-private:
-    ExecEnv* _exec_env;
     StorageEngine& _engine;
     std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group;
 };

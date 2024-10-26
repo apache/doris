@@ -46,26 +46,14 @@ suite ("case_ignore") {
 
     qt_select_star "select * from d_table order by k1;"
 
-    explain {
-        sql("select k1,abs(k2) from d_table order by k1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select k1,abs(k2) from d_table order by k1;", "k12a")
     qt_select_mv "select k1,abs(k2) from d_table order by k1;"
 
-    explain {
-        sql("select K1,abs(K2) from d_table order by K1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select K1,abs(K2) from d_table order by K1;", "k12a")
     qt_select_mv "select K1,abs(K2) from d_table order by K1;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select k1,abs(k2) from d_table order by k1;")
-        contains "(k12a)"
-    }
-    explain {
-        sql("select K1,abs(K2) from d_table order by K1;")
-        contains "(k12a)"
-    }
+    mv_rewrite_success("select k1,abs(k2) from d_table order by k1;", "k12a")
+    mv_rewrite_success("select K1,abs(K2) from d_table order by K1;", "k12a")
 
 }

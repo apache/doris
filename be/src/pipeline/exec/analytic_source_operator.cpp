@@ -24,6 +24,7 @@
 #include "vec/exprs/vectorized_agg_fn.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<AnalyticSharedState>(state, parent),
@@ -34,10 +35,11 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
           _rows_end_offset(0),
           _fn_place_ptr(nullptr),
           _agg_functions_size(0),
-          _agg_functions_created(false) {}
+          _agg_functions_created(false),
+          _agg_arena_pool(std::make_unique<vectorized::Arena>()) {}
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx, BlockRowPos start,
+BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int64_t idx, BlockRowPos start,
                                                          BlockRowPos end, bool need_check_first) {
     auto& shared_state = *_shared_state;
     int64_t start_init_row_num = start.row_num;
@@ -159,7 +161,7 @@ Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _blocks_memory_usage =
-            profile()->AddHighWaterMarkCounter("Blocks", TUnit::BYTES, "MemoryUsage", 1);
+            profile()->AddHighWaterMarkCounter("MemoryUsageBlocks", TUnit::BYTES, "", 1);
     _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
     return Status::OK();
 }
@@ -168,7 +170,6 @@ Status AnalyticLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(PipelineXLocalState<AnalyticSharedState>::open(state));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    _agg_arena_pool = std::make_unique<vectorized::Arena>();
 
     auto& p = _parent->cast<AnalyticSourceOperatorX>();
     _agg_functions_size = p._agg_functions.size();
@@ -320,8 +321,8 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
 
     const auto& offsets_of_aggregate_states =
             _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states;
-    for (int i = 0; i < _agg_functions_size; ++i) {
-        for (int j = get_result_start; j < _window_end_position; ++j) {
+    for (size_t i = 0; i < _agg_functions_size; ++i) {
+        for (size_t j = get_result_start; j < _window_end_position; ++j) {
             if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
                 _result_window_columns[i]->is_nullable()) {
                 if (_current_window_empty) {
@@ -355,6 +356,7 @@ Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
                         1; //going on calculate,add up data, no need to reset state
         } else {
             _reset_agg_status();
+            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
             if (!_parent->cast<AnalyticSourceOperatorX>()
                          ._window.__isset
                          .window_start) { //[preceding, offset]        --unbound: [preceding, following]
@@ -362,7 +364,8 @@ Status AnalyticLocalState::_get_next_for_rows(size_t current_block_rows) {
             } else {
                 range_start = _shared_state->current_row_position + _rows_start_offset;
             }
-            range_end = _shared_state->current_row_position + _rows_end_offset + 1;
+            // Make sure range_start <= range_end
+            range_start = std::min(range_start, range_end);
         }
         _executor.execute(_partition_by_start.pos, _shared_state->partition_by_end.pos, range_start,
                           range_end);
@@ -440,7 +443,6 @@ bool AnalyticLocalState::init_next_partition(BlockRowPos found_partition_end) {
 Status AnalyticLocalState::output_current_block(vectorized::Block* block) {
     block->swap(std::move(_shared_state->input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
-    mem_tracker()->consume(-block->allocated_bytes());
     if (_shared_state->origin_cols.size() < block->columns()) {
         block->erase_not_in(_shared_state->origin_cols);
     }
@@ -473,6 +475,7 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
           _has_range_window(tnode.analytic_node.window.type == TAnalyticWindowType::RANGE),
           _has_window_start(tnode.analytic_node.window.__isset.window_start),
           _has_window_end(tnode.analytic_node.window.__isset.window_end) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     _fn_scope = AnalyticFnScope::PARTITION;
     if (tnode.analytic_node.__isset.window &&
         tnode.analytic_node.window.type == TAnalyticWindowType::RANGE) {
@@ -560,15 +563,15 @@ Status AnalyticLocalState::close(RuntimeState* state) {
     return PipelineXLocalState<AnalyticSharedState>::close(state);
 }
 
-Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::prepare(state));
-    DCHECK(_child_x->row_desc().is_prefix_of(_row_descriptor));
+Status AnalyticSourceOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
+    DCHECK(_child->row_desc().is_prefix_of(_row_descriptor));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     for (size_t i = 0; i < _agg_functions.size(); ++i) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[i];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[i];
-        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child_x->row_desc(),
+        RETURN_IF_ERROR(_agg_functions[i]->prepare(state, _child->row_desc(),
                                                    intermediate_slot_desc, output_slot_desc));
         _agg_functions[i]->set_version(state->be_exec_version());
         _change_to_nullable_flags.push_back(output_slot_desc->is_nullable() &&
@@ -595,11 +598,6 @@ Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {
                     alignment_of_next_state * alignment_of_next_state;
         }
     }
-    return Status::OK();
-}
-
-Status AnalyticSourceOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::open(state));
     for (auto* agg_function : _agg_functions) {
         RETURN_IF_ERROR(agg_function->open(state));
     }

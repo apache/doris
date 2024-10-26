@@ -51,10 +51,12 @@ public:
 
     std::string debug_string() const override;
 
+    size_t skip_constant_args_size() const;
+
     const FunctionBasePtr function() { return _function; }
 
     bool is_not_in() const { return _is_not_in; };
-    bool can_fast_execute() const override { return true; }
+    Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
 
 private:
     FunctionBasePtr _function;
@@ -62,5 +64,7 @@ private:
 
     const bool _is_not_in;
     static const constexpr char* function_name = "in";
+    uint32_t _in_list_value_count_threshold = 10;
+    bool _is_args_all_constant = false;
 };
 } // namespace doris::vectorized

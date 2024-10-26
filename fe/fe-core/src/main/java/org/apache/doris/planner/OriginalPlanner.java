@@ -60,7 +60,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -288,24 +287,7 @@ public class OriginalPlanner extends Planner {
                     LOG.debug("this isn't block query");
                 }
             }
-            // Check SelectStatement if optimization condition satisfied
-            if (selectStmt.isPointQueryShortCircuit()) {
-                // Optimize for point query like: SELECT * FROM t1 WHERE pk1 = 1 and pk2 = 2
-                // such query will use direct RPC to do point query
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug("it's a point query");
-                }
-                Map<SlotRef, Expr> eqConjuncts = ((SelectStmt) selectStmt).getPointQueryEQPredicates();
-                OlapScanNode olapScanNode = (OlapScanNode) singleNodePlan;
-                olapScanNode.setDescTable(analyzer.getDescTbl());
-                olapScanNode.setPointQueryEqualPredicates(eqConjuncts);
-                if (analyzer.getPrepareStmt() != null) {
-                    // Cache them for later request better performance
-                    analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
-                    analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());
-                    analyzer.getPrepareStmt().cacheSerializedQueryOptions(queryOptions);
-                }
-            } else if (selectStmt.isTwoPhaseReadOptEnabled()) {
+            if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
                 if (singleNodePlan instanceof SortNode
                         && singleNodePlan.getChildren().size() == 1
@@ -543,7 +525,6 @@ public class OriginalPlanner extends Planner {
             PlanNode child = sortNode.getChild(0);
             if (child instanceof OlapScanNode && sortNode.getLimit() > 0
                     && ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
-                    && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                     && sortNode.getSortInfo().getOrigOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getOrigOrderingExprs().get(0);
                 if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isFloatingPointType()) {

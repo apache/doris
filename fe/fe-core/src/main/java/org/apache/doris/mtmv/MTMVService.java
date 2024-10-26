@@ -17,11 +17,14 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.event.Event;
 import org.apache.doris.event.EventException;
 import org.apache.doris.event.EventListener;
@@ -128,11 +131,11 @@ public class MTMVService implements EventListener {
         }
     }
 
-    public void alterTable(Table table) {
+    public void alterTable(Table table, String oldTableName) {
         Objects.requireNonNull(table);
         LOG.info("alterTable, tableName: {}", table.getName());
         for (MTMVHookService mtmvHookService : hooks.values()) {
-            mtmvHookService.alterTable(table);
+            mtmvHookService.alterTable(table, oldTableName);
         }
     }
 
@@ -175,14 +178,26 @@ public class MTMVService implements EventListener {
         if (!(event instanceof TableEvent)) {
             return;
         }
+        if (event instanceof DropPartitionEvent && ((DropPartitionEvent) event).isTempPartition()) {
+            return;
+        }
         TableEvent tableEvent = (TableEvent) event;
         LOG.info("processEvent, Event: {}", event);
+        TableIf table;
+        try {
+            table = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrAnalysisException(tableEvent.getCtlName())
+                    .getDbOrAnalysisException(tableEvent.getDbName())
+                    .getTableOrAnalysisException(tableEvent.getTableName());
+        } catch (AnalysisException e) {
+            throw new EventException(e);
+        }
         Set<BaseTableInfo> mtmvs = relationManager.getMtmvsByBaseTableOneLevel(
-                new BaseTableInfo(tableEvent.getTableId(), tableEvent.getDbId(), tableEvent.getCtlId()));
+                new BaseTableInfo(table));
         for (BaseTableInfo baseTableInfo : mtmvs) {
             try {
                 // check if mtmv should trigger by event
-                MTMV mtmv = MTMVUtil.getMTMV(baseTableInfo.getDbId(), baseTableInfo.getTableId());
+                MTMV mtmv = (MTMV) MTMVUtil.getTable(baseTableInfo);
                 if (mtmv.getRefreshInfo().getRefreshTriggerInfo().getRefreshTrigger().equals(RefreshTrigger.COMMIT)) {
                     jobManager.onCommit(mtmv);
                 }

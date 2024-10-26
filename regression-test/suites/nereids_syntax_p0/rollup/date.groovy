@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 import java.util.concurrent.TimeUnit
-import org.awaitility.Awaitility
 
 suite("date", "rollup") {
 
@@ -24,10 +23,6 @@ suite("date", "rollup") {
 
     def tbName1 = "test_materialized_view_date1"
 
-    def getJobState = { tableName ->
-        def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1; """
-        return jobStateResult[0][8]
-    }
     sql "DROP TABLE IF EXISTS ${tbName1}"
     sql """
             CREATE TABLE IF NOT EXISTS ${tbName1}(
@@ -44,51 +39,11 @@ suite("date", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
 
-    int max_try_secs = 120
-    sql "CREATE materialized VIEW amt_max1 AS SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id;"
-    String res = "NOT_FINISHED"
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
-    assertEquals("FINISHED",res)
+    createMV("CREATE materialized VIEW amt_max1 AS SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;")
+    createMV("CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;")
 
-    sql "CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;"
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        } 
-        return false;
-    });
-    assertEquals("FINISHED",res)
-
-    sql "CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;"
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
-    assertEquals("FINISHED",res)
-
-    sql "CREATE materialized VIEW amt_max4 AS SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id;"
-    Awaitility.await().atMost(max_try_secs, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
-        res = getJobState(tbName1)
-        if (res == "FINISHED" || res == "CANCELLED") {
-            assertEquals("FINISHED", res)
-            return true;
-        }
-        return false;
-    });
-    assertEquals("FINISHED",res)
 
     sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName1}';"
     sql "insert into ${tbName1} values(1, 1, 1, '2020-05-30', '2020-05-30', '2020-05-30 11:11:11.111111', '2020-05-30 11:11:11.111111', '2020-05-30 11:11:11.111111',100);"
@@ -98,39 +53,21 @@ suite("date", "rollup") {
     sql "analyze table ${tbName1} with sync;"
     sql """set enable_stats=false;"""
 
-    explain{
-        sql("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max1)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max2)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max3)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max4)")
-    }
+    mv_rewrite_success("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id", "amt_max1")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id", "amt_max2")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id", "amt_max3")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id", "amt_max4")
     sql """set enable_stats=true;"""
-    explain{
-        sql("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max1)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max2)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max3)")
-    }
-    explain{
-        sql("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id")
-        contains("(amt_max4)")
-    }
+    mv_rewrite_success("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id", "amt_max1")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id", "amt_max2")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id", "amt_max3")
+
+    mv_rewrite_success("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id", "amt_max4")
 
     qt_sql """ SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id """
     qt_sql """ SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id """

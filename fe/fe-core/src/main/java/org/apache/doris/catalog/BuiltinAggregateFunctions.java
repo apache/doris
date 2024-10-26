@@ -43,6 +43,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Histogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
@@ -64,9 +66,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgX;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrAvgY;
 import org.apache.doris.nereids.trees.expressions.functions.agg.RegrCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Skew;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -118,6 +123,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(HllUnion.class, "hll_raw_agg", "hll_union"),
             agg(HllUnionAgg.class, "hll_union_agg"),
             agg(IntersectCount.class, "intersect_count"),
+            agg(LinearHistogram.class, FunctionSet.LINEAR_HISTOGRAM),
             agg(MapAgg.class, "map_agg"),
             agg(Max.class, "max"),
             agg(MaxBy.class, "max_by"),
@@ -139,6 +145,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(RegrAvgX.class, "regr_avgx"),
             agg(RegrAvgY.class, "regr_avgy"),
             agg(RegrCount.class, "regr_count"),
+            agg(RegrIntercept.class, "regr_intercept"),
+            agg(RegrSlope.class, "regr_slope"),
             agg(Retention.class, "retention"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
@@ -151,7 +159,9 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(TopNWeighted.class, "topn_weighted"),
             agg(Variance.class, "var_pop", "variance_pop", "variance"),
             agg(VarianceSamp.class, "var_samp", "variance_samp"),
-            agg(WindowFunnel.class, "window_funnel")
+            agg(WindowFunnel.class, "window_funnel"),
+            agg(Skew.class, "skew", "skew_pop", "skewness"),
+            agg(Kurt.class, "kurt", "kurt_pop", "kurtosis")
     );
 
     public final Set<String> aggFuncNames = aggregateFunctions.stream()

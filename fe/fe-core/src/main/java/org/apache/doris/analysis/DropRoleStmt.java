@@ -27,7 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
-public class DropRoleStmt extends DdlStmt {
+public class DropRoleStmt extends DdlStmt implements NotFallbackInParser {
 
     private boolean ifExists;
     private String role;

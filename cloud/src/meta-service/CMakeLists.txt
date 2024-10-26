@@ -24,4 +24,5 @@ add_library(MetaService
     doris_txn.cpp
     mem_txn_kv.cpp
     http_encode_key.cpp
+    txn_lazy_committer.cpp
 )

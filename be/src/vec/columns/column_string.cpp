@@ -166,6 +166,28 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
 }
 
 template <typename T>
+void ColumnStr<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    const auto& string_column = assert_cast<const ColumnStr<T>&>(src);
+    auto [data_val, data_length] = string_column.get_data_at(position);
+
+    size_t old_chars_size = chars.size();
+    check_chars_length(old_chars_size + data_length * length, offsets.size() + length);
+    chars.resize(old_chars_size + data_length * length);
+
+    auto old_size = offsets.size();
+    offsets.resize(old_size + length);
+
+    auto start_pos = old_size;
+    auto end_pos = old_size + length;
+    auto prev_pos = old_chars_size;
+    for (; start_pos < end_pos; ++start_pos) {
+        memcpy(&chars[prev_pos], data_val, data_length);
+        offsets[start_pos] = prev_pos + data_length;
+        prev_pos = prev_pos + data_length;
+    }
+}
+
+template <typename T>
 void ColumnStr<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                        const uint32_t* indices_end) {
     auto do_insert = [&](const auto& src_str) {
@@ -483,21 +505,10 @@ void ColumnStr<T>::get_permutation(bool reverse, size_t limit, int /*nan_directi
         res[i] = i;
     }
 
-    // std::partial_sort need limit << s can get performance benefit
-    if (limit > (s / 8.0)) limit = 0;
-
-    if (limit) {
-        if (reverse) {
-            std::partial_sort(res.begin(), res.begin() + limit, res.end(), less<false>(*this));
-        } else {
-            std::partial_sort(res.begin(), res.begin() + limit, res.end(), less<true>(*this));
-        }
+    if (reverse) {
+        pdqsort(res.begin(), res.end(), less<false>(*this));
     } else {
-        if (reverse) {
-            pdqsort(res.begin(), res.end(), less<false>(*this));
-        } else {
-            pdqsort(res.begin(), res.end(), less<true>(*this));
-        }
+        pdqsort(res.begin(), res.end(), less<true>(*this));
     }
 }
 
@@ -571,7 +582,9 @@ void ColumnStr<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
                                     uint8* __restrict filter) const {
     auto sz = offsets.size();
     DCHECK(cmp_res.size() == sz);
-    const auto& cmp_base = assert_cast<const ColumnStr<T>&>(rhs).get_data_at(rhs_row_id);
+    const auto& cmp_base =
+            assert_cast<const ColumnStr<T>&, TypeCheckOnRelease::DISABLE>(rhs).get_data_at(
+                    rhs_row_id);
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
         size_t end = simd::find_one(cmp_res, begin + 1);

@@ -19,9 +19,9 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.util.DigitalVersion;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.plugin.PluginInfo;
-import org.apache.doris.plugin.audit.AuditEvent;
-import org.apache.doris.plugin.audit.AuditEvent.EventType;
 import org.apache.doris.plugin.audit.AuditLogBuilder;
 import org.apache.doris.utframe.UtFrameUtils;
 

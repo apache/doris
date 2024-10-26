@@ -80,6 +80,8 @@ public class TransactionEntry {
     private List<InternalService.PDataRow> dataToSend = new ArrayList<>();
     private long rowsInTransaction = 0;
     private Types.PUniqueId pLoadId;
+    private boolean isFirstTxnInsert = false;
+    private volatile int txnSchemaVersion = -1;
 
     // for insert into select for multi tables
     private boolean isTransactionBegan = false;
@@ -179,6 +181,22 @@ public class TransactionEntry {
 
     public void setpLoadId(Types.PUniqueId pLoadId) {
         this.pLoadId = pLoadId;
+    }
+
+    public boolean isFirstTxnInsert() {
+        return isFirstTxnInsert;
+    }
+
+    public void setFirstTxnInsert(boolean firstTxnInsert) {
+        isFirstTxnInsert = firstTxnInsert;
+    }
+
+    public int getTxnSchemaVersion() {
+        return txnSchemaVersion;
+    }
+
+    public void setTxnSchemaVersion(int txnSchemaVersion) {
+        this.txnSchemaVersion = txnSchemaVersion;
     }
 
     // Used for insert into select, return the sub_txn_id for this insert
@@ -442,12 +460,14 @@ public class TransactionEntry {
             Preconditions.checkState(subTransactionStates.isEmpty(),
                     "subTxnStates is not empty: " + subTransactionStates);
             resetByTxnInfo(txnLoadInfo);
-            this.transactionState = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, transactionId);
-            Preconditions.checkNotNull(this.transactionState,
-                    "db_id" + dbId + " txn_id=" + transactionId + " not found");
-            Preconditions.checkState(this.label.equals(this.transactionState.getLabel()), "expected label="
-                    + this.label + ", real label=" + this.transactionState.getLabel());
-            this.isTransactionBegan = true;
+            if (this.transactionId > 0) {
+                this.transactionState = Env.getCurrentGlobalTransactionMgr().getTransactionState(dbId, transactionId);
+                Preconditions.checkNotNull(this.transactionState,
+                        "db_id=" + dbId + ", txn_id=" + transactionId + " not found");
+                Preconditions.checkState(this.label.equals(this.transactionState.getLabel()), "expected label="
+                        + this.label + ", real label=" + this.transactionState.getLabel());
+                this.isTransactionBegan = true;
+            }
         }
         LOG.info("set txn info in master, label={}, txnId={}, dbId={}, timeoutTimestamp={}, allSubTxnNum={}, "
                 + "subTxnStates={}", label, transactionId, dbId, timeoutTimestamp, allSubTxnNum, subTransactionStates);
@@ -474,23 +494,35 @@ public class TransactionEntry {
                 "expected label=" + this.label + ", real label=" + txnLoadInfo.getLabel());
         subTransactionStates.clear();
         resetByTxnInfo(txnLoadInfo);
-        this.isTransactionBegan = true;
+        if (this.transactionId > 0) {
+            this.isTransactionBegan = true;
+        }
         LOG.info("set txn load info in observer, label={}, txnId={}, dbId={}, timeoutTimestamp={}, allSubTxnNum={}, "
                 + "subTxnStates={}", label, transactionId, dbId, timeoutTimestamp, allSubTxnNum, subTransactionStates);
     }
 
     private void resetByTxnInfo(TTxnLoadInfo txnLoadInfo) throws DdlException {
-        this.dbId = txnLoadInfo.getDbId();
-        this.database = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
-        this.transactionId = txnLoadInfo.getTxnId();
-        this.timeoutTimestamp = txnLoadInfo.getTimeoutTimestamp();
-        this.allSubTxnNum = txnLoadInfo.getAllSubTxnNum();
-        for (TSubTxnInfo subTxnInfo : txnLoadInfo.getSubTxnInfos()) {
-            TableIf table = database.getTableOrDdlException(subTxnInfo.getTableId());
-            subTransactionStates.add(
-                    new SubTransactionState(subTxnInfo.getSubTxnId(), (Table) table,
-                            subTxnInfo.getTabletCommitInfos(),
-                            SubTransactionState.getSubTransactionType(subTxnInfo.getSubTxnType())));
+        if (txnLoadInfo.isSetDbId()) {
+            this.dbId = txnLoadInfo.getDbId();
+            this.database = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
+        }
+        if (txnLoadInfo.isSetTxnId()) {
+            this.transactionId = txnLoadInfo.getTxnId();
+        }
+        if (txnLoadInfo.isSetTimeoutTimestamp()) {
+            this.timeoutTimestamp = txnLoadInfo.getTimeoutTimestamp();
+        }
+        if (txnLoadInfo.isSetAllSubTxnNum()) {
+            this.allSubTxnNum = txnLoadInfo.getAllSubTxnNum();
+        }
+        if (txnLoadInfo.isSetSubTxnInfos()) {
+            for (TSubTxnInfo subTxnInfo : txnLoadInfo.getSubTxnInfos()) {
+                TableIf table = database.getTableOrDdlException(subTxnInfo.getTableId());
+                subTransactionStates.add(
+                        new SubTransactionState(subTxnInfo.getSubTxnId(), (Table) table,
+                                subTxnInfo.getTabletCommitInfos(),
+                                SubTransactionState.getSubTransactionType(subTxnInfo.getSubTxnType())));
+            }
         }
     }
 

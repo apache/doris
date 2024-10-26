@@ -33,7 +33,7 @@ import org.apache.commons.lang3.StringUtils;
  * CLEAN DATABASE QUERY STATS FROM db;
  * CLEAN TABLE QUERY STATS FROM db.table;
  */
-public class CleanQueryStatsStmt extends DdlStmt {
+public class CleanQueryStatsStmt extends DdlStmt implements NotFallbackInParser {
     private String dbName;
     private TableName tableName;
     private Scope scope;

@@ -55,6 +55,8 @@ void register_aggregate_function_group_concat(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_percentile(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_old(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_regr_union(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_percentile_approx(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory);
@@ -62,11 +64,14 @@ void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_covar_pop(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_covar_samp(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_skewness(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_kurtosis(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_regr_count(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_regr_avg(AggregateFunctionSimpleFactory& factory);
 
@@ -100,12 +105,15 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_percentile_old(instance);
         register_aggregate_function_percentile_approx(instance);
         register_aggregate_function_window_funnel(instance);
+        register_aggregate_function_window_funnel_old(instance);
+        register_aggregate_function_regr_union(instance);
         register_aggregate_function_retention(instance);
         register_aggregate_function_orthogonal_bitmap(instance);
         register_aggregate_function_collect_list(instance);
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
+        register_aggregate_function_linear_histogram(instance);
         register_aggregate_function_map_agg(instance);
         register_aggregate_function_bitmap_agg(instance);
 
@@ -122,6 +130,9 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
 
         register_aggregate_function_regr_count(instance);
         register_aggregate_function_regr_avg(instance);
+
+        register_aggregate_function_skewness(instance);
+        register_aggregate_function_kurtosis(instance);
     });
     return instance;
 }

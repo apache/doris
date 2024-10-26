@@ -201,7 +201,7 @@ suite("test_point_query", "nonConcurrent") {
                 qe_point_select stmt
                 qe_point_select stmt
                 // invalidate cache
-                sql "sync"
+                // "sync"
                 nprep_sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 0, 1929111.1111,[119291.19291], ["111", "222", "333"], 2) """
                 qe_point_select stmt
                 qe_point_select stmt
@@ -217,9 +217,10 @@ suite("test_point_query", "nonConcurrent") {
                 qe_point_select stmt
                 qe_point_select stmt
 
-                sql """
+                nprep_sql """
                   ALTER table ${tableName} ADD COLUMN new_column1 INT default "0";
                 """
+                sql "select 1"
                 qe_point_select stmt
             }
             // disable useServerPrepStmts
@@ -301,6 +302,32 @@ suite("test_point_query", "nonConcurrent") {
     } finally {
         set_be_config.call("disable_storage_row_cache", "true")
         sql """set global enable_nereids_planner=true"""
-        sql "set global enable_fallback_to_original_planner = true"
     }
+
+    // test partial update/delete
+    sql "DROP TABLE IF EXISTS table_3821461"
+    sql """
+        CREATE TABLE `table_3821461` (
+            `col1` smallint NOT NULL,
+            `col2` int NOT NULL,
+            `loc3` char(10) NOT NULL,
+            `value` char(10) NOT NULL,
+            INDEX col3 (`loc3`) USING INVERTED,
+            INDEX col2 (`col2`) USING INVERTED )
+        ENGINE=OLAP UNIQUE KEY(`col1`, `col2`, `loc3`)
+        DISTRIBUTED BY HASH(`col1`, `col2`, `loc3`) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1", "bloom_filter_columns" = "col1", "store_row_column" = "true", "enable_mow_light_delete" = "false" );
+    """
+    sql "insert into table_3821461 values (-10, 20, 'aabc', 'value')"
+    sql "insert into table_3821461 values (10, 20, 'aabc', 'value');"
+    sql "insert into table_3821461 values (20, 30, 'aabc', 'value');"
+    explain {
+        sql("select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'")
+        contains "SHORT-CIRCUIT"
+    } 
+    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    sql "delete from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    qt_sql "select * from table_3821461 where col1 = 10 and col2 = 20 and loc3 = 'aabc';"
+    sql "update table_3821461 set value = 'update value' where col1 = -10 or col1 = 20;"
+    qt_sql """select * from table_3821461 where col1 = -10 and col2 = 20 and loc3 = 'aabc'"""
 } 

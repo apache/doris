@@ -134,21 +134,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
     VLOG_NOTICE << "read columns size: " << read_columns.size();
-    std::string schema_key = SchemaCache::get_schema_key(
-            _read_options.tablet_id, _read_context->tablet_schema, read_columns,
-            _read_context->tablet_schema->schema_version(), SchemaCache::Type::SCHEMA);
-    // It is necessary to ensure that there is a schema version when using a cache
-    // because the absence of a schema version can result in reading a stale version
-    // of the schema after a schema change.
-    // For table contains variants, it's schema is unstable and variable so we could not use schema cache here
-    if (_read_context->tablet_schema->schema_version() < 0 ||
-        _read_context->tablet_schema->num_variant_columns() > 0 ||
-        (_input_schema = SchemaCache::instance()->get_schema<SchemaSPtr>(schema_key)) == nullptr) {
-        _input_schema =
-                std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
-        SchemaCache::instance()->insert_schema(schema_key, _input_schema);
-    }
-
+    _input_schema = std::make_shared<Schema>(_read_context->tablet_schema->columns(), read_columns);
     if (_read_context->predicates != nullptr) {
         _read_options.column_predicates.insert(_read_options.column_predicates.end(),
                                                _read_context->predicates->begin(),
@@ -160,27 +146,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             }
             _read_options.col_id_to_predicates[pred->column_id()]->add_column_predicate(
                     SingleColumnBlockPredicate::create_unique(pred));
-        }
-    }
-
-    if (_read_context->predicates_except_leafnode_of_andnode != nullptr) {
-        bool should_push_down = true;
-        bool should_push_down_value_predicates = _should_push_down_value_predicates();
-        for (auto pred : *_read_context->predicates_except_leafnode_of_andnode) {
-            if (_rowset->keys_type() == UNIQUE_KEYS && !should_push_down_value_predicates &&
-                !_read_context->tablet_schema->column(pred->column_id()).is_key()) {
-                VLOG_DEBUG << "do not push down except_leafnode_of_andnode value pred "
-                           << pred->debug_string();
-                should_push_down = false;
-                break;
-            }
-        }
-
-        if (should_push_down) {
-            _read_options.column_predicates_except_leafnode_of_andnode.insert(
-                    _read_options.column_predicates_except_leafnode_of_andnode.end(),
-                    _read_context->predicates_except_leafnode_of_andnode->begin(),
-                    _read_context->predicates_except_leafnode_of_andnode->end());
         }
     }
 
@@ -269,6 +234,12 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _segments_rows.resize(segments.size());
     for (size_t i = 0; i < segments.size(); i++) {
         _segments_rows[i] = segments[i]->num_rows();
+    }
+    if (_read_context->record_rowids) {
+        // init segment rowid map for rowid conversion
+        std::vector<uint32_t> segment_num_rows;
+        RETURN_IF_ERROR(get_segment_num_rows(&segment_num_rows));
+        _read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(), segment_num_rows);
     }
 
     auto [seg_start, seg_end] = _segment_offsets;
@@ -386,6 +357,11 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
         return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
     }
 
+    RuntimeState* runtime_state = nullptr;
+    if (_read_context != nullptr) {
+        runtime_state = _read_context->runtime_state;
+    }
+
     do {
         auto s = _iterator->next_batch(block);
         if (!s.ok()) {
@@ -393,6 +369,10 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
                 LOG(WARNING) << "failed to read next block: " << s.to_string();
             }
             return s;
+        }
+
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+            return runtime_state->cancel_reason();
         }
     } while (block->empty());
 
@@ -402,6 +382,12 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     RETURN_IF_ERROR(_init_iterator_once());
+
+    RuntimeState* runtime_state = nullptr;
+    if (_read_context != nullptr) {
+        runtime_state = _read_context->runtime_state;
+    }
+
     do {
         auto s = _iterator->next_block_view(block_view);
         if (!s.ok()) {
@@ -409,6 +395,10 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
                 LOG(WARNING) << "failed to read next block view: " << s.to_string();
             }
             return s;
+        }
+
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+            return runtime_state->cancel_reason();
         }
     } while (block_view->empty());
 

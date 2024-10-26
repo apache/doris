@@ -87,10 +87,10 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_init_timer);
-    _hash_table_memory_usage = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "HashTable",
-                                                            TUnit::BYTES, "MemoryUsage", 1);
+    _hash_table_memory_usage =
+            ADD_COUNTER_WITH_LEVEL(Base::profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _serialize_key_arena_memory_usage = Base::profile()->AddHighWaterMarkCounter(
-            "SerializeKeyArena", TUnit::BYTES, "MemoryUsage", 1);
+            "MemoryUsageSerializeKeyArena", TUnit::BYTES, "", 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
     _build_table_convert_timer = ADD_TIMER(Base::profile(), "BuildConvertToPartitionedTime");
@@ -357,10 +357,10 @@ Status StreamingAggLocalState::_merge_without_key(vectorized::Block* block) {
 }
 
 void StreamingAggLocalState::_update_memusage_without_key() {
-    auto arena_memory_usage = _agg_arena_pool->size() - _mem_usage_record.used_in_arena;
-    Base::_mem_tracker->consume(arena_memory_usage);
-    _serialize_key_arena_memory_usage->add(arena_memory_usage);
-    _mem_usage_record.used_in_arena = _agg_arena_pool->size();
+    int64_t arena_memory_usage = _agg_arena_pool->size();
+    COUNTER_SET(_memory_used_counter, arena_memory_usage);
+    COUNTER_SET(_peak_memory_usage_counter, arena_memory_usage);
+    COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
 }
 
 Status StreamingAggLocalState::_execute_with_serialized_key(vectorized::Block* block) {
@@ -372,28 +372,25 @@ Status StreamingAggLocalState::_execute_with_serialized_key(vectorized::Block* b
 }
 
 void StreamingAggLocalState::_update_memusage_with_serialized_key() {
-    std::visit(
-            vectorized::Overload {
-                    [&](std::monostate& arg) -> void {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) -> void {
-                        auto& data = *agg_method.hash_table;
-                        auto arena_memory_usage = _agg_arena_pool->size() +
-                                                  _aggregate_data_container->memory_usage() -
-                                                  _mem_usage_record.used_in_arena;
-                        Base::_mem_tracker->consume(arena_memory_usage);
-                        Base::_mem_tracker->consume(data.get_buffer_size_in_bytes() -
-                                                    _mem_usage_record.used_in_state);
-                        _serialize_key_arena_memory_usage->add(arena_memory_usage);
-                        COUNTER_UPDATE(
-                                _hash_table_memory_usage,
-                                data.get_buffer_size_in_bytes() - _mem_usage_record.used_in_state);
-                        _mem_usage_record.used_in_state = data.get_buffer_size_in_bytes();
-                        _mem_usage_record.used_in_arena =
-                                _agg_arena_pool->size() + _aggregate_data_container->memory_usage();
-                    }},
-            _agg_data->method_variant);
+    std::visit(vectorized::Overload {
+                       [&](std::monostate& arg) -> void {
+                           throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                       },
+                       [&](auto& agg_method) -> void {
+                           auto& data = *agg_method.hash_table;
+                           int64_t arena_memory_usage = _agg_arena_pool->size() +
+                                                        _aggregate_data_container->memory_usage();
+                           int64_t hash_table_memory_usage = data.get_buffer_size_in_bytes();
+
+                           COUNTER_SET(_memory_used_counter,
+                                       arena_memory_usage + hash_table_memory_usage);
+                           COUNTER_SET(_peak_memory_usage_counter,
+                                       arena_memory_usage + hash_table_memory_usage);
+
+                           COUNTER_SET(_serialize_key_arena_memory_usage, arena_memory_usage);
+                           COUNTER_SET(_hash_table_memory_usage, hash_table_memory_usage);
+                       }},
+               _agg_data->method_variant);
 }
 
 template <bool limit>
@@ -502,8 +499,8 @@ Status StreamingAggLocalState::_merge_with_serialized_key(vectorized::Block* blo
 }
 
 Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    RETURN_IF_ERROR(init_agg_hash_method(
-            _agg_data.get(), probe_exprs,
+    RETURN_IF_ERROR(init_hash_method<AggregatedDataVariants>(
+            _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<StreamingAggOperatorX>()._is_first_phase));
     return Status::OK();
 }
@@ -515,7 +512,6 @@ Status StreamingAggLocalState::do_pre_agg(vectorized::Block* input_block,
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
     _cur_num_rows_returned += output_block->rows();
     _make_nullable_output_key(output_block);
-    //    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     _executor->update_memusage(this);
     return Status::OK();
 }
@@ -1118,8 +1114,8 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
 
                            SCOPED_TIMER(_hash_table_emplace_timer);
                            for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                   creator_for_null_key);
+                               places[i] = *agg_method.lazy_emplace(state, i, creator,
+                                                                    creator_for_null_key);
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);
@@ -1177,12 +1173,12 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
     return Status::OK();
 }
 
-Status StreamingAggOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::prepare(state));
+Status StreamingAggOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::open(state));
     _intermediate_tuple_desc = state->desc_tbl().get_tuple_descriptor(_intermediate_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child_x->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_probe_expr_ctxs, state, _child->row_desc()));
 
     int j = _probe_expr_ctxs.size();
     for (int i = 0; i < j; ++i) {
@@ -1197,7 +1193,7 @@ Status StreamingAggOperatorX::prepare(RuntimeState* state) {
         SlotDescriptor* intermediate_slot_desc = _intermediate_tuple_desc->slots()[j];
         SlotDescriptor* output_slot_desc = _output_tuple_desc->slots()[j];
         RETURN_IF_ERROR(_aggregate_evaluators[i]->prepare(
-                state, _child_x->row_desc(), intermediate_slot_desc, output_slot_desc));
+                state, _child->row_desc(), intermediate_slot_desc, output_slot_desc));
         _aggregate_evaluators[i]->set_version(state->be_exec_version());
     }
 
@@ -1231,11 +1227,6 @@ Status StreamingAggOperatorX::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::check_agg_fn_output(
                 _probe_expr_ctxs.size(), _aggregate_evaluators, _agg_fn_output_row_descriptor));
     }
-    return Status::OK();
-}
-
-Status StreamingAggOperatorX::open(RuntimeState* state) {
-    RETURN_IF_ERROR(StatefulOperatorX<StreamingAggLocalState>::open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_probe_expr_ctxs, state));
 
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -1260,7 +1251,6 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
 
     std::vector<char> tmp_deserialize_buffer;
     _deserialize_buffer.swap(tmp_deserialize_buffer);
-    Base::_mem_tracker->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
 
     /// _hash_table_size_counter may be null if prepare failed.
     if (_hash_table_size_counter) {
@@ -1285,8 +1275,8 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, vectorized::Block* block
         RETURN_IF_ERROR(local_state._executor->get_result(&local_state, state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
-        RETURN_IF_ERROR(
-                vectorized::VExprContext::filter_block(_conjuncts, block, block->columns()));
+        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, block,
+                                                               block->columns()));
     }
     local_state.reached_limit(block, eos);
 
@@ -1300,7 +1290,7 @@ Status StreamingAggOperatorX::push(RuntimeState* state, vectorized::Block* in_bl
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state.do_pre_agg(in_block, local_state._pre_aggregated_block.get()));
     }
-    in_block->clear_column_data(_child_x->row_desc().num_materialized_slots());
+    in_block->clear_column_data(_child->row_desc().num_materialized_slots());
     return Status::OK();
 }
 

@@ -326,10 +326,9 @@ public class StatisticsRepository {
         if (rowCount == null) {
             throw new RuntimeException("Row count is null.");
         }
-        ColumnStatisticBuilder builder = new ColumnStatisticBuilder();
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(Double.parseDouble(rowCount));
         String colName = alterColumnStatsStmt.getColumnName();
         Column column = objects.table.getColumn(colName);
-        builder.setCount(Double.parseDouble(rowCount));
         if (ndv != null) {
             double dNdv = Double.parseDouble(ndv);
             builder.setNdv(dNdv);
@@ -380,8 +379,9 @@ public class StatisticsRepository {
                     objects.catalog.getId(), objects.db.getId(), objects.table.getId(), indexId, colName,
                     null, columnStatistic);
             Env.getCurrentEnv().getStatisticsCache().syncColStats(data);
+            long timestamp = System.currentTimeMillis();
             AnalysisInfo mockedJobInfo = new AnalysisInfoBuilder()
-                    .setTblUpdateTime(System.currentTimeMillis())
+                    .setTblUpdateTime(timestamp)
                     .setColName("")
                     .setRowCount((long) Double.parseDouble(rowCount))
                     .setJobColumns(Sets.newHashSet())

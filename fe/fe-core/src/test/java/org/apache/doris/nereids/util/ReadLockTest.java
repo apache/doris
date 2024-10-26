@@ -30,9 +30,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 public class ReadLockTest extends SSBTestBase {
 
@@ -49,9 +50,14 @@ public class ReadLockTest extends SSBTestBase {
         );
         CascadesContext cascadesContext = planner.getCascadesContext();
 
-        List<TableIf> f = cascadesContext.getTables();
-        Assertions.assertEquals(1, f.size());
-        Assertions.assertEquals("supplier", f.stream().map(TableIf::getName).findFirst().get());
+        Map<List<String>, TableIf> f = cascadesContext.getTables();
+        Assertions.assertEquals(2, f.size());
+        Set<String> tableNames = new HashSet<>();
+        for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
+            TableIf table = entry.getValue();
+            tableNames.add(table.getName());
+        }
+        Assertions.assertTrue(tableNames.contains("supplier"));
     }
 
     @Test
@@ -70,9 +76,12 @@ public class ReadLockTest extends SSBTestBase {
                 PhysicalProperties.ANY
         );
         CascadesContext cascadesContext = planner.getCascadesContext();
-        List<TableIf> f = cascadesContext.getTables();
+        Map<List<String>, TableIf> f = cascadesContext.getTables();
         Assertions.assertEquals(1, f.size());
-        Assertions.assertEquals("supplier", f.stream().map(TableIf::getName).findFirst().get());
+        for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
+            TableIf table = entry.getValue();
+            Assertions.assertEquals("supplier", table.getName());
+        }
     }
 
     @Test
@@ -85,9 +94,12 @@ public class ReadLockTest extends SSBTestBase {
                 PhysicalProperties.ANY
         );
         CascadesContext cascadesContext = planner.getCascadesContext();
-        List<TableIf> f = cascadesContext.getTables();
+        Map<List<String>, TableIf> f = cascadesContext.getTables();
         Assertions.assertEquals(1, f.size());
-        Assertions.assertEquals("supplier", f.stream().map(TableIf::getName).findFirst().get());
+        for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
+            TableIf table = entry.getValue();
+            Assertions.assertEquals("supplier", table.getName());
+        }
     }
 
     @Test
@@ -100,16 +112,21 @@ public class ReadLockTest extends SSBTestBase {
                 PhysicalProperties.ANY
         );
         CascadesContext cascadesContext = planner.getCascadesContext();
-        List<TableIf> f = cascadesContext.getTables();
+        Map<List<String>, TableIf> f = cascadesContext.getTables();
         Assertions.assertEquals(2, f.size());
-        Set<String> tableNames = f.stream().map(TableIf::getName).collect(Collectors.toSet());
+        Set<String> tableNames = new HashSet<>();
+        for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
+            TableIf table = entry.getValue();
+            tableNames.add(table.getName());
+        }
         Assertions.assertTrue(tableNames.contains("supplier"));
         Assertions.assertTrue(tableNames.contains("lineorder"));
     }
 
     @Test
     public void testInserInto() {
-        String sql = "INSERT INTO supplier(s_suppkey) SELECT lo_orderkey FROM lineorder";
+        String sql = "INSERT INTO supplier(s_suppkey, s_name, s_address, s_city, s_nation, s_region, s_phone) "
+                + "SELECT lo_orderkey, '', '', '', '', '', '' FROM lineorder";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) parser.parseSingle(sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
@@ -118,9 +135,13 @@ public class ReadLockTest extends SSBTestBase {
                 PhysicalProperties.ANY
         );
         CascadesContext cascadesContext = planner.getCascadesContext();
-        List<TableIf> f = cascadesContext.getTables();
+        Map<List<String>, TableIf> f = cascadesContext.getTables();
         Assertions.assertEquals(2, f.size());
-        Set<String> tableNames = f.stream().map(TableIf::getName).collect(Collectors.toSet());
+        Set<String> tableNames = new HashSet<>();
+        for (Map.Entry<List<String>, TableIf> entry : f.entrySet()) {
+            TableIf table = entry.getValue();
+            tableNames.add(table.getName());
+        }
         Assertions.assertTrue(tableNames.contains("supplier"));
         Assertions.assertTrue(tableNames.contains("lineorder"));
     }

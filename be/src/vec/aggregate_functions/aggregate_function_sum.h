@@ -100,7 +100,8 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        const auto& column = assert_cast<const ColVecType&>(*columns[0]);
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         this->data(place).add(TResult(column.get_data()[row_num]));
     }
 
@@ -231,7 +232,6 @@ struct SumSimple {
 template <typename T>
 using AggregateFunctionSumSimple = typename SumSimple<T, true>::Function;
 
-const static std::string DECIMAL256_SUFFIX {"_decimal256"};
 template <typename T, bool level_up>
 struct SumSimpleDecimal256 {
     /// @note It uses slow Decimal128 (cause we need such a variant). sumWithOverflow is faster for Decimal32/64

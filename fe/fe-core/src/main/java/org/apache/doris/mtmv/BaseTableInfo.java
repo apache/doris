@@ -18,39 +18,44 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 public class BaseTableInfo {
     private static final Logger LOG = LogManager.getLogger(BaseTableInfo.class);
 
+    // The MTMV needs to record the name to avoid changing the ID after rebuilding the same named base table,
+    // which may make the materialized view unusable.
+    // The previous version stored the ID, so it is temporarily kept for compatibility with the old version
     @SerializedName("ti")
+    @Deprecated
     private long tableId;
     @SerializedName("di")
+    @Deprecated
     private long dbId;
     @SerializedName("ci")
+    @Deprecated
     private long ctlId;
 
-    public BaseTableInfo(long tableId, long dbId) {
-        this.tableId = java.util.Objects.requireNonNull(tableId, "tableId is null");
-        this.dbId = java.util.Objects.requireNonNull(dbId, "dbId is null");
-        this.ctlId = InternalCatalog.INTERNAL_CATALOG_ID;
-    }
-
-    public BaseTableInfo(long tableId, long dbId, long ctlId) {
-        this.tableId = java.util.Objects.requireNonNull(tableId, "tableId is null");
-        this.dbId = java.util.Objects.requireNonNull(dbId, "dbId is null");
-        this.ctlId = java.util.Objects.requireNonNull(ctlId, "ctlId is null");
-    }
+    @SerializedName("tn")
+    private String tableName;
+    @SerializedName("dn")
+    private String dbName;
+    @SerializedName("cn")
+    private String ctlName;
 
     public BaseTableInfo(TableIf table) {
+        java.util.Objects.requireNonNull(table, "table is null");
         DatabaseIf database = table.getDatabase();
         java.util.Objects.requireNonNull(database, "database is null");
         CatalogIf catalog = database.getCatalog();
@@ -58,18 +63,51 @@ public class BaseTableInfo {
         this.tableId = table.getId();
         this.dbId = database.getId();
         this.ctlId = catalog.getId();
+        this.tableName = table.getName();
+        this.dbName = database.getFullName();
+        this.ctlName = catalog.getName();
     }
 
+    // for replay MTMV, can not use  `table.getDatabase();`,because database not added to catalog
+    public BaseTableInfo(OlapTable table, long dbId) {
+        java.util.Objects.requireNonNull(table, "table is null");
+        this.tableId = table.getId();
+        this.dbId = dbId;
+        this.ctlId = InternalCatalog.INTERNAL_CATALOG_ID;
+        this.tableName = table.getName();
+        this.dbName = table.getDBName();
+        this.ctlName = InternalCatalog.INTERNAL_CATALOG_NAME;
+    }
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public String getDbName() {
+        return dbName;
+    }
+
+    public String getCtlName() {
+        return ctlName;
+    }
+
+    @Deprecated
     public long getTableId() {
         return tableId;
     }
 
+    @Deprecated
     public long getDbId() {
         return dbId;
     }
 
+    @Deprecated
     public long getCtlId() {
         return ctlId;
+    }
+
+    public void setTableName(String tableName) {
+        this.tableName = tableName;
     }
 
     @Override
@@ -81,31 +119,43 @@ public class BaseTableInfo {
             return false;
         }
         BaseTableInfo that = (BaseTableInfo) o;
-        return Objects.equal(tableId, that.tableId)
-                && Objects.equal(dbId, that.dbId)
-                && Objects.equal(ctlId, that.ctlId);
+        // for compatibility
+        if (StringUtils.isEmpty(ctlName) || StringUtils.isEmpty(that.ctlName)) {
+            return Objects.equal(tableId, that.tableId) && Objects.equal(
+                    dbId, that.dbId) && Objects.equal(ctlId, that.ctlId);
+        } else {
+            return Objects.equal(tableName, that.tableName) && Objects.equal(
+                    dbName, that.dbName) && Objects.equal(ctlName, that.ctlName);
+        }
     }
 
     @Override
     public int hashCode() {
-        return Objects.hashCode(tableId, dbId, ctlId);
+        return Objects.hashCode(tableName, dbName, ctlName);
     }
 
     @Override
     public String toString() {
         return "BaseTableInfo{"
-                + "tableId=" + tableId
-                + ", dbId=" + dbId
-                + ", ctlId=" + ctlId
+                + "tableName='" + tableName + '\''
+                + ", dbName='" + dbName + '\''
+                + ", ctlName='" + ctlName + '\''
                 + '}';
     }
 
-    public String getTableName() {
+    public void compatible(CatalogMgr catalogMgr) {
+        if (!StringUtils.isEmpty(ctlName)) {
+            return;
+        }
         try {
-            return MTMVUtil.getTable(this).getName();
+            CatalogIf catalog = catalogMgr.getCatalogOrAnalysisException(ctlId);
+            DatabaseIf db = catalog.getDbOrAnalysisException(dbId);
+            TableIf table = db.getTableOrAnalysisException(tableId);
+            this.ctlName = catalog.getName();
+            this.dbName = db.getFullName();
+            this.tableName = table.getName();
         } catch (AnalysisException e) {
-            LOG.warn("can not get table: " + this);
-            return "";
+            LOG.warn("MTMV compatible failed, ctlId: {}, dbId: {}, tableId: {}", ctlId, dbId, tableId, e);
         }
     }
 }

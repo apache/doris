@@ -72,6 +72,9 @@ public:
     static Status get_rowset_binlog_metas(OlapMeta* meta, const TabletUid tablet_uid,
                                           const std::vector<int64_t>& binlog_versions,
                                           RowsetBinlogMetasPB* metas_pb);
+    // get all binlog metas of a tablet in version.
+    static Status get_rowset_binlog_metas(OlapMeta* meta, const TabletUid tablet_uid,
+                                          Version version, RowsetBinlogMetasPB* metas_pb);
     static Status remove_binlog(OlapMeta* meta, const std::string& suffix);
     static Status ingest_binlog_metas(OlapMeta* meta, TabletUid tablet_uid,
                                       RowsetBinlogMetasPB* metas_pb);

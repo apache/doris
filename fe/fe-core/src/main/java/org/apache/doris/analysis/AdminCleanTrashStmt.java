@@ -34,7 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-public class AdminCleanTrashStmt extends DdlStmt {
+public class AdminCleanTrashStmt extends DdlStmt implements NotFallbackInParser {
     private List<Backend> backends = Lists.newArrayList();
 
     public AdminCleanTrashStmt(List<String> backends) throws UserException {

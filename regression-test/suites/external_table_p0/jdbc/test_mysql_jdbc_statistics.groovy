@@ -17,6 +17,7 @@
 
 suite("test_mysql_jdbc_statistics", "p0,external,mysql,external_docker,external_docker_mysql") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
+    logger.info("enabled " + enabled)
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String mysql_port = context.config.otherConfigs.get("mysql_57_port");
     String s3_endpoint = getS3Endpoint()
@@ -35,28 +36,40 @@ suite("test_mysql_jdbc_statistics", "p0,external,mysql,external_docker,external_
         );"""
 
         sql """use ${catalog_name}.doris_test"""
+
+        def result = sql """show table stats ex_tb0"""
+        Thread.sleep(1000)
+        for (int i = 0; i < 20; i++) {
+            result = sql """show table stats ex_tb0""";
+            if (result[0][2] != "-1") {
+                assertEquals("5", result[0][2])
+                break;
+            }
+            logger.info("Table row count not ready yet. Wait 1 second.")
+            Thread.sleep(1000)
+        }
         sql """analyze table ex_tb0 with sync"""
-        def result = sql """show column stats ex_tb0 (name)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "name")
-        assertTrue(result[0][2] == "5.0")
-        assertTrue(result[0][3] == "5.0")
-        assertTrue(result[0][4] == "0.0")
-        assertTrue(result[0][5] == "15.0")
-        assertTrue(result[0][6] == "3.0")
+        result = sql """show column stats ex_tb0 (name)"""
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "name")
+        assertEquals(result[0][2], "5.0")
+        assertEquals(result[0][3], "5.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "15.0")
+        assertEquals(result[0][6], "3.0")
         assertEquals(result[0][7], "'abc'")
         assertEquals(result[0][8], "'abg'")
 
         result = sql """show column stats ex_tb0 (id)"""
-        assertTrue(result.size() == 1)
-        assertTrue(result[0][0] == "id")
-        assertTrue(result[0][2] == "5.0")
-        assertTrue(result[0][3] == "5.0")
-        assertTrue(result[0][4] == "0.0")
-        assertTrue(result[0][5] == "20.0")
-        assertTrue(result[0][6] == "4.0")
-        assertTrue(result[0][7] == "111")
-        assertTrue(result[0][8] == "115")
+        assertEquals(result.size(), 1)
+        assertEquals(result[0][0], "id")
+        assertEquals(result[0][2], "5.0")
+        assertEquals(result[0][3], "5.0")
+        assertEquals(result[0][4], "0.0")
+        assertEquals(result[0][5], "20.0")
+        assertEquals(result[0][6], "4.0")
+        assertEquals(result[0][7], "111")
+        assertEquals(result[0][8], "115")
 
         sql """drop catalog ${catalog_name}"""
     }

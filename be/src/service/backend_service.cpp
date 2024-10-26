@@ -653,14 +653,8 @@ Status BaseBackendService::start_plan_fragment_execution(
     if (!exec_params.fragment.__isset.output_sink) {
         return Status::InternalError("missing sink in plan fragment");
     }
-    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params);
-}
-
-void BaseBackendService::cancel_plan_fragment(TCancelPlanFragmentResult& return_val,
-                                              const TCancelPlanFragmentParams& params) {
-    LOG(INFO) << "cancel_plan_fragment(): instance_id=" << print_id(params.fragment_instance_id);
-    _exec_env->fragment_mgr()->cancel_instance(
-            params.fragment_instance_id, Status::InternalError("cancel message received from FE"));
+    return _exec_env->fragment_mgr()->exec_plan_fragment(exec_params,
+                                                         QuerySource::INTERNAL_FRONTEND);
 }
 
 void BaseBackendService::transmit_data(TTransmitDataResult& return_val,

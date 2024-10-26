@@ -55,14 +55,9 @@ Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, Runtime
 }
 
 template <bool is_intersect>
-Status SetProbeSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::prepare(state));
-    return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
-}
-
-template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
     return vectorized::VExpr::open(_child_exprs, state);
 }
 
@@ -90,7 +85,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                         __builtin_unreachable();
                     }
                 },
-                *local_state._shared_state->hash_table_variants));
+                local_state._shared_state->hash_table_variants->method_variant));
     }
 
     if (eos) {
@@ -114,6 +109,9 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
     }
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     child_exprs_lists[parent._cur_child_id] = _child_exprs;
+
+    RETURN_IF_ERROR(_shared_state->update_build_not_ignore_null(_child_exprs));
+
     return Status::OK();
 }
 
@@ -185,7 +183,7 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
                             valid_element_in_hash_tbl = arg.hash_table->size();
                         }
                     },
-                    *hash_table_variants);
+                    hash_table_variants->method_variant);
         }
         local_state._probe_columns.resize(
                 local_state._shared_state->child_exprs_lists[_cur_child_id + 1].size());
@@ -250,7 +248,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                     __builtin_unreachable();
                 }
             },
-            *hash_table_variants);
+            hash_table_variants->method_variant);
 }
 
 template class SetProbeSinkLocalState<true>;

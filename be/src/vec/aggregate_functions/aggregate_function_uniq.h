@@ -76,6 +76,8 @@ struct AggregateFunctionUniqExactData {
     Set set;
 
     static String get_name() { return "multi_distinct"; }
+
+    void reset() { set.clear(); }
 };
 
 namespace detail {
@@ -90,9 +92,12 @@ struct OneAdder {
             StringRef value = column.get_data_at(row_num);
             data.set.insert(Data::get_key(value));
         } else if constexpr (IsDecimalNumber<T>) {
-            data.set.insert(assert_cast<const ColumnDecimal<T>&>(column).get_data()[row_num]);
+            data.set.insert(
+                    assert_cast<const ColumnDecimal<T>&, TypeCheckOnRelease::DISABLE>(column)
+                            .get_data()[row_num]);
         } else {
-            data.set.insert(assert_cast<const ColumnVector<T>&>(column).get_data()[row_num]);
+            data.set.insert(assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(column)
+                                    .get_data()[row_num]);
         }
     }
 };
@@ -111,6 +116,8 @@ public:
     String get_name() const override { return Data::get_name(); }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {

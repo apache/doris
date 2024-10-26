@@ -21,10 +21,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NotFallbackInParser;
 import org.apache.doris.analysis.QueryStmt;
-import org.apache.doris.analysis.SqlParser;
-import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
@@ -33,6 +30,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -43,13 +41,11 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
-import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
@@ -57,7 +53,6 @@ import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.SqlCacheContext.CacheKeyType;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
-import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.Dialect;
@@ -89,7 +84,6 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
 import java.io.IOException;
-import java.io.StringReader;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -157,11 +151,13 @@ public abstract class ConnectProcessor {
         if (catalogName != null) {
             CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
             if (catalogIf == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
             if (catalogIf.getDbNullable(dbName) == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
         }
@@ -192,6 +188,16 @@ public abstract class ConnectProcessor {
         ctx.getState().setOk();
     }
 
+    // Do nothing for now.
+    protected void handleStatistics() {
+        ctx.getState().setOk();
+    }
+
+    // Do nothing for now.
+    protected void handleDebug() {
+        ctx.getState().setOk();
+    }
+
     protected void handleStmtReset() {
         ctx.getState().setOk();
     }
@@ -219,7 +225,7 @@ public abstract class ConnectProcessor {
     }
 
     // only throw an exception when there is a problem interacting with the requesting client
-    protected void handleQuery(MysqlCommand mysqlCommand, String originStmt) throws ConnectionException {
+    protected void handleQuery(String originStmt) throws ConnectionException {
         if (Config.isCloudMode()) {
             if (!ctx.getCurrentUserIdentity().isRootUser()
                     && ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getInstanceStatus()
@@ -234,18 +240,26 @@ public abstract class ConnectProcessor {
             }
         }
         try {
-            executeQuery(mysqlCommand, originStmt);
+            executeQuery(originStmt);
         } catch (ConnectionException exception) {
             throw exception;
+        } catch (UserException exception) {
+            LOG.warn("execute query exception", exception);
         } catch (Exception ignored) {
             // saved use handleQueryException
         }
     }
 
-    public void executeQuery(MysqlCommand mysqlCommand, String originStmt) throws Exception {
-        if (MetricRepo.isInit) {
+    public void executeQuery(String originStmt) throws Exception {
+        if (MetricRepo.isInit && !ctx.getSessionVariable().internalSession) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
-            MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
+            if (Config.isCloudMode()) {
+                try {
+                    MetricRepo.increaseClusterRequestAll(ctx.getCloudCluster(false));
+                } catch (ComputeGroupException e) {
+                    LOG.warn("metrics get cluster exception", e);
+                }
+            }
         }
 
         String convertedStmt = convertOriginStmt(originStmt);
@@ -253,98 +267,39 @@ public abstract class ConnectProcessor {
         ctx.setSqlHash(sqlHash);
 
         SessionVariable sessionVariable = ctx.getSessionVariable();
-        boolean wantToParseSqlFromSqlCache = sessionVariable.isEnableNereidsPlanner()
-                && CacheAnalyzer.canUseSqlCache(sessionVariable);
+        boolean wantToParseSqlFromSqlCache = CacheAnalyzer.canUseSqlCache(sessionVariable);
         List<StatementBase> stmts = null;
-        Exception nereidsParseException = null;
-        Exception nereidsSyntaxException = null;
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
-        // Currently we add a config to decide whether using PREPARED/EXECUTE command for nereids
-        // TODO: after implemented full prepared, we could remove this flag
-        boolean nereidsUseServerPrep = sessionVariable.enableServeSidePreparedStatement
-                        || mysqlCommand == MysqlCommand.COM_QUERY;
         CacheKeyType cacheKeyType = null;
-        if (nereidsUseServerPrep && sessionVariable.isEnableNereidsPlanner()) {
-            if (wantToParseSqlFromSqlCache) {
-                cachedStmts = parseFromSqlCache(originStmt);
-                Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
-                        .getStatementContext().getSqlCacheContext();
-                if (sqlCacheContext.isPresent()) {
-                    cacheKeyType = sqlCacheContext.get().getCacheKeyType();
-                }
-                if (cachedStmts != null) {
-                    stmts = cachedStmts;
-                }
+        if (wantToParseSqlFromSqlCache) {
+            cachedStmts = parseFromSqlCache(originStmt);
+            Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
+                    .getStatementContext().getSqlCacheContext();
+            if (sqlCacheContext.isPresent()) {
+                cacheKeyType = sqlCacheContext.get().getCacheKeyType();
             }
-
-            if (cachedStmts == null) {
-                try {
-                    stmts = new NereidsParser().parseSQL(convertedStmt, sessionVariable);
-                } catch (NotSupportedException e) {
-                    // Parse sql failed, audit it and return
-                    handleQueryException(e, convertedStmt, null, null);
-                    return;
-                } catch (ParseException e) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
-                                e.getMessage(), convertedStmt);
-                    }
-                    // ATTN: Do not set nereidsParseException in this case.
-                    // Because ParseException means the sql is not supported by Nereids.
-                    // It should be parsed by old parser, so not setting nereidsParseException to avoid
-                    // suppressing the exception thrown by old parser.
-                    nereidsParseException = e;
-                } catch (Exception e) {
-                    // TODO: We should catch all exception here until we support all query syntax.
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("Nereids parse sql failed with other exception. Reason: {}. Statement: \"{}\".",
-                                e.getMessage(), convertedStmt);
-                    }
-                    nereidsSyntaxException = e;
-                }
+            if (cachedStmts != null) {
+                stmts = cachedStmts;
             }
         }
 
-        // stmts == null when Nereids cannot planner this query or Nereids is disabled.
         if (stmts == null) {
             try {
-                stmts = parse(convertedStmt);
-            } catch (Throwable throwable) {
-                // if NereidsParser and oldParser both failed,
-                // prove is a new feature implemented only on the nereids,
-                // so an error message for the new nereids is thrown
-                if (nereidsSyntaxException != null) {
-                    throwable = nereidsSyntaxException;
-                }
+                stmts = new NereidsParser().parseSQL(convertedStmt, sessionVariable);
+            } catch (NotSupportedException e) {
                 // Parse sql failed, audit it and return
-                handleQueryException(throwable, convertedStmt, null, null);
+                handleQueryException(e, convertedStmt, null, null);
+                return;
+            } catch (Exception e) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                            e.getMessage(), convertedStmt, e);
+                }
+                Throwable exception = new AnalysisException(e.getMessage(), e);
+                handleQueryException(exception, originStmt, null, null);
                 return;
             }
-        }
-
-        if (mysqlCommand == MysqlCommand.COM_QUERY
-                && ctx.getSessionVariable().isEnableNereidsPlanner()
-                && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
-                && stmts.stream().allMatch(s -> s instanceof NotFallbackInParser)) {
-            String errMsg;
-            Throwable exception = null;
-            if (nereidsParseException != null) {
-                errMsg = nereidsParseException.getMessage();
-                exception = nereidsParseException;
-            } else if (nereidsSyntaxException != null) {
-                errMsg = nereidsSyntaxException.getMessage();
-                exception = nereidsSyntaxException;
-            } else {
-                errMsg = "Nereids parse DQL failed. " + originStmt;
-            }
-            if (exception == null) {
-                exception = new AnalysisException(errMsg);
-            } else {
-                exception = new AnalysisException(errMsg, exception);
-            }
-            handleQueryException(exception, originStmt, null, null);
-            return;
         }
 
         List<String> origSingleStmtList = null;
@@ -391,7 +346,7 @@ public abstract class ConnectProcessor {
                                 // when client not request CLIENT_MULTI_STATEMENTS, mysql treat all query as
                                 // single statement. Doris treat it with multi statement, but only return
                                 // the last statement result.
-                                if (getConnectContext().getCapability().isClientMultiStatements()) {
+                                if (getConnectContext().getMysqlChannel().clientMultiStatements()) {
                                     finalizeCommand();
                                 }
                             }
@@ -533,37 +488,6 @@ public abstract class ConnectProcessor {
         auditAfterExec(origStmt, parsedStmt, statistics, true);
     }
 
-    // analyze the origin stmt and return multi-statements
-    protected List<StatementBase> parse(String originStmt) throws AnalysisException, DdlException {
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("the originStmts are: {}", originStmt);
-        }
-        // Parse statement with parser generated by CUP&FLEX
-        SqlScanner input = new SqlScanner(new StringReader(originStmt), ctx.getSessionVariable().getSqlMode());
-        SqlParser parser = new SqlParser(input);
-        try {
-            return SqlParserUtils.getMultiStmts(parser);
-        } catch (Error e) {
-            throw new AnalysisException("Please check your sql, we meet an error when parsing.", e);
-        } catch (AnalysisException | DdlException e) {
-            String errorMessage = parser.getErrorMsg(originStmt);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("origin stmt: {}; Analyze error message: {}", originStmt, parser.getErrorMsg(originStmt), e);
-            }
-            if (errorMessage == null) {
-                throw e;
-            } else {
-                throw new AnalysisException(errorMessage, e);
-            }
-        } catch (ArrayStoreException e) {
-            throw new AnalysisException("Sql parser can't convert the result to array, please check your sql.", e);
-        } catch (Exception e) {
-            // TODO(lingbin): we catch 'Exception' to prevent unexpected error,
-            // should be removed this try-catch clause future.
-            throw new AnalysisException("Internal Error, maybe syntax error or this is a bug: " + e.getMessage(), e);
-        }
-    }
-
     // Get the column definitions of a table
     @SuppressWarnings("rawtypes")
     protected void handleFieldList(String tableName) throws ConnectionException {
@@ -636,11 +560,8 @@ public abstract class ConnectProcessor {
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
-                if (executor.sendProxyQueryResult()) {
-                    packet = getResultPacket();
-                } else {
-                    packet = executor.getOutputPacket();
-                }
+                executor.sendProxyQueryResult();
+                packet = executor.getOutputPacket();
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
@@ -799,16 +720,21 @@ public abstract class ConnectProcessor {
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
-            if (request.isSetTxnLoadInfo()) {
-                TransactionEntry transactionEntry = ConnectContext.get().getTxnEntry();
-                // null if this is a commit or rollback command
-                if (transactionEntry != null) {
-                    result.setTxnLoadInfo(transactionEntry.getTxnInfoInMaster());
-                }
-            }
         } else {
-            result.setStatusCode(ctx.getState().getErrorCode().getCode());
+            ErrorCode errorCode = ctx.getState().getErrorCode();
+            if (errorCode != null) {
+                result.setStatusCode(errorCode.getCode());
+            } else {
+                result.setStatusCode(ErrorCode.ERR_UNKNOWN_ERROR.getCode());
+            }
             result.setErrMessage(ctx.getState().getErrorMessage());
+        }
+        if (request.isSetTxnLoadInfo()) {
+            TransactionEntry transactionEntry = ConnectContext.get().getTxnEntry();
+            // null if this is a commit or rollback command
+            if (transactionEntry != null) {
+                result.setTxnLoadInfo(transactionEntry.getTxnInfoInMaster());
+            }
         }
         if (executor != null) {
             if (executor.getProxyShowResultSet() != null) {

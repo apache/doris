@@ -197,8 +197,8 @@ public:
         simdjson::dom::object object;
     };
     /// Parses a JSON document, returns the reference to its root element if succeeded.
-    bool parse(const std::string_view& json, Element& result) {
-        auto document = parser.parse(json.data(), json.size());
+    bool parse(const char* data, size_t size, Element& result) {
+        auto document = parser.parse(data, size);
         if (document.error()) {
             return false;
         }

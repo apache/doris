@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-public class KillAnalysisJobStmt extends DdlStmt {
+public class KillAnalysisJobStmt extends DdlStmt implements NotFallbackInParser {
 
     public final long jobId;
 

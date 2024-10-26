@@ -90,7 +90,8 @@ Status TransactionalHiveReader::get_columns(
     return _file_format_reader->get_columns(name_to_type, missing_cols);
 }
 
-Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range) {
+Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
+                                                 io::IOContext* io_ctx) {
     std::string data_file_path = _range.path;
     // the path in _range is remove the namenode prefix,
     // and the file_path in delete file is full path, so we should add it back.

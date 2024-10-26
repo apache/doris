@@ -246,25 +246,13 @@ suite("test_partial_update_native_insert_stmt", "p0") {
     }
 
     // test that session variable `enable_unique_key_partial_update` will only affect unique tables
-    for (def use_nerieds : [true, false]) {
-        logger.info("current params: use_nerieds: ${use_nerieds}")
-        if (use_nerieds) {
-            sql "set enable_nereids_planner=true;"
-            sql "set enable_nereids_dml=true;"
-            sql "set enable_fallback_to_original_planner=false;"
-            sql "sync;"
-        } else {
-            sql "set enable_nereids_planner=false;"
-            sql "set enable_nereids_dml=false;"
-            sql "sync;"
-        }
+    sql "sync;"
+    sql "set enable_unique_key_partial_update=true;"
+    sql "sync;"
 
-        sql "set enable_unique_key_partial_update=true;"
-        sql "sync;"
-
-        def tableName8 = "test_partial_update_native_insert_stmt_agg_${use_nerieds}"
-        sql """ DROP TABLE IF EXISTS ${tableName8}; """
-        sql """ CREATE TABLE IF NOT EXISTS ${tableName8} (
+    def tableName8 = "test_partial_update_native_insert_stmt_agg"
+    sql """ DROP TABLE IF EXISTS ${tableName8}; """
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName8} (
             `user_id` LARGEINT NOT NULL,
             `date` DATE NOT NULL,
             `timestamp` DATETIME NOT NULL,
@@ -279,15 +267,15 @@ suite("test_partial_update_native_insert_stmt", "p0") {
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
 
-        sql """insert into ${tableName8} values
+    sql """insert into ${tableName8} values
         (10000,"2017-10-01","2017-10-01 08:00:05","北京",20,0,"2017-10-01 06:00:00",20,10,10),
         (10000,"2017-10-01","2017-10-01 09:00:05","北京",20,0,"2017-10-01 07:00:00",15,2,2);  """
-        qt_sql "select * from ${tableName8} order by user_id;"
+    qt_sql "select * from ${tableName8} order by user_id;"
 
 
-        def tableName9 = "test_partial_update_native_insert_stmt_dup_${use_nerieds}"
-        sql """ DROP TABLE IF EXISTS ${tableName9}; """
-        sql """ CREATE TABLE IF NOT EXISTS ${tableName9} (
+    def tableName9 = "test_partial_update_native_insert_stmt_dup"
+    sql """ DROP TABLE IF EXISTS ${tableName9}; """
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName9} (
             `user_id` LARGEINT NOT NULL,
             `date` DATE NOT NULL,
             `timestamp` DATETIME NOT NULL,
@@ -302,15 +290,15 @@ suite("test_partial_update_native_insert_stmt", "p0") {
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
 
-        sql """insert into ${tableName9} values
+    sql """insert into ${tableName9} values
         (10000,"2017-10-01","2017-10-01 08:00:05","北京",20,0,"2017-10-01 06:00:00",20,10,10),
         (10000,"2017-10-01","2017-10-01 09:00:05","北京",20,0,"2017-10-01 07:00:00",15,2,2);  """
-        qt_sql "select * from ${tableName9} order by user_id;"
+    qt_sql "select * from ${tableName9} order by user_id;"
 
 
-        def tableName10 = "test_partial_update_native_insert_stmt_mor_${use_nerieds}"
-        sql """ DROP TABLE IF EXISTS ${tableName10}; """
-        sql """ CREATE TABLE IF NOT EXISTS ${tableName10} (
+    def tableName10 = "test_partial_update_native_insert_stmt_mor"
+    sql """ DROP TABLE IF EXISTS ${tableName10}; """
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName10} (
             `user_id` LARGEINT NOT NULL,
             `date` DATE NOT NULL,
             `timestamp` DATETIME NOT NULL,
@@ -325,13 +313,12 @@ suite("test_partial_update_native_insert_stmt", "p0") {
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES ("replication_allocation" = "tag.location.default: 1", "enable_unique_key_merge_on_write" = "false");"""
 
-        sql """insert into ${tableName10} values
+    sql """insert into ${tableName10} values
         (10000,"2017-10-01","2017-10-01 08:00:05","北京",20,0,"2017-10-01 06:00:00",20,10,10),
         (10000,"2017-10-01","2017-10-01 09:00:05","北京",20,0,"2017-10-01 07:00:00",15,2,2);  """
-        qt_sql "select * from ${tableName10} order by user_id;"
+    qt_sql "select * from ${tableName10} order by user_id;"
 
-        sql """ DROP TABLE IF EXISTS ${tableName8}; """
-        sql """ DROP TABLE IF EXISTS ${tableName9}; """
-        sql """ DROP TABLE IF EXISTS ${tableName10}; """
-    }
+    sql """ DROP TABLE IF EXISTS ${tableName8}; """
+    sql """ DROP TABLE IF EXISTS ${tableName9}; """
+    sql """ DROP TABLE IF EXISTS ${tableName10}; """
 }

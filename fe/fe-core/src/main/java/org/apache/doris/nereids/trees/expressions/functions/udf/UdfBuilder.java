@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
 import org.apache.doris.nereids.types.DataType;
 
@@ -27,4 +28,6 @@ import java.util.List;
  */
 public abstract class UdfBuilder extends FunctionBuilder {
     public abstract List<DataType> getArgTypes();
+
+    public abstract List<FunctionSignature> getSignatures();
 }

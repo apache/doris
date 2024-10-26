@@ -47,8 +47,23 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
                                const std::string& instance_id, const TabletIndexPB& idx,
                                TabletStatsPB& stats, bool snapshot = false);
 
-// Get detached tablet stats via `iter`, `iter.next` SHOULD be the first splitted tablet stats KV.
-// Return 0 if success, otherwise error.
-[[nodiscard]] int get_detached_tablet_stats(RangeGetIterator& iter, TabletStats& detached_stats);
+// clang-format off
+/**
+ * Get detached tablet stats via with given stats_kvs
+ *
+ * stats_kvs stores the following KVs, see keys.h for more details
+ * 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id}                -> TabletStatsPB
+ * 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"    -> int64
+ * 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_rows"     -> int64
+ * 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_rowsets"  -> int64
+ * 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_segments" -> int64
+ *
+ * @param stats_kvs the tablet stats kvs to process, it is in size of 5 or 1
+ * @param detached_stats output param for the detached stats
+ * @return 0 for success otherwise error
+ */
+[[nodiscard]] int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::string>>& stats_kvs,
+                                            TabletStats& detached_stats);
+// clang-format on
 
 } // namespace doris::cloud

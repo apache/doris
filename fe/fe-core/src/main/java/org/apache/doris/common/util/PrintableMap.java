@@ -43,6 +43,7 @@ public class PrintableMap<K, V> {
     private boolean wrap;
     private boolean hidePassword;
     private String entryDelimiter = ",";
+    private Set<String> additionalHiddenKeys = Sets.newHashSet();
 
     public static final Set<String> SENSITIVE_KEY;
     public static final Set<String> HIDDEN_KEY;
@@ -98,6 +99,10 @@ public class PrintableMap<K, V> {
         this.hidePassword = hidePassword;
     }
 
+    public void setAdditionalHiddenKeys(Set<String> additionalHiddenKeys) {
+        this.additionalHiddenKeys = additionalHiddenKeys;
+    }
+
     @Override
     public String toString() {
         if (map == null) {
@@ -119,7 +124,7 @@ public class PrintableMap<K, V> {
         List<Map.Entry<K, V>> entries = new ArrayList<>();
         while (iter.hasNext()) {
             Map.Entry<K, V> entry = iter.next();
-            if (!HIDDEN_KEY.contains(entry.getKey())) {
+            if (!HIDDEN_KEY.contains(entry.getKey()) && !additionalHiddenKeys.contains(entry.getKey())) {
                 entries.add(entry);
             }
         }

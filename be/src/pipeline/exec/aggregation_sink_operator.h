@@ -23,7 +23,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class AggSinkOperatorX;
 
 class AggSinkLocalState : public PipelineXSinkLocalState<AggSharedState> {
@@ -109,7 +109,7 @@ protected:
     RuntimeProfile::Counter* _max_row_size_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_limit_output = false;
 
@@ -120,6 +120,7 @@ protected:
 
     AggregatedDataVariants* _agg_data = nullptr;
     vectorized::Arena* _agg_arena_pool = nullptr;
+    std::unique_ptr<vectorized::Arena> _agg_profile_arena;
 
     std::unique_ptr<ExecutorBase> _executor = nullptr;
 };
@@ -136,23 +137,22 @@ public:
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution() const override {
         if (_probe_expr_ctxs.empty()) {
-            return _needs_finalize || DataSinkOperatorX<AggSinkLocalState>::_child_x
-                                              ->ignore_data_distribution()
-                           ? DataDistribution(ExchangeType::PASSTHROUGH)
+            return _needs_finalize
+                           ? DataDistribution(ExchangeType::NOOP)
                            : DataSinkOperatorX<AggSinkLocalState>::required_data_distribution();
         }
-        return _is_colocate && _require_bucket_distribution
+        return _is_colocate && _require_bucket_distribution && !_followed_by_shuffled_operator
                        ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
     bool require_data_distribution() const override { return _is_colocate; }
+    bool require_shuffled_data_distribution() const override { return !_probe_expr_ctxs.empty(); }
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
     AggregatedDataVariants* get_agg_data(RuntimeState* state) {
@@ -203,8 +203,9 @@ protected:
     const std::vector<TExpr> _partition_exprs;
     const bool _is_colocate;
     const bool _require_bucket_distribution;
-
     RowDescriptor _agg_fn_output_row_descriptor;
+    const bool _without_key;
 };
 
 } // namespace doris::pipeline
+#include "common/compile_check_end.h"

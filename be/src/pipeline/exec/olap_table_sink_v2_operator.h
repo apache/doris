@@ -32,11 +32,7 @@ public:
     ENABLE_FACTORY_CREATOR(OlapTableSinkV2LocalState);
     OlapTableSinkV2LocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {};
-    Status close(RuntimeState* state, Status exec_status) override;
     friend class OlapTableSinkV2OperatorX;
-
-private:
-    Status _close_status = Status::OK();
 };
 
 class OlapTableSinkV2OperatorX final : public DataSinkOperatorX<OlapTableSinkV2LocalState> {
@@ -56,13 +52,9 @@ public:
         return Status::OK();
     }
 
-    Status prepare(RuntimeState* state) override {
-        RETURN_IF_ERROR(Base::prepare(state));
-        return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
-    }
-
     Status open(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::open(state));
+        RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
         return vectorized::VExpr::open(_output_vexpr_ctxs, state);
     }
 

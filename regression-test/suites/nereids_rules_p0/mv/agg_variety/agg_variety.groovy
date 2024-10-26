@@ -39,11 +39,6 @@ suite("agg_variety") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -86,10 +81,6 @@ suite("agg_variety") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -183,7 +174,7 @@ suite("agg_variety") {
              bin(o_orderkey);
             """
     order_qt_query1_0_before "${query1_0}"
-    check_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
     order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
@@ -214,7 +205,7 @@ suite("agg_variety") {
             """
     order_qt_query1_1_before "${query1_1}"
     // contains aggreagate function count with out distinct which is not supported, should fail
-    check_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1")
+    async_mv_rewrite_fail(db, mv1_1, query1_1, "mv1_1")
     order_qt_query1_1_after "${query1_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
@@ -250,7 +241,7 @@ suite("agg_variety") {
             """
     order_qt_query1_2_before "${query1_2}"
     // test the arguments in aggregate function is complex, should success
-    check_mv_rewrite_success(db, mv1_2, query1_2, "mv1_2")
+    async_mv_rewrite_success(db, mv1_2, query1_2, "mv1_2")
     order_qt_query1_2_after "${query1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
 
@@ -284,7 +275,7 @@ suite("agg_variety") {
             """
     order_qt_query1_3_before "${query1_3}"
     // function use the dimension which is not in mv output, should fail
-    check_mv_rewrite_fail(db, mv1_3, query1_3, "mv1_3")
+    async_mv_rewrite_fail(db, mv1_3, query1_3, "mv1_3")
     order_qt_query1_3_after "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 
@@ -319,7 +310,7 @@ suite("agg_variety") {
              bin(o_orderkey);
             """
     order_qt_query2_0_before "${query2_0}"
-    check_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
+    async_mv_rewrite_success(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
@@ -352,7 +343,7 @@ suite("agg_variety") {
              bin(o_orderkey);
             """
     order_qt_query2_1_before "${query2_1}"
-    check_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1")
+    async_mv_rewrite_success(db, mv2_1, query2_1, "mv2_1")
     order_qt_query2_1_after "${query2_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_1"""
 
@@ -385,7 +376,7 @@ suite("agg_variety") {
             """
     order_qt_query2_2_before "${query2_2}"
     // contains aggreagate function count which is not supported, should fail
-    check_mv_rewrite_fail(db, mv2_2, query2_2, "mv2_2")
+    async_mv_rewrite_fail(db, mv2_2, query2_2, "mv2_2")
     order_qt_query2_2_after "${query2_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_2"""
 
@@ -423,7 +414,7 @@ suite("agg_variety") {
             """
     order_qt_query2_3_before "${query2_3}"
     // aggregate function use complex expression, should success
-    check_mv_rewrite_success(db, mv2_3, query2_3, "mv2_3")
+    async_mv_rewrite_success(db, mv2_3, query2_3, "mv2_3")
     order_qt_query2_3_after "${query2_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_3"""
 
@@ -462,7 +453,7 @@ suite("agg_variety") {
             """
     order_qt_query2_4_before "${query2_4}"
     // function use the dimension which is not in mv output, should fail
-    check_mv_rewrite_fail(db, mv2_4, query2_4, "mv2_4")
+    async_mv_rewrite_fail(db, mv2_4, query2_4, "mv2_4")
     order_qt_query2_4_after "${query2_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_4"""
 
@@ -502,7 +493,7 @@ suite("agg_variety") {
             """
     order_qt_query2_5_before "${query2_5}"
     // aggregate function use complex expression, should success
-    check_mv_rewrite_success(db, mv2_5, query2_5, "mv2_5")
+    async_mv_rewrite_success(db, mv2_5, query2_5, "mv2_5")
     order_qt_query2_5_after "${query2_5}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_5"""
 }

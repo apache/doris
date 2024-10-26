@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -36,6 +37,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
@@ -88,8 +90,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
 
-    private static final String YES = "yes";
-
     private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
@@ -135,6 +135,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     private CatalogIf removeCatalog(long catalogId) {
         CatalogIf catalog = idToCatalog.remove(catalogId);
+        LOG.info("Removed catalog with id {}, name {}", catalogId, catalog == null ? "N/A" : catalog.getName());
         if (catalog != null) {
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
@@ -371,30 +372,27 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                             CaseSensibility.CATALOG.getCaseSensibility());
                 }
-                for (CatalogIf catalog : nameToCatalog.values()) {
-                    if (Env.getCurrentEnv().getAccessManager()
-                            .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
-                        String name = catalog.getName();
-                        // Filter catalog name
-                        if (matcher != null && !matcher.match(name)) {
-                            continue;
-                        }
-                        List<String> row = Lists.newArrayList();
-                        row.add(String.valueOf(catalog.getId()));
-                        row.add(name);
-                        row.add(catalog.getType());
-                        if (name.equals(currentCtlg)) {
-                            row.add(YES);
-                        } else {
-                            row.add("");
-                        }
-                        Map<String, String> props = catalog.getProperties();
-                        String createTime = props.getOrDefault(CreateCatalogStmt.CREATE_TIME_PROP, "UNRECORDED");
-                        row.add(createTime);
-                        row.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
-                        row.add(catalog.getComment());
-                        rows.add(row);
+                for (CatalogIf catalog : listCatalogsWithCheckPriv(ConnectContext.get().getCurrentUserIdentity())) {
+                    String name = catalog.getName();
+                    // Filter catalog name
+                    if (matcher != null && !matcher.match(name)) {
+                        continue;
                     }
+                    List<String> row = Lists.newArrayList();
+                    row.add(String.valueOf(catalog.getId()));
+                    row.add(name);
+                    row.add(catalog.getType());
+                    if (name.equals(currentCtlg)) {
+                        row.add("Yes");
+                    } else {
+                        row.add("No");
+                    }
+                    Map<String, String> props = catalog.getProperties();
+                    String createTime = props.getOrDefault(ExternalCatalog.CREATE_TIME, FeConstants.null_string);
+                    row.add(createTime);
+                    row.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
+                    row.add(catalog.getComment());
+                    rows.add(row);
 
                     // sort by catalog name
                     rows.sort((x, y) -> {
@@ -414,18 +412,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 if (!Strings.isNullOrEmpty(catalog.getResource())) {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
-                // use tree map to maintain display order, making it easier to view properties
-                Map<String, String> sortedMap = new TreeMap<>(catalog.getProperties()).descendingMap();
-                for (Map.Entry<String, String> elem : sortedMap.entrySet()) {
-                    if (PrintableMap.HIDDEN_KEY.contains(elem.getKey())) {
-                        continue;
-                    }
-                    if (PrintableMap.SENSITIVE_KEY.contains(elem.getKey())) {
-                        rows.add(Arrays.asList(elem.getKey(), PrintableMap.PASSWORD_MASK));
-                    } else {
-                        rows.add(Arrays.asList(elem.getKey(), elem.getValue()));
-                    }
-                }
+                Map<String, String> sortedMap = getCatalogPropertiesWithPrintable(catalog);
+                sortedMap.forEach((k, v) -> rows.add(Arrays.asList(k, v)));
             }
         } finally {
             readUnlock();
@@ -433,6 +421,25 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
         return new ShowResultSet(showStmt.getMetaData(), rows);
     }
+
+    public static Map<String, String> getCatalogPropertiesWithPrintable(CatalogIf<?> catalog) {
+        // use tree map to maintain display order, making it easier to view properties
+        Map<String, String> sortedMap = new TreeMap<>();
+        catalog.getProperties().forEach(
+                (key, value) -> {
+                    if (PrintableMap.HIDDEN_KEY.contains(key)) {
+                        return;
+                    }
+                    if (PrintableMap.SENSITIVE_KEY.contains(key)) {
+                        sortedMap.put(key, PrintableMap.PASSWORD_MASK);
+                    } else {
+                        sortedMap.put(key, value);
+                    }
+                }
+        );
+        return sortedMap;
+    }
+
 
     public ShowResultSet showCreateCatalog(ShowCreateCatalogStmt showStmt) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
@@ -450,7 +457,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             }
             if (catalog.getProperties().size() > 0) {
                 sb.append(" PROPERTIES (\n");
-                sb.append(new PrintableMap<>(catalog.getProperties(), "=", true, true, true, true));
+                PrintableMap<String, String> printableMap = new PrintableMap<>(catalog.getProperties(), "=", true, true,
+                        true, true);
+                printableMap.setAdditionalHiddenKeys(ExternalCatalog.HIDDEN_PROPERTIES);
+                sb.append(printableMap);
                 sb.append("\n);");
             }
 
@@ -534,6 +544,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public List<CatalogIf> listCatalogs() {
         return nameToCatalog.values().stream().collect(Collectors.toList());
     }
+
+    public List<CatalogIf> listCatalogsWithCheckPriv(UserIdentity userIdentity) {
+        return nameToCatalog.values().stream().filter(
+                catalog -> Env.getCurrentEnv().getAccessManager()
+                        .checkCtlPriv(userIdentity, catalog.getName(), PrivPredicate.SHOW)
+        ).collect(Collectors.toList());
+    }
+
 
     /**
      * Reply for alter catalog props event.
@@ -655,13 +673,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
             return;
         }
 
-        TableIf table = db.getTableNullable(tableName);
-        if (table != null) {
-            if (!ignoreIfExists) {
-                throw new DdlException("Table " + tableName + " has exist in db " + dbName);
-            }
-            return;
-        }
         long tblId;
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;
         if (hmsCatalog.getUseMetaCache().get()) {
@@ -711,13 +722,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support create ExternalCatalog databases");
-        }
-        DatabaseIf db = catalog.getDbNullable(dbName);
-        if (db != null) {
-            if (!ignoreIfExists) {
-                throw new DdlException("Database " + dbName + " has exist in catalog " + catalog.getName());
-            }
-            return;
         }
 
         HMSExternalCatalog hmsCatalog = (HMSExternalCatalog) catalog;

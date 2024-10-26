@@ -30,49 +30,70 @@ namespace doris::cloud {
 void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
                                const std::string& instance_id, const TabletIndexPB& idx,
                                TabletStatsPB& stats, TabletStats& detached_stats, bool snapshot) {
-    auto begin_key = stats_tablet_key(
-            {instance_id, idx.table_id(), idx.index_id(), idx.partition_id(), idx.tablet_id()});
-    auto end_key = stats_tablet_key(
-            {instance_id, idx.table_id(), idx.index_id(), idx.partition_id(), idx.tablet_id() + 1});
+    // clang-format off
+    auto begin_key = stats_tablet_key({instance_id, idx.table_id(), idx.index_id(), idx.partition_id(), idx.tablet_id()});
+    auto begin_key_check = begin_key;
+    auto end_key = stats_tablet_key({instance_id, idx.table_id(), idx.index_id(), idx.partition_id(), idx.tablet_id() + 1});
+    // clang-format on
+    std::vector<std::pair<std::string, std::string>> stats_kvs;
+    stats_kvs.reserve(5); // aggregate + data_size + num_rows + num_rowsets + num_segments
+
     std::unique_ptr<RangeGetIterator> it;
-    TxnErrorCode err = txn->get(begin_key, end_key, &it, snapshot);
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err, idx.tablet_id());
-        return;
-    }
-    if (!it->has_next()) {
+    do {
+        TxnErrorCode err = txn->get(begin_key, end_key, &it, snapshot);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err,
+                              idx.tablet_id());
+            return;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            stats_kvs.emplace_back(std::string {k.data(), k.size()},
+                                   std::string {v.data(), v.size()});
+        }
+        begin_key = it->next_begin_key();
+    } while (it->more());
+
+    if (stats_kvs.empty()) {
         code = MetaServiceCode::TABLET_NOT_FOUND;
         msg = fmt::format("tablet stats not found, tablet_id={}", idx.tablet_id());
         return;
     }
-    auto [k, v] = it->next();
-    // First key MUST be tablet stats key
-    DCHECK(k == begin_key) << hex(k) << " vs " << hex(begin_key);
+
+    auto& [first_stats_key, v] = stats_kvs[0];
+    // First key MUST be tablet stats key, the original non-detached one
+    DCHECK(first_stats_key == begin_key_check)
+            << hex(first_stats_key) << " vs " << hex(begin_key_check);
     if (!stats.ParseFromArray(v.data(), v.size())) {
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = fmt::format("marformed tablet stats value, key={}", hex(k));
+        msg = fmt::format("marformed tablet stats value, key={}", hex(first_stats_key));
         return;
     }
     // Parse split tablet stats
-    int ret = get_detached_tablet_stats(*it, detached_stats);
+    int ret = get_detached_tablet_stats(stats_kvs, detached_stats);
+
     if (ret != 0) {
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-        msg = fmt::format("marformed splitted tablet stats kv, key={}", hex(k));
+        msg = fmt::format("marformed splitted tablet stats kv, key={}", hex(first_stats_key));
         return;
     }
 }
 
-int get_detached_tablet_stats(RangeGetIterator& iter, TabletStats& detached_stats) {
-    while (iter.has_next()) {
-        auto [k, v] = iter.next();
-        int64_t val;
-        if (v.size() != sizeof(val)) [[unlikely]] {
-            LOG(WARNING) << "malformed tablet stats value. key=" << hex(k);
-            return -1;
-        }
-
-        // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size"
+int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::string>>& stats_kvs,
+                              TabletStats& detached_stats) {
+    bool unexpected_size = false;
+    // clang-format off
+    if (stats_kvs.size() != 5    // aggregated stats and 4 splitted stats: num_rowsets num_segs data_size num_rows
+        && stats_kvs.size() != 2 // aggregated stats and 1 splitted stats: num_rowsets
+        && stats_kvs.size() != 1 // aggregated stats only (nothing has been imported since created)
+        ) {
+        unexpected_size = true;
+    }
+    // clang-format on
+    std::stringstream ss;
+    for (size_t i = 1; i < stats_kvs.size(); ++i) {
+        std::string_view k(stats_kvs[i].first), v(stats_kvs[i].second);
         k.remove_prefix(1);
         constexpr size_t key_parts = 8;
         std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
@@ -84,13 +105,20 @@ int get_detached_tablet_stats(RangeGetIterator& iter, TabletStats& detached_stat
         auto* suffix = std::get_if<std::string>(&std::get<0>(out.back()));
         if (!suffix) [[unlikely]] {
             LOG(WARNING) << "malformed tablet stats key. key=" << hex(k);
-            return -1;
+            return -2;
         }
 
+        int64_t val = 0;
+        if (v.size() != sizeof(val)) [[unlikely]] {
+            LOG(WARNING) << "malformed tablet stats value v.size=" << v.size() << " key=" << hex(k);
+            return -3;
+        }
         std::memcpy(&val, v.data(), sizeof(val));
         if constexpr (std::endian::native == std::endian::big) {
             val = bswap_64(val);
         }
+
+        if (unexpected_size) ss << *suffix << " ";
 
         if (*suffix == STATS_KEY_SUFFIX_DATA_SIZE) {
             detached_stats.data_size = val;
@@ -101,8 +129,13 @@ int get_detached_tablet_stats(RangeGetIterator& iter, TabletStats& detached_stat
         } else if (*suffix == STATS_KEY_SUFFIX_NUM_SEGS) {
             detached_stats.num_segs = val;
         } else {
-            LOG(WARNING) << "unknown suffix=" << *suffix << " key=" << hex(k);
+            LOG(WARNING) << "unknown tablet stats suffix=" << *suffix << " key=" << hex(k);
         }
+    }
+
+    if (unexpected_size) {
+        LOG_EVERY_N(WARNING, 100) << "unexpected tablet stats_kvs, it should be 1 or 2 or 5, size="
+                                  << stats_kvs.size() << " suffix=" << ss.str();
     }
 
     return 0;

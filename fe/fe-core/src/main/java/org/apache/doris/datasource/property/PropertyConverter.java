@@ -88,6 +88,7 @@ public class PropertyConverter {
             }
             metaProperties = convertToGlueProperties(props, credential);
         } else if (props.containsKey(DLFProperties.ENDPOINT)
+                || props.containsKey(DLFProperties.REGION)
                 || props.containsKey(DataLakeConfig.CATALOG_ENDPOINT)) {
             metaProperties = convertToDLFProperties(props, DLFProperties.getCredential(props));
         } else if (props.containsKey(S3Properties.Env.ENDPOINT)) {
@@ -318,7 +319,6 @@ public class PropertyConverter {
             endpoint = endpoint.replace(OssProperties.OSS_PREFIX, "");
         }
         ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY, endpoint);
-        ossProperties.put("fs.oss.impl.disable.cache", "true");
         ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
         boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
         if (LocationPath.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
@@ -445,10 +445,18 @@ public class PropertyConverter {
             if (Strings.isNullOrEmpty(uid)) {
                 throw new IllegalArgumentException("Required dlf property: " + DLFProperties.UID);
             }
-            String endpoint = props.get(DLFProperties.ENDPOINT);
-            props.put(DataLakeConfig.CATALOG_ENDPOINT, endpoint);
-            props.put(DataLakeConfig.CATALOG_REGION_ID, props.getOrDefault(DLFProperties.REGION,
-                    S3Properties.getRegionOfEndpoint(endpoint)));
+
+            // region
+            String region = props.get(DLFProperties.REGION);
+            if (Strings.isNullOrEmpty(region)) {
+                throw new IllegalArgumentException("Required dlf property: " + DLFProperties.REGION);
+            }
+            props.put(DataLakeConfig.CATALOG_REGION_ID, region);
+
+            // endpoint
+            props.put(DataLakeConfig.CATALOG_ENDPOINT,
+                    props.getOrDefault(DLFProperties.ENDPOINT, getDlfEndpointByRegion(region)));
+
             props.put(DataLakeConfig.CATALOG_PROXY_MODE, props.getOrDefault(DLFProperties.PROXY_MODE, "DLF_ONLY"));
             props.put(DataLakeConfig.CATALOG_ACCESS_KEY_ID, credential.getAccessKey());
             props.put(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET, credential.getSecretKey());
@@ -509,6 +517,10 @@ public class PropertyConverter {
         return prefix + region + suffix;
     }
 
+    private static String getDlfEndpointByRegion(String region) {
+        return "dlf-vpc." + region + ".aliyuncs.com";
+    }
+
     private static Map<String, String> convertToGlueProperties(Map<String, String> props, CloudCredential credential) {
         // convert doris glue property to glue properties, s3 client property and BE property
         String metastoreType = props.get(HMSProperties.HIVE_METASTORE_TYPE);
@@ -521,6 +533,10 @@ public class PropertyConverter {
             // glue ak sk for iceberg
             props.putIfAbsent(GlueProperties.ACCESS_KEY, credential.getAccessKey());
             props.putIfAbsent(GlueProperties.SECRET_KEY, credential.getSecretKey());
+            props.putIfAbsent(GlueProperties.CLIENT_CREDENTIALS_PROVIDER,
+                    "com.amazonaws.glue.catalog.credentials.ConfigurationAWSCredentialsProvider2x");
+            props.putIfAbsent(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_AK, credential.getAccessKey());
+            props.putIfAbsent(GlueProperties.CLIENT_CREDENTIALS_PROVIDER_SK, credential.getSecretKey());
         }
         // set glue client metadata
         if (props.containsKey(GlueProperties.ENDPOINT)) {

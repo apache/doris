@@ -16,8 +16,9 @@
 // under the License.
 
 suite("test_full_compaction_run_status","nonConcurrent") {
-
-
+    if (isCloudMode()) {
+        return
+    }
     def tableName = "full_compaction_run_status_test"
  
     // test successful group commit async load

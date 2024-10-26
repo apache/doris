@@ -32,7 +32,6 @@
 
 namespace doris::vectorized {
 class VExprContext;
-class VScanNode;
 } // namespace doris::vectorized
 
 static const std::string NEW_SCANNER_TYPE = "NewEsScanner";

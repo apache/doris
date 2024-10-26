@@ -19,9 +19,7 @@ package org.apache.doris.datasource.lakesoul.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
@@ -34,7 +32,6 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLakeSoulFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -62,7 +59,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class LakeSoulScanNode extends FileQueryScanNode {
@@ -115,17 +111,6 @@ public class LakeSoulScanNode extends FileQueryScanNode {
     }
 
     @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(location);
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        return Optional.ofNullable(LocationPath.getTFileTypeForBE(location)).orElseThrow(() ->
-                new DdlException("Unknown file location " + location + " for lakesoul table "));
-    }
-
-    @Override
     protected TFileFormatType getFileFormatType() throws UserException {
         return TFileFormatType.FORMAT_JNI;
     }
@@ -170,7 +155,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) throws IOException {
+    private void setLakeSoulParams(TFileRangeDesc rangeDesc, LakeSoulSplit lakeSoulSplit) throws IOException {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(lakeSoulSplit.getTableFormatType().value());
         TLakeSoulFileDesc fileDesc = new TLakeSoulFileDesc();
