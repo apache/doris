@@ -66,9 +66,11 @@ CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
+// IO worker thread pool concurrency: object list, delete
 CONF_mInt32(instance_recycler_worker_pool_size, "32");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
+// s3_producer_pool recycle_tablet_pool, delete single object in this pool
 CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");

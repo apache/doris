@@ -597,11 +597,15 @@ int InstanceRecycler::do_recycle() {
                                         fmt::format("instance id {}", instance_id_),
                                         [](int r) { return r != 0; });
         sync_executor
-                .add(task_wrapper(
+                .add(task_wrapper( // dropped table and dropped partition need to be recycled in series
+                                   // becase they may both recycle the same set of tablets
+                        // recycle dropped table or idexes(mv, rollup)
                         [this]() -> int { return InstanceRecycler::recycle_indexes(); },
-                        [this]() -> int { return InstanceRecycler::recycle_partitions(); },
-                        [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); },
-                        [this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
+                        // recycle dropped partition
+                        [this]() -> int { return InstanceRecycler::recycle_partitions(); }))
+                .add(task_wrapper(
+                        [this]() -> int { return InstanceRecycler::recycle_tmp_rowsets(); }))
+                .add(task_wrapper([this]() -> int { return InstanceRecycler::recycle_rowsets(); }))
                 .add(task_wrapper(
                         [this]() { return InstanceRecycler::abort_timeout_txn(); },
                         [this]() { return InstanceRecycler::recycle_expired_txn_label(); }))
@@ -1159,6 +1163,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
     std::string stats_key_begin, stats_key_end;
     std::string job_key_begin, job_key_end;
 
+    std::string tablet_belongs;
     if (partition_id > 0) {
         // recycle tablets in a partition belonging to the index
         meta_tablet_key({instance_id_, table_id, index_id, partition_id, 0}, &tablet_key_begin);
@@ -1167,6 +1172,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         stats_tablet_key({instance_id_, table_id, index_id, partition_id + 1, 0}, &stats_key_end);
         job_tablet_key({instance_id_, table_id, index_id, partition_id, 0}, &job_key_begin);
         job_tablet_key({instance_id_, table_id, index_id, partition_id + 1, 0}, &job_key_end);
+        tablet_belongs = "partition";
     } else {
         // recycle tablets in the index
         meta_tablet_key({instance_id_, table_id, index_id, 0, 0}, &tablet_key_begin);
@@ -1175,9 +1181,10 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
         stats_tablet_key({instance_id_, table_id, index_id + 1, 0, 0}, &stats_key_end);
         job_tablet_key({instance_id_, table_id, index_id, 0, 0}, &job_key_begin);
         job_tablet_key({instance_id_, table_id, index_id + 1, 0, 0}, &job_key_end);
+        tablet_belongs = "index";
     }
 
-    LOG_INFO("begin to recycle tablets")
+    LOG_INFO("begin to recycle tablets of the " + tablet_belongs)
             .tag("table_id", table_id)
             .tag("index_id", index_id)
             .tag("partition_id", partition_id);
@@ -1186,7 +1193,7 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG_INFO("recycle tablets finished, cost={}s", cost)
+        LOG_INFO("recycle tablets of " + tablet_belongs + " finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("table_id", table_id)
                 .tag("index_id", index_id)
@@ -1616,7 +1623,10 @@ int InstanceRecycler::recycle_rowsets() {
     int num_scanned = 0;
     int num_expired = 0;
     int num_prepare = 0;
-    size_t total_rowset_size = 0;
+    int num_compacted = 0;
+    int num_empty_rowset = 0;
+    size_t total_rowset_key_size = 0;
+    size_t total_rowset_value_size = 0;
     size_t expired_rowset_size = 0;
     std::atomic_int num_recycled = 0;
 
@@ -1641,8 +1651,11 @@ int InstanceRecycler::recycle_rowsets() {
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
                 .tag("num_recycled", num_recycled)
-                .tag("num_prepare", num_prepare)
-                .tag("total_rowset_meta_size", total_rowset_size)
+                .tag("num_recycled.prepare", num_prepare)
+                .tag("num_recycled.compacted", num_compacted)
+                .tag("num_recycled.empty_rowset", num_empty_rowset)
+                .tag("total_rowset_meta_key_size_scanned", total_rowset_key_size)
+                .tag("total_rowset_meta_value_size_scanned", total_rowset_value_size)
                 .tag("expired_rowset_meta_size", expired_rowset_size);
     });
 
@@ -1709,7 +1722,8 @@ int InstanceRecycler::recycle_rowsets() {
 
     auto handle_rowset_kv = [&](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
-        total_rowset_size += v.size();
+        total_rowset_key_size += k.size();
+        total_rowset_value_size += v.size();
         RecycleRowsetPB rowset;
         if (!rowset.ParseFromArray(v.data(), v.size())) {
             LOG_WARNING("malformed recycle rowset").tag("key", hex(k));
@@ -1781,9 +1795,12 @@ int InstanceRecycler::recycle_rowsets() {
                 return -1;
             }
         } else {
+            num_compacted += rowset.type() == RecycleRowsetPB::COMPACT;
             rowset_keys.emplace_back(k);
             if (rowset_meta->num_segments() > 0) { // Skip empty rowset
                 rowsets.push_back(std::move(*rowset_meta));
+            } else {
+                ++num_empty_rowset;
             }
         }
         return 0;
@@ -1888,7 +1905,8 @@ int InstanceRecycler::recycle_tmp_rowsets() {
     int num_expired = 0;
     int num_recycled = 0;
     size_t expired_rowset_size = 0;
-    size_t total_rowset_size = 0;
+    size_t total_rowset_key_size = 0;
+    size_t total_rowset_value_size = 0;
 
     MetaRowsetTmpKeyInfo tmp_rs_key_info0 {instance_id_, 0, 0};
     MetaRowsetTmpKeyInfo tmp_rs_key_info1 {instance_id_, INT64_MAX, 0};
@@ -1911,8 +1929,9 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                 .tag("num_scanned", num_scanned)
                 .tag("num_expired", num_expired)
                 .tag("num_recycled", num_recycled)
-                .tag("total_rowset_meta_size", total_rowset_size)
-                .tag("expired_rowset_meta_size", expired_rowset_size);
+                .tag("total_rowset_meta_key_size_scanned", total_rowset_key_size)
+                .tag("total_rowset_meta_value_size_scanned", total_rowset_value_size)
+                .tag("expired_rowset_meta_size_recycled", expired_rowset_size);
     });
 
     // Elements in `tmp_rowset_keys` has the same lifetime as `it`
@@ -1920,10 +1939,11 @@ int InstanceRecycler::recycle_tmp_rowsets() {
     std::vector<doris::RowsetMetaCloudPB> tmp_rowsets;
 
     auto handle_rowset_kv = [&num_scanned, &num_expired, &tmp_rowset_keys, &tmp_rowsets,
-                             &expired_rowset_size, &total_rowset_size,
+                             &expired_rowset_size, &total_rowset_key_size, &total_rowset_value_size,
                              this](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
-        total_rowset_size += v.size();
+        total_rowset_key_size += k.size();
+        total_rowset_value_size += v.size();
         doris::RowsetMetaCloudPB rowset;
         if (!rowset.ParseFromArray(v.data(), v.size())) {
             LOG_WARNING("malformed rowset meta").tag("key", hex(k));
@@ -1965,7 +1985,9 @@ int InstanceRecycler::recycle_tmp_rowsets() {
                   << " tablet_id=" << rowset.tablet_id() << " rowset_id=" << rowset.rowset_id_v2()
                   << " version=[" << rowset.start_version() << '-' << rowset.end_version()
                   << "] txn_id=" << rowset.txn_id() << " rowset_meta_size=" << v.size()
-                  << " creation_time" << rowset.creation_time();
+                  << " creation_time=" << rowset.creation_time() << " num_scanned=" << num_scanned
+                  << " num_expired=" << num_expired;
+
         tmp_rowset_keys.push_back(k);
         if (rowset.num_segments() > 0) { // Skip empty rowset
             tmp_rowsets.push_back(std::move(rowset));
@@ -1998,31 +2020,54 @@ int InstanceRecycler::scan_and_recycle(
         std::string begin, std::string_view end,
         std::function<int(std::string_view k, std::string_view v)> recycle_func,
         std::function<int()> loop_done) {
+    LOG(INFO) << "begin scan_and_recycle key_range=[" << hex(begin) << "," << hex(end) << ")";
     int ret = 0;
+    int64_t cnt = 0;
+    int get_range_retried = 0;
+    std::string err;
+    std::unique_ptr<int, std::function<void(int*)>> defer_log(
+            (int*)0x01, [begin, end, &err, &ret, &cnt, &get_range_retried](int*) {
+                LOG(INFO) << "finish scan_and_recycle key_range=[" << hex(begin) << "," << hex(end)
+                          << ") num_scanned=" << cnt << " get_range_retried=" << get_range_retried
+                          << " ret=" << ret << " err=" << err;
+            });
+
     std::unique_ptr<RangeGetIterator> it;
     do {
         int get_ret = txn_get(txn_kv_.get(), begin, end, it);
-        if (get_ret != 0) {
-            LOG(WARNING) << "failed to get kv, key=" << begin << " ret=" << get_ret;
+        if (get_ret != 0 && get_range_retried > 10) {
+            LOG(WARNING) << "failed to get kv, range=[" << hex(begin) << "," << hex(end)
+                         << ") num_scanned=" << cnt << " txn_get_ret=" << get_ret
+                         << " get_range_retried=" << get_range_retried;
             return -1;
+        } else if (get_ret != 0) { // txn kv may complain "Request for future version"
+            ++get_range_retried;
+            std::this_thread::sleep_for(std::chrono::milliseconds(500));
+            continue; // try again
         }
-        VLOG_DEBUG << "fetch " << it->size() << " kv";
         if (!it->has_next()) {
-            VLOG_DEBUG << "no keys in the given range, begin=" << hex(begin) << " end=" << hex(end);
-            break;
+            LOG(INFO) << "no keys in the given range=[" << hex(begin) << "," << hex(end) << ")";
+            break; // scan finished
         }
         while (it->has_next()) {
+            ++cnt;
             // recycle corresponding resources
             auto [k, v] = it->next();
             if (!it->has_next()) {
                 begin = k;
                 VLOG_DEBUG << "iterator has no more kvs. key=" << hex(k);
             }
-            if (recycle_func(k, v) != 0) ret = -1;
+            // if we want to continue scanning, the recycle_func should not return non-zero
+            if (recycle_func(k, v) != 0) {
+                err = "recycle_func error";
+                ret = -1;
+            }
         }
         begin.push_back('\x00'); // Update to next smallest key for iteration
-        if (loop_done) {
-            if (loop_done() != 0) ret = -1;
+        // if we want to continue scanning, the recycle_func should not return non-zero
+        if (loop_done && loop_done() != 0) {
+            err = "loop_done error";
+            ret = -1;
         }
     } while (it->more() && !stopped());
     return ret;

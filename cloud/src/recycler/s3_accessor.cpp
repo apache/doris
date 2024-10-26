@@ -282,6 +282,7 @@ int S3Accessor::init() {
         Aws::Client::ClientConfiguration aws_config;
         aws_config.endpointOverride = conf_.endpoint;
         aws_config.region = conf_.region;
+        aws_config.maxConnections = config::recycle_pool_parallelism + config::instance_recycler_worker_pool_size;
         if (config::s3_client_http_scheme == "http") {
             aws_config.scheme = Aws::Http::Scheme::HTTP;
         }
@@ -392,20 +393,30 @@ int S3Accessor::check_versioning() {
 }
 
 int GcsAccessor::delete_prefix_impl(const std::string& path_prefix, int64_t expiration_time) {
-    LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix));
+    LOG_INFO("begin delete prefix").tag("uri", to_uri(path_prefix));
 
     int ret = 0;
+    int cnt = 0;
+    int skip = 0;
+    int del = 0;
     auto iter = obj_client_->list_objects({conf_.bucket, get_key(path_prefix)});
     for (auto obj = iter->next(); obj.has_value(); obj = iter->next()) {
+        if (!(++cnt % 100)) {
+            LOG_INFO("loop delete prefix").tag("uri", to_uri(path_prefix)).tag(" total_obj_cnt", cnt).tag("deleted", del).tag("skipped", skip);
+        }
         if (expiration_time > 0 && obj->mtime_s > expiration_time) {
+            skip++;
             continue;
         }
+        del++;
 
         // FIXME(plat1ko): Delete objects by batch
         if (int del_ret = obj_client_->delete_object({conf_.bucket, obj->key}).ret; del_ret != 0) {
             ret = del_ret;
         }
     }
+
+    LOG_INFO("finish delete prefix").tag("uri", to_uri(path_prefix)).tag(" total_obj_cnt", cnt).tag("deleted", del).tag("skipped", skip);
 
     if (!iter->is_valid()) {
         return -1;
