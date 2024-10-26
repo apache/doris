@@ -2045,7 +2045,7 @@ private:
             auto& variant = assert_cast<const ColumnObject&>(*col_from);
             ColumnPtr col_to = data_type_to->create_column();
             if (!variant.is_finalized()) {
-                variant.assume_mutable()->finalize();
+                ((ColumnObject&)variant).finalize();
             }
             // It's important to convert as many elements as possible in this context. For instance,
             // if the root of this variant column is a number column, converting it to a number column

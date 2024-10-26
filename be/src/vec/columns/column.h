@@ -140,9 +140,6 @@ public:
     // now support only in char type, or the nested type in complex type: array{char}, struct{char}, map{char}
     virtual bool could_shrinked_column() { return false; }
 
-    /// Some columns may require finalization before using of other operations.
-    virtual void finalize() {}
-
     // Only used on ColumnDictionary
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
@@ -639,7 +636,7 @@ public:
 
     virtual bool is_column_string() const { return false; }
 
-    virtual bool is_predict_column() const { return false; }
+    virtual bool is_predicate_column() const { return false; }
 
     virtual bool is_column_string64() const { return false; }
 

@@ -473,7 +473,7 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
         bool is_nullable = column_ref->is_nullable();
         const auto& column = remove_nullable(column_ref);
         const auto& var = assert_cast<const ColumnObject&>(*column.get());
-        var.assume_mutable_ref().finalize();
+        ((ColumnObject&)var).finalize();
 
         MutableColumnPtr variant_column;
         if (!var.is_scalar_variant()) {
