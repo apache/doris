@@ -154,7 +154,7 @@ bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,
                                                    const std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
         if (!_shared_state->is_null_safe_eq_join[i]) {
-            auto column = block.get_by_position(res_col_ids[i]).column.get();
+            const auto* column = block.get_by_position(res_col_ids[i]).column.get();
             if (check_and_get_column<vectorized::ColumnNullable>(*column)) {
                 return true;
             }
