@@ -57,7 +57,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
 
-    public static final String LOAD_BUFFER_RATIO = "load_buffer_ratio";
+    public static final String WRITE_BUFFER_RATIO = "write_buffer_ratio";
 
     public static final String MAX_CONCURRENCY = "max_concurrency";
 
@@ -90,11 +90,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
             .add(SPILL_THRESHOLD_LOW_WATERMARK).add(SPILL_THRESHOLD_HIGH_WATERMARK)
             .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
-            .add(LOAD_BUFFER_RATIO).build();
+            .add(WRITE_BUFFER_RATIO).build();
 
     public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 75;
     public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 90;
-    public static final int LOAD_BUFFER_RATIO_DEFAULT_VALUE = 20;
+    public static final int WRITE_BUFFER_RATIO_DEFAULT_VALUE = 20;
 
     @SerializedName(value = "id")
     private long id;
@@ -131,14 +131,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                     memoryLimitString.substring(0, memoryLimitString.length() - 1));
         }
 
-        if (properties.containsKey(LOAD_BUFFER_RATIO)) {
-            String loadBufLimitStr = properties.get(LOAD_BUFFER_RATIO);
+        if (properties.containsKey(WRITE_BUFFER_RATIO)) {
+            String loadBufLimitStr = properties.get(WRITE_BUFFER_RATIO);
             if (loadBufLimitStr.endsWith("%")) {
                 loadBufLimitStr = loadBufLimitStr.substring(0, loadBufLimitStr.length() - 1);
             }
-            this.properties.put(LOAD_BUFFER_RATIO, loadBufLimitStr);
+            this.properties.put(WRITE_BUFFER_RATIO, loadBufLimitStr);
         } else {
-            this.properties.put(LOAD_BUFFER_RATIO, LOAD_BUFFER_RATIO_DEFAULT_VALUE + "");
+            this.properties.put(WRITE_BUFFER_RATIO, WRITE_BUFFER_RATIO_DEFAULT_VALUE + "");
         }
 
         if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
@@ -271,13 +271,13 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
         }
 
-        if (properties.containsKey(LOAD_BUFFER_RATIO)) {
-            String memoryLimit = properties.get(LOAD_BUFFER_RATIO);
+        if (properties.containsKey(WRITE_BUFFER_RATIO)) {
+            String memoryLimit = properties.get(WRITE_BUFFER_RATIO);
             if (!memoryLimit.endsWith("%")) {
-                throw new DdlException(LOAD_BUFFER_RATIO + " " + memoryLimit
+                throw new DdlException(WRITE_BUFFER_RATIO + " " + memoryLimit
                         + " requires a percentage and ends with a '%'");
             }
-            String memLimitErr = LOAD_BUFFER_RATIO + " " + memoryLimit
+            String memLimitErr = WRITE_BUFFER_RATIO + " " + memoryLimit
                     + " requires a positive int number.";
             try {
                 if (Integer.parseInt(memoryLimit.substring(0, memoryLimit.length() - 1)) < 0) {
@@ -517,11 +517,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 row.add("-1");
             } else if (MEMORY_LIMIT.equals(key) && !properties.containsKey(key)) {
                 row.add("0%");
-            } else if (LOAD_BUFFER_RATIO.equals(key)) {
+            } else if (WRITE_BUFFER_RATIO.equals(key)) {
                 if (properties.containsKey(key)) {
                     row.add(properties.get(key) + "%");
                 } else {
-                    row.add(LOAD_BUFFER_RATIO_DEFAULT_VALUE + "%");
+                    row.add(WRITE_BUFFER_RATIO_DEFAULT_VALUE + "%");
                 }
             } else if (ENABLE_MEMORY_OVERCOMMIT.equals(key) && !properties.containsKey(key)) {
                 row.add("true");
@@ -609,9 +609,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         if (memLimitStr != null) {
             tWorkloadGroupInfo.setMemLimit(memLimitStr);
         }
-        String loadBufferRatioStr = properties.get(LOAD_BUFFER_RATIO);
-        if (loadBufferRatioStr != null) {
-            tWorkloadGroupInfo.setLoadBufferRatio(Integer.parseInt(loadBufferRatioStr));
+        String writeBufferRatioStr = properties.get(WRITE_BUFFER_RATIO);
+        if (writeBufferRatioStr != null) {
+            tWorkloadGroupInfo.setWriteBufferRatio(Integer.parseInt(writeBufferRatioStr));
         }
         String memOvercommitStr = properties.get(ENABLE_MEMORY_OVERCOMMIT);
         if (memOvercommitStr != null) {

@@ -350,12 +350,12 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 }
                 if (flushed_memtable_bytes > 0) {
                     // Flushed some memtable, just wait flush finished and not do anything more.
-                    wg->enable_load_buffer_limit(true);
+                    wg->enable_write_buffer_limit(true);
                     ++query_it;
                     continue;
                 } else {
                     // If could not revoke memory by flush memtable, then disable load buffer limit
-                    wg->enable_load_buffer_limit(false);
+                    wg->enable_write_buffer_limit(false);
                 }
                 if (!has_changed_hard_limit) {
                     update_queries_limit_(wg, true);
@@ -447,7 +447,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
         }
         // Not need waiting flush memtable and below low watermark disable load buffer limit
         if (flushed_memtable_bytes <= 0 && !is_low_wartermark) {
-            wg->enable_load_buffer_limit(false);
+            wg->enable_write_buffer_limit(false);
         }
 
         if (queries_list.empty()) {
@@ -475,7 +475,7 @@ int64_t WorkloadGroupMgr::flush_memtable_from_current_group_(
     // For example, streamload, it will not reserve many memory, but it will occupy many memtable memory.
     // TODO: 0.2 should be a workload group properties. For example, the group is optimized for load,then the value
     // should be larged, if the group is optimized for query, then the value should be smaller.
-    int64_t max_wg_memtable_bytes = wg->load_buffer_limit();
+    int64_t max_wg_memtable_bytes = wg->write_buffer_limit();
     if (memtable_active_bytes + memtable_queue_bytes + memtable_flush_bytes >
         max_wg_memtable_bytes) {
         // There are many table in flush queue, just waiting them flush finished.
@@ -655,8 +655,8 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
             (int64_t)(wg_mem_limit * wg->spill_threshold_high_water_mark() * 1.0 / 100);
     int64_t memtable_usage = wg->load_mem_used();
     int64_t wg_high_water_mark_except_load = wg_high_water_mark_limit;
-    if (memtable_usage > wg->load_buffer_limit()) {
-        wg_high_water_mark_except_load = wg_high_water_mark_limit - wg->load_buffer_limit();
+    if (memtable_usage > wg->write_buffer_limit()) {
+        wg_high_water_mark_except_load = wg_high_water_mark_limit - wg->write_buffer_limit();
     } else {
         wg_high_water_mark_except_load =
                 wg_high_water_mark_limit - memtable_usage - 10 * 1024 * 1024;
@@ -679,7 +679,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
     }
     // If reached low watermark then enable load buffer limit
     if (is_low_wartermark) {
-        wg->enable_load_buffer_limit(true);
+        wg->enable_write_buffer_limit(true);
     }
     int32_t total_used_slot_count = 0;
     int32_t total_slot_count = wg->total_query_slot_count();
