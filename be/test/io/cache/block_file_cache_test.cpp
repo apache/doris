@@ -1136,7 +1136,7 @@ TEST_F(BlockFileCacheTest, max_ttl_size) {
         auto holder = cache.get_or_set(key1, offset, 100000, context);
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
-        if (offset < 90000000) {
+        if (offset < (100000000 * config::max_ttl_cache_ratio / 100)) {
             assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
                          io::FileBlock::State::EMPTY);
             ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
@@ -1145,7 +1145,7 @@ TEST_F(BlockFileCacheTest, max_ttl_size) {
                          io::FileBlock::State::DOWNLOADED);
         } else {
             assert_range(1, blocks[0], io::FileBlock::Range(offset, offset + 99999),
-                         io::FileBlock::State::SKIP_CACHE);
+                         io::FileBlock::State::EMPTY);
         }
         blocks.clear();
     }

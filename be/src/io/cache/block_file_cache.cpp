@@ -1113,6 +1113,8 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
 std::vector<FileCacheType> BlockFileCache::get_other_cache_type_without_ttl(
         FileCacheType cur_cache_type) {
     switch (cur_cache_type) {
+    case FileCacheType::TTL:
+        return {FileCacheType::DISPOSABLE, FileCacheType::NORMAL, FileCacheType::INDEX};
     case FileCacheType::INDEX:
         return {FileCacheType::DISPOSABLE, FileCacheType::NORMAL};
     case FileCacheType::NORMAL:
@@ -1127,6 +1129,8 @@ std::vector<FileCacheType> BlockFileCache::get_other_cache_type_without_ttl(
 
 std::vector<FileCacheType> BlockFileCache::get_other_cache_type(FileCacheType cur_cache_type) {
     switch (cur_cache_type) {
+    case FileCacheType::TTL:
+        return {FileCacheType::DISPOSABLE, FileCacheType::NORMAL, FileCacheType::INDEX};
     case FileCacheType::INDEX:
         return {FileCacheType::DISPOSABLE, FileCacheType::NORMAL, FileCacheType::TTL};
     case FileCacheType::NORMAL:
