@@ -521,43 +521,63 @@ void ColumnArray::insert_range_from_ignore_overflow(const IColumn& src, size_t s
 }
 
 ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) const {
-    if (typeid_cast<const ColumnUInt8*>(data.get()))
+    if (typeid_cast<const ColumnUInt8*>(data.get())) {
         return filter_number<UInt8>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt16*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt16*>(data.get())) {
         return filter_number<UInt16>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt32*>(data.get())) {
         return filter_number<UInt32>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt64*>(data.get())) {
         return filter_number<UInt64>(filt, result_size_hint);
-    if (typeid_cast<const ColumnUInt128*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt128*>(data.get())) {
         return filter_number<UInt128>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt8*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt8*>(data.get())) {
         return filter_number<Int8>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt16*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt16*>(data.get())) {
         return filter_number<Int16>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt32*>(data.get())) {
         return filter_number<Int32>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt64*>(data.get())) {
         return filter_number<Int64>(filt, result_size_hint);
-    if (typeid_cast<const ColumnInt128*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt128*>(data.get())) {
         return filter_number<Int128>(filt, result_size_hint);
-    if (typeid_cast<const ColumnFloat32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnFloat32*>(data.get())) {
         return filter_number<Float32>(filt, result_size_hint);
-    if (typeid_cast<const ColumnFloat64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnFloat64*>(data.get())) {
         return filter_number<Float64>(filt, result_size_hint);
-    if (typeid_cast<const ColumnDecimal32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal32*>(data.get())) {
         return filter_number<Decimal32>(filt, result_size_hint);
-    if (typeid_cast<const ColumnDecimal64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal64*>(data.get())) {
         return filter_number<Decimal64>(filt, result_size_hint);
-    if (typeid_cast<const ColumnDecimal128V2*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
         return filter_number<Decimal128V2>(filt, result_size_hint);
-    if (typeid_cast<const ColumnDecimal128V3*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
         return filter_number<Decimal128V3>(filt, result_size_hint);
-    if (typeid_cast<const ColumnDecimal256*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal256*>(data.get())) {
         return filter_number<Decimal256>(filt, result_size_hint);
-    if (typeid_cast<const ColumnString*>(data.get())) return filter_string(filt, result_size_hint);
-    if (typeid_cast<const ColumnNullable*>(data.get()))
+    }
+    if (typeid_cast<const ColumnString*>(data.get())) {
+        return filter_string(filt, result_size_hint);
+    }
+    if (typeid_cast<const ColumnNullable*>(data.get())) {
         return filter_nullable(filt, result_size_hint);
+    }
     return filter_generic(filt, result_size_hint);
 }
 
@@ -861,47 +881,71 @@ void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t l
 }
 
 ColumnPtr ColumnArray::replicate(const IColumn::Offsets& replicate_offsets) const {
-    if (replicate_offsets.empty()) return clone_empty();
+    if (replicate_offsets.empty()) {
+        return clone_empty();
+    }
 
     // keep ColumnUInt8 for ColumnNullable::null_map
-    if (typeid_cast<const ColumnUInt8*>(data.get()))
+    if (typeid_cast<const ColumnUInt8*>(data.get())) {
         return replicate_number<UInt8>(replicate_offsets);
-    if (typeid_cast<const ColumnUInt16*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt16*>(data.get())) {
         return replicate_number<UInt16>(replicate_offsets);
-    if (typeid_cast<const ColumnUInt32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt32*>(data.get())) {
         return replicate_number<UInt32>(replicate_offsets);
-    if (typeid_cast<const ColumnUInt64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt64*>(data.get())) {
         return replicate_number<UInt64>(replicate_offsets);
-    if (typeid_cast<const ColumnUInt128*>(data.get()))
+    }
+    if (typeid_cast<const ColumnUInt128*>(data.get())) {
         return replicate_number<UInt128>(replicate_offsets);
-    if (typeid_cast<const ColumnInt8*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt8*>(data.get())) {
         return replicate_number<Int8>(replicate_offsets);
-    if (typeid_cast<const ColumnInt16*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt16*>(data.get())) {
         return replicate_number<Int16>(replicate_offsets);
-    if (typeid_cast<const ColumnInt32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt32*>(data.get())) {
         return replicate_number<Int32>(replicate_offsets);
-    if (typeid_cast<const ColumnInt64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt64*>(data.get())) {
         return replicate_number<Int64>(replicate_offsets);
-    if (typeid_cast<const ColumnInt128*>(data.get()))
+    }
+    if (typeid_cast<const ColumnInt128*>(data.get())) {
         return replicate_number<Int128>(replicate_offsets);
-    if (typeid_cast<const ColumnFloat32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnFloat32*>(data.get())) {
         return replicate_number<Float32>(replicate_offsets);
-    if (typeid_cast<const ColumnFloat64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnFloat64*>(data.get())) {
         return replicate_number<Float64>(replicate_offsets);
-    if (typeid_cast<const ColumnDecimal32*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal32*>(data.get())) {
         return replicate_number<Decimal32>(replicate_offsets);
-    if (typeid_cast<const ColumnDecimal64*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal64*>(data.get())) {
         return replicate_number<Decimal64>(replicate_offsets);
-    if (typeid_cast<const ColumnDecimal128V2*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal128V2*>(data.get())) {
         return replicate_number<Decimal128V2>(replicate_offsets);
-    if (typeid_cast<const ColumnDecimal128V3*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal128V3*>(data.get())) {
         return replicate_number<Decimal128V3>(replicate_offsets);
-    if (typeid_cast<const ColumnDecimal256*>(data.get()))
+    }
+    if (typeid_cast<const ColumnDecimal256*>(data.get())) {
         return replicate_number<Decimal256>(replicate_offsets);
-    if (typeid_cast<const ColumnString*>(data.get())) return replicate_string(replicate_offsets);
-    if (typeid_cast<const ColumnConst*>(data.get())) return replicate_const(replicate_offsets);
-    if (typeid_cast<const ColumnNullable*>(data.get()))
+    }
+    if (typeid_cast<const ColumnString*>(data.get())) {
+        return replicate_string(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnConst*>(data.get())) {
+        return replicate_const(replicate_offsets);
+    }
+    if (typeid_cast<const ColumnNullable*>(data.get())) {
         return replicate_nullable(replicate_offsets);
+    }
     return replicate_generic(replicate_offsets);
 }
 

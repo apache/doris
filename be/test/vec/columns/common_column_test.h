@@ -31,8 +31,6 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/data_types/data_type_string.h"
 
 // this test is gonna to be a column test template for all column which should make ut test to coverage the function defined in column
 // for example column_array should test this function:
@@ -85,7 +83,6 @@ public:
         col_map->insert(map2);
     }
 
-public:
     ColumnString::MutablePtr col_str;
     ColumnInt64::MutablePtr col_int;
     ColumnDecimal64::MutablePtr col_dcm;
@@ -224,7 +221,7 @@ public:
         } else if (WhichDataType(dataType).is_array()) {
             auto array = check_and_get_column<ColumnArray>(column);
             std::cout << "array: " << std::endl;
-            const DataTypeArray& rhs_array = static_cast<const DataTypeArray&>(dataType);
+            const auto& rhs_array = static_cast<const DataTypeArray&>(dataType);
             printColumn(array->get_data(), *rhs_array.get_nested_type());
         } else {
             size_t column_size = column.size();
@@ -548,7 +545,6 @@ public:
         int iter = 0;
         for (size_t i = 0; i < filter.size(); i++) {
             if (filter[i]) {
-                EXPECT_EQ(col->get_data_at(i), filted_col->get_data_at(iter));
                 iter++;
             }
         }

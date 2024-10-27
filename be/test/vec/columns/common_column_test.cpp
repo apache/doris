@@ -117,7 +117,9 @@ TEST_F(CommonColumnTest, Permute) {
     vectorized::IColumn::Permutation permutation;
 
     size_t num_rows = 10;
-    for (size_t i = 0; i < num_rows; ++i) permutation.emplace_back(num_rows - 1 - i);
+    for (size_t i = 0; i < num_rows; ++i) {
+        permutation.emplace_back(num_rows - 1 - i);
+    }
 
     std::cout << "permutation size:" << permutation.size() << std::endl;
 
@@ -143,7 +145,9 @@ TEST_F(CommonColumnTest, SortColumnDescription) {
     std::vector<std::vector<Field>> ranges(num_rows);
     IColumn::Permutation permutation;
 
-    for (size_t i = 0; i < num_rows; ++i) permutation.emplace_back(num_rows - 1 - i);
+    for (size_t i = 0; i < num_rows; ++i) {
+        permutation.emplace_back(num_rows - 1 - i);
+    }
     generateRanges(ranges, num_rows, columnStringGetter);
     insertRangesIntoColumn(ranges, permutation, *col_s);
 
