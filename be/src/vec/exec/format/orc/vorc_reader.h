@@ -18,9 +18,9 @@
 #pragma once
 
 #include <cctz/time_zone.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <orc/OrcFile.hh>
@@ -251,7 +251,7 @@ private:
         StringDictFilterImpl(OrcReader* orc_reader) : _orc_reader(orc_reader) {}
         ~StringDictFilterImpl() override = default;
 
-        virtual void fillDictFilterColumnNames(
+        void fillDictFilterColumnNames(
                 std::unique_ptr<orc::StripeInformation> current_strip_information,
                 std::list<std::string>& column_names) const override {
             if (_status.ok()) {
@@ -259,7 +259,7 @@ private:
                         std::move(current_strip_information), column_names);
             }
         }
-        virtual void onStringDictsLoaded(
+        void onStringDictsLoaded(
                 std::unordered_map<std::string, orc::StringDictionary*>& column_name_to_dict_map,
                 bool* is_stripe_filtered) const override {
             if (_status.ok()) {
@@ -312,7 +312,7 @@ private:
     Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
                                orc::ColumnVectorBatch* cvb, size_t num_values) {
         SCOPED_RAW_TIMER(&_statistics.decode_value_time);
-        OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
+        auto* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
                                          cvb->toString());
@@ -355,7 +355,7 @@ private:
                                            const MutableColumnPtr& data_column,
                                            const DataTypePtr& data_type,
                                            orc::ColumnVectorBatch* cvb, size_t num_values) {
-        OrcColumnType* data = dynamic_cast<OrcColumnType*>(cvb);
+        auto* data = dynamic_cast<OrcColumnType*>(cvb);
         if (data == nullptr) {
             return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
                                          cvb->toString());
@@ -387,7 +387,7 @@ private:
                 }
                 value *= scale_params.scale_factor;
                 auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-                v = (DecimalPrimitiveType)value;
+                v = static_cast<typename DecimalPrimitiveType::NativeType>(value);
             }
         } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
             for (int i = 0; i < num_values; ++i) {
@@ -401,7 +401,7 @@ private:
                 }
                 value /= scale_params.scale_factor;
                 auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-                v = (DecimalPrimitiveType)value;
+                v = static_cast<typename DecimalPrimitiveType::NativeType>(value);
             }
         } else {
             for (int i = 0; i < num_values; ++i) {
@@ -414,7 +414,7 @@ private:
                     value = (((int128_t)hi) << 64) | (int128_t)lo;
                 }
                 auto& v = reinterpret_cast<DecimalPrimitiveType&>(column_data[origin_size + i]);
-                v = (DecimalPrimitiveType)value;
+                v = static_cast<typename DecimalPrimitiveType::NativeType>(value);
             }
         }
         return Status::OK();
@@ -526,7 +526,7 @@ private:
                                                            const NullMap* null_map,
                                                            orc::ColumnVectorBatch* cvb,
                                                            const orc::Type* orc_column_typ);
-    int64_t get_remaining_rows() { return _remaining_rows; }
+    int64_t get_remaining_rows() const { return _remaining_rows; }
     void set_remaining_rows(int64_t rows) { _remaining_rows = rows; }
 
     // check if the given name is like _col0, _col1, ...
@@ -545,7 +545,6 @@ private:
         return true;
     }
 
-private:
     // This is only for count(*) short circuit read.
     // save the total number of rows in range
     int64_t _remaining_rows = 0;

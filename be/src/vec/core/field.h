@@ -55,6 +55,7 @@ struct PackedInt128;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 struct NearestFieldTypeImpl {
@@ -472,12 +473,12 @@ public:
         create(data, size);
     }
 
-    void assign_jsonb(const char* data, size_t size) {
+    void assign_jsonb(const char* data, uint32_t size) {
         destroy();
         create_jsonb(data, size);
     }
 
-    void assign_jsonb(const unsigned char* data, size_t size) {
+    void assign_jsonb(const unsigned char* data, uint32_t size) {
         destroy();
         create_jsonb(data, size);
     }
@@ -757,12 +758,12 @@ private:
         create(reinterpret_cast<const char*>(data), size);
     }
 
-    void create_jsonb(const char* data, size_t size) {
+    void create_jsonb(const char* data, uint32_t size) {
         new (&storage) JsonbField(data, size);
         which = Types::JSONB;
     }
 
-    void create_jsonb(const unsigned char* data, size_t size) {
+    void create_jsonb(const unsigned char* data, uint32_t size) {
         new (&storage) JsonbField(reinterpret_cast<const char*>(data), size);
         which = Types::JSONB;
     }
@@ -1195,3 +1196,4 @@ Field& Field::operator=(T&& rhs) {
 }
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

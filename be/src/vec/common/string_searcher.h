@@ -32,7 +32,7 @@
 #include "vec/common/string_utils/string_utils.h"
 
 namespace doris {
-
+#include "common/compile_check_begin.h"
 // namespace ErrorCodes
 // {
 //     extern const int BAD_ARGUMENTS;
@@ -47,7 +47,7 @@ public:
 #if defined(__SSE2__) || defined(__aarch64__)
 protected:
     static constexpr auto n = sizeof(__m128i);
-    const int page_size = sysconf(_SC_PAGESIZE); //::getPageSize();
+    const int64_t page_size = sysconf(_SC_PAGESIZE); //::getPageSize();
 
     bool page_safe(const void* const ptr) const {
         return ((page_size - 1) & reinterpret_cast<std::uintptr_t>(ptr)) <= page_size - n;
@@ -417,3 +417,4 @@ struct LibCASCIICaseInsensitiveStringSearcher : public StringSearcherBase {
     }
 };
 } // namespace doris
+#include "common/compile_check_end.h"

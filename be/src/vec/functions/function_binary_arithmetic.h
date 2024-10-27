@@ -579,7 +579,10 @@ private:
                                                              type_result.get_scale()}
                                         .to_string(Decimal256(res));
                         THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
-                                type_left.to_string(A(a)), Name::name, type_right.to_string(B(b)),
+                                type_left.to_string(A(static_cast<NativeType<A>::Type>(a))),
+                                Name::name,
+                                type_right.to_string(
+                                        B(static_cast<typename NativeType<B>::Type>(b))),
                                 result_str, type_result.get_name());
                     }
                     // multiply
@@ -603,8 +606,10 @@ private:
                                                                  type_result.get_scale()}
                                             .to_string(Decimal256(res256));
                             THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
-                                    type_left.to_string(A(a)), Name::name,
-                                    type_right.to_string(B(b)), result_str, type_result.get_name());
+                                    type_left.to_string(A(static_cast<NativeType<A>::Type>(a))),
+                                    Name::name,
+                                    type_right.to_string(B(static_cast<NativeType<B>::Type>(b))),
+                                    result_str, type_result.get_name());
                         } else {
                             res = res256;
                         }
@@ -614,7 +619,9 @@ private:
                                                              type_result.get_scale()}
                                         .to_string(Decimal256(res));
                         THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
-                                type_left.to_string(A(a)), Name::name, type_right.to_string(B(b)),
+                                type_left.to_string(A(static_cast<NativeType<A>::Type>(a))),
+                                Name::name,
+                                type_right.to_string(B(static_cast<NativeType<B>::Type>(b))),
                                 result_str, type_result.get_name());
                     }
                 } else {
@@ -634,7 +641,9 @@ private:
                                                              type_result.get_scale()}
                                         .to_string(Decimal256(res));
                         THROW_DECIMAL_BINARY_OP_OVERFLOW_EXCEPTION(
-                                type_left.to_string(A(a)), Name::name, type_right.to_string(B(b)),
+                                type_left.to_string(A(static_cast<NativeType<A>::Type>(a))),
+                                Name::name,
+                                type_right.to_string(B(static_cast<NativeType<B>::Type>(b))),
                                 result_str, type_result.get_name());
                     }
                 }
