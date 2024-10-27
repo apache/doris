@@ -95,16 +95,16 @@ private:
     bool _init_complete = false;
 
 public:
-    Status init();
+    Status init(JNIEnv* env);
     bool init_complete() const { return _init_complete; }
     void set_complete(bool val) { _init_complete = val; }
-    Status refresh(JvmMetrics* jvm_metrics);
+    Status refresh(JvmMetrics* jvm_metrics) const;
     ~JvmStats();
 };
 
 class JvmMetrics {
 public:
-    JvmMetrics(MetricRegistry* registry);
+    JvmMetrics(MetricRegistry* registry, JNIEnv* env);
     ~JvmMetrics() = default;
     void update();
 

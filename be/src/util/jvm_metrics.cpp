@@ -80,7 +80,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(jvm_gc_g1_old_generation_time_ms, MetricUni
 
 const char* JvmMetrics::_s_hook_name = "jvm_metrics";
 
-JvmMetrics::JvmMetrics(MetricRegistry* registry) {
+JvmMetrics::JvmMetrics(MetricRegistry* registry, JNIEnv* env) {
     DCHECK(registry != nullptr);
     _registry = registry;
 
@@ -92,9 +92,10 @@ JvmMetrics::JvmMetrics(MetricRegistry* registry) {
             break;
         }
         try {
-            Status st = _jvm_stats.init();
+            Status st = _jvm_stats.init(env);
             if (!st) {
                 LOG(WARNING) << "jvm Stats Init Fail. " << st.to_string();
+                break;
             }
         } catch (...) {
             LOG(WARNING) << "jvm Stats Throw Exception Init Fail.";
@@ -188,10 +189,7 @@ void JvmMetrics::update() {
     }
 }
 
-Status JvmStats::init() {
-    JNIEnv* env = nullptr;
-    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-
+Status JvmStats::init(JNIEnv* env) {
     RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, "java/lang/management/ManagementFactory",
                                                &_managementFactoryClass));
 
@@ -359,7 +357,7 @@ Status JvmStats::init() {
     return Status::OK();
 }
 
-Status JvmStats::refresh(JvmMetrics* jvm_metrics) {
+Status JvmStats::refresh(JvmMetrics* jvm_metrics) const {
     if (!_init_complete) {
         return Status::InternalError("Jvm Stats not init complete.");
     }

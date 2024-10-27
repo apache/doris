@@ -257,7 +257,7 @@ public:
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
     JvmMetrics* jvm_metrics() { return _jvm_metrics.get(); }
-    void init_jvm_metrics();
+    void init_jvm_metrics(JNIEnv* env);
 
 private:
     // Don't allow constructor

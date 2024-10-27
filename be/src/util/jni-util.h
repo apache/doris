@@ -54,6 +54,10 @@ class JniUtil;
     type result = env->func;                                     \
     RETURN_ERROR_IF_EXC(env)
 
+//In order to reduce the potential risks caused by not handling exceptions,
+// you need to refer to  https://docs.oracle.com/javase/8/docs/technotes/guides/jni/spec/functions.html
+// to confirm whether the jni method will throw an exception.
+
 class JniUtil {
 public:
     static Status Init() WARN_UNUSED_RESULT;
