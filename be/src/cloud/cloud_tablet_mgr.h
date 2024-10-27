@@ -34,6 +34,8 @@ class CloudStorageEngine;
 class LRUCachePolicy;
 class CountDownLatch;
 
+extern uint64_t g_tablet_report_inactive_duration_ms;
+
 class CloudTabletMgr {
 public:
     CloudTabletMgr(CloudStorageEngine& engine);
@@ -68,10 +70,16 @@ public:
                                        std::vector<std::shared_ptr<CloudTablet>>* tablets,
                                        int64_t* max_score);
 
+    /**
+     * Gets tablets info and total tablet num that are reported
+     *
+     * @param tablets_info used by report
+     * @param tablet_num tablets in be tabletMgr, total num
+     */
     void build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
                                        uint64_t* tablet_num);
 
-    void obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info, int64_t num);
+    void get_tablet_info(int64_t num_tablets, std::vector<TabletInfo>* tablets_info);
 
 private:
     CloudStorageEngine& _engine;

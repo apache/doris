@@ -28,6 +28,7 @@
 #include "runtime/memory/cache_policy.h"
 
 namespace doris {
+uint64_t g_tablet_report_inactive_duration_ms = 0;
 namespace {
 
 // port from
@@ -142,6 +143,12 @@ CloudTabletMgr::CloudTabletMgr(CloudStorageEngine& engine)
 
 CloudTabletMgr::~CloudTabletMgr() = default;
 
+void set_tablet_access_time_ms(CloudTablet* tablet) {
+    using namespace std::chrono;
+    int64_t now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    tablet->last_access_time_ms = now;
+}
+
 Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_id,
                                                                 bool warmup_data) {
     // LRU value type. `Value`'s lifetime MUST NOT be longer than `CloudTabletMgr`
@@ -183,10 +190,7 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
                                           CachePriority::NORMAL);
             auto ret =
                     std::shared_ptr<CloudTablet>(tablet.get(), [this, handle](CloudTablet* tablet) {
-                        int64_t now = duration_cast<std::chrono::milliseconds>(
-                                              std::chrono::system_clock::now().time_since_epoch())
-                                              .count();
-                        tablet->last_cache_release_ms = now;
+                        set_tablet_access_time_ms(tablet);
                         _cache->release(handle);
                     });
             _tablet_map->put(std::move(tablet));
@@ -197,15 +201,14 @@ Result<std::shared_ptr<CloudTablet>> CloudTabletMgr::get_tablet(int64_t tablet_i
         if (tablet == nullptr) {
             return ResultError(Status::InternalError("failed to get tablet {}", tablet_id));
         }
+        set_tablet_access_time_ms(tablet.get());
         return tablet;
     }
 
     CloudTablet* tablet_raw_ptr = reinterpret_cast<Value*>(_cache->value(handle))->tablet.get();
+    set_tablet_access_time_ms(tablet_raw_ptr);
     auto tablet = std::shared_ptr<CloudTablet>(tablet_raw_ptr, [this, handle](CloudTablet* tablet) {
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                              std::chrono::system_clock::now().time_since_epoch())
-                              .count();
-        tablet->last_cache_release_ms = now;
+        set_tablet_access_time_ms(tablet);
         _cache->release(handle);
     });
     return tablet;
@@ -381,11 +384,9 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
         (*tablet_num)++;
         TTabletInfo tablet_info;
         tablet->build_tablet_report_info(&tablet_info);
-        int64_t now = duration_cast<std::chrono::milliseconds>(
-                              std::chrono::system_clock::now().time_since_epoch())
-                              .count();
-        if (now - config::cloud_tablet_report_exceed_time_limit * 1000 <
-            tablet->last_cache_release_ms) {
+        using namespace std::chrono;
+        int64_t now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        if (now - g_tablet_report_inactive_duration_ms * 1000 < tablet->last_access_time_ms) {
             // the tablet is still being accessed and used in recently, so not report it
             return;
         }
@@ -406,18 +407,17 @@ void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>*
               << " exceed drop time limit count=" << tablets_info->size();
 }
 
-void CloudTabletMgr::obtain_specific_quantity_tablets(std::vector<TabletInfo>& tablets_info,
-                                                      int64_t num) {
+void CloudTabletMgr::get_tablet_info(int64_t num_tablets, std::vector<TabletInfo>* tablets_info) {
     auto weak_tablets = get_weak_tablets();
     for (auto& weak_tablet : weak_tablets) {
-        auto t = weak_tablet.lock();
-        if (t == nullptr) {
+        auto tablet = weak_tablet.lock();
+        if (tablet == nullptr) {
             continue;
         }
-        if (tablets_info.size() >= num) {
+        if (tablets_info->size() >= num_tablets) {
             return;
         }
-        tablets_info.push_back(t->get_tablet_info());
+        tablets_info->push_back(tablet->get_tablet_info());
     }
 }
 

@@ -41,7 +41,6 @@
 #include "gutil/strings/strcat.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/local_file_system.h"
-#include "olap/base_tablet.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"

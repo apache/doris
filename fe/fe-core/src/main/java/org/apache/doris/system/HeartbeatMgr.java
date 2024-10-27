@@ -253,7 +253,7 @@ public class HeartbeatMgr extends MasterDaemon {
                 if (Config.isCloudMode()) {
                     String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
                     copiedMasterInfo.setCloudUniqueId(cloudUniqueId);
-                    copiedMasterInfo.setCloudTabletReportExceedTimeLimit(Config.rehash_tablet_after_be_dead_seconds);
+                    copiedMasterInfo.setTabletReportInactiveDurationMs(Config.rehash_tablet_after_be_dead_seconds);
                 }
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {

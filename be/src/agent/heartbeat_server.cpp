@@ -26,6 +26,7 @@
 #include <ostream>
 #include <string>
 
+#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
@@ -275,14 +276,9 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
     }
 
-    if (master_info.__isset.cloud_tablet_report_exceed_time_limit &&
-        config::cloud_tablet_report_exceed_time_limit <= 0) {
-        // be not set, use fe heartbeat, default be not set it
-        auto st = config::set_config(
-                "cloud_tablet_report_exceed_time_limit",
-                std::to_string(master_info.cloud_tablet_report_exceed_time_limit), true);
-        LOG(INFO) << "set config cloud_tablet_report_exceed_time_limit "
-                  << master_info.cloud_tablet_report_exceed_time_limit << " " << st;
+    if (master_info.__isset.tablet_report_inactive_duration_ms) {
+        doris::g_tablet_report_inactive_duration_ms =
+                master_info.tablet_report_inactive_duration_ms;
     }
 
     if (need_report) {

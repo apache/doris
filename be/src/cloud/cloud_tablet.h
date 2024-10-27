@@ -196,7 +196,7 @@ public:
     int64_t last_base_compaction_success_time_ms = 0;
     int64_t last_cumu_compaction_success_time_ms = 0;
     int64_t last_cumu_no_suitable_version_ms = 0;
-    int64_t last_cache_release_ms = 0;
+    int64_t last_access_time_ms = 0;
 
     // Return merged extended schema
     TabletSchemaSPtr merged_tablet_schema() const override;

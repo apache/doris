@@ -42,7 +42,7 @@ struct TMasterInfo {
     10: optional string meta_service_endpoint;
     11: optional string cloud_unique_id;
     // See configuration item Config.java rehash_tablet_after_be_dead_seconds for meaning
-    12: optional i64 cloud_tablet_report_exceed_time_limit;
+    12: optional i64 tablet_report_inactive_duration_ms;
 }
 
 struct TBackendInfo {

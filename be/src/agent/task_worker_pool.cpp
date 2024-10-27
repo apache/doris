@@ -1154,11 +1154,11 @@ void report_tablet_callback(CloudStorageEngine& engine, const TMasterInfo& maste
 
     increase_report_version();
     uint64_t report_version;
-    uint64_t tablet_num = 0;
+    uint64_t total_num_tablets = 0;
     for (int i = 0; i < 5; i++) {
         request.tablets.clear();
         report_version = s_report_version;
-        engine.tablet_mgr().build_all_report_tablets_info(&request.tablets, &tablet_num);
+        engine.tablet_mgr().build_all_report_tablets_info(&request.tablets, &total_num_tablets);
         if (report_version == s_report_version) {
             break;
         }
@@ -1171,7 +1171,7 @@ void report_tablet_callback(CloudStorageEngine& engine, const TMasterInfo& maste
     }
 
     request.__set_report_version(report_version);
-    request.__set_num_tablets(tablet_num);
+    request.__set_num_tablets(total_num_tablets);
 
     bool succ = handle_report(request, master_info, "tablet");
     report_tablet_total << 1;

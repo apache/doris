@@ -110,5 +110,4 @@ DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
 DECLARE_Bool(enable_cloud_tablet_report);
 
-DECLARE_mInt32(cloud_tablet_report_exceed_time_limit);
 } // namespace doris::config

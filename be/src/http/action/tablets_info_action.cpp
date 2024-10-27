@@ -77,7 +77,7 @@ EasyJson TabletsInfoAction::get_tablets_info(string tablet_num_to_return) {
     } else {
         CloudTabletMgr& cloud_tablet_manager =
                 ExecEnv::GetInstance()->storage_engine().to_cloud().tablet_mgr();
-        cloud_tablet_manager.obtain_specific_quantity_tablets(tablets_info, number);
+        cloud_tablet_manager.get_tablet_info(number, &tablets_info);
     }
 
     tablets_info_ej["msg"] = msg;

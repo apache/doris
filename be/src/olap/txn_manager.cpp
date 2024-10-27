@@ -34,7 +34,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/base_tablet.h"
 #include "olap/data_dir.h"
 #include "olap/delta_writer.h"
 #include "olap/olap_common.h"

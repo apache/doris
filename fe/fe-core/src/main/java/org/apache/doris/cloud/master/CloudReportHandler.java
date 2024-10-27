@@ -74,9 +74,6 @@ public class CloudReportHandler extends ReportHandler {
         int deleteFromBackendCounter = 0;
         AgentBatchTask batchTask = new AgentBatchTask();
         for (Long tabletId : tabletIdsWillDrop) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("process tablet [{}], backend[{}]", tabletId, backendId);
-            }
             DropReplicaTask task = new DropReplicaTask(backendId, tabletId, -1, -1, false);
             batchTask.addTask(task);
             LOG.info("delete tablet[{}] from backend[{}]", tabletId, backendId);
