@@ -118,7 +118,7 @@ void MemTableMemoryLimiter::handle_workload_group_memtable_flush(WorkloadGroupPt
     // Should releae memory quickly.
     using namespace std::chrono_literals;
     int32_t sleep_times = 10;
-    while (wg != nullptr && wg->enable_load_buffer_limit() && sleep_times > 0) {
+    while (wg != nullptr && wg->enable_write_buffer_limit() && sleep_times > 0) {
         std::this_thread::sleep_for(100ms);
         --sleep_times;
     }
