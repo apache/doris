@@ -21,18 +21,54 @@
 
 #include "vec/aggregate_functions/aggregate_function_count.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
-#include "vec/aggregate_functions/factory_helpers.h"
+#include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
+
+AggregateFunctionPtr type_dispatch_for_aggregate_function_regr_count(
+        const DataTypes& argument_types, const bool result_is_nullable, bool y_is_nullable,
+        bool x_is_nullable) {
+    if (y_is_nullable) {
+        if (x_is_nullable) {
+            return creator_without_type::create_ignore_nullable<
+                    AggregateFunctionRegrCount<true, true>>(argument_types, result_is_nullable);
+        } else {
+            return creator_without_type::create_ignore_nullable<
+                    AggregateFunctionRegrCount<true, false>>(argument_types, result_is_nullable);
+        }
+    } else {
+        if (x_is_nullable) {
+            return creator_without_type::create_ignore_nullable<
+                    AggregateFunctionRegrCount<false, true>>(argument_types, result_is_nullable);
+        } else {
+            return creator_without_type::create_ignore_nullable<
+                    AggregateFunctionRegrCount<false, false>>(argument_types, result_is_nullable);
+        }
+    }
+}
 
 AggregateFunctionPtr create_aggregate_function_regr_count(const std::string& name,
                                                           const DataTypes& argument_types,
                                                           const bool result_is_nullable) {
-    return std::make_shared<AggregateFunctionRegrCount>(argument_types);
+    bool y_is_nullable = argument_types[0]->is_nullable();
+    bool x_is_nullable = argument_types[1]->is_nullable();
+    WhichDataType y_type(remove_nullable(argument_types[0]));
+    WhichDataType x_type(remove_nullable(argument_types[1]));
+
+#define DISPATCH(TYPE)                                                                             \
+    if (x_type.idx == TypeIndex::TYPE && y_type.idx == TypeIndex::TYPE)                            \
+        return type_dispatch_for_aggregate_function_regr_count(argument_types, result_is_nullable, \
+                                                               y_is_nullable, x_is_nullable);
+    FOR_NUMERIC_TYPES(DISPATCH)
+#undef DISPATCH
+
+    LOG(WARNING) << "unsupported input types " << argument_types[0]->get_name() << " and "
+                 << argument_types[1]->get_name() << " for aggregate function " << name;
+    return nullptr;
 }
 
 void register_aggregate_function_regr_count(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("regr_count", create_aggregate_function_regr_count, true);
+    factory.register_function("regr_count", create_aggregate_function_regr_count);
 }
 
 } // namespace doris::vectorized
