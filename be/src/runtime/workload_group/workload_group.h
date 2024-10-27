@@ -82,9 +82,9 @@ public:
 
     int64_t load_mem_used() const { return _load_buffer_size; }
 
-    void enable_load_buffer_limit(bool enable_limit) { _enable_load_buffer_limit = enable_limit; }
+    void enable_write_buffer_limit(bool enable_limit) { _enable_write_buffer_limit = enable_limit; }
 
-    bool enable_load_buffer_limit() const { return _enable_load_buffer_limit; }
+    bool enable_write_buffer_limit() const { return _enable_write_buffer_limit; }
 
     // make memory snapshots and refresh total memory used at the same time.
     int64_t refresh_memory_usage();
@@ -208,7 +208,7 @@ public:
         return _memtable_flush_pool.get();
     }
 
-    int64_t load_buffer_limit() const { return _memory_limit * _load_buffer_ratio / 100; }
+    int64_t write_buffer_limit() const { return _memory_limit * _load_buffer_ratio / 100; }
 
     int64_t free_overcommited_memory(int64_t need_free_mem, RuntimeProfile* profile);
 
@@ -222,7 +222,7 @@ private:
     // If the wg's memory reached high water mark, then the load buffer
     // will be restricted to this limit.
     int64_t _load_buffer_ratio = 0;
-    std::atomic<bool> _enable_load_buffer_limit = false;
+    std::atomic<bool> _enable_write_buffer_limit = false;
 
     std::atomic_int64_t _total_mem_used = 0; // bytes
     std::atomic_int64_t _load_buffer_size = 0;
@@ -283,7 +283,7 @@ struct WorkloadGroupInfo {
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
     const int total_query_slot_count = 0;
-    const int load_buffer_ratio = 0;
+    const int write_buffer_ratio = 0;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
     int cgroup_cpu_hard_limit = 0;

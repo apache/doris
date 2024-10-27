@@ -58,7 +58,7 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
           _name(tg_info.name),
           _version(tg_info.version),
           _memory_limit(tg_info.memory_limit),
-          _load_buffer_ratio(tg_info.load_buffer_ratio),
+          _load_buffer_ratio(tg_info.write_buffer_ratio),
           _enable_memory_overcommit(tg_info.enable_memory_overcommit),
           _cpu_share(tg_info.cpu_share),
           _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM),
@@ -94,7 +94,7 @@ std::string WorkloadGroup::debug_string() const {
     return fmt::format(
             "WorkloadGroup[id = {}, name = {}, version = {}, cpu_share = {}, "
             "total_query_slot_count={}, "
-            "memory_limit = {}, load_buffer_ratio= {}%"
+            "memory_limit = {}, write_buffer_ratio= {}%"
             "enable_memory_overcommit = {}, total_mem_used = {},"
             "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
             "{}, spill_high_watermark = {},cpu_hard_limit = {}, scan_thread_num = "
@@ -175,7 +175,7 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
             _scan_bytes_per_second = tg_info.read_bytes_per_second;
             _remote_scan_bytes_per_second = tg_info.remote_read_bytes_per_second;
             _total_query_slot_count = tg_info.total_query_slot_count;
-            _load_buffer_ratio = tg_info.load_buffer_ratio;
+            _load_buffer_ratio = tg_info.write_buffer_ratio;
         } else {
             return;
         }
@@ -547,9 +547,9 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 17 load buffer memory limit
-    int load_buffer_ratio = LOAD_BUFFER_RATIO_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.load_buffer_ratio) {
-        load_buffer_ratio = tworkload_group_info.load_buffer_ratio;
+    int write_buffer_ratio = LOAD_BUFFER_RATIO_DEFAULT_VALUE;
+    if (tworkload_group_info.__isset.write_buffer_ratio) {
+        write_buffer_ratio = tworkload_group_info.write_buffer_ratio;
     }
 
     return {.id = tg_id,
@@ -568,7 +568,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
             .read_bytes_per_second = read_bytes_per_second,
             .remote_read_bytes_per_second = remote_read_bytes_per_second,
             .total_query_slot_count = total_query_slot_count,
-            .load_buffer_ratio = load_buffer_ratio};
+            .write_buffer_ratio = write_buffer_ratio};
 }
 
 void WorkloadGroup::upsert_task_scheduler(WorkloadGroupInfo* tg_info, ExecEnv* exec_env) {
