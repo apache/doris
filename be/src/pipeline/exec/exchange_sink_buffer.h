@@ -198,11 +198,10 @@ public:
         _finish_dependency = finish_dependency;
     }
 
+    void set_low_memory_mode() { _queue_capacity = 8; }
     void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
         _broadcast_dependency = broadcast_dependency;
     }
-
-    void set_low_memory_mode() { _queue_capacity = 8; }
 
 private:
     friend class ExchangeSinkLocalState;

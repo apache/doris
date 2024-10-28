@@ -136,7 +136,6 @@ private:
     int _sender_id;
     std::shared_ptr<vectorized::BroadcastPBlockHolderMemLimiter> _broadcast_pb_mem_limiter;
 
-    size_t _rpc_channels_num = 0;
     vectorized::BlockSerializer _serializer;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
