@@ -703,9 +703,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
         for (const auto& rowset : _input_rowsets) {
             const auto* tablet_index =
                     rowset->tablet_schema()->get_inverted_index(col_unique_id, "");
-            // no inverted index
-            if (tablet_index == nullptr) {
-                ctx.columns_to_do_index_compaction.insert(col_unique_id);
+            // no inverted index or index id is different from current index id
+            if (tablet_index == nullptr || tablet_index->index_id() != index.index_id()) {
                 is_continue = true;
                 break;
             }
@@ -714,7 +713,6 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                 first_properties = properties;
             } else {
                 if (properties != first_properties.value()) {
-                    ctx.columns_to_do_index_compaction.insert(col_unique_id);
                     is_continue = true;
                     break;
                 }

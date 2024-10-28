@@ -193,7 +193,11 @@ InvertedIndexFileCollection::~InvertedIndexFileCollection() = default;
 
 Status InvertedIndexFileCollection::add(int seg_id, InvertedIndexFileWriterPtr&& index_writer) {
     std::lock_guard lock(_lock);
-
+    if (_inverted_index_file_writers.find(seg_id) != _inverted_index_file_writers.end())
+            [[unlikely]] {
+        DCHECK(false);
+        return Status::InternalError("The seg_id already exists, seg_id is {}", seg_id);
+    }
     _inverted_index_file_writers.emplace(seg_id, std::move(index_writer));
     return Status::OK();
 }
