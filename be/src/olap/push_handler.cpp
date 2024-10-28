@@ -191,7 +191,7 @@ Status PushHandler::_do_streaming_ingestion(TabletSharedPtr tablet, const TPushR
         }
     } else {
         CHECK(false) << fmt::format("===>use a BE tablet schema, column_desc={}",
-                                    apache::thrift::ThriftDebugString(request.columns_desc));
+                                    apache::thrift::ThriftDebugString(request));
     }
     RowsetSharedPtr rowset_to_add;
     // writes
