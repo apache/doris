@@ -17,8 +17,8 @@
 
 #include "result_sink_operator.h"
 
-#include <sys/select.h>
 #include <fmt/format.h>
+#include <sys/select.h>
 
 #include <memory>
 
