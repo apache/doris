@@ -167,7 +167,7 @@ public:
 
         // used for compaction to record row ids
         bool record_rowids = false;
-        RowIdConversion* rowid_conversion;
+        RowIdConversion* rowid_conversion = nullptr;
         std::vector<int> topn_filter_source_node_ids;
         int topn_filter_target_node_id = -1;
         // used for special optimization for query : ORDER BY key LIMIT n

@@ -128,7 +128,7 @@ public:
 
     // Convert a string s representing a number in given base into a decimal number.
     template <typename T>
-    static inline T string_to_int(const char* __restrict s, int len, int base,
+    static inline T string_to_int(const char* __restrict s, int64_t len, int base,
                                   ParseResult* result) {
         T ans = string_to_int_internal<T>(s, len, base, result);
         if (LIKELY(*result == PARSE_SUCCESS)) {
@@ -207,7 +207,7 @@ private:
     // Convert a string s representing a number in given base into a decimal number.
     // Return PARSE_FAILURE on leading whitespace. Trailing whitespace is allowed.
     template <typename T>
-    static inline T string_to_int_internal(const char* __restrict s, int len, int base,
+    static inline T string_to_int_internal(const char* __restrict s, int64_t len, int base,
                                            ParseResult* result);
 
     // Converts an ascii string to an integer of type T assuming it cannot overflow
@@ -385,7 +385,7 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
 }
 
 template <typename T>
-T StringParser::string_to_int_internal(const char* __restrict s, int len, int base,
+T StringParser::string_to_int_internal(const char* __restrict s, int64_t len, int base,
                                        ParseResult* result) {
     typedef typename std::make_unsigned<T>::type UnsignedT;
     UnsignedT val = 0;
