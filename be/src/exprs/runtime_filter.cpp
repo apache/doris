@@ -1184,7 +1184,7 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
     merge_filter_request->set_is_pipeline(true);
     auto column_type = _wrapper->column_type();
     RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
-    merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
+    merge_filter_callback->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
     merge_filter_callback->cntl_->ignore_eovercrowded();
 
     if (get_ignored()) {
