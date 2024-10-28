@@ -272,7 +272,7 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
 void WorkloadGroupMgr::handle_paused_queries() {
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-        for (auto& wg : _workload_groups) {
+        for (auto& [wg_id, wg] : _workload_groups) {
             std::unique_lock<std::mutex> lock(_paused_queries_lock);
             if (_paused_queries_list[wg].empty()) {
                 // Add an empty set to wg that not contains paused queries.
