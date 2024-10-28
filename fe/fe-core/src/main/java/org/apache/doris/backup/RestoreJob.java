@@ -656,7 +656,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         Map<Long, TabletRef> tabletBases = new HashMap<>();
 
         // Check and prepare meta objects.
-        AgentBatchTask batchTask = new AgentBatchTask();
+        Map<Long, AgentBatchTask> batchTaskPerTable = new HashMap<>();
         db.readLock();
         try {
             for (Map.Entry<String, BackupOlapTableInfo> olapTableEntry : jobInfo.backupOlapTableObjects.entrySet()) {
@@ -892,6 +892,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 BackupPartitionInfo backupPartitionInfo
                         = jobInfo.getOlapTableInfo(entry.first).getPartInfo(restorePart.getName());
 
+                AgentBatchTask batchTask = batchTaskPerTable.get(localTbl.getId());
+                if (batchTask == null) {
+                    batchTask = new AgentBatchTask();
+                    batchTaskPerTable.put(localTbl.getId(), batchTask);
+                }
                 createReplicas(db, batchTask, localTbl, restorePart);
 
                 genFileMapping(localTbl, restorePart, remoteTbl.getId(), backupPartitionInfo,
@@ -903,6 +908,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 if (restoreTbl.getType() == TableType.OLAP) {
                     OlapTable restoreOlapTable = (OlapTable) restoreTbl;
                     for (Partition restorePart : restoreOlapTable.getPartitions()) {
+                        AgentBatchTask batchTask = batchTaskPerTable.get(restoreTbl.getId());
+                        if (batchTask == null) {
+                            batchTask = new AgentBatchTask();
+                            batchTaskPerTable.put(restoreTbl.getId(), batchTask);
+                        }
                         createReplicas(db, batchTask, restoreOlapTable, restorePart, tabletBases);
                         BackupOlapTableInfo backupOlapTableInfo = jobInfo.getOlapTableInfo(restoreOlapTable.getName());
                         genFileMapping(restoreOlapTable, restorePart, backupOlapTableInfo.id,
@@ -940,21 +950,39 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
         // Send create replica task to BE outside the db lock
         boolean ok = false;
-        MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(batchTask.getTaskNum());
-        if (batchTask.getTaskNum() > 0) {
-            for (AgentTask task : batchTask.getAllTasks()) {
-                latch.addMark(task.getBackendId(), task.getTabletId());
-                ((CreateReplicaTask) task).setLatch(latch);
-                AgentTaskQueue.addTask(task);
+        int numBatchTasks = batchTaskPerTable.values()
+                .stream()
+                .mapToInt(AgentBatchTask::getTaskNum)
+                .sum();
+        MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(numBatchTasks);
+        if (batchTaskPerTable.size() > 0) {
+            for (AgentBatchTask batchTask : batchTaskPerTable.values()) {
+                for (AgentTask task : batchTask.getAllTasks()) {
+                    latch.addMark(task.getBackendId(), task.getTabletId());
+                    ((CreateReplicaTask) task).setLatch(latch);
+                    AgentTaskQueue.addTask(task);
+                }
+                AgentTaskExecutor.submit(batchTask);
             }
-            AgentTaskExecutor.submit(batchTask);
 
             // estimate timeout
-            long timeout = DbUtil.getCreateReplicasTimeoutMs(batchTask.getTaskNum());
+            long timeout = DbUtil.getCreateReplicasTimeoutMs(numBatchTasks) / 1000;
             try {
-                LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}",
-                        batchTask.getTaskNum(), timeout);
-                ok = latch.await(timeout, TimeUnit.MILLISECONDS);
+                LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}s",
+                        numBatchTasks, timeout);
+                for (long elapsed = 0; elapsed <= timeout; elapsed++) {
+                    if (latch.await(1, TimeUnit.SECONDS)) {
+                        ok = true;
+                        break;
+                    }
+                    if (state != RestoreJobState.PENDING) {  // user cancelled
+                        return;
+                    }
+                    if (elapsed % 5 == 0) {
+                        LOG.info("waiting {} create replica tasks for restore to finish, total {} tasks, elapsed {}s",
+                                latch.getCount(), numBatchTasks, elapsed);
+                    }
+                }
             } catch (InterruptedException e) {
                 LOG.warn("InterruptedException: ", e);
                 ok = false;
@@ -963,7 +991,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             ok = true;
         }
 
-        if (ok) {
+        if (ok && latch.getStatus().ok()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("finished to create all restored replicas. {}", this);
             }
@@ -1027,8 +1055,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
                     .collect(Collectors.toList());
             String idStr = Joiner.on(", ").join(subList);
-            status = new Status(ErrCode.COMMON_ERROR,
-                    "Failed to create replicas for restore. unfinished marks: " + idStr);
+            String reason = "TIMEDOUT";
+            if (!latch.getStatus().ok()) {
+                reason = latch.getStatus().getErrorMsg();
+            }
+            String errMsg = String.format(
+                    "Failed to create replicas for restore: %s, unfinished marks: %s", reason, idStr);
+            status = new Status(ErrCode.COMMON_ERROR, errMsg);
             return;
         }
         LOG.info("finished to prepare meta. {}", this);

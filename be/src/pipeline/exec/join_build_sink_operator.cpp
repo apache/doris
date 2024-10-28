@@ -23,7 +23,7 @@
 #include "pipeline/exec/partitioned_hash_join_sink_operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 template <typename SharedStateArg, typename Derived>
 Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
                                                               LocalSinkStateInfo& info) {
@@ -82,6 +82,8 @@ JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
           _short_circuit_for_null_in_build_side(_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                                                 !_is_mark_join),
           _runtime_filter_descs(tnode.runtime_filters) {
+    DataSinkOperatorX<LocalStateType>::_is_serial_operator =
+            tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     _init_join_op();
     if (_is_mark_join) {
         DCHECK(_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::LEFT_SEMI_JOIN ||

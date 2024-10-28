@@ -82,6 +82,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
     TableBatchReadSession tableBatchReadSession;
+    private Predicate filterPredicate;
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
@@ -115,8 +116,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     void createTableBatchReadSession() throws UserException {
-        Predicate filterPredicate = convertPredicate();
-
         List<String> requiredPartitionColumns = new ArrayList<>();
         List<String> orderedRequiredDataColumns = new ArrayList<>();
 
@@ -164,9 +163,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     }
 
-    protected Predicate convertPredicate() {
+    @Override
+    protected void convertPredicate() {
         if (conjuncts.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         }
 
         List<Predicate> odpsPredicates = new ArrayList<>();
@@ -180,9 +180,9 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
 
         if (odpsPredicates.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         } else if (odpsPredicates.size() == 1) {
-            return odpsPredicates.get(0);
+            this.filterPredicate = odpsPredicates.get(0);
         } else {
             com.aliyun.odps.table.optimizer.predicate.CompoundPredicate
                     filterPredicate = new com.aliyun.odps.table.optimizer.predicate.CompoundPredicate(
@@ -191,7 +191,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             for (Predicate odpsPredicate : odpsPredicates) {
                 filterPredicate.addPredicate(odpsPredicate);
             }
-            return filterPredicate;
+            this.filterPredicate = filterPredicate;
         }
     }
 

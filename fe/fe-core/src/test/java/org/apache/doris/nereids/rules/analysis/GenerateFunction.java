@@ -95,6 +95,7 @@ import java.util.TreeMap;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+@Deprecated
 public class GenerateFunction {
 
     static final Set<String> unaryArithmeticOperators = Arrays.stream(ArithmeticExpr.Operator.values())

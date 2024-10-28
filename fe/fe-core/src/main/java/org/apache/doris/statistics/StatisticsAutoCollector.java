@@ -149,6 +149,9 @@ public class StatisticsAutoCollector extends MasterDaemon {
             return;
         }
         AnalysisInfo analyzeJob = createAnalyzeJobForTbl(table, columns, priority);
+        if (analyzeJob == null) {
+            return;
+        }
         LOG.debug("Auto analyze job : {}", analyzeJob.toString());
         try {
             executeSystemAnalysisJob(analyzeJob);
@@ -202,6 +205,13 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
             analysisMethod = AnalysisMethod.FULL;
+        }
+        if (table instanceof OlapTable && analysisMethod.equals(AnalysisMethod.SAMPLE)) {
+            OlapTable ot = (OlapTable) table;
+            if (ot.getRowCountForIndex(ot.getBaseIndexId(), true) == OlapTable.ROW_COUNT_BEFORE_REPORT) {
+                LOG.info("Table {} row count is not fully reported, skip auto analyzing this time.", ot.getName());
+                return null;
+            }
         }
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());

@@ -43,26 +43,16 @@ suite ("testAggQueryOnAggMV10") {
     sql "analyze table emps with sync;"
     sql """set enable_stats=false;"""
 
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
-    explain {
-        sql("select deptno, commission, sum(salary) + 1 from emps group by rollup (deptno, commission);")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select deptno, commission, sum(salary) + 1 from emps group by rollup (deptno, commission);",
+            "emps_mv")
     qt_select_mv "select deptno, commission, sum(salary) + 1 from emps group by rollup (deptno, commission) order by 1,2;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select * from emps order by empid;")
-        contains "(emps)"
-    }
+    mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
-    explain {
-        sql("select deptno, commission, sum(salary) + 1 from emps group by rollup (deptno, commission);")
-        contains "(emps_mv)"
-    }
+    mv_rewrite_success("select deptno, commission, sum(salary) + 1 from emps group by rollup (deptno, commission);",
+            "emps_mv")
 }

@@ -32,6 +32,10 @@
 namespace doris {
 class TUniqueId;
 
+namespace vectorized {
+class Block;
+} // namespace vectorized
+
 namespace io {
 
 /**
@@ -81,6 +85,8 @@ public:
      * @return summary message
      */
     std::string reset_capacity(const std::string& path, int64_t new_capacity);
+
+    void get_cache_stats_block(vectorized::Block* block);
 
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;

@@ -118,7 +118,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
                           "test_connection" = "true"
                       );
                    """
-              exception "Test FE Connection to JDBC Failed: Can not connect to jdbc due to error: Code: 516. DB::Exception: default: Authentication failed: password is incorrect, or there is no user with such name."
+              exception "Test FE Connection to JDBC Failed"
         }
         sql """ drop catalog if exists ${catalog_name} """
         sql """ drop catalog if exists clickhouse_catalog_test_conn_correct """

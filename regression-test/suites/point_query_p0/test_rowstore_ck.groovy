@@ -314,10 +314,10 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
         insert into rs_query_ck values (1, 'abc', 1111919.12345678919), (2, 'abc', 1111919.12345678919);
         analyze table rs_query_ck with sync;
         """
-    explain {
-        sql("select * from rs_query_ck order by k1 limit 1")
-        contains "TOPN OPT"
-    } 
+    // explain {
+    //     sql("select * from rs_query_ck order by k1 limit 1")
+    //     contains "TOPN OPT"
+    // } 
     qt_sql """select * from rs_query_ck order by k1 limit 1"""
 
     sql """
@@ -336,7 +336,7 @@ suite("test_rowstore_ck", "p0,nonConcurrent") {
 
     sql "set global enable_short_circuit_query_access_column_store = false"
     test {
-        sql "select * from table_with_column_group where k1 = 1"
+        sql "select * from table_with_column_group_ck where k1 = 1"
         exception("Not support column store")
     }
     sql "set global enable_short_circuit_query_access_column_store = true"

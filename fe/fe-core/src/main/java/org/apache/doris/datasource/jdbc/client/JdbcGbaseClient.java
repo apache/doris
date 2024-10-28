@@ -142,12 +142,12 @@ public class JdbcGbaseClient extends JdbcClient {
                 }
                 return ScalarType.createDatetimeV2Type(scale);
             }
-            case Types.TIME:
             case Types.CHAR:
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.getColumnSize()
                         .orElseThrow(() -> new IllegalArgumentException("Length not present")));
                 return charType;
+            case Types.TIME:
             case Types.VARCHAR:
             case Types.LONGVARCHAR:
                 return ScalarType.createStringType();

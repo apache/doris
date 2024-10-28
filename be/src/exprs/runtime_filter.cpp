@@ -1219,7 +1219,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
     // The runtime filter is pushed down, adding filtering information.
     auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
     auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
-    auto* always_true_counter = ADD_COUNTER(_profile, "always_true", TUnit::UNIT);
+    auto* always_true_counter = ADD_COUNTER(_profile, "always_true_pass_rows", TUnit::UNIT);
     for (auto i = origin_size; i < push_exprs.size(); i++) {
         push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
                                               always_true_counter);
@@ -1283,16 +1283,17 @@ void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTim
     _filter_timer.push_back(timer);
 }
 
-void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
+void IRuntimeFilter::set_finish_dependency(
+        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
     _dependency = dependency;
-    ((pipeline::CountedFinishDependency*)_dependency.get())->add();
+    _dependency->add();
     CHECK(_dependency);
 }
 
 void IRuntimeFilter::set_synced_size(uint64_t global_size) {
     _synced_size = global_size;
     if (_dependency) {
-        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        _dependency->sub();
     }
 }
 

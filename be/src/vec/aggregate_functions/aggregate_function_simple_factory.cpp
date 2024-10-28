@@ -64,6 +64,7 @@ void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& fa
 void register_aggregate_function_sequence_match(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_avg_weighted(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_histogram(AggregateFunctionSimpleFactory& factory);
+void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_bitmap_agg(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_functions_corr(AggregateFunctionSimpleFactory& factory);
@@ -110,6 +111,7 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
+        register_aggregate_function_linear_histogram(instance);
         register_aggregate_function_map_agg(instance);
         register_aggregate_function_bitmap_agg(instance);
 

@@ -1433,6 +1433,8 @@ DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
+DECLARE_mInt32(check_score_rounds_num);
+
 // MB
 DECLARE_Int32(query_cache_size);
 
