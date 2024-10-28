@@ -178,7 +178,7 @@ private:
      */
     std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    int _partition_count;
+    size_t _partition_count;
 
     std::shared_ptr<Dependency> _finish_dependency;
 
@@ -234,12 +234,12 @@ private:
 
     Status channel_add_rows(RuntimeState* state,
                             std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                            int num_channels, const uint32_t* channel_ids, int rows,
-                            vectorized::Block* block, bool eos);
+                            size_t num_channels, const uint32_t* __restrict channel_ids,
+                            size_t rows, vectorized::Block* block, bool eos);
 
     Status channel_add_rows_with_idx(RuntimeState* state,
                                      std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-                                     int num_channels,
+                                     size_t num_channels,
                                      std::vector<std::vector<uint32_t>>& channel2rows,
                                      vectorized::Block* block, bool eos);
     RuntimeState* _state = nullptr;

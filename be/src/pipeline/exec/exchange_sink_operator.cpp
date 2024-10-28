@@ -38,7 +38,7 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Status ExchangeSinkLocalState::serialize_block(vectorized::Block* src, PBlock* dest,
                                                int num_receivers) {
     return _parent->cast<ExchangeSinkOperatorX>().serialize_block(*this, src, dest, num_receivers);
@@ -661,7 +661,7 @@ void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buf
 
 Status ExchangeSinkOperatorX::channel_add_rows(
         RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-        int num_channels, const uint32_t* __restrict channel_ids, int rows,
+        size_t num_channels, const uint32_t* __restrict channel_ids, size_t rows,
         vectorized::Block* block, bool eos) {
     std::vector<std::vector<uint32_t>> channel2rows;
     channel2rows.resize(num_channels);
@@ -676,7 +676,7 @@ Status ExchangeSinkOperatorX::channel_add_rows(
 
 Status ExchangeSinkOperatorX::channel_add_rows_with_idx(
         RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
-        int num_channels, std::vector<std::vector<uint32_t>>& channel2rows,
+        size_t num_channels, std::vector<std::vector<uint32_t>>& channel2rows,
         vectorized::Block* block, bool eos) {
     Status status = Status::OK();
     for (int i = 0; i < num_channels; ++i) {

@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/descriptors.h"
@@ -295,15 +296,15 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            st = process_hashtable_ctx
-                                         .template process<need_null_map_for_probe, ignore_null>(
-                                                 arg,
-                                                 need_null_map_for_probe
-                                                         ? &local_state._null_map_column->get_data()
-                                                         : nullptr,
-                                                 mutable_join_block, &temp_block,
-                                                 local_state._probe_block.rows(), _is_mark_join,
-                                                 _have_other_join_conjunct);
+                            st = process_hashtable_ctx.template process<need_null_map_for_probe,
+                                                                        ignore_null>(
+                                    arg,
+                                    need_null_map_for_probe
+                                            ? &local_state._null_map_column->get_data()
+                                            : nullptr,
+                                    mutable_join_block, &temp_block,
+                                    cast_set<uint32_t>(local_state._probe_block.rows()),
+                                    _is_mark_join, _have_other_join_conjunct);
                         } else {
                             st = Status::InternalError("uninited hash table");
                         }

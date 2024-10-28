@@ -76,10 +76,10 @@ namespace vectorized {
 class BlockSerializer {
 public:
     BlockSerializer(pipeline::ExchangeSinkLocalState* parent, bool is_local = true);
-    Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
+    Status next_serialized_block(Block* src, PBlock* dest, size_t num_receivers, bool* serialized,
                                  bool eos, const std::vector<uint32_t>* rows = nullptr);
-    Status serialize_block(PBlock* dest, int num_receivers = 1);
-    Status serialize_block(const Block* src, PBlock* dest, int num_receivers = 1);
+    Status serialize_block(PBlock* dest, size_t num_receivers = 1);
+    Status serialize_block(const Block* src, PBlock* dest, size_t num_receivers = 1);
 
     MutableBlock* get_block() const { return _mutable_block.get(); }
 
