@@ -183,7 +183,8 @@ protected:
     ScannerContext(RuntimeState* state_, const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners_, int64_t limit_,
-                   bool ignore_data_distribution, pipeline::ScanLocalStateBase* local_state);
+                   bool ignore_data_distribution, bool is_file_scan_operator,
+                   pipeline::ScanLocalStateBase* local_state);
 
     /// Four criteria to determine whether to increase the parallelism of the scanners
     /// 1. It ran for at least `SCALE_UP_DURATION` ms after last scale up
