@@ -601,6 +601,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_type(get_string_by_field_type(_type));
     column->set_is_key(_is_key);
     column->set_is_nullable(_is_nullable);
+    column->set_is_auto_increment(_is_auto_increment);
     if (_has_default_value) {
         column->set_default_value(_default_value);
     }
