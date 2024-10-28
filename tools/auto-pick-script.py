@@ -89,11 +89,11 @@ try:
         # Create a new PR for the cherry-picked changes
         new_pr = repo.create_pull(
             title=f"{TARGET_BRANCH}: {pr.title}",  # Prefix with branch name
-            body=pr.body,  # Keep the original PR body
+            body=pr.body+ "\n Cherry-picked from #"+pr.number,  # Keep the original PR body
             head=new_branch_name,
             base=TARGET_BRANCH
         )
-
+        new_pr.create_issue_comment("run buildall")
         print(f"Created a new PR #{new_pr.number} for cherry-picked changes.")
     else:
         print(f"Commit {merge_commit_sha} was not found in {new_branch_name} after cherry-picking.")
