@@ -18,6 +18,7 @@
 #pragma once
 
 #include <rapidjson/encodings.h>
+#include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
