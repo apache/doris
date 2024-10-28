@@ -395,6 +395,11 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
         int64_t& rows_stat_val) {
     auto num_rows = block->rows();
 
+    // for non-auto-partition situation, goes into two 'else' branch. just find the origin partitions, replace them by rpc,
+    //  and find the new partitions to use.
+    // for auto-partition's, find and save origins in _partitions and replace them. at meanwhile save the missing values for auto
+    //  partition. then we find partition again to get replaced partitions in _partitions. this time _missing_map is ignored cuz
+    //  we already saved missing values.
     bool stop_processing = false;
     if (_vpartition->is_auto_partition() &&
         _state->query_options().enable_auto_create_when_overwrite) {
@@ -431,7 +436,7 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
             for (auto v : _missing_map) {
                 tmp += std::to_string(v).append(", ");
             }
-            VLOG_TRACE << "Debugging " << this << ' ' << tmp;
+            VLOG_TRACE << "Trace missing map of " << this << ':' << tmp;
         }
     } else {
         RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
@@ -509,17 +514,14 @@ Status VRowDistribution::generate_rows_distribution(
     Status st = Status::OK();
     if (_vpartition->is_auto_detect_overwrite() && !_deal_batched) {
         // when overwrite, no auto create partition allowed.
-        VLOG_TRACE << "Debugging " << this << '\n' << block->dump_data(0, 1) << "auto detect";
         st = _generate_rows_distribution_for_auto_overwrite(block.get(), partition_cols_idx,
                                                             has_filtered_rows, row_part_tablet_ids,
                                                             rows_stat_val);
     } else if (_vpartition->is_auto_partition() && !_deal_batched) {
-        VLOG_TRACE << "Debugging " << this << '\n' << block->dump_data(0, 1) << "auto partition";
         st = _generate_rows_distribution_for_auto_partition(block.get(), partition_cols_idx,
                                                             has_filtered_rows, row_part_tablet_ids,
                                                             rows_stat_val);
     } else { // not auto partition
-        VLOG_TRACE << "Debugging " << this << '\n' << block->dump_data(0, 1) << "normal batch";
         st = _generate_rows_distribution_for_non_auto_partition(block.get(), has_filtered_rows,
                                                                 row_part_tablet_ids);
     }
