@@ -98,18 +98,20 @@ public class BackendHbResponse extends HeartbeatResponse implements Writable {
         this.beMemory = beMemory;
     }
 
-    public BackendHbResponse(long beId, String errMsg) {
+    public BackendHbResponse(long beId, long lastHbTime, String errMsg) {
         super(HeartbeatResponse.Type.BACKEND);
         this.status = HbStatus.BAD;
         this.beId = beId;
+        this.hbTime = lastHbTime;
         this.msg = errMsg;
     }
 
-    public BackendHbResponse(long beId, String host, String errMsg) {
+    public BackendHbResponse(long beId, String host, long lastHbTime, String errMsg) {
         super(HeartbeatResponse.Type.BACKEND);
         this.status = HbStatus.BAD;
         this.beId = beId;
         this.host = host;
+        this.hbTime = lastHbTime;
         this.msg = errMsg;
     }
 

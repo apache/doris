@@ -803,7 +803,7 @@ public class Backend implements Writable {
     public String getHealthyStatus() {
         return "Backend [id=" + id + ", isDecommission: " + isDecommissioned
                 + ", backendStatus: " + backendStatus + ", isAlive: " + isAlive.get() + ", lastUpdateTime: "
-                + TimeUtils.longToTimeString(lastUpdateMs);
+                + TimeUtils.longToTimeString(lastUpdateMs) + "]";
     }
 
     /**
@@ -882,6 +882,10 @@ public class Backend implements Writable {
             heartbeatErrMsg = "";
             this.heartbeatFailureCounter = 0;
         } else {
+            // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
+            if (hbResponse.getHbTime() > 0) {
+                this.lastUpdateMs = hbResponse.getHbTime();
+            }
             // Only set backend to dead if the heartbeat failure counter exceed threshold.
             // And if it is a replay process, must set backend to dead.
             if (isReplay || ++this.heartbeatFailureCounter >= Config.max_backend_heartbeat_failure_tolerance_count) {

@@ -508,7 +508,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
     private boolean completeRouteInfo() {
         List<UpdateCloudReplicaInfo> updateReplicaInfos = new ArrayList<UpdateCloudReplicaInfo>();
         long[] assignedErrNum = {0L};
-        long needRehashDeadTime = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
         loopCloudReplica((Database db, Table table, Partition partition, MaterializedIndex index, String cluster) -> {
             boolean assigned = false;
             List<Long> beIds = new ArrayList<Long>();
@@ -527,8 +526,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
                     // primary backend is alive or dead not long
                     Backend be = replica.getPrimaryBackend(cluster);
-                    if (be != null && (be.isQueryAvailable()
-                            || (!be.isQueryDisabled() && be.getLastUpdateMs() > needRehashDeadTime))) {
+                    if (!needRehashTabletOnPrimaryBackend(be)) {
                         beIds.add(be.getId());
                         tabletIds.add(tablet.getId());
                         continue;
@@ -590,6 +588,40 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
 
         return true;
+    }
+
+    private boolean needRehashTabletOnPrimaryBackend(Backend be) {
+        if (be == null) {
+            return true;
+        }
+
+        // be is alive and not disable query
+        if (be.isQueryAvailable()) {
+            return false;
+        }
+
+        // disable query
+        if (be.isQueryDisabled()) {
+            return true;
+        }
+
+        // backend's last heartbeat time maybe incorrect because not always write heartbeat editlog.
+        // only backend state change can write a heartbeat editlog, like alive change to dead, or dead change to alive.
+        //
+        // suppose steps as follow:
+        // 1. be dead at time T1;
+        // 2. be alive at time T2, since be state change, write an editlog, be's last update ms = T2;
+        // 3. be heartbeat ok at time T3. but no state change, no write editlog;
+        // 4. kill -9 master fe at time T4;
+        // 5. kill -9 be at time T5;
+        // 6. master fe become alive, it will replay editlog of step 2, now be's last update ms = T2.
+        //    this is incorrect, should least >= T3.
+        //
+        // so rehash a primary be need two condititions:
+        // a. be lost heartbeat for a long time;
+        // b. fe had become master for a long time;
+        long ts = System.currentTimeMillis() - Config.rehash_tablet_after_be_dead_seconds * 1000L;
+        return be.getLastUpdateMs() < ts && Env.getCurrentEnv().getTransferToMasterTime() < ts;
     }
 
     public void fillBeToTablets(long be, long tableId, long partId, long indexId, Tablet tablet,
