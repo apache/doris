@@ -916,23 +916,24 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             }
 
-            dropTableInternal(db, table, stmt.isForceDrop());
+            dropTableInternal(db, table, stmt.isView(), stmt.isForceDrop());
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e.getMysqlErrorCode());
         } finally {
             db.writeUnlock();
         }
-        LOG.info("finished dropping table: {} from db: {}, is force: {}", tableName, dbName, stmt.isForceDrop());
+        LOG.info("finished dropping table: {} from db: {}, is view: {}, is force: {}",
+                tableName, dbName, stmt.isView(), stmt.isForceDrop());
     }
 
     // drop table without any check.
-    public void dropTableWithoutCheck(Database db, Table table, boolean forceDrop) throws DdlException {
+    public void dropTableWithoutCheck(Database db, Table table, boolean isView, boolean forceDrop) throws DdlException {
         if (!db.writeLockIfExist()) {
             return;
         }
         try {
             LOG.info("drop table {} without check, force: {}", table.getQualifiedName(), forceDrop);
-            dropTableInternal(db, table, forceDrop);
+            dropTableInternal(db, table, isView, forceDrop);
         } catch (Exception e) {
             LOG.warn("drop table without check", e);
             throw e;
@@ -942,7 +943,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     // Drop a table, the db lock must hold.
-    private void dropTableInternal(Database db, Table table, boolean forceDrop) throws DdlException {
+    private void dropTableInternal(Database db, Table table, boolean isView, boolean forceDrop) throws DdlException {
         table.writeLock();
         String tableName = table.getName();
         long recycleTime = 0;
@@ -955,7 +956,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             table.writeUnlock();
         }
 
-        DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, forceDrop, recycleTime);
+        DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, isView, forceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                 db.getId(), table.getId());
@@ -2732,7 +2733,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             try {
                 dropTable(db, tableId, true, false, 0L);
                 if (hadLogEditCreateTable) {
-                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, true, 0L);
+                    DropInfo info = new DropInfo(db.getId(), tableId, olapTable.getName(), -1L, false, true, 0L);
                     Env.getCurrentEnv().getEditLog().logDropTable(info);
                 }
             } catch (Exception ex) {
