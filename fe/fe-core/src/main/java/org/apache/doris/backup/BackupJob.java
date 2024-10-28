@@ -64,6 +64,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.DataOutput;
 import java.io.DataOutputStream;
 import java.io.File;
@@ -1081,7 +1082,7 @@ public class BackupJob extends AbstractJob {
                 }
             }
             Text text = new Text(byteStream.toByteArray());
-            if (LOG.isDebugEnable() || text.getLength() > (50 << 20)) {
+            if (LOG.isDebugEnabled() || text.getLength() > (50 << 20)) {
                 LOG.info("backup job written size {}, compressed size {}", written, text.getLength());
             }
             text.write(out);
@@ -1150,11 +1151,11 @@ public class BackupJob extends AbstractJob {
 
             Text text = new Text();
             text.readFields(in);
-            if (LOG.isDebugEnable() || text.getLength() > (50 << 20)) {
+            if (LOG.isDebugEnabled() || text.getLength() > (50 << 20)) {
                 LOG.info("read backup job, compressed size {}", text.getLength());
             }
 
-            ByteArrayInputStream byteStream = new ByteArrayInputStream();
+            ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
             try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
                 try (DataInputStream stream = new DataInputStream(gzipStream)) {
                     readOthers(stream);
