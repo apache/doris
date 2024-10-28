@@ -345,11 +345,11 @@ public:
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
 
-    uint64_t get_lookup_count() const { return _lookup_count; }
-    uint64_t get_hit_count() const { return _hit_count; }
-    size_t get_usage() const { return _usage; }
-    size_t get_capacity() const { return _capacity; }
-    size_t get_element_count() const { return _table.element_count(); }
+    uint64_t get_lookup_count();
+    uint64_t get_hit_count();
+    size_t get_usage();
+    size_t get_capacity();
+    size_t get_element_count();
     uint64_t get_miss_count();
     uint64_t get_stampede_count();
 

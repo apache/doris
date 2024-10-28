@@ -179,6 +179,16 @@ LRUCache::~LRUCache() {
     prune();
 }
 
+uint64_t LRUCache::get_lookup_count() {
+    std::lock_guard l(_mutex);
+    return _lookup_count;
+}
+
+uint64_t LRUCache::get_hit_count() {
+    std::lock_guard l(_mutex);
+    return _hit_count;
+}
+
 uint64_t LRUCache::get_stampede_count() {
     std::lock_guard l(_mutex);
     return _stampede_count;
@@ -187,6 +197,21 @@ uint64_t LRUCache::get_stampede_count() {
 uint64_t LRUCache::get_miss_count() {
     std::lock_guard l(_mutex);
     return _miss_count;
+}
+
+size_t LRUCache::get_usage() {
+    std::lock_guard l(_mutex);
+    return _usage;
+}
+
+size_t LRUCache::get_capacity() {
+    std::lock_guard l(_mutex);
+    return _capacity;
+}
+
+size_t LRUCache::get_element_count() {
+    std::lock_guard l(_mutex);
+    return _table.element_count();
 }
 
 bool LRUCache::_unref(LRUHandle* e) {
