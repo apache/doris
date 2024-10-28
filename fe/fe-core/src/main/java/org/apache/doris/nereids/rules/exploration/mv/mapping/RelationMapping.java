@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
 import com.google.common.collect.BiMap;
@@ -29,7 +28,6 @@ import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableBiMap.Builder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -92,39 +90,22 @@ public class RelationMapping extends Mapping {
             }
             // relation appear more than once, should cartesian them and power set to correct combination
             // if query is select * from tableA0, tableA1, materialized view is select * from tableA2, tableA3,
-            // tableA is the same table used by both query and materialized view
-            // relationMapping will be
-            // tableA0 tableA2
-            // tableA0 tableA3
-            // tableA1 tableA2
-            // tableA1 tableA3
-            ImmutableList<Pair<MappedRelation, MappedRelation>> relationMapping = Sets.cartesianProduct(
-                            sourceMappedRelations, targetMappedRelations)
-                    .stream()
-                    .map(listPair -> Pair.of(listPair.get(0), listPair.get(1)))
-                    .collect(ImmutableList.toImmutableList());
-
-            // the mapping in relationMappingPowerList should be bi-direction
+            // the relationMappingPowerList in relationMappingPowerList should be bi-direction
             // [
-            //    {tableA0 tableA2, tableA1 tableA3}
-            //    {tableA0 tableA3, tableA1 tableA2}
+            //    {tableA0 -> tableA2, tableA1 -> tableA3}
+            //    {tableA0 -> tableA3, tableA1 -> tableA2}
             // ]
             List<BiMap<MappedRelation, MappedRelation>> relationMappingPowerList = new ArrayList<>();
-            int relationMappingSize = relationMapping.size();
-            int relationMappingMinSize = Math.min(sourceMappedRelations.size(), targetMappedRelations.size());
-            for (int i = 0; i < relationMappingSize; i++) {
-                HashBiMap<MappedRelation, MappedRelation> relationBiMap = HashBiMap.create();
-                relationBiMap.put(relationMapping.get(i).key(), relationMapping.get(i).value());
-                for (int j = i + 1; j < relationMappingSize; j++) {
-                    if (!relationBiMap.containsKey(relationMapping.get(j).key())
-                            && !relationBiMap.containsValue(relationMapping.get(j).value())) {
-                        relationBiMap.put(relationMapping.get(j).key(), relationMapping.get(j).value());
-                    }
+            UniqueCombinator<MappedRelation> combinator = new UniqueCombinator<>();
+            List<List<List<MappedRelation>>> generateCombinations = combinator.generateCombinations(
+                    new ArrayList<>(sourceMappedRelations),
+                    new ArrayList<>(targetMappedRelations));
+            for (List<List<MappedRelation>> combinationPairs : generateCombinations) {
+                BiMap<MappedRelation, MappedRelation> combinationBiMap = HashBiMap.create();
+                for (List<MappedRelation> combinationPair : combinationPairs) {
+                    combinationBiMap.put(combinationPair.get(0), combinationPair.get(1));
                 }
-                // mapping should contain min num of relation in source or target at least
-                if (relationBiMap.size() >= relationMappingMinSize) {
-                    relationMappingPowerList.add(relationBiMap);
-                }
+                relationMappingPowerList.add(combinationBiMap);
             }
             mappedRelations.add(relationMappingPowerList);
         }
@@ -166,5 +147,53 @@ public class RelationMapping extends Mapping {
     @Override
     public int hashCode() {
         return Objects.hash(mappedRelationMap);
+    }
+
+    private static class UniqueCombinator<T> {
+
+        private final List<List<List<T>>> combinationResult = new ArrayList<>();
+        private boolean[] used;
+
+        /**
+         * Combination and remove duplicated element
+         * For example:
+         * Given [1, 4, 5] and [191, 194, 195]
+         * This would return
+         * [
+         * [(1, 191) (4, 194) (5, 195)],
+         * [(1, 191) (4, 195) (5, 194)],
+         * [(1, 194) (4, 191) (5, 195)],
+         * [(1, 194) (4, 195) (5, 191)],
+         * [(1, 195) (4, 191) (5, 194)],
+         * [(1, 195) (4, 194) (5, 191)]
+         * ]
+         * */
+        public List<List<List<T>>> generateCombinations(List<T> left, List<T> right) {
+            if (left.size() != right.size()) {
+                return combinationResult;
+            }
+
+            used = new boolean[right.size()];
+            List<List<T>> current = new ArrayList<>();
+            backtrack(left, right, 0, current);
+
+            return combinationResult;
+        }
+
+        private void backtrack(List<T> left, List<T> right, int index, List<List<T>> current) {
+            if (index == left.size()) {
+                combinationResult.add(new ArrayList<>(current));
+                return;
+            }
+            for (int i = 0; i < right.size(); i++) {
+                if (!used[i]) {
+                    used[i] = true;
+                    current.add(Lists.newArrayList(left.get(index), right.get(i)));
+                    backtrack(left, right, index + 1, current);
+                    current.remove(current.size() - 1);
+                    used[i] = false;
+                }
+            }
+        }
     }
 }
