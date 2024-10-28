@@ -450,18 +450,18 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------NestedLoopJoin[INNER_JOIN](t1.c1 > t2.c2)
+----------NestedLoopJoin[INNER_JOIN](t2.c2 > t3.c3)
 ------------PhysicalProject
---------------NestedLoopJoin[INNER_JOIN](t2.c2 > t3.c3)
+--------------NestedLoopJoin[INNER_JOIN](t1.c1 > t2.c2)
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t2]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------filter((t1.c1 < 100))
+----------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
-----------------filter((t1.c1 < 100))
-------------------PhysicalOlapScan[t1]
+----------------PhysicalOlapScan[t3]
 
 -- !select7_1 --
 PhysicalResultSink
@@ -1168,17 +1168,17 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+------------------PhysicalOlapScan[t2]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----------------PhysicalOlapScan[t1]
 
 -- !select18_2 --
 PhysicalResultSink
@@ -1370,9 +1370,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -1381,6 +1379,9 @@ PhysicalResultSink
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t3]
 
 -- !select19_2 --
 PhysicalResultSink
@@ -1388,9 +1389,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -1399,6 +1398,9 @@ PhysicalResultSink
 ------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2
@@ -1459,9 +1461,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -1470,6 +1470,9 @@ PhysicalResultSink
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -1980,17 +1983,18 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute[DistributionSpecReplicated]
+------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----------------PhysicalOlapScan[t1]
 
 -- !select22_2 --
 PhysicalResultSink
@@ -2185,9 +2189,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -2196,6 +2198,9 @@ PhysicalResultSink
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t3]
 
 -- !select23_2 --
 PhysicalResultSink
@@ -2203,9 +2208,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -2214,6 +2217,9 @@ PhysicalResultSink
 ------------------PhysicalDistribute[DistributionSpecReplicated]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2
@@ -2274,9 +2280,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -2285,6 +2289,9 @@ PhysicalResultSink
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -3006,16 +3013,17 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------------PhysicalProject
+------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 
 -- !select27_2 --
 PhysicalResultSink
@@ -3213,16 +3221,16 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t1]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
+------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----------------PhysicalOlapScan[t2]
 
 -- !select28_2 --
 PhysicalResultSink
@@ -3406,22 +3414,22 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
+------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----------------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t4]
 
 Hint log:
 Used: [shuffle]_2
@@ -3464,17 +3472,16 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
+----------------------PhysicalOlapScan[t3]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -3604,17 +3611,16 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------------hashJoin[INNER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
+----------------------PhysicalOlapScan[t3]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -3829,9 +3835,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -3840,6 +3844,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -3886,9 +3893,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -3897,6 +3902,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -3972,9 +3980,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -3983,6 +3989,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -4000,9 +4009,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -4011,6 +4018,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -4115,9 +4125,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t3.c3 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
@@ -4126,6 +4134,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -4141,9 +4152,9 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
+--------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t1]
@@ -4152,10 +4163,10 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t2]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t4]
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----------------PhysicalOlapScan[t4]
 
 Hint log:
 Used: [shuffle]_2
@@ -4492,21 +4503,21 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t4]
-------------PhysicalDistribute[DistributionSpecReplicated]
+--------------PhysicalOlapScan[t4]
+------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -4521,20 +4532,20 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecReplicated]
+--------------PhysicalOlapScan[t4]
+------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t1]
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -4576,20 +4587,20 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecReplicated]
+--------------PhysicalOlapScan[t4]
+------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t1]
+----------------------PhysicalDistribute[DistributionSpecHash]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -4660,19 +4671,19 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t4]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2
@@ -4741,19 +4752,19 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t4]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1]
+--------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2
@@ -4847,9 +4858,9 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
+--------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
 ----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t1]
@@ -4858,10 +4869,10 @@ PhysicalResultSink
 ----------------------PhysicalOlapScan[t2]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t4]
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----------------PhysicalOlapScan[t4]
 
 Hint log:
 Used: [shuffle]_2
@@ -5198,21 +5209,21 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------hashAgg[LOCAL]
 --------PhysicalProject
-----------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t4]
+--------------PhysicalOlapScan[t4]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -5227,19 +5238,19 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t4]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -5255,15 +5266,15 @@ PhysicalResultSink
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
+------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -5281,19 +5292,19 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t4]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -5362,19 +5373,19 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t4]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2
@@ -5390,15 +5401,15 @@ PhysicalResultSink
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute[DistributionSpecHash]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
+------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+--------------------PhysicalDistribute[DistributionSpecHash]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -5443,19 +5454,19 @@ PhysicalResultSink
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
-----------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute[DistributionSpecReplicated]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecReplicated]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t4]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t2.c2 = t3.c3)) otherCondition=()
+------------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1]
+--------------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2
@@ -5550,19 +5561,19 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
-------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+------------PhysicalProject
+--------------PhysicalOlapScan[t4]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+--------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -5576,19 +5587,19 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
-------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+------------PhysicalProject
+--------------PhysicalOlapScan[t4]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+--------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -5602,16 +5613,16 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
-------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+--------------------PhysicalOlapScan[t3]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecHash]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -5628,19 +5639,19 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
-------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+------------PhysicalProject
+--------------PhysicalOlapScan[t4]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
---------------PhysicalDistribute[DistributionSpecHash]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+--------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [shuffle]_2
@@ -5706,19 +5717,19 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
-------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
---------------PhysicalDistribute[DistributionSpecReplicated]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+------------PhysicalProject
+--------------PhysicalOlapScan[t4]
 ------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+--------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecReplicated]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2
@@ -5732,16 +5743,16 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
-------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+--------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+--------------------PhysicalOlapScan[t3]
 --------------PhysicalDistribute[DistributionSpecHash]
 ----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t4]
@@ -5784,19 +5795,19 @@ PhysicalResultSink
 ------hashAgg[LOCAL]
 --------PhysicalProject
 ----------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = t4.c4)) otherCondition=()
-------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
---------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+------------PhysicalProject
+--------------PhysicalOlapScan[t4]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
+----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = t2.c2)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------------PhysicalDistribute[DistributionSpecReplicated]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
 ----------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
---------------PhysicalDistribute[DistributionSpecReplicated]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute[DistributionSpecHash]
---------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+--------------------PhysicalOlapScan[t3]
 
 Hint log:
 Used: [broadcast]_2
@@ -6375,17 +6386,17 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+----------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------PhysicalOlapScan[t3]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -6484,17 +6495,17 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+----------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------PhysicalOlapScan[t3]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -6713,17 +6724,17 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+----------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute[DistributionSpecReplicated]
+----------------------PhysicalOlapScan[t3]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -6867,9 +6878,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
@@ -6878,6 +6887,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -6900,9 +6912,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
@@ -6911,6 +6921,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecReplicated]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -6977,9 +6990,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
@@ -6988,6 +6999,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -7132,9 +7146,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
@@ -7143,6 +7155,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -7209,9 +7224,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
@@ -7220,6 +7233,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -7286,9 +7302,7 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
@@ -7297,6 +7311,9 @@ PhysicalResultSink
 ----------------------PhysicalDistribute[DistributionSpecHash]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[t2]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t3]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -7364,15 +7381,15 @@ PhysicalResultSink
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
+----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t3]
+----------------------PhysicalOlapScan[t3]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -7472,15 +7489,15 @@ PhysicalResultSink
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
+----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t3]
+----------------------PhysicalOlapScan[t3]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -7699,15 +7716,15 @@ PhysicalResultSink
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute[DistributionSpecHash]
-------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
+----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((alias2.c2 = t3.c3)) otherCondition=()
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
+------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
---------------------PhysicalDistribute[DistributionSpecHash]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t3]
+----------------------PhysicalOlapScan[t3]
+----------------PhysicalDistribute[DistributionSpecHash]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -9333,16 +9350,16 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+--------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t1]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+----------------------PhysicalOlapScan[t3]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -9439,16 +9456,16 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+--------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t1]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+----------------------PhysicalOlapScan[t3]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
@@ -9661,16 +9678,16 @@ PhysicalResultSink
 --------PhysicalProject
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalProject
---------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
-----------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+--------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.c1 = alias2.c2)) otherCondition=()
+----------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.c1 = t3.c3)) otherCondition=()
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[t1]
 ------------------PhysicalDistribute[DistributionSpecHash]
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+----------------------PhysicalOlapScan[t3]
 ----------------PhysicalDistribute[DistributionSpecHash]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t3]
+--------------------PhysicalOlapScan[t2]
 ------------PhysicalDistribute[DistributionSpecReplicated]
 --------------PhysicalProject
 ----------------PhysicalLimit[GLOBAL]
