@@ -913,7 +913,7 @@ Status OrcReader::set_fill_columns(
             auto orc_inner_reader = orc_input_stream_ptr->get_inner_reader();
             orc_file_reader = std::make_shared<io::RangeCacheFileReader>(_profile, orc_inner_reader,
                                                                          range_finder);
-            _lazy_read_ctx.can_lazy_read = false;
+            //_lazy_read_ctx.can_lazy_read = false;
         }
 
         if (!_lazy_read_ctx.can_lazy_read) {
