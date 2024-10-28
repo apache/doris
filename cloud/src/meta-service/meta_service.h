@@ -264,6 +264,10 @@ public:
                               const UpdateDeleteBitmapRequest* request,
                               UpdateDeleteBitmapResponse* response,
                               ::google::protobuf::Closure* done) override;
+    void update_delete_bitmap2(google::protobuf::RpcController* controller,
+                               const UpdateDeleteBitmapRequest* request,
+                               UpdateDeleteBitmapResponse* response,
+                               ::google::protobuf::Closure* done) override;
     void get_delete_bitmap(google::protobuf::RpcController* controller,
                            const GetDeleteBitmapRequest* request, GetDeleteBitmapResponse* response,
                            ::google::protobuf::Closure* done) override;
@@ -631,6 +635,13 @@ public:
                               UpdateDeleteBitmapResponse* response,
                               ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::update_delete_bitmap, controller, request, response, done);
+    }
+
+    void update_delete_bitmap2(google::protobuf::RpcController* controller,
+                               const UpdateDeleteBitmapRequest* request,
+                               UpdateDeleteBitmapResponse* response,
+                               ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::update_delete_bitmap2, controller, request, response, done);
     }
 
     void get_delete_bitmap(google::protobuf::RpcController* controller,
