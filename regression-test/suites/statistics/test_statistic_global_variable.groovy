@@ -25,8 +25,6 @@ suite("test_statistic_global_variable", "nonConcurrent") {
     }
 
     try {
-        verifyVairable("analyze_timeout", "1")
-        verifyVairable("analyze_timeout", "43200")
         verifyVairable("auto_analyze_end_time", "11:11:11")
         verifyVairable("auto_analyze_end_time", "23:59:59")
         verifyVairable("auto_analyze_start_time", "22:22:22")
@@ -45,7 +43,6 @@ suite("test_statistic_global_variable", "nonConcurrent") {
         verifyVairable("table_stats_health_threshold", "60")
 
     } finally {
-        sql """set global analyze_timeout=43200"""
         sql """set global auto_analyze_end_time="23:59:59";"""
         sql """set global auto_analyze_start_time="00:00:00";"""
         sql """set global auto_analyze_table_width_threshold=100"""
