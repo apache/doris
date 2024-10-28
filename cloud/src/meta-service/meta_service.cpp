@@ -2138,7 +2138,7 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         return;
     }
     txn->remove(lock_key);
-    TxnErrorCode err = txn->commit();
+    err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to remove delete bitmap tablet lock , err=" << err;
