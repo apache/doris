@@ -80,7 +80,7 @@ public:
 
     int64_t total_mem_used() const { return _total_mem_used; }
 
-    int64_t load_mem_used() const { return _load_buffer_size; }
+    int64_t write_buffer_size() const { return _load_buffer_size; }
 
     void enable_write_buffer_limit(bool enable_limit) { _enable_write_buffer_limit = enable_limit; }
 
@@ -190,7 +190,6 @@ public:
 
     void update_total_local_scan_io_adder(size_t scan_bytes);
 
-    int64_t get_mem_used() { return _mem_used_status->get_value(); }
     uint64_t get_cpu_usage() { return _cpu_usage_per_second->get_value(); }
     int64_t get_local_scan_bytes_per_second() {
         return _total_local_scan_io_per_second->get_value();
