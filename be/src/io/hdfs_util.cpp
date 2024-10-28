@@ -17,10 +17,12 @@
 
 #include "io/hdfs_util.h"
 
+#include <bthread/bthread.h>
 #include <bvar/latency_recorder.h>
 #include <gen_cpp/cloud.pb.h>
 
 #include <ostream>
+#include <thread>
 
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
@@ -30,7 +32,7 @@
 namespace doris::io {
 namespace {
 
-Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs) {
+Status _create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs) {
     HDFSCommonBuilder builder;
     RETURN_IF_ERROR(create_hdfs_builder(hdfs_params, fs_name, &builder));
     hdfsFS hdfs_fs = hdfsBuilderConnect(builder.get());
@@ -39,6 +41,22 @@ Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name
     }
     *fs = hdfs_fs;
     return Status::OK();
+}
+
+bool is_bthread() {
+    return (bthread_self() != 0);
+}
+
+Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs) {
+    if (is_bthread()) {
+        Status st;
+        std::thread t([&] { st = _create_hdfs_fs(hdfs_params, fs_name, fs); });
+        if (t.joinable()) {
+            t.join();
+        }
+        return st;
+    }
+    return _create_hdfs_fs(hdfs_params, fs_name, fs);
 }
 
 uint64_t hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name) {
