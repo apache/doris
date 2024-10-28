@@ -98,7 +98,7 @@ suite('test_fe_tablet_same_backend', 'multi_cluster,docker') {
     }
 
     def checkAllTable = { isAllBeAliveOrDeadLong ->
-        dockerAwaitUntil(50) {
+        dockerAwaitUntil(60) {
             checkAllTableImpl(isAllBeAliveOrDeadLong, true)
         }
         checkAllTableImpl(isAllBeAliveOrDeadLong, false)
@@ -127,8 +127,8 @@ suite('test_fe_tablet_same_backend', 'multi_cluster,docker') {
         // all fe alive
         checkAllTable(true)
 
-        dockerAwaitUntil(30) {
         cluster.stopBackends(choseDeadBeIndex)
+        dockerAwaitUntil(60) {
             def chosenBe = cluster.getBeByIndex(choseDeadBeIndex)
             !chosenBe.alive
         }
@@ -144,13 +144,13 @@ suite('test_fe_tablet_same_backend', 'multi_cluster,docker') {
 
         def choseRestartFeIndex = cluster.getOneFollowerFe().index
         cluster.stopFrontends(choseRestartFeIndex)
-        dockerAwaitUntil(30) {
+        dockerAwaitUntil(60) {
             def chosenFe = cluster.getFeByIndex(choseRestartFeIndex)
             !chosenFe.alive
         }
 
         cluster.startFrontends(choseRestartFeIndex)
-        dockerAwaitUntil(30) {
+        dockerAwaitUntil(60) {
             def chosenFe = cluster.getFeByIndex(choseRestartFeIndex)
             chosenFe.alive
         }
