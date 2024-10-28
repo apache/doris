@@ -1855,12 +1855,7 @@ void NewJsonReader::_process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn
             assert_cast<ColumnBitmap*>(skip_bitmap_nullable_col_ptr->get_nested_column_ptr().get());
     DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
     auto& skip_bitmap = skip_bitmap_col_ptr->get_data().back();
-    if (!slot_desc->is_auto_increment()) {
-        // For auto-increment column, it will always have a valid value when in SegmentWriter.
-        // Either the row specifies it, or its value is filled with generated value. So never mark the
-        // auto-increment column in skip bitmap
-        skip_bitmap.add(slot_desc->col_unique_id());
-    }
+    skip_bitmap.add(slot_desc->col_unique_id());
 }
 
 void NewJsonReader::_collect_profile_before_close() {
