@@ -107,7 +107,7 @@ public:
     ScannerContext(RuntimeState* state, VScanNode* parent, const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
-                   bool ignore_data_distribution,
+                   bool ignore_data_distribution, bool is_file_scan_operator,
                    pipeline::ScanLocalStateBase* local_state = nullptr);
 
     ~ScannerContext() override {
@@ -234,6 +234,7 @@ protected:
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
     bool _ignore_data_distribution = false;
+    bool _is_file_scan_operator;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;
