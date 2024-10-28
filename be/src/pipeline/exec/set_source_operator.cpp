@@ -23,7 +23,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 template <bool is_intersect>
 Status SetSourceLocalState<is_intersect>::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -115,7 +115,7 @@ template <typename HashTableContext>
 Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         SetSourceLocalState<is_intersect>& local_state, HashTableContext& hash_table_ctx,
         vectorized::Block* output_block, const int batch_size, bool* eos) {
-    int left_col_len = local_state._left_table_data_types.size();
+    size_t left_col_len = local_state._left_table_data_types.size();
     hash_table_ctx.init_iterator();
     auto& iter = hash_table_ctx.iterator;
     auto block_size = 0;
