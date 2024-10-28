@@ -88,6 +88,9 @@ suite("test_default_cluster", "docker") {
         connectInDocker(user = user2, password = 'Cloud123456') {
             // user set himself
             setAndCheckDefaultCluster validCluster
+            sql """set property 'DEFAULT_CLOUD_CLUSTER' = '' """
+            def ret = getProperty("default_cloud_cluster")
+            assertEquals(ret.Value as String, "")
         }
     }
 }
