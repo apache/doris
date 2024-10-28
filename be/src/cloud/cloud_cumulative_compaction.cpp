@@ -422,8 +422,8 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                                                        std::get<2>(it->first),
                                                        std::get<2>(it->first)));
             }
-            RETURN_IF_ERROR(_engine.meta_mgr().remove_old_version_delete_bitmap(
-                    _tablet->tablet_id(), to_delete));
+//            RETURN_IF_ERROR(_engine.meta_mgr().remove_old_version_delete_bitmap(
+//                    _tablet->tablet_id(), to_delete));
             RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap_without_lock(
                     *cloud_tablet(), new_delete_bitmap.get()));
 
