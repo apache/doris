@@ -270,6 +270,15 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
  * strategy 5: If any query exceed process's memlimit and cache is zero, then do following:
  */
 void WorkloadGroupMgr::handle_paused_queries() {
+    {
+        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+        for (auto& [wg_id, wg] : _workload_groups) {
+            std::unique_lock<std::mutex> lock(_paused_queries_lock);
+            if (_paused_queries_list[wg].empty()) {
+                // Add an empty set to wg that not contains paused queries.
+            }
+        }
+    }
     const int64_t TIMEOUT_IN_QUEUE = 1000L * 10;
     std::unique_lock<std::mutex> lock(_paused_queries_lock);
     bool has_revoked_from_other_group = false;
@@ -353,9 +362,6 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     wg->enable_write_buffer_limit(true);
                     ++query_it;
                     continue;
-                } else {
-                    // If could not revoke memory by flush memtable, then disable load buffer limit
-                    wg->enable_write_buffer_limit(false);
                 }
                 if (!has_changed_hard_limit) {
                     update_queries_limit_(wg, true);

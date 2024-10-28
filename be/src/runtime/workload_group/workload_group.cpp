@@ -94,7 +94,7 @@ std::string WorkloadGroup::debug_string() const {
     return fmt::format(
             "WorkloadGroup[id = {}, name = {}, version = {}, cpu_share = {}, "
             "total_query_slot_count={}, "
-            "memory_limit = {}, write_buffer_ratio= {}%"
+            "memory_limit = {}, write_buffer_ratio= {}%, "
             "enable_memory_overcommit = {}, total_mem_used = {},"
             "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
             "{}, spill_high_watermark = {},cpu_hard_limit = {}, scan_thread_num = "
@@ -185,7 +185,7 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
 // MemtrackerLimiter is not removed during query context release, so that should remove it here.
 int64_t WorkloadGroup::refresh_memory_usage() {
     int64_t used_memory = 0;
-    int64_t load_buffer_size = 0;
+    int64_t write_buffer_size = 0;
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
         for (auto trackerWptr = mem_tracker_group.trackers.begin();
@@ -195,14 +195,14 @@ int64_t WorkloadGroup::refresh_memory_usage() {
                 trackerWptr = mem_tracker_group.trackers.erase(trackerWptr);
             } else {
                 used_memory += tracker->consumption();
-                load_buffer_size += tracker->load_buffer_size();
+                write_buffer_size += tracker->write_buffer_size();
                 ++trackerWptr;
             }
         }
     }
     // refresh total memory used.
-    _total_mem_used = used_memory + load_buffer_size;
-    _load_buffer_size = load_buffer_size;
+    _total_mem_used = used_memory + write_buffer_size;
+    _write_buffer_size = write_buffer_size;
     // reserve memory is recorded in the query mem tracker
     // and _total_mem_used already contains all the current reserve memory.
     // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
