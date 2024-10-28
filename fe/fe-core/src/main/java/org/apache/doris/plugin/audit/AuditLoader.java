@@ -174,10 +174,12 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(stmt).append("\n");
     }
 
-    private void loadIfNecessary(AuditStreamLoader loader) {
+    // public for external call.
+    // synchronized to avoid concurrent load.
+    public synchronized void loadIfNecessary(boolean force) {
         long currentTime = System.currentTimeMillis();
 
-        if (auditLogBuffer.length() >= GlobalVariable.auditPluginMaxBatchBytes
+        if (force || auditLogBuffer.length() >= GlobalVariable.auditPluginMaxBatchBytes
                 || currentTime - lastLoadTimeAuditLog >= GlobalVariable.auditPluginMaxBatchInternalSec * 1000) {
             // begin to load
             try {
@@ -190,7 +192,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     discardLogNum += auditLogNum;
                     return;
                 }
-                AuditStreamLoader.LoadResponse response = loader.loadBatch(auditLogBuffer, token);
+                AuditStreamLoader.LoadResponse response = streamLoader.loadBatch(auditLogBuffer, token);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("audit loader response: {}", response);
                 }
@@ -216,10 +218,10 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private class LoadWorker implements Runnable {
-        private AuditStreamLoader loader;
+        // private AuditStreamLoader loader;
 
         public LoadWorker(AuditStreamLoader loader) {
-            this.loader = loader;
+            // this.loader = loader;
         }
 
         public void run() {
@@ -229,7 +231,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     if (event != null) {
                         assembleAudit(event);
                         // process all audit logs
-                        loadIfNecessary(loader);
+                        loadIfNecessary(false);
                     }
                 } catch (InterruptedException ie) {
                     if (LOG.isDebugEnabled()) {
