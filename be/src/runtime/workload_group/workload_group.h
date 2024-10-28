@@ -80,11 +80,13 @@ public:
 
     int64_t total_mem_used() const { return _total_mem_used; }
 
-    int64_t write_buffer_size() const { return _load_buffer_size; }
+    int64_t write_buffer_size() const { return _write_buffer_size; }
 
     void enable_write_buffer_limit(bool enable_limit) { _enable_write_buffer_limit = enable_limit; }
 
     bool enable_write_buffer_limit() const { return _enable_write_buffer_limit; }
+
+    bool exceed_write_buffer_limit() const { return _write_buffer_size > write_buffer_limit(); }
 
     // make memory snapshots and refresh total memory used at the same time.
     int64_t refresh_memory_usage();
@@ -213,7 +215,7 @@ private:
     std::atomic<bool> _enable_write_buffer_limit = false;
 
     std::atomic_int64_t _total_mem_used = 0; // bytes
-    std::atomic_int64_t _load_buffer_size = 0;
+    std::atomic_int64_t _write_buffer_size = 0;
     std::atomic_int64_t _wg_refresh_interval_memory_growth;
     bool _enable_memory_overcommit;
     std::atomic<uint64_t> _cpu_share;
