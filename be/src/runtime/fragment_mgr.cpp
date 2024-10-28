@@ -645,6 +645,7 @@ void FragmentMgr::remove_pipeline_context(
                             .count();
         g_fragment_executing_count << -1;
         g_fragment_last_active_time.set_value(now);
+        // this log will show when a query is really finished in BEs
         LOG_INFO("Removing query {} fragment {}", print_id(query_id), f_context->get_fragment_id());
         _pipeline_map.erase({query_id, f_context->get_fragment_id()});
     }
@@ -1185,8 +1186,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                 auto iter = _pipeline_map.find(
                         {UniqueId(request->query_id()).to_thrift(), fragment_id});
                 if (iter == _pipeline_map.end()) {
-                    LOG(WARNING) << "No pipeline fragment is found: Query-ID = "
-                                 << request->query_id() << " fragment_id = " << fragment_id;
                     continue;
                 }
                 pip_context = iter->second;
