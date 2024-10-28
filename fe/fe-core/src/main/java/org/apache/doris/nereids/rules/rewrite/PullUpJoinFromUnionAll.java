@@ -49,25 +49,11 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
- * Pull up join from union all rules:
- *       Union
- *       /    \
- *     Join   Join
- *     / \    / \
- *    t1 t2   t1 t3   (t1 is common side; t2,t3 is other side)
- *  =====>
- *           project
- *              |
- *            Join
- *          /    \
- *       Union   t1
- *       /    \
- *       t2   t3
- *
  * Pull up join from union all rules with project:
  *       Union
  *       /    \
- *    project project
+ *   project    project
+ *   (optional) (optional)
  *      |      |
  *     Join   Join
  *     / \    / \
@@ -79,11 +65,12 @@ import javax.annotation.Nullable;
  *          /    \
  *       Union   t1
  *       /    \
- *   project project
+ *   project    project
+ *   (optional) (optional)
  *      |      |
  *      t2    t3
  */
-public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
+public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalUnion()
@@ -129,7 +116,7 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                             commonSlotToProjectsIndex, joinsAndCommonSides);
                     LogicalProject newProject = constructNewProject(union, newJoin, upperProjectExpressionOrIndex);
                     return newProject;
-                }).toRule(RuleType.PULL_UP_JOIN_FROM_UNION);
+                }).toRule(RuleType.PULL_UP_JOIN_FROM_UNION_ALL);
     }
 
     private LogicalProject<Plan> constructNewProject(LogicalUnion originUnion, LogicalJoin<LogicalUnion, Plan> newJoin,
@@ -191,6 +178,10 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
             }
             List<NamedExpression> projects = otherOutputsList.get(i);
             // In projects, we also need to add the other slot in join condition
+            // TODO: may eliminate repeated output slots:
+            // e.g.select t2.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+            // select t3.a from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
+            // new union child will output t2.a/t3.a twice. one for output, the other for join condition.
             Map<SlotReference, List<SlotReference>> commonSlotToOtherSlotMap = commonSlotToOtherSlotMaps.get(i);
             for (SlotReference commonSlot : joinCommonSlots) {
                 List<SlotReference> otherSlots = commonSlotToOtherSlotMap.get(commonSlot);
@@ -218,17 +209,25 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
         return newUnion;
     }
 
-    // This function is used to check whether the join condition meets the optimization condition
-    // Check the join condition, requiring that the join condition of each join is equal and the number is the same.
-    // Generate commonSlotToOtherSlotMaps. In each map of the list, the keySet must be the same,
-    // and the length of the value list of the same key must be the same.
-    // Output parameter: commonSlotToOtherSlotMaps, which records the join condition of each join.
-    // The key is the slot on the common side of the join, and the value is the slot on the other side of the join.
-    // e.g. select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a and t1.a=t2.c and t1.b=t2.b union ALL
-    // select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a and t1.a=t3.d and t1.b=t3.b
-    // commonSlotToOtherSlotMaps： {{t1.a:t2.a,t2.c; t1.b:t2.b},{t1.a:t3.a,t3.d; t1.b:t3.b}}
-    // commonSlotToOtherSlotMaps is used to check whether the join condition meets the optimization conditions
-    // and to generate the join condition for the new join
+    /* This function is used to check whether the join condition meets the optimization condition
+    Check the join condition, requiring that the join condition of each join is equal and the number is the same.
+    Generate commonSlotToOtherSlotMaps. In each map of the list, the keySet must be the same,
+    and the length of the value list of the same key must be the same.
+    Output parameter: commonSlotToOtherSlotMaps, which records the join condition of each join.
+    The key is the slot on the common side of the join, and the value is the slot on the other side of the join.
+    e.g. select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a and t1.a=t2.c and t1.b=t2.b union ALL
+    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a and t1.a=t3.d and t1.b=t3.b
+    commonSlotToOtherSlotMaps： {{t1.a:t2.a,t2.c; t1.b:t2.b},{t1.a:t3.a,t3.d; t1.b:t3.b}}
+    commonSlotToOtherSlotMaps is used to check whether the join condition meets the optimization conditions
+    and to generate the join condition for the new join.
+    These are sql that can not do this transform:
+    SQL1: select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a and t1.b=t3.b;
+    SQL2: select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.b=t3.a;
+    SQL3: select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a and t1.a=t3.b;
+     */
     private boolean checkJoinCondition(List<Pair<LogicalJoin<?, ?>, Plan>> joinsAndCommonSides,
             List<Map<SlotReference, List<SlotReference>>> commonSlotToOtherSlotMaps,
             Set<SlotReference> joinCommonSlots) {
@@ -268,12 +267,15 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
             if (i == 0) {
                 commonSlotToOtherSlotMaps.add(conditionMapFirst);
             } else {
+                // reject SQL1
                 if (conditionMapSubsequent.size() != conditionMapFirst.size()) {
                     return false;
                 }
+                // reject SQL2
                 if (!conditionMapSubsequent.keySet().equals(conditionMapFirst.keySet())) {
                     return false;
                 }
+                // reject SQL3
                 for (Map.Entry<SlotReference, List<SlotReference>> entry : conditionMapFirst.entrySet()) {
                     SlotReference commonSlot = entry.getKey();
                     if (conditionMapSubsequent.get(commonSlot).size() != entry.getValue().size()) {
@@ -320,29 +322,39 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
         }
     }
 
-    // In the union child output, the number of outputs from the common side must be the same in each child output,
-    // and the outputs from the common side must be isomorphic (both a+1) and have the same index in the union output.
-    // In the union child output, the number of outputs from the non-common side must also be the same,
-    // but they do not need to be isomorphic.
-    // Output parameters1: otherOutputsList stores the outputs of the other side. The length of each element
-    // in otherOutputsList must be the same.
-    // The i-th element represents the output of the other side in the i-th child of the union.
-    // otherOutputsList is Used to create child nodes of a new Union in the constructNewUnion function.
-    // Output parameter2: upperProjectExpressionOrIndex, used in the constructNewProject function
-    // of creating the top-level project,
-    // records the output column order of the original union, and is used on the basis of the new join output,
-    // setting the column or expression that should be output in the upper-level project operator.
-    // The size of upperProjectExpressionOrIndex must be the same as the output size of the original union.
-    // Pair.first in List represents whether the output comes from the common side or the other side.
-    // True represents the output from the common side, and false represents the output from the other side.
-    // Pair.second in List is a structure. When Pair.first is true,
-    // Pair.second saves the output expression of the common side.
-    // When Pair.first is false, Pair.second saves the output subscript of the other side.
-    // Because the output of the new union has not been constructed at this time, the index is saved.
-    // Since the check part of this function ensures that the outputs at the same position in the union children
-    // must all come from the common side or from the other side,
-    // and when the join is constructed at the end, the common side will use the common side of the first join,
-    // so we only need to fill in upperProjectExpressionOrIndex when processing the output of the first child.
+    /* In the union child output, the number of outputs from the common side must be the same in each child output,
+    and the outputs from the common side must be isomorphic (both a+1) and have the same index in the union output.
+    In the union child output, the number of outputs from the non-common side must also be the same,
+    but they do not need to be isomorphic.
+    Output parameters1: otherOutputsList stores the outputs of the other side. The length of each element
+    in otherOutputsList must be the same.
+    The i-th element represents the output of the other side in the i-th child of the union.
+    otherOutputsList is Used to create child nodes of a new Union in the constructNewUnion function.
+    Output parameter2: upperProjectExpressionOrIndex, used in the constructNewProject function
+    of creating the top-level project,
+    records the output column order of the original union, and is used on the basis of the new join output,
+    setting the column or expression that should be output in the upper-level project operator.
+    The size of upperProjectExpressionOrIndex must be the same as the output size of the original union.
+    Pair.first in List represents whether the output comes from the common side or the other side.
+    True represents the output from the common side, and false represents the output from the other side.
+    Pair.second in List is a structure. When Pair.first is true,
+    Pair.second saves the output expression of the common side.
+    When Pair.first is false, Pair.second saves the output subscript of the other side.
+    Because the output of the new union has not been constructed at this time, the index is saved.
+    Since the check part of this function ensures that the outputs at the same position in the union children
+    must all come from the common side or from the other side,
+    and when the join is constructed at the end, the common side will use the common side of the first join,
+    so we only need to fill in upperProjectExpressionOrIndex when processing the output of the first child.
+    These are sql that can not do this transform:
+    SQL1: select t2.a+t1.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t3.a+1 from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
+    SQL2: select t2.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t1.a from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
+    SQL3: select t1.a+1 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select t1.a+2 from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
+    SQL4: select t1.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+    select 1 from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
+    */
     private boolean checkUnionChildrenOutput(LogicalUnion union,
             List<Pair<LogicalJoin<?, ?>, Plan>> joinsAndCommonSides,
             List<List<NamedExpression>> otherOutputsList,
@@ -364,7 +376,6 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
             List<NamedExpression> otherOutputs = new ArrayList<>();
             for (int j = 0; j < regularChildrenOutput.size(); ++j) {
                 SlotReference slot = regularChildrenOutput.get(j);
-                // 判断这个slot是来自于join的common side还是other side
                 if (child instanceof LogicalProject) {
                     LogicalProject<Plan> project = (LogicalProject<Plan>) child;
                     int index = project.getOutput().indexOf(slot);
@@ -372,6 +383,7 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                     Slot insideSlot;
                     Expression insideExpr;
                     Set<Slot> inputSlots = expr.getInputSlots();
+                    // reject SQL1
                     if (inputSlots.size() > 1) {
                         return false;
                     } else if (inputSlots.size() == 1) {
@@ -398,9 +410,11 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                                 otherOutputs.add(expr);
                             }
                         } else {
+                            // reject SQL2
                             if (commonSide.getOutputSet().contains(insideSlot) != fromCommonSide[j]) {
                                 return false;
                             }
+                            // reject SQL3
                             if (commonSide.getOutputSet().contains(insideSlot)) {
                                 Expression sameExpr = ExpressionUtils.replace(insideExpr, commonJoinSlotMap);
                                 if (!sameExpr.equals(checkSameExpr[j])) {
@@ -417,6 +431,7 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                             upperProjectExpressionOrIndex.add(Pair.of(false, new ExpressionOrIndex(
                                     otherOutputs.size())));
                         } else {
+                            // reject SQL4
                             if (fromCommonSide[j]) {
                                 return false;
                             }
@@ -437,9 +452,11 @@ public class PullUpJoinFromUnion extends OneRewriteRuleFactory {
                             otherOutputs.add(slot);
                         }
                     } else {
+                        // reject SQL2
                         if (commonSide.getOutputSet().contains(slot) != fromCommonSide[j]) {
                             return false;
                         }
+                        // reject SQL3
                         if (commonSide.getOutputSet().contains(slot)) {
                             Expression sameExpr = ExpressionUtils.replace(slot, commonJoinSlotMap);
                             if (!sameExpr.equals(checkSameExpr[j])) {

@@ -104,7 +104,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
-import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnion;
+import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
@@ -358,7 +358,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("eliminate Aggregate according to fd items",
                         topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
-                        topDown(new PullUpJoinFromUnion())
+                        topDown(new PullUpJoinFromUnionAll())
                 ),
 
                 topic("Limit optimization",

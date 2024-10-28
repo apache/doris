@@ -304,7 +304,7 @@ public enum RuleType {
 
     // split limit
     SPLIT_LIMIT(RuleTypeClass.REWRITE),
-    PULL_UP_JOIN_FROM_UNION(RuleTypeClass.REWRITE),
+    PULL_UP_JOIN_FROM_UNION_ALL(RuleTypeClass.REWRITE),
     // limit push down
     PUSH_LIMIT_THROUGH_JOIN(RuleTypeClass.REWRITE),
     PUSH_LIMIT_THROUGH_PROJECT_JOIN(RuleTypeClass.REWRITE),
