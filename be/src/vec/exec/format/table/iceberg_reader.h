@@ -250,8 +250,8 @@ public:
             const std::vector<std::string>& file_col_names,
             const std::unordered_map<int, std::string>& col_id_name_map,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs& common_expr_ctxs_push_down, const VExprContextSPtrs& conjuncts,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const std::unordered_map<std::string, int>* colname_to_slot_id,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
