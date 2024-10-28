@@ -99,8 +99,8 @@ public:
     Status init_reader(
             const std::vector<std::string>& column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs& common_expr_ctxs_push_down, const VExprContextSPtrs& conjuncts,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
 

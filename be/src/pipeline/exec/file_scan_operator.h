@@ -17,11 +17,8 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <string>
 
-#include "common/logging.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
@@ -49,12 +46,14 @@ public:
 
     Status _process_conjuncts(RuntimeState* state) override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
+    bool _should_push_down_common_expr() override { return true; }
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
     std::string name_suffix() const override;
 
 private:
+    friend class vectorized::VFileScanner;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source = nullptr;
     int _max_scanners;
     // A in memory cache to save some common components

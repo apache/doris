@@ -71,7 +71,6 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
-#include "vec/exec/format/orc/orc_memory_pool.h"
 #include "vec/exec/format/table/transactional_hive_common.h"
 #include "vec/exprs/vbloom_predicate.h"
 #include "vec/exprs/vdirect_in_predicate.h"
@@ -281,13 +280,14 @@ Status OrcReader::_create_file_reader() {
 Status OrcReader::init_reader(
         const std::vector<std::string>* column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-        const VExprContextSPtrs& conjuncts, bool is_acid, const TupleDescriptor* tuple_descriptor,
-        const RowDescriptor* row_descriptor,
+        const VExprContextSPtrs& common_expr_ctxs_push_down, const VExprContextSPtrs& conjuncts,
+        bool is_acid, const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
         const bool hive_use_column_names) {
     _column_names = column_names;
     _colname_to_value_range = colname_to_value_range;
+    _common_expr_ctxs_push_down = common_expr_ctxs_push_down;
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
     _tuple_descriptor = tuple_descriptor;

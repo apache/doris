@@ -23,18 +23,15 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <map>
-#include <ostream>
 #include <tuple>
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/object_pool.h"
 #include "io/cache/block_file_cache_profile.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -47,7 +44,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
@@ -173,6 +169,14 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     _default_val_row_desc.reset(new RowDescriptor(_state->desc_tbl(),
                                                   std::vector<TupleId>({_real_tuple_desc->id()}),
                                                   std::vector<bool>({false})));
+
+    // TODO: move to better place
+    auto* local_state = static_cast<pipeline::FileScanLocalState*>(_local_state);
+    for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(ctx->clone(_state, context));
+        _common_expr_ctxs_push_down.emplace_back(context);
+    }
 
     return Status::OK();
 }
@@ -906,8 +910,8 @@ Status VFileScanner::_get_next_reader() {
                                                                _state, *_params, range,
                                                                _io_ctx.get());
                 init_status = tran_orc_reader->init_reader(
-                        _file_col_names, _colname_to_value_range, _push_down_conjuncts,
-                        _real_tuple_desc, _default_val_row_desc.get(),
+                        _file_col_names, _colname_to_value_range, _common_expr_ctxs_push_down,
+                        _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts);
                 RETURN_IF_ERROR(tran_orc_reader->init_row_filters(range, _io_ctx.get()));
                 _cur_reader = std::move(tran_orc_reader);
@@ -942,8 +946,8 @@ Status VFileScanner::_get_next_reader() {
                     hive_orc_use_column_names = _state->query_options().hive_orc_use_column_names;
                 }
                 init_status = orc_reader->init_reader(
-                        &_file_col_names, _colname_to_value_range, _push_down_conjuncts, false,
-                        _real_tuple_desc, _default_val_row_desc.get(),
+                        &_file_col_names, _colname_to_value_range, _common_expr_ctxs_push_down,
+                        _push_down_conjuncts, false, _real_tuple_desc, _default_val_row_desc.get(),
                         &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
                         hive_orc_use_column_names);
                 _cur_reader = std::move(orc_reader);
