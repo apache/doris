@@ -107,7 +107,7 @@ public:
     ScannerContext(RuntimeState* state, VScanNode* parent, const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
-                   bool ignore_data_distribution,
+                   int64_t max_bytes_in_blocks_queue, const int num_parallel_instances = 1,
                    pipeline::ScanLocalStateBase* local_state = nullptr);
 
     ~ScannerContext() override {
@@ -162,7 +162,9 @@ public:
 
     virtual bool empty_in_queue(int id);
 
-    SimplifiedScanScheduler* get_scan_scheduler() { return _scanner_scheduler; }
+    SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
+
+    SimplifiedScanScheduler* get_remote_scan_scheduler() { return _remote_scan_task_scheduler; }
 
     void stop_scanners(RuntimeState* state);
 
@@ -183,7 +185,8 @@ protected:
     ScannerContext(RuntimeState* state_, const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners_, int64_t limit_,
-                   bool ignore_data_distribution, pipeline::ScanLocalStateBase* local_state);
+                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
+                   pipeline::ScanLocalStateBase* local_state);
 
     /// Four criteria to determine whether to increase the parallelism of the scanners
     /// 1. It ran for at least `SCALE_UP_DURATION` ms after last scale up
@@ -217,15 +220,17 @@ protected:
     int64_t limit;
 
     int32_t _max_thread_num = 0;
-    int64_t _max_bytes_in_queue = 0;
-    doris::vectorized::ScannerScheduler* _scanner_scheduler_global = nullptr;
-    SimplifiedScanScheduler* _scanner_scheduler = nullptr;
+    int64_t _max_bytes_in_queue;
+    doris::vectorized::ScannerScheduler* _scanner_scheduler;
+    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
+    SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
     moodycamel::ConcurrentQueue<std::weak_ptr<ScannerDelegate>> _scanners;
     int32_t _num_scheduled_scanners = 0;
     int32_t _num_finished_scanners = 0;
     int32_t _num_running_scanners = 0;
     // weak pointer for _scanners, used in stop function
     std::vector<std::weak_ptr<ScannerDelegate>> _all_scanners;
+    const int _num_parallel_instances;
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
@@ -233,7 +238,6 @@ protected:
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
-    bool _ignore_data_distribution = false;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;

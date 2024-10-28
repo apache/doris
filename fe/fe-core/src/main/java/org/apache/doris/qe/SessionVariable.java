@@ -682,10 +682,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
 
-    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT,
-            description = {"每个 Scan Instance 的 block queue 能够保存多少字节的 block",
-                    "How many bytes of block can be saved in the block queue of each Scan Instance"})
-    // 100MB
+    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT)
     public long maxScanQueueMemByte = 2147483648L / 20;
 
     @VariableMgr.VarAttr(name = NUM_SCANNER_THREADS, needForward = true, description = {

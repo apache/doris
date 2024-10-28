@@ -309,19 +309,14 @@ Status VScanNode::_init_profile() {
 void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                 const int query_parallel_instance_num) {
     if (_is_pipeline_scan) {
-        // int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
-        // In the previous (maybe version 2.1.6), above code is used to set max_queue_size.
-        // Actually, this value is not working for the pipeline,
-        // https://github.com/apache/doris/blob/967801ca666f84a60010bef1f6ca5ca777d5b901/be/src/vec/exec/scan/scanner_context.cpp#L91
-        // The actual working value comes from state->query_parallel_instance_num()
-        // so remove above code changes nothing for pipeline.
-        _scanner_ctx = pipeline::PipScannerContext::create_shared(_state, this, _output_tuple_desc,
-                                                                  _output_row_descriptor.get(),
-                                                                  scanners, limit(), false);
+        int max_queue_size = _shared_scan_opt ? std::max(query_parallel_instance_num, 1) : 1;
+        _scanner_ctx = pipeline::PipScannerContext::create_shared(
+                _state, this, _output_tuple_desc, _output_row_descriptor.get(), scanners, limit(),
+                _state->scan_queue_mem_limit(), max_queue_size);
     } else {
         _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
                                                      _output_row_descriptor.get(), scanners,
-                                                     limit(), false);
+                                                     limit(), _state->scan_queue_mem_limit());
     }
 }
 
