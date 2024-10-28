@@ -309,6 +309,7 @@ protected:
             // delete data with key < 1000
             std::vector<TCondition> conditions;
             TCondition condition;
+            condition.column_unique_id = 0;
             condition.column_name = tablet_schema->column(0).name();
             condition.condition_op = "<";
             condition.condition_values.clear();
