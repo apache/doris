@@ -59,7 +59,7 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
         super(event, catalogName);
         Preconditions.checkArgument(getEventType().equals(MetastoreEventType.ADD_PARTITION));
         Preconditions
-                .checkNotNull(event.getMessage(), debugString("Event message is null"));
+                .checkNotNull(event.getMessage(), getMsgWithEventInfo("Event message is null"));
         try {
             AddPartitionMessage addPartitionMessage =
                     MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
@@ -98,18 +98,18 @@ public class AddPartitionEvent extends MetastorePartitionEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNames:[{}]", catalogName, dbName, tblName,
+            logInfo("catalogName:[{}],dbName:[{}],tableName:[{}],partitionNames:[{}]", catalogName, dbName, tblName,
                     partitionNames.toString());
             // bail out early if there are not partitions to process
             if (partitionNames.isEmpty()) {
-                infoLog("Partition list is empty. Ignoring this event.");
+                logInfo("Partition list is empty. Ignoring this event.");
                 return;
             }
             Env.getCurrentEnv().getCatalogMgr()
                     .addExternalPartitions(catalogName, dbName, hmsTbl.getTableName(), partitionNames, eventTime, true);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"), e);
+                    getMsgWithEventInfo("Failed to process event"), e);
         }
     }
 
