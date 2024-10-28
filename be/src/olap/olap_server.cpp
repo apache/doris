@@ -994,15 +994,14 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
-        auto st = thread_pool->submit_func(
-                [tablet, compaction = std::move(compaction), compaction_type, permits, force, this]() {
-                    tablet->execute_compaction(*compaction);
-                    _permit_limiter.release(permits);
-                    if (!force) {
-                        _permit_limiter.release(permits);
-                    }
-                    _pop_tablet_from_submitted_compaction(tablet, compaction_type);
-                });
+        auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
+                                            compaction_type, permits, force, this]() {
+            tablet->execute_compaction(*compaction);
+            if (!force) {
+                _permit_limiter.release(permits);
+            }
+            _pop_tablet_from_submitted_compaction(tablet, compaction_type);
+        });
         if (!st.ok()) {
             if (!force) {
                 _permit_limiter.release(permits);
