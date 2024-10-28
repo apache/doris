@@ -784,7 +784,6 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
                 std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
-                _use_serial_source,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? _runtime_state->query_options().local_exchange_free_blocks_limit
                         : 0);
@@ -969,11 +968,8 @@ Status PipelineFragmentContext::_plan_local_exchange(
         // scan node. so here use `_num_instance` to replace the `num_buckets` to prevent dividing 0
         // still keep colocate plan after local shuffle
         RETURN_IF_ERROR(_plan_local_exchange(
-                _pipelines[pip_idx]->operators().front()->is_serial_operator() || num_buckets == 0
-                        ? _num_instances
-                        : num_buckets,
-                pip_idx, _pipelines[pip_idx], bucket_seq_to_instance_idx,
-                shuffle_idx_to_instance_idx));
+                _use_serial_source || num_buckets == 0 ? _num_instances : num_buckets, pip_idx,
+                _pipelines[pip_idx], bucket_seq_to_instance_idx, shuffle_idx_to_instance_idx));
     }
     return Status::OK();
 }
