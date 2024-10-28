@@ -2213,49 +2213,29 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
         // get tablet stats
         std::vector<std::shared_ptr<TabletStatsPB>> tablet_stat_shared_ptr_vec_batch;
         old_begin_key = key_pair.first;
-        MetaServiceResponseStatus st =
-                get_old_tablet_stats_batch(txn_kv_, key_pair, tablet_stat_shared_ptr_vec_batch);
-        if (st.code() != MetaServiceCode::OK) {
-            return st;
-        }
 
         // fix tablet stats
-        st = write_new_tablet_stats(txn_kv_, tablet_stat_shared_ptr_vec_batch, instance_id);
+        size_t retry = 0;
+        do {
+            st = fix_tablet_stats_internal(txn_kv_, key_pair, tablet_stat_shared_ptr_vec_batch,
+                                           instance_id);
+            if (retry > 1) {
+                LOG_WARNING("failed to fix tablet stats")
+                        .tag("err", st.msg())
+                        .tag("table id", table_id)
+                        .tag("retry time", retry);
+            }
+            retry++;
+        } while (st.code() != MetaServiceCode::OK && retry < 3);
         if (st.code() != MetaServiceCode::OK) {
             return st;
         }
 
-        std::vector<std::shared_ptr<TabletStatsPB>> conflict_tablet_stat_shared_ptr_vec;
-        std::vector<std::shared_ptr<TabletStatsPB>> check_batch_vec;
-        size_t retry = 0;
-        bool is_first_check = true;
-        do {
-            conflict_tablet_stat_shared_ptr_vec.clear();
-
-            // On the first check, we check the entire batch. On subsequent retries, we check only the conflicting data
-            if (is_first_check) {
-                check_batch_vec = tablet_stat_shared_ptr_vec_batch;
-                is_first_check = false;
-            } else {
-                check_batch_vec = conflict_tablet_stat_shared_ptr_vec;
-                LOG(WARNING) << fmt::format("retry:{}, conflict size:{}", retry,
-                                            conflict_tablet_stat_shared_ptr_vec.size());
-            }
-
-            // Check tablet stats
-            st = check_new_tablet_stats(txn_kv_, instance_id, check_batch_vec,
-                                        conflict_tablet_stat_shared_ptr_vec);
-            if (st.code() != MetaServiceCode::OK) {
-                return st;
-            }
-
-            // If there are conflicts, rewrite the tablet stats
-            st = write_new_tablet_stats(txn_kv_, conflict_tablet_stat_shared_ptr_vec, instance_id);
-            if (st.code() != MetaServiceCode::OK) {
-                return st;
-            }
-            retry++;
-        } while (!conflict_tablet_stat_shared_ptr_vec.empty() && retry < 100);
+        // Check tablet stats
+        st = check_new_tablet_stats(txn_kv_, instance_id, tablet_stat_shared_ptr_vec_batch);
+        if (st.code() != MetaServiceCode::OK) {
+            return st;
+        }
     }
     return st;
 }

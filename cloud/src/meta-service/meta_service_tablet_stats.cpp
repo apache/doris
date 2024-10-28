@@ -194,14 +194,16 @@ MetaServiceResponseStatus parse_fix_tablet_stats_param(
     return st;
 }
 
-MetaServiceResponseStatus get_old_tablet_stats_batch(
+MetaServiceResponseStatus fix_tablet_stats_internal(
         std::shared_ptr<TxnKv> txn_kv, std::pair<std::string, std::string>& key_pair,
         std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch,
-        size_t batch_size) {
+        const std::string& instance_id, size_t batch_size) {
     std::unique_ptr<Transaction> txn;
     MetaServiceResponseStatus st;
     st.set_code(MetaServiceCode::OK);
+    MetaServiceCode code = MetaServiceCode::OK;
     std::unique_ptr<RangeGetIterator> it;
+    std::vector<std::shared_ptr<TabletStatsPB>> tmp_tablet_stat_vec;
 
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -210,17 +212,11 @@ MetaServiceResponseStatus get_old_tablet_stats_batch(
         return st;
     }
 
+    // read tablet stats
     err = txn->get(key_pair.first, key_pair.second, &it, true);
     if (err != TxnErrorCode::TXN_OK) {
         st.set_code(cast_as<ErrCategory::READ>(err));
         st.set_msg(fmt::format("failed to get tablet stats, err={} ", err));
-        return st;
-    }
-
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        st.set_code(cast_as<ErrCategory::COMMIT>(err));
-        st.set_msg("failed to commit txn");
         return st;
     }
 
@@ -238,33 +234,14 @@ MetaServiceResponseStatus get_old_tablet_stats_batch(
             tablet_cnt++;
             TabletStatsPB tablet_stat;
             tablet_stat.ParseFromArray(v.data(), v.size());
-            tablet_stat_shared_ptr_vec_batch.emplace_back(
-                    std::make_shared<TabletStatsPB>(tablet_stat));
+            tmp_tablet_stat_vec.emplace_back(std::make_shared<TabletStatsPB>(tablet_stat));
         }
     }
     if (it->has_next()) {
         key_pair.first = it->next().first;
     }
-    return st;
-}
 
-MetaServiceResponseStatus write_new_tablet_stats(
-        std::shared_ptr<TxnKv> txn_kv,
-        const std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch,
-        const std::string& instance_id) {
-    std::unique_ptr<Transaction> txn;
-    MetaServiceResponseStatus st;
-    st.set_code(MetaServiceCode::OK);
-    MetaServiceCode code = MetaServiceCode::OK;
-
-    TxnErrorCode err = txn_kv->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        st.set_code(cast_as<ErrCategory::CREATE>(err));
-        st.set_msg("failed to create txn");
-        return st;
-    }
-
-    for (const auto& tablet_stat_ptr : tablet_stat_shared_ptr_vec_batch) {
+    for (const auto& tablet_stat_ptr : tmp_tablet_stat_vec) {
         GetRowsetResponse resp;
         std::string msg;
         // get rowsets in tablet and accumulate disk size
@@ -285,6 +262,8 @@ MetaServiceResponseStatus write_new_tablet_stats(
         TabletStatsPB tablet_stat;
         tablet_stat.CopyFrom(*tablet_stat_ptr);
         tablet_stat.set_data_size(total_disk_size);
+        // record tablet stats batch
+        tablet_stat_shared_ptr_vec_batch.emplace_back(std::make_shared<TabletStatsPB>(tablet_stat));
         std::string tablet_stat_key;
         std::string tablet_stat_value;
         tablet_stat_key = stats_tablet_key(
@@ -296,6 +275,10 @@ MetaServiceResponseStatus write_new_tablet_stats(
             return st;
         }
         txn->put(tablet_stat_key, tablet_stat_value);
+
+        if (tablet_stat_ptr->num_rowsets() == 0) {
+            continue;
+        }
 
         // set tablet stats data size = 0
         // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size" -> int64
@@ -322,8 +305,7 @@ MetaServiceResponseStatus write_new_tablet_stats(
 
 MetaServiceResponseStatus check_new_tablet_stats(
         std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
-        const std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch,
-        std::vector<std::shared_ptr<TabletStatsPB>>& conflict_tablet_stat_shared_ptr_vec) {
+        const std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch) {
     std::unique_ptr<Transaction> txn;
     MetaServiceResponseStatus st;
     st.set_code(MetaServiceCode::OK);
@@ -353,7 +335,9 @@ MetaServiceResponseStatus check_new_tablet_stats(
             // we need to rewrite it this tablet_stat.
             (tablet_stat_check.data_size() > 2 * tablet_stat_ptr->data_size() ||
              tablet_stat_ptr->data_size() > 2 * tablet_stat_check.data_size())) {
-            conflict_tablet_stat_shared_ptr_vec.emplace_back(tablet_stat_ptr);
+            LOG_WARNING("[fix tablet stats]:tablet stats check failed")
+                    .tag("tablet stat", tablet_stat_ptr->DebugString())
+                    .tag("check tabelt stat", tablet_stat_check.DebugString());
         }
 
         // check data size
@@ -385,16 +369,12 @@ MetaServiceResponseStatus check_new_tablet_stats(
             // ditto
             (tablet_stat_data_size_check > 2 * tablet_stat_data_size ||
              tablet_stat_data_size > 2 * tablet_stat_data_size_check)) {
-            conflict_tablet_stat_shared_ptr_vec.emplace_back(tablet_stat_ptr);
+            LOG_WARNING("[fix tablet stats]:data size check failed")
+                    .tag("tablet stat", tablet_stat_ptr->DebugString())
+                    .tag("check tabelt stat", tablet_stat_check.DebugString());
         }
     }
 
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        st.set_code(cast_as<ErrCategory::COMMIT>(err));
-        st.set_msg("failed to commit txn");
-        return st;
-    }
     return st;
 }
 

@@ -21,7 +21,7 @@ import org.apache.doris.regression.util.Http
 suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
     if(isCloudMode()){
         def tableName = "test_fix_tablet_stat_fault_injection"
-        def bucketSize = 1000
+        def bucketSize = 10
         def partitionSize = 100
         def maxPartition = partitionSize + 1
         def create_table_sql = """
@@ -53,12 +53,12 @@ suite("test_fix_tablet_stat_fault_injection", "nonConcurrent") {
                 sql """ DROP TABLE IF EXISTS ${tableName} """
 
                 sql "${create_table_sql}"
-                (1..100).each { i ->
+                (1..partitionSize).each { i ->
                     sql "insert into ${tableName} values (${i},1,1);"
                     sql "insert into ${tableName} values (${i},2,2);"
                     sql "insert into ${tableName} values (${i},3,3);"
-                    //sql "insert into ${tableName} values (${i},4,4);"
-                    //sql "insert into ${tableName} values (${i},5,5);"
+                    sql "insert into ${tableName} values (${i},4,4);"
+                    sql "insert into ${tableName} values (${i},5,5);"
                 }
 
                 sql "select count(*) from ${tableName};"

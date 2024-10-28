@@ -72,19 +72,13 @@ MetaServiceResponseStatus parse_fix_tablet_stats_param(
         std::shared_ptr<ResourceManager> resource_mgr, const std::string& table_id_str,
         const std::string& cloud_unique_id_str, int64_t& table_id, std::string& instance_id);
 
-MetaServiceResponseStatus get_old_tablet_stats_batch(
+MetaServiceResponseStatus fix_tablet_stats_internal(
         std::shared_ptr<TxnKv> txn_kv, std::pair<std::string, std::string>& key_pair,
         std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch,
-        size_t batch_size = 50);
-
-MetaServiceResponseStatus write_new_tablet_stats(
-        std::shared_ptr<TxnKv> txn_kv,
-        const std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch,
-        const std::string& instance_id);
+        const std::string& instance_id, size_t batch_size = 50);
 
 MetaServiceResponseStatus check_new_tablet_stats(
         std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
-        const std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch,
-        std::vector<std::shared_ptr<TabletStatsPB>>& conflict_tablet_stat_shared_ptr_vec);
+        const std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch);
 
 } // namespace doris::cloud
