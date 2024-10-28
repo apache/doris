@@ -29,6 +29,7 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
+import org.apache.doris.thrift.TWgSlotMemoryPolicy;
 import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
@@ -43,6 +44,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -75,6 +77,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String SPILL_THRESHOLD_HIGH_WATERMARK = "spill_threshold_high_watermark";
 
+    public static final String SLOT_MEMORY_POLICY = "slot_memory_policy";
+
     public static final String TAG = "tag";
 
     public static final String READ_BYTES_PER_SECOND = "read_bytes_per_second";
@@ -90,11 +94,17 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
             .add(SPILL_THRESHOLD_LOW_WATERMARK).add(SPILL_THRESHOLD_HIGH_WATERMARK)
             .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND)
-            .add(WRITE_BUFFER_RATIO).build();
+            .add(WRITE_BUFFER_RATIO).add(SLOT_MEMORY_POLICY).build();
 
     public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 75;
     public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 90;
     public static final int WRITE_BUFFER_RATIO_DEFAULT_VALUE = 20;
+    public static final String SLOT_MEMORY_POLICY_DEFAULT_VALUE = "disabled";
+    public static final HashSet<String> AVAILABLE_SLOT_MEMORY_POLICY_VALUES = new HashSet<String>() {{
+            add("disabled");
+            add("fixed");
+            add("dynamic");
+        }};
 
     @SerializedName(value = "id")
     private long id;
@@ -139,6 +149,13 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             this.properties.put(WRITE_BUFFER_RATIO, loadBufLimitStr);
         } else {
             this.properties.put(WRITE_BUFFER_RATIO, WRITE_BUFFER_RATIO_DEFAULT_VALUE + "");
+        }
+
+        if (properties.containsKey(SLOT_MEMORY_POLICY)) {
+            String slotPolicy = properties.get(SLOT_MEMORY_POLICY);
+            this.properties.put(SLOT_MEMORY_POLICY, slotPolicy);
+        } else {
+            this.properties.put(SLOT_MEMORY_POLICY, SLOT_MEMORY_POLICY_DEFAULT_VALUE);
         }
 
         if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
@@ -295,6 +312,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             String value = properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase();
             if (!("true".equals(value) || "false".equals(value))) {
                 throw new DdlException("The value of '" + ENABLE_MEMORY_OVERCOMMIT + "' must be true or false.");
+            }
+        }
+
+        if (properties.containsKey(SLOT_MEMORY_POLICY)) {
+            String value = properties.get(SLOT_MEMORY_POLICY).toLowerCase();
+            if (!AVAILABLE_SLOT_MEMORY_POLICY_VALUES.contains(value)) {
+                throw new DdlException("The value of '" + SLOT_MEMORY_POLICY
+                        + "' must be one of disabled, fixed, dynamic.");
             }
         }
 
@@ -589,6 +614,18 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return new TPipelineWorkloadGroup().setId(id);
     }
 
+    public static TWgSlotMemoryPolicy findSlotPolicyValueByString(String slotPolicy) {
+        if (slotPolicy.equalsIgnoreCase("disabled")) {
+            return TWgSlotMemoryPolicy.DISABLED;
+        } else if (slotPolicy.equalsIgnoreCase("fixed")) {
+            return TWgSlotMemoryPolicy.FIXED;
+        } else if (slotPolicy.equalsIgnoreCase("dynamic")) {
+            return TWgSlotMemoryPolicy.DYNAMIC;
+        } else {
+            throw new RuntimeException("Could not find policy using " + slotPolicy);
+        }
+    }
+
     public TopicInfo toTopicInfo() {
         TWorkloadGroupInfo tWorkloadGroupInfo = new TWorkloadGroupInfo();
         tWorkloadGroupInfo.setId(id);
@@ -612,6 +649,10 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         String writeBufferRatioStr = properties.get(WRITE_BUFFER_RATIO);
         if (writeBufferRatioStr != null) {
             tWorkloadGroupInfo.setWriteBufferRatio(Integer.parseInt(writeBufferRatioStr));
+        }
+        String slotMemoryPolicyStr = properties.get(SLOT_MEMORY_POLICY);
+        if (slotMemoryPolicyStr != null) {
+            tWorkloadGroupInfo.setSlotMemoryPolicy(findSlotPolicyValueByString(slotMemoryPolicyStr));
         }
         String memOvercommitStr = properties.get(ENABLE_MEMORY_OVERCOMMIT);
         if (memOvercommitStr != null) {

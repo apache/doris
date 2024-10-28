@@ -279,7 +279,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
             }
         }
     }
-    const int64_t TIMEOUT_IN_QUEUE = 1000L * 10;
+    const int64_t TIMEOUT_IN_QUEUE = 1000L * 3;
     std::unique_lock<std::mutex> lock(_paused_queries_lock);
     bool has_revoked_from_other_group = false;
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
@@ -372,17 +372,34 @@ void WorkloadGroupMgr::handle_paused_queries() {
                                  "so that other query will reduce their memory. wg: "
                               << wg->debug_string();
                 }
-                // Should not put the query back to task scheduler immediately, because when wg's memory not sufficient,
-                // and then set wg's flag, other query may not free memory very quickly.
-                if (query_it->elapsed_time() > TIMEOUT_IN_QUEUE) {
-                    // set wg's memory to insufficent, then add it back to task scheduler to run.
-                    LOG(INFO) << "query: " << print_id(query_ctx->query_id()) << " will be resume.";
-                    query_ctx->set_memory_sufficient(true);
-                    query_it = queries_list.erase(query_it);
-                    continue;
+                if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::DISABLED) {
+                    // If not enable slot memory policy, then should spill directly
+                    // Maybe there are another query that use too much memory, but we
+                    // not encourage not enable slot memory.
+                    // TODO should kill the query that exceed limit.
+                    bool spill_res = handle_single_query_(query_ctx, query_it->reserve_size_,
+                                                          query_ctx->paused_reason());
+                    if (!spill_res) {
+                        ++query_it;
+                        continue;
+                    } else {
+                        query_it = queries_list.erase(query_it);
+                        continue;
+                    }
                 } else {
-                    ++query_it;
-                    continue;
+                    // Should not put the query back to task scheduler immediately, because when wg's memory not sufficient,
+                    // and then set wg's flag, other query may not free memory very quickly.
+                    if (query_it->elapsed_time() > TIMEOUT_IN_QUEUE) {
+                        // set wg's memory to insufficent, then add it back to task scheduler to run.
+                        LOG(INFO) << "query: " << print_id(query_ctx->query_id())
+                                  << " will be resume.";
+                        query_ctx->set_memory_sufficient(true);
+                        query_it = queries_list.erase(query_it);
+                        continue;
+                    } else {
+                        ++query_it;
+                        continue;
+                    }
                 }
             } else {
                 // If wg's memlimit not exceed, but process memory exceed, it means cache or other metadata
@@ -557,6 +574,10 @@ int64_t WorkloadGroupMgr::revoke_overcommited_memory_(std::shared_ptr<QueryConte
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
         for (auto iter = _workload_groups.begin(); iter != _workload_groups.end(); iter++) {
+            if (requestor->workload_group() != nullptr &&
+                iter->second->id() == requestor->workload_group()->id()) {
+                continue;
+            }
             heap.emplace(iter->second, iter->second->memory_used());
         }
     }
@@ -620,7 +641,8 @@ bool WorkloadGroupMgr::handle_single_query_(std::shared_ptr<QueryContext> query_
                         "query({}) reserve memory failed, but could not find memory that "
                         "could "
                         "release or spill to disk(memory usage:{}, limit: {})",
-                        query_id, PrettyPrinter::print_bytes(memory_usage), PrettyPrinter::print_bytes(query_ctx->get_mem_limit())));
+                        query_id, PrettyPrinter::print_bytes(memory_usage),
+                        PrettyPrinter::print_bytes(query_ctx->get_mem_limit())));
             }
         } else {
             if (!GlobalMemoryArbitrator::is_exceed_hard_mem_limit()) {
@@ -678,13 +700,14 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
                 (double)(wg->total_mem_used()) / wg_mem_limit);
     }
 
-    // If the wg enable over commit memory, then it is no need to update query memlimit
-    if (wg->enable_memory_overcommit()) {
-        return;
-    }
-    // If reached low watermark then enable load buffer limit
-    if (is_low_wartermark) {
+    // If reached low watermark and wg is not enable memory overcommit, then enable load buffer limit
+    if (is_low_wartermark && !wg->enable_memory_overcommit()) {
         wg->enable_write_buffer_limit(true);
+    }
+    // Both enable overcommit and not enable overcommit, if user set slot memory policy
+    // then we will replace the memtracker's memlimit with
+    if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::DISABLED) {
+        return;
     }
     int32_t total_used_slot_count = 0;
     int32_t total_slot_count = wg->total_query_slot_count();
@@ -709,7 +732,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
         int64_t query_weighted_mem_limit = 0;
         int64_t expected_query_weighted_mem_limit = 0;
         // If the query enable hard limit, then it should not use the soft limit
-        if (!query_ctx->enable_mem_overcommit()) {
+        if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::FIXED) {
             if (total_slot_count < 1) {
                 LOG(WARNING)
                         << "query " << print_id(query_ctx->query_id())
@@ -740,6 +763,8 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
         // If the query is a pure load task, then should not modify its limit. Or it will reserve
         // memory failed and we did not hanle it.
         if (!query_ctx->is_pure_load_task()) {
+            // If slot memory policy is enabled, then overcommit is disabled.
+            query_ctx->get_mem_tracker()->set_overcommit(false);
             query_ctx->set_mem_limit(query_weighted_mem_limit);
             query_ctx->set_expected_mem_limit(expected_query_weighted_mem_limit);
         }
