@@ -26,6 +26,8 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_element_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_usage_ratio, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_lookup_count, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_hit_count, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_miss_count, MetricUnit::OPERATIONS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_stampede_count, MetricUnit::OPERATIONS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_hit_ratio, MetricUnit::NOUNIT);
 
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
@@ -177,6 +179,16 @@ LRUCache::~LRUCache() {
     prune();
 }
 
+uint64_t LRUCache::get_stampede_count() {
+    std::lock_guard l(_mutex);
+    return _stampede_count;
+}
+
+uint64_t LRUCache::get_miss_count() {
+    std::lock_guard l(_mutex);
+    return _miss_count;
+}
+
 bool LRUCache::_unref(LRUHandle* e) {
     DCHECK(e->refs > 0);
     e->refs--;
@@ -245,6 +257,8 @@ Cache::Handle* LRUCache::lookup(const CacheKey& key, uint32_t hash) {
         e->refs++;
         ++_hit_count;
         e->last_visit_time = UnixMillis();
+    } else {
+        ++_miss_count;
     }
     return reinterpret_cast<Cache::Handle*>(e);
 }
@@ -385,6 +399,7 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
         auto old = _table.insert(e);
         _usage += e->total_size;
         if (old != nullptr) {
+            _stampede_count++;
             old->in_cache = false;
             if (_unref(old)) {
                 _usage -= old->total_size;
@@ -547,6 +562,8 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     INT_DOUBLE_METRIC_REGISTER(_entity, cache_usage_ratio);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_lookup_count);
     INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_hit_count);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_stampede_count);
+    INT_ATOMIC_COUNTER_METRIC_REGISTER(_entity, cache_miss_count);
     INT_DOUBLE_METRIC_REGISTER(_entity, cache_hit_ratio);
 
     _hit_count_bvar.reset(new bvar::Adder<uint64_t>("doris_cache", _name));
@@ -643,12 +660,17 @@ void ShardedLRUCache::update_cache_metrics() const {
     size_t total_lookup_count = 0;
     size_t total_hit_count = 0;
     size_t total_element_count = 0;
+    size_t total_miss_count = 0;
+    size_t total_stampede_count = 0;
+
     for (int i = 0; i < _num_shards; i++) {
         total_capacity += _shards[i]->get_capacity();
         total_usage += _shards[i]->get_usage();
         total_lookup_count += _shards[i]->get_lookup_count();
         total_hit_count += _shards[i]->get_hit_count();
         total_element_count += _shards[i]->get_element_count();
+        total_miss_count += _shards[i]->get_miss_count();
+        total_stampede_count += _shards[i]->get_stampede_count();
     }
 
     cache_capacity->set_value(total_capacity);
@@ -657,6 +679,8 @@ void ShardedLRUCache::update_cache_metrics() const {
     cache_lookup_count->set_value(total_lookup_count);
     cache_hit_count->set_value(total_hit_count);
     cache_usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
+    cache_miss_count->set_value(total_miss_count);
+    cache_stampede_count->set_value(total_stampede_count);
     cache_hit_ratio->set_value(
             total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
 }

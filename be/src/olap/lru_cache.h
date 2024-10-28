@@ -350,6 +350,8 @@ public:
     size_t get_usage() const { return _usage; }
     size_t get_capacity() const { return _capacity; }
     size_t get_element_count() const { return _table.element_count(); }
+    uint64_t get_miss_count();
+    uint64_t get_stampede_count();
 
 private:
     void _lru_remove(LRUHandle* e);
@@ -381,6 +383,8 @@ private:
 
     uint64_t _lookup_count = 0; // number of cache lookups
     uint64_t _hit_count = 0;    // number of cache hits
+    uint64_t _miss_count = 0;   // number of cache misses
+    uint64_t _stampede_count = 0;
 
     CacheValueTimeExtractor _cache_value_time_extractor;
     bool _cache_value_check_timestamp = false;
@@ -438,6 +442,8 @@ private:
     DoubleGauge* cache_usage_ratio = nullptr;
     IntAtomicCounter* cache_lookup_count = nullptr;
     IntAtomicCounter* cache_hit_count = nullptr;
+    IntAtomicCounter* cache_miss_count = nullptr;
+    IntAtomicCounter* cache_stampede_count = nullptr;
     DoubleGauge* cache_hit_ratio = nullptr;
     // bvars
     std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;
