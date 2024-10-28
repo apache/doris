@@ -1521,7 +1521,7 @@ public class TabletScheduler extends MasterDaemon {
         List<BePathLoadStatPair> allFitPaths =
                 !allFitPathsSameMedium.isEmpty() ? allFitPathsSameMedium : allFitPathsDiffMedium;
         if (allFitPaths.isEmpty()) {
-            List<String> backendsInfo = Env.getCurrentSystemInfo().getAllClusterBackendsNoException().values().stream()
+            List<String> backendsInfo = Env.getCurrentSystemInfo().getAllBackends().stream()
                     .filter(be -> be.getLocationTag() == tag)
                     .map(Backend::getDetailsForCreateReplica)
                     .collect(Collectors.toList());
