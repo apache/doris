@@ -114,8 +114,10 @@ suite("test_add_index_for_arr") {
     sql "ALTER TABLE my_test_array ADD INDEX name_idx (name) USING INVERTED;"
     wait_for_latest_op_on_table_finish("my_test_array", timeout)
     // build index for name that name data can using inverted index
-    sql "BUILD INDEX name_idx ON my_test_array"
-    wait_for_build_index_on_partition_finish("my_test_array", timeout)
+    if (!isCloudMode()) {
+        sql "BUILD INDEX name_idx ON my_test_array"
+        wait_for_build_index_on_partition_finish("my_test_array", timeout)
+    }
 
     // query with inverted index
     sql "set enable_inverted_index_query=true"
