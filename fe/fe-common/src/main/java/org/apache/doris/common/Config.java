@@ -3137,4 +3137,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"元数据同步是否开启安全模式",
         "Is metadata synchronization enabled in safe mode"})
     public static boolean meta_helper_security_mode = false;
+
+    @ConfField(description = {"用于测试，强制将所有的查询forward到master以验证forward query的行为",
+            "For testing purposes, all queries are forcibly forwarded to the master to verify"
+                    + "the behavior of forwarding queries."})
+    public static boolean force_forward_all_queries = false;
 }
