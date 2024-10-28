@@ -38,7 +38,7 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Status ExchangeSinkLocalState::serialize_block(vectorized::Block* src, PBlock* dest,
                                                int num_receivers) {
     return _parent->cast<ExchangeSinkOperatorX>().serialize_block(*this, src, dest, num_receivers);
@@ -659,11 +659,10 @@ void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buf
     }
 }
 
-template <typename Channels, typename HashValueType>
-Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& channels,
-                                               int num_channels,
-                                               const HashValueType* __restrict channel_ids,
-                                               int rows, vectorized::Block* block, bool eos) {
+Status ExchangeSinkOperatorX::channel_add_rows(
+        RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+        size_t num_channels, const uint32_t* __restrict channel_ids, size_t rows,
+        vectorized::Block* block, bool eos) {
     std::vector<std::vector<uint32_t>> channel2rows;
     channel2rows.resize(num_channels);
     for (uint32_t i = 0; i < rows; i++) {
@@ -675,10 +674,10 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
     return Status::OK();
 }
 
-template <typename Channels>
 Status ExchangeSinkOperatorX::channel_add_rows_with_idx(
-        RuntimeState* state, Channels& channels, int num_channels,
-        std::vector<std::vector<uint32_t>>& channel2rows, vectorized::Block* block, bool eos) {
+        RuntimeState* state, std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+        size_t num_channels, std::vector<std::vector<uint32_t>>& channel2rows,
+        vectorized::Block* block, bool eos) {
     Status status = Status::OK();
     for (int i = 0; i < num_channels; ++i) {
         if (!channels[i]->is_receiver_eof() && !channel2rows[i].empty()) {

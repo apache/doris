@@ -107,7 +107,7 @@ bool LoadStreamMap::release() {
 
 void LoadStreamMap::close_load(bool incremental) {
     for (auto& [dst_id, streams] : _streams_for_node) {
-        if (streams->is_incremental()) {
+        if (streams->is_incremental() != incremental) {
             continue;
         }
         std::vector<PTabletID> tablets_to_commit;

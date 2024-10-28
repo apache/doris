@@ -24,7 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.util.ProfileManager.ProfileType;
+import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;

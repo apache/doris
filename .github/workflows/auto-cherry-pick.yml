@@ -15,49 +15,48 @@
 # specific language governing permissions and limitations
 # under the License.
 #
+name: Auto Cherry-Pick to Branch
 
 on:
-  pull_request:
+  pull_request_target:
+    types:
+      - closed
     branches:
       - master
-    types: ["closed"]
-
+permissions:
+  checks: write
+  contents: write
+  pull-requests: write
 jobs:
-  cherry_pick_branch_2.1:
+  auto_cherry_pick:
     runs-on: ubuntu-latest
-    name: Cherry pick into branch-2.1
-    if: ${{ contains(github.event.pull_request.labels.*.name, 'dev/2.1.x') && github.event.pull_request.merged == true }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Cherry pick into branch-2.1
-        uses: carloscastrojumo/github-cherry-pick-action@v1.0.1
-        with:
-          branch: branch-2.1
-          labels: |
-            cherry-pick
-          reviewers: |
-            yiguolei
-  cherry_pick_branch-3.0:
-    runs-on: ubuntu-latest
-    name: Cherry pick into branch-3.0
     if: ${{ contains(github.event.pull_request.labels.*.name, 'dev/3.0.x') && github.event.pull_request.merged == true }}
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          fetch-depth: 0
-      - name: Cherry pick into branch-3.0
-        uses: carloscastrojumo/github-cherry-pick-action@v1.0.1
-        with:
-          branch: branch-3.0
-          labels: |
-            cherry-pick
-          reviewers: |
-            dataroaring
-          title: '[cherry-pick] {old_title}'
-          body: 'Cherry picking #{old_pull_request_id} onto this branch'
-env:
-  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install PyGithub
+      - name: Check SHA
+        run: |
+            expected_sha="1941de05514e15c216067778e0287b4c3ebcd6f6042ee189a12257bfd0cdd9f764e18c7dae5de868e9b7128ce3be98dc8f78252932cee7d55552fc0cf8b69496"
+            calculated_sha=$(sha512sum tools/auto-pick-script.py | awk '{ print $1 }')
+            if [ "$calculated_sha" != "$expected_sha" ]; then
+              echo "SHA mismatch! Expected: $expected_sha, but got: $calculated_sha"
+              exit 1
+            else
+              echo "SHA matches: $calculated_sha"
+            fi
+      - name: Auto cherry-pick
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          CONFLICT_LABEL: cherry-pick-conflict-in-3.0
+        run: |
+          python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-3.0  

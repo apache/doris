@@ -441,7 +441,9 @@ AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
         : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
-          _without_key(tnode.agg_node.grouping_exprs.empty()) {}
+          _without_key(tnode.agg_node.grouping_exprs.empty()) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
