@@ -184,6 +184,13 @@ private:
                             .get_nested_column())
                     .clear_subcolumns_data();
         } else {
+            if (dst->is_nullable()) {
+                // No nullable info exist in hirearchical data, fill nullmap with all none null
+                vectorized::ColumnUInt8& dst_null_map =
+                        assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
+                auto fake_nullable_column = vectorized::ColumnUInt8::create(nrows, 0);
+                dst_null_map.insert_range_from(*fake_nullable_column, 0, nrows);
+            }
             vectorized::ColumnObject& root_column =
                     assert_cast<vectorized::ColumnObject&>(*_root_reader->column);
             root_column.clear_subcolumns_data();
