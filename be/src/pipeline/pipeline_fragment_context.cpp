@@ -236,8 +236,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (request.__isset.query_options && request.query_options.__isset.execution_timeout) {
         _timeout = request.query_options.execution_timeout;
     }
-    _use_serial_source =
-            request.fragment.__isset.use_serial_source && request.fragment.use_serial_source;
 
     _fragment_level_profile = std::make_unique<RuntimeProfile>("PipelineContext");
     _prepare_timer = ADD_TIMER(_fragment_level_profile, "PrepareTime");

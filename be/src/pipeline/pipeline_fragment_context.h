@@ -306,7 +306,6 @@ private:
     // Total instance num running on all BEs
     int _total_instances = -1;
     bool _require_bucket_distribution = false;
-    bool _use_serial_source = false;
 };
 } // namespace pipeline
 } // namespace doris
