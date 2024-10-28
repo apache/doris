@@ -66,6 +66,7 @@
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // PrimitiveType-> PColumnType
 PColumnType to_proto(PrimitiveType type) {
@@ -650,7 +651,8 @@ public:
             batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
                 const auto& string_val_ref = column.stringval();
                 VecDateTimeValue datetime_val;
-                datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
+                datetime_val.from_date_str(string_val_ref.c_str(),
+                                           cast_set<int>(string_val_ref.length()));
                 set->insert(&datetime_val);
             });
             break;
@@ -824,8 +826,8 @@ public:
             const auto& max_val_ref = minmax_filter->max_val().stringval();
             VecDateTimeValue min_val;
             VecDateTimeValue max_val;
-            min_val.from_date_str(min_val_ref.c_str(), min_val_ref.length());
-            max_val.from_date_str(max_val_ref.c_str(), max_val_ref.length());
+            min_val.from_date_str(min_val_ref.c_str(), cast_set<int>(min_val_ref.length()));
+            max_val.from_date_str(max_val_ref.c_str(), cast_set<int>(max_val_ref.length()));
             return _context->minmax_func->assign(&min_val, &max_val);
         }
         case TYPE_DECIMALV2: {

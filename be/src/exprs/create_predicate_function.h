@@ -28,6 +28,7 @@
 #include "runtime/define_primitive_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class MinmaxFunctionTraits {
 public:
@@ -303,3 +304,5 @@ ColumnPredicate* create_column_predicate(uint32_t column_id, const std::shared_p
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

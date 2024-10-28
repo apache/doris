@@ -21,6 +21,7 @@
 
 #include <type_traits>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/object_pool.h"
 #include "common/status.h"
@@ -34,6 +35,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr int FIXED_CONTAINER_MAX_SIZE = 8;
 
@@ -330,7 +332,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return cast_set<int>(_set.size()); }
 
     bool find(const void* data) const override {
         return _set.find(*reinterpret_cast<const ElementType*>(data));
@@ -480,7 +482,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return cast_set<int>(_set.size()); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
@@ -643,7 +645,7 @@ public:
         }
     }
 
-    int size() override { return _set.size(); }
+    int size() override { return cast_set<int>(_set.size()); }
 
     bool find(const void* data) const override {
         const auto* value = reinterpret_cast<const StringRef*>(data);
@@ -741,3 +743,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -44,8 +44,9 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace butil {
+#include "common/compile_check_begin.h"
 class IOBufAsZeroCopyInputStream;
-}
+} // namespace butil
 
 namespace doris {
 class RuntimePredicateWrapper;
@@ -440,3 +441,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

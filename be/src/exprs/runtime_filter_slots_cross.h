@@ -32,6 +32,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // this class used in cross join node
 class VRuntimeFilterSlotsCross {
 public:
@@ -87,3 +88,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

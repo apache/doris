@@ -27,6 +27,7 @@
 
 // NOTE: be careful not to use string::append.  It is not performant.
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // This function sets options in the RE2 library before pattern matching.
 bool StringFunctions::set_re2_options(const StringRef& match_parameter, std::string* error_str,

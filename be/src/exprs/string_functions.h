@@ -28,6 +28,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class StringFunctions {
 public:
@@ -39,3 +40,5 @@ public:
                               const StringRef& match_parameter, std::unique_ptr<re2::RE2>& re);
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

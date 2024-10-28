@@ -22,6 +22,7 @@
 #include "vec/common/string_ref.h" // IWYU pragma: keep
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class FunctionFilter {
 public:
@@ -41,3 +42,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

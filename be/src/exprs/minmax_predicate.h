@@ -29,6 +29,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // only used in Runtime Filter
 class MinMaxFuncBase : public RuntimeFilterFuncBase {
 public:
@@ -177,3 +178,5 @@ template <class T>
 using MaxNumFunc = MinMaxNumFunc<T, true, false>;
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

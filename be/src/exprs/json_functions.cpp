@@ -40,6 +40,7 @@
 #include "common/logging.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // static const re2::RE2 JSON_PATTERN("^([a-zA-Z0-9_\\-\\:\\s#\\|\\.]*)(?:\\[([0-9]+)\\])?");
 // json path cannot contains: ", [, ]

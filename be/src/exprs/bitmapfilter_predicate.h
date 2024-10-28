@@ -26,6 +26,7 @@
 #include "util/bitmap_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // only used in Runtime Filter
 class BitmapFilterFuncBase : public RuntimeFilterFuncBase {
@@ -156,3 +157,5 @@ void BitmapFilterFunc<type>::light_copy(BitmapFilterFuncBase* bitmapfilter_func)
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

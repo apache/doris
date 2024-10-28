@@ -33,6 +33,7 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 constexpr std::string_view alphanumeric_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 

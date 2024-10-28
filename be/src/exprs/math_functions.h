@@ -26,6 +26,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class FunctionContext;
 
 class MathFunctions {
@@ -58,3 +59,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

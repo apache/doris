@@ -29,6 +29,7 @@
 #include "common/status.h"
 
 namespace simdjson {
+#include "common/compile_check_begin.h"
 namespace fallback {
 namespace ondemand {
 class object;
@@ -127,3 +128,5 @@ private:
                                  std::vector<JsonPath>* parsed_paths);
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

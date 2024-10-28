@@ -29,6 +29,7 @@
 #include "vec/runtime/shared_hash_table_controller.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // this class used in hash join node
 class VRuntimeFilterSlots {
 public:
@@ -186,3 +187,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

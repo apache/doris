@@ -25,6 +25,7 @@
 #include "runtime/primitive_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class HybridMap {
 public:
@@ -55,3 +56,5 @@ private:
     ObjectPool _pool;
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

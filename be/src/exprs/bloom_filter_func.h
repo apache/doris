@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/cast_set.h"
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/runtime_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
@@ -24,6 +25,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class BloomFilterAdaptor {
 public:
@@ -41,7 +43,7 @@ public:
 
     Status merge(BloomFilterAdaptor* other) { return _bloom_filter->merge(*other->_bloom_filter); }
 
-    Status init(int len) {
+    Status init(int64_t len) {
         int log_space = (int)log2(len);
         return _bloom_filter->init(log_space, /*hash_seed*/ 0);
     }
@@ -120,7 +122,7 @@ public:
             constexpr double fpp = 0.05;
             constexpr double k = 8; // BUCKET_WORDS
             // m is the number of bits we would need to get the fpp specified
-            double m = -k * build_bf_cardinality / std::log(1 - std::pow(fpp, 1.0 / k));
+            double m = -k * (double)build_bf_cardinality / std::log(1 - std::pow(fpp, 1.0 / k));
 
             // Handle case where ndv == 1 => ceil(log2(m/8)) < 0.
             int log_filter_size = std::max(0, (int)(std::ceil(std::log(m / 8) / std::log(2))));
@@ -200,7 +202,7 @@ public:
 
     void get_data(char** data, int* len) {
         *data = _bloom_filter->data();
-        *len = _bloom_filter->size();
+        cast_set(*len, _bloom_filter->size());
     }
 
     bool contain_null() const {
@@ -241,7 +243,7 @@ private:
 
 protected:
     // bloom filter size
-    int32_t _bloom_filter_alloced;
+    int64_t _bloom_filter_alloced;
     std::shared_ptr<BloomFilterAdaptor> _bloom_filter;
     bool _inited = false;
     int64_t _bloom_filter_length;
@@ -297,14 +299,14 @@ uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* dat
         }
     } else {
         if (nullmap == nullptr) {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 if (!bloom_filter.test_element(get_element(data, i))) {
                     continue;
                 }
                 offsets[new_size++] = i;
             }
         } else {
-            for (int i = 0; i < number; i++) {
+            for (uint16_t i = 0; i < number; i++) {
                 if (nullmap[i]) {
                     if (!bloom_filter.contain_null()) {
                         continue;
@@ -545,3 +547,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"
