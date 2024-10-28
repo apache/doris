@@ -1709,7 +1709,7 @@ suite("mv_tpch_test") {
     """
     order_qt_query21_1_before "${query21_1}"
     // complex join has not support yet, support in future
-    async_mv_rewrite_fail(db, mv21_1, query21_1, "mv21_1")
+    async_mv_rewrite_success(db, mv21_1, query21_1, "mv21_1")
     order_qt_query21_1_after "${query21_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_1"""
 
