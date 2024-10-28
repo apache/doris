@@ -232,7 +232,7 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
     for (const auto& [id, wg] : _workload_groups) {
         SchemaScannerHelper::insert_int64_value(0, be_id, block);
         SchemaScannerHelper::insert_int64_value(1, wg->id(), block);
-        SchemaScannerHelper::insert_int64_value(2, wg->get_mem_used(), block);
+        SchemaScannerHelper::insert_int64_value(2, wg->total_mem_used(), block);
 
         double cpu_usage_p =
                 (double)wg->get_cpu_usage() / (double)total_cpu_time_ns_per_second * 100;
@@ -543,7 +543,6 @@ int64_t WorkloadGroupMgr::revoke_overcommited_memory_(std::shared_ptr<QueryConte
         return total_freed_mem;
     }
     // 2. Cancel top usage query, one by one
-    std::map<WorkloadGroupPtr, int64_t> wg_mem_usage;
     using WorkloadGroupMem = std::pair<WorkloadGroupPtr, int64_t>;
     auto cmp = [](WorkloadGroupMem left, WorkloadGroupMem right) {
         return left.second < right.second;
@@ -653,7 +652,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
     wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
     int64_t wg_high_water_mark_limit =
             (int64_t)(wg_mem_limit * wg->spill_threshold_high_water_mark() * 1.0 / 100);
-    int64_t memtable_usage = wg->load_mem_used();
+    int64_t memtable_usage = wg->write_buffer_size();
     int64_t wg_high_water_mark_except_load = wg_high_water_mark_limit;
     if (memtable_usage > wg->write_buffer_limit()) {
         wg_high_water_mark_except_load = wg_high_water_mark_limit - wg->write_buffer_limit();

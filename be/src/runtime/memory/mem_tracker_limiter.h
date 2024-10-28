@@ -130,7 +130,6 @@ public:
                                                             int64_t byte_limit = -1);
     // byte_limit equal to -1 means no consumption limit, only participate in process memory statistics.
     MemTrackerLimiter(Type type, const std::string& label, int64_t byte_limit);
-
     ~MemTrackerLimiter();
 
     Type type() const { return _type; }
@@ -210,8 +209,7 @@ public:
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
-        // Reserve will check limit, should ignore load buffer size.
-        bool rt = _mem_counter.try_add(bytes - _load_buffer_size, _limit);
+        bool rt = _mem_counter.try_add(bytes, _limit);
         if (rt && _query_statistics) {
             _query_statistics->set_max_peak_memory_bytes(peak_consumption());
             _query_statistics->set_current_used_memory_bytes(consumption());
@@ -237,14 +235,9 @@ public:
     static void make_top_consumption_tasks_tracker_profile(RuntimeProfile* profile, int top_num);
     static void make_all_tasks_tracker_profile(RuntimeProfile* profile);
 
-    void push_load_buffer(std::shared_ptr<MemTracker> memtable_tracker) {
-        std::lock_guard l(_load_buffer_lock);
-        _load_buffers.push_back(memtable_tracker);
-    }
+    int64_t load_buffer_size() const { return _write_tracker->consumption(); }
 
-    void update_load_buffer_size();
-
-    int64_t load_buffer_size() const { return _load_buffer_size; }
+    std::shared_ptr<MemTrackerLimiter> write_tracker() { return _write_tracker; }
 
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
@@ -340,9 +333,7 @@ private:
 
     std::shared_ptr<QueryStatistics> _query_statistics = nullptr;
 
-    std::mutex _load_buffer_lock;
-    std::vector<std::weak_ptr<MemTracker>> _load_buffers;
-    std::atomic<int64_t> _load_buffer_size = 0;
+    std::shared_ptr<MemTrackerLimiter> _write_tracker;
 
     struct AddressSanitizer {
         size_t size;
@@ -377,7 +368,7 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
         return Status::OK();
     }
     // check limit should ignore memtable size, because it is treated as a cache
-    if (_limit > 0 && consumption() - _load_buffer_size + bytes > _limit) {
+    if (_limit > 0 && consumption() + bytes > _limit) {
         return Status::MemoryLimitExceeded(fmt::format("failed alloc size {}, {}",
                                                        MemCounter::print_bytes(bytes),
                                                        tracker_limit_exceeded_str()));

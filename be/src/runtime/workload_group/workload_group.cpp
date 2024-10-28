@@ -194,7 +194,6 @@ int64_t WorkloadGroup::refresh_memory_usage() {
             if (tracker == nullptr) {
                 trackerWptr = mem_tracker_group.trackers.erase(trackerWptr);
             } else {
-                tracker->update_load_buffer_size();
                 used_memory += tracker->consumption();
                 load_buffer_size += tracker->load_buffer_size();
                 ++trackerWptr;
@@ -202,13 +201,13 @@ int64_t WorkloadGroup::refresh_memory_usage() {
         }
     }
     // refresh total memory used.
-    _total_mem_used = used_memory;
+    _total_mem_used = used_memory + load_buffer_size;
     _load_buffer_size = load_buffer_size;
     // reserve memory is recorded in the query mem tracker
     // and _total_mem_used already contains all the current reserve memory.
     // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
     _wg_refresh_interval_memory_growth.store(0.0);
-    _mem_used_status->set_value(used_memory);
+    _mem_used_status->set_value(_total_mem_used);
     return used_memory;
 }
 
