@@ -45,7 +45,7 @@ jobs:
           pip install PyGithub
       - name: Check SHA
         run: |
-            expected_sha="1941de05514e15c216067778e0287b4c3ebcd6f6042ee189a12257bfd0cdd9f764e18c7dae5de868e9b7128ce3be98dc8f78252932cee7d55552fc0cf8b69496"
+            expected_sha="a20ac395f474dfb9289e782d08daabb30f0c8f8aa6dbd13ae28507f234a78c06b72bc13babcc43a2bc61c849d27a2d5b05ee5f5d6f6edb601ae15314bee4defc"
             calculated_sha=$(sha512sum tools/auto-pick-script.py | awk '{ print $1 }')
             if [ "$calculated_sha" != "$expected_sha" ]; then
               echo "SHA mismatch! Expected: $expected_sha, but got: $calculated_sha"
