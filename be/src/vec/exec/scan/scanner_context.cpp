@@ -43,7 +43,8 @@ using namespace std::chrono_literals;
 ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* output_tuple_desc,
                                const RowDescriptor* output_row_descriptor,
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
-                               int64_t limit_, bool ignore_data_distribution, bool is_file_scan_operator,
+                               int64_t limit_, bool ignore_data_distribution,
+                               bool is_file_scan_operator,
                                pipeline::ScanLocalStateBase* local_state)
         : HasTaskExecutionCtx(state),
           _state(state),
