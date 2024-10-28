@@ -86,6 +86,7 @@ suite("test_ip_in_inverted_index") {
             time 10000 // limit inflight 10s
             // stream load action will check result, include Success status, and NumberTotalRows == NumberLoadedRows
     }
+    sql """ sync; """
     qt_sql "select count() from test_ip_with_inverted_index"
     // query with inverted index and no inverted index
     sql """set enable_inverted_index_query=true; """
