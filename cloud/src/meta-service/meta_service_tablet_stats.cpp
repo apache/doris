@@ -276,22 +276,44 @@ MetaServiceResponseStatus fix_tablet_stats_internal(
         }
         txn->put(tablet_stat_key, tablet_stat_value);
 
-        if (tablet_stat_ptr->num_rowsets() == 0) {
-            continue;
+        // read num segs
+        // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "num_segs" -> int64
+        std::string tablet_stat_num_segs_key;
+        stats_tablet_num_segs_key(
+                {instance_id, tablet_stat_ptr->idx().table_id(), tablet_stat_ptr->idx().index_id(),
+                 tablet_stat_ptr->idx().partition_id(), tablet_stat_ptr->idx().tablet_id()},
+                &tablet_stat_num_segs_key);
+        int64_t tablet_stat_num_segs = 0;
+        std::string tablet_stat_num_segs_value(sizeof(tablet_stat_num_segs), '\0');
+        err = txn->get(tablet_stat_num_segs_key, &tablet_stat_num_segs_value);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            st.set_code(cast_as<ErrCategory::READ>(err));
+        }
+        if (tablet_stat_num_segs_value.size() != sizeof(tablet_stat_num_segs)) [[unlikely]] {
+            LOG(WARNING) << " malformed tablet stats value v.size="
+                         << tablet_stat_num_segs_value.size()
+                         << " value=" << hex(tablet_stat_num_segs_value);
+        }
+        std::memcpy(&tablet_stat_num_segs, tablet_stat_num_segs_value.data(),
+                    sizeof(tablet_stat_num_segs));
+        if constexpr (std::endian::native == std::endian::big) {
+            tablet_stat_num_segs = bswap_64(tablet_stat_num_segs);
         }
 
-        // set tablet stats data size = 0
-        // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size" -> int64
-        std::string tablet_stat_data_size_key;
-        stats_tablet_data_size_key(
-                {instance_id, tablet_stat.idx().table_id(), tablet_stat.idx().index_id(),
-                 tablet_stat.idx().partition_id(), tablet_stat.idx().tablet_id()},
-                &tablet_stat_data_size_key);
-        int64_t tablet_stat_data_size = 0;
-        std::string tablet_stat_data_size_value(sizeof(tablet_stat_data_size), '\0');
-        memcpy(tablet_stat_data_size_value.data(), &tablet_stat_data_size,
-               sizeof(tablet_stat_data_size));
-        txn->put(tablet_stat_data_size_key, tablet_stat_data_size_value);
+        if (tablet_stat_num_segs > 0) {
+            // set tablet stats data size = 0
+            // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "data_size" -> int64
+            std::string tablet_stat_data_size_key;
+            stats_tablet_data_size_key(
+                    {instance_id, tablet_stat.idx().table_id(), tablet_stat.idx().index_id(),
+                     tablet_stat.idx().partition_id(), tablet_stat.idx().tablet_id()},
+                    &tablet_stat_data_size_key);
+            int64_t tablet_stat_data_size = 0;
+            std::string tablet_stat_data_size_value(sizeof(tablet_stat_data_size), '\0');
+            memcpy(tablet_stat_data_size_value.data(), &tablet_stat_data_size,
+                   sizeof(tablet_stat_data_size));
+            txn->put(tablet_stat_data_size_key, tablet_stat_data_size_value);
+        }
     }
 
     err = txn->commit();
@@ -370,8 +392,8 @@ MetaServiceResponseStatus check_new_tablet_stats(
             (tablet_stat_data_size_check > 2 * tablet_stat_data_size ||
              tablet_stat_data_size > 2 * tablet_stat_data_size_check)) {
             LOG_WARNING("[fix tablet stats]:data size check failed")
-                    .tag("tablet stat", tablet_stat_ptr->DebugString())
-                    .tag("check tabelt stat", tablet_stat_check.DebugString());
+                    .tag("data size", tablet_stat_data_size)
+                    .tag("check data size", tablet_stat_data_size_check);
         }
     }
 

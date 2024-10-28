@@ -1627,8 +1627,6 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
         }
         auto tablet_stats = response->add_tablet_stats();
         internal_get_tablet_stats(code, msg, txn.get(), instance_id, idx, *tablet_stats, true);
-        LOG(INFO) << fmt::format("[FE show data: tablet id {}, tabletStatsPB {}]", idx.tablet_id(),
-                                 tablet_stats->DebugString());
         if (code != MetaServiceCode::OK) {
             response->clear_tablet_stats();
             break;
