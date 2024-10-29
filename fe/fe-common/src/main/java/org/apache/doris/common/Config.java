@@ -2017,6 +2017,12 @@ public class Config extends ConfigBase {
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
 
     /**
+     * Even if a backend is healthy, still write a heartbeat editlog to update backend's lastUpdateMs of bdb image.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long editlog_healthy_heartbeat_seconds = 300;
+
+    /**
      * Abort transaction time after lost heartbeat.
      * The default value is 300s, which means transactions of be will be aborted after lost heartbeat 300s.
      */

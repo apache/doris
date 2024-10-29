@@ -153,6 +153,8 @@ public class Backend implements Writable {
     // send some queries to this BE, it is not an important problem.
     private AtomicBoolean isShutDown = new AtomicBoolean(false);
 
+    private long lastEditlogHeartbeatTime = System.currentTimeMillis();
+
     public Backend() {
         this.host = "";
         this.version = "";
@@ -881,6 +883,12 @@ public class Backend implements Writable {
 
             heartbeatErrMsg = "";
             this.heartbeatFailureCounter = 0;
+
+            // even if no change, write an editlog to make lastUpdateMs in image update
+            if (System.currentTimeMillis() - this.lastEditlogHeartbeatTime
+                    >= Config.editlog_healthy_heartbeat_seconds) {
+                isChanged = true;
+            }
         } else {
             // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
             if (hbResponse.getHbTime() > 0) {
@@ -900,6 +908,10 @@ public class Backend implements Writable {
             // But notice that if isChanged = false, these msg will not sync to other FE.
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
             lastMissingHeartbeatTime = System.currentTimeMillis();
+        }
+
+        if (isChanged) {
+            this.lastEditlogHeartbeatTime = System.currentTimeMillis();
         }
 
         return isChanged;
