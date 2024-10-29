@@ -34,6 +34,7 @@ suite("docs/table-design/schema-change.md") {
             col4 int,
             col5 int
         ) DUPLICATE KEY(col1, col2, col3)
+        DISTRIBUTED BY RANDOM BUCKETS 1
         ROLLUP (
             example_rollup_index (col1, col3, col4, col5)
         )
@@ -63,6 +64,7 @@ suite("docs/table-design/schema-change.md") {
             col4 int SUM,
             col5 int MAX
         ) AGGREGATE KEY(col1, col2, col3)
+        DISTRIBUTED BY HASH(col1) BUCKETS 1
         ROLLUP (
             example_rollup_index (col1, col3, col4, col5)
         )
@@ -108,7 +110,7 @@ suite("docs/table-design/schema-change.md") {
             col4 int SUM,
             col5 varchar(32) REPLACE DEFAULT "abc"
         ) AGGREGATE KEY(col0, col1, col2, col3)
-        DISTRIBUTED BY HASH(col0)
+        DISTRIBUTED BY HASH(col0) BUCKETS 1
         PROPERTIES (
             "replication_num" = "1"
         )
@@ -139,7 +141,7 @@ suite("docs/table-design/schema-change.md") {
                 v1 int SUM,
                 v2 int MAX,
             ) AGGREGATE KEY(k1, k2, k3, k4)
-            DISTRIBUTED BY HASH(k1)
+            DISTRIBUTED BY HASH(k1) BUCKETS 1
             ROLLUP (
                example_rollup_index(k1, k2, k3, v1, v2)
             )
@@ -161,7 +163,7 @@ suite("docs/table-design/schema-change.md") {
                 k2 int,
                 k3 int
             ) AGGREGATE KEY(k1, k2, k3)
-            DISTRIBUTED BY HASH(k1) BUCKETS AUTO
+            DISTRIBUTED BY HASH(k1) BUCKETS 1
             ROLLUP (
                rollup1 (k1, k2),
                rollup2 (k2)
@@ -187,7 +189,7 @@ suite("docs/table-design/schema-change.md") {
                 k4 date,
                 v1 int SUM,
             ) AGGREGATE KEY(k1, k2, k3, k4)
-            DISTRIBUTED BY HASH(k1)
+            DISTRIBUTED BY HASH(k1) BUCKETS 1
             ROLLUP (
                example_rollup_index(k1, k3, k2, v1)
             )
