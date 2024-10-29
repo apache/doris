@@ -18,6 +18,11 @@
 import org.junit.jupiter.api.Assertions;
 
 suite("docs/table-design/index/prefix-index.md") {
+    def waitUntilSchemaChangeDone = { tbl ->
+        waitForSchemaChangeDone({
+            sql " SHOW ALTER TABLE COLUMN FROM test_inverted_index WHERE TableName='${tbl}' ORDER BY createtime DESC LIMIT 1 "
+        })
+    }
     try {
         sql """ SELECT TOKENIZE('武汉长江大桥','"parser"="chinese","parser_mode"="fine_grained"') """
         sql """ SELECT TOKENIZE('武汉市长江大桥','"parser"="chinese","parser_mode"="fine_grained"') """
@@ -76,21 +81,29 @@ suite("docs/table-design/index/prefix-index.md") {
         """
         sql """ SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00' """
         sql """ CREATE INDEX idx_timestamp ON hackernews_1m(timestamp) USING INVERTED """
+        waitUntilSchemaChangeDone("hackernews_1m")
         sql """ BUILD INDEX idx_timestamp ON hackernews_1m """
         sql """ SHOW ALTER TABLE COLUMN """
         sql """ SHOW BUILD INDEX """
         sql """ SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00' """
+
         multi_sql """
             SELECT count() FROM hackernews_1m WHERE parent = 11189;
             ALTER TABLE hackernews_1m ADD INDEX idx_parent(parent) USING INVERTED;
+        """
+        waitUntilSchemaChangeDone("hackernews_1m")
+        multi_sql """
             BUILD INDEX idx_parent ON hackernews_1m;
             SHOW ALTER TABLE COLUMN;
             SHOW BUILD INDEX;
             SELECT count() FROM hackernews_1m WHERE parent = 11189;
         """
-        multi_sql """ 
+        multi_sql """
             SELECT count() FROM hackernews_1m WHERE author = 'faster';
             ALTER TABLE hackernews_1m ADD INDEX idx_author(author) USING INVERTED;
+        """
+        waitUntilSchemaChangeDone("hackernews_1m")
+        multi_sql """
             BUILD INDEX idx_author ON hackernews_1m;
             SHOW ALTER TABLE COLUMN;
             SHOW BUILD INDEX order by CreateTime desc limit 1;
