@@ -1041,9 +1041,12 @@ Status OrcReader::set_fill_columns(
         _lazy_read_ctx.can_lazy_read = false;
     }
 
-    if ((!_common_expr_ctxs_push_down.empty() &&
-         !_init_search_argument_by_common_expr_ctxs_push_down(_common_expr_ctxs_push_down)) ||
-        (_colname_to_value_range == nullptr || !_init_search_argument(_colname_to_value_range))) {
+    if (!_common_expr_ctxs_push_down.empty()) {
+        if (!_init_search_argument_by_common_expr_ctxs_push_down(_common_expr_ctxs_push_down)) {
+            _lazy_read_ctx.can_lazy_read = false;
+        }
+    } else if (_colname_to_value_range == nullptr ||
+               !_init_search_argument(_colname_to_value_range)) {
         _lazy_read_ctx.can_lazy_read = false;
     }
 
