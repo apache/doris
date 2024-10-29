@@ -912,6 +912,46 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
             sargBuilder->isNull(slot_ref->expr_name(), predicate_type);
             break;
         }
+        case TExprOpcode::FILTER_IN: {
+            DCHECK(expr->children()[0]->is_slot_ref());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            std::vector<orc::Literal> literals;
+            orc::PredicateDataType predicate_type;
+            for (size_t i = 1; i < expr->children().size(); ++i) {
+                DCHECK(expr->children()[i]->is_literal());
+                const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
+                auto [valid, orc_literal, type] = to_orc_literal(slot_ref, literal);
+                if (valid) {
+                    literals.emplace_back(orc_literal);
+                    predicate_type = type;
+                }
+            }
+            if (!literals.empty()) {
+                sargBuilder->in(slot_ref->expr_name(), predicate_type, literals);
+            }
+            break;
+        }
+        case TExprOpcode::FILTER_NOT_IN: {
+            DCHECK(expr->children()[0]->is_slot_ref());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            std::vector<orc::Literal> literals;
+            orc::PredicateDataType predicate_type;
+            for (size_t i = 1; i < expr->children().size(); ++i) {
+                DCHECK(expr->children()[i]->is_literal());
+                const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
+                auto [valid, orc_literal, type] = to_orc_literal(slot_ref, literal);
+                if (valid) {
+                    literals.emplace_back(orc_literal);
+                    predicate_type = type;
+                }
+            }
+            if (!literals.empty()) {
+                sargBuilder->startNot();
+                sargBuilder->in(slot_ref->expr_name(), predicate_type, literals);
+                sargBuilder->end();
+            }
+            break;
+        }
         default: {
             VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
             return false;
