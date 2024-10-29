@@ -163,8 +163,8 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
     // value is the index of the other slot corresponding to this common slot in the union output,
     // which is used to construct the join condition of the new join.
     private LogicalUnion constructNewUnion(List<Pair<LogicalJoin<?, ?>, Plan>> joinsAndCommonSides,
-            List<List<NamedExpression>> otherOutputsList, List<Map<SlotReference,
-            List<SlotReference>>> commonSlotToOtherSlotMaps,
+            List<List<NamedExpression>> otherOutputsList,
+            List<Map<SlotReference, List<SlotReference>>> commonSlotToOtherSlotMaps,
             Set<SlotReference> joinCommonSlots, Map<SlotReference, List<Integer>> commonSlotToProjectsIndex) {
         List<Plan> newChildren = new ArrayList<>();
         for (int i = 0; i < joinsAndCommonSides.size(); ++i) {
@@ -209,25 +209,33 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
         return newUnion;
     }
 
-    /* This function is used to check whether the join condition meets the optimization condition
-    Check the join condition, requiring that the join condition of each join is equal and the number is the same.
-    Generate commonSlotToOtherSlotMaps. In each map of the list, the keySet must be the same,
-    and the length of the value list of the same key must be the same.
-    Output parameter: commonSlotToOtherSlotMaps, which records the join condition of each join.
-    The key is the slot on the common side of the join, and the value is the slot on the other side of the join.
-    e.g. select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a and t1.a=t2.c and t1.b=t2.b union ALL
-    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a and t1.a=t3.d and t1.b=t3.b
-    commonSlotToOtherSlotMaps： {{t1.a:t2.a,t2.c; t1.b:t2.b},{t1.a:t3.a,t3.d; t1.b:t3.b}}
-    commonSlotToOtherSlotMaps is used to check whether the join condition meets the optimization conditions
-    and to generate the join condition for the new join.
-    These are sql that can not do this transform:
-    SQL1: select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
-    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a and t1.b=t3.b;
-    SQL2: select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
-    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.b=t3.a;
-    SQL3: select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
-    select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a and t1.a=t3.b;
-     */
+    /** This function is used to check whether the join condition meets the optimization condition
+     * Check the join condition, requiring that the join condition of each join is equal and the number is the same.
+     * Generate commonSlotToOtherSlotMaps. In each map of the list, the keySet must be the same,
+     * and the length of the value list of the same key must be the same.
+     * These are sql that can not do this transform:
+     * SQL1: select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+     * select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a and t1.b=t3.b;
+     * SQL2: select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+     * select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.b=t3.a;
+     * SQL3: select t2.a+1,2 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+     * select t3.a+1,3 from test_like1 t1 join test_like3 t3 on t1.a=t3.a and t1.a=t3.b;
+     * @param commonSlotToOtherSlotMaps Output parameter that records the join conditions for each join operation.
+     *                                  The key represents the slot on the common side of the join, while the value
+     *                                  corresponds to the slot on the other side.
+     *                                  Example:
+     *                                  For the following SQL:
+     *                                  SELECT t2.a + 1, 2 FROM test_like1 t1
+     *                                  JOIN test_like2 t2 ON t1.a = t2.a AND t1.a = t2.c AND t1.b = t2.b
+     *                                  UNION ALL
+     *                                  SELECT t3.a + 1, 3 FROM test_like1 t1
+     *                                  JOIN test_like3 t3 ON t1.a = t3.a AND t1.a = t3.d AND t1.b = t3.b;
+     *                                  commonSlotToOtherSlotMaps would be:
+     *                                  {{t1.a: t2.a, t2.c; t1.b: t2.b}, {t1.a: t3.a, t3.d; t1.b: t3.b}}
+     *                                  This parameter is used to verify if the join conditions meet
+     *                                  optimization requirements and to help generate new join conditions.
+     * @param joinCommonSlots output parameter, which records join common side slots.
+     * */
     private boolean checkJoinCondition(List<Pair<LogicalJoin<?, ?>, Plan>> joinsAndCommonSides,
             List<Map<SlotReference, List<SlotReference>>> commonSlotToOtherSlotMaps,
             Set<SlotReference> joinCommonSlots) {
@@ -322,39 +330,44 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
         }
     }
 
-    /* In the union child output, the number of outputs from the common side must be the same in each child output,
-    and the outputs from the common side must be isomorphic (both a+1) and have the same index in the union output.
-    In the union child output, the number of outputs from the non-common side must also be the same,
-    but they do not need to be isomorphic.
-    Output parameters1: otherOutputsList stores the outputs of the other side. The length of each element
-    in otherOutputsList must be the same.
-    The i-th element represents the output of the other side in the i-th child of the union.
-    otherOutputsList is Used to create child nodes of a new Union in the constructNewUnion function.
-    Output parameter2: upperProjectExpressionOrIndex, used in the constructNewProject function
-    of creating the top-level project,
-    records the output column order of the original union, and is used on the basis of the new join output,
-    setting the column or expression that should be output in the upper-level project operator.
-    The size of upperProjectExpressionOrIndex must be the same as the output size of the original union.
-    Pair.first in List represents whether the output comes from the common side or the other side.
-    True represents the output from the common side, and false represents the output from the other side.
-    Pair.second in List is a structure. When Pair.first is true,
-    Pair.second saves the output expression of the common side.
-    When Pair.first is false, Pair.second saves the output subscript of the other side.
-    Because the output of the new union has not been constructed at this time, the index is saved.
-    Since the check part of this function ensures that the outputs at the same position in the union children
-    must all come from the common side or from the other side,
-    and when the join is constructed at the end, the common side will use the common side of the first join,
-    so we only need to fill in upperProjectExpressionOrIndex when processing the output of the first child.
-    These are sql that can not do this transform:
-    SQL1: select t2.a+t1.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
-    select t3.a+1 from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
-    SQL2: select t2.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
-    select t1.a from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
-    SQL3: select t1.a+1 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
-    select t1.a+2 from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
-    SQL4: select t1.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
-    select 1 from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
-    */
+    /** In the union child output, the number of outputs from the common side must be the same in each child output,
+     * and the outputs from the common side must be isomorphic (both a+1) and have the same index in the union output.
+     * In the union child output, the number of outputs from the non-common side must also be the same,
+     * but they do not need to be isomorphic.
+     * These are sql that can not do this transform:
+     * SQL1: select t2.a+t1.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+     * select t3.a+1 from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
+     * SQL2: select t2.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+     * select t1.a from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
+     * SQL3: select t1.a+1 from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+     * select t1.a+2 from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
+     * SQL4: select t1.a from test_like1 t1 join test_like2 t2 on t1.a=t2.a union ALL
+     * select 1 from test_like1 t1 join test_like3 t3 on t1.a=t3.a;
+     * @param otherOutputsList output parameter that stores the outputs of the other side.
+     *                         The length of each element in otherOutputsList must be the same.
+     *                         The i-th element represents the output of the other side in the i-th child of the union.
+     *                         This parameter is used to create child nodes of a new Union
+     *                         in the constructNewUnion function.
+     *
+     * @param upperProjectExpressionOrIndex Output parameter used in the constructNewProject function to create
+     *                                      the top-level project.This parameter records the output column order of
+     *                                      the original union and determines,based on the new join output, the columns
+     *                                      or expressions to output in the upper-level project operator. The size of
+     *                                      upperProjectExpressionOrIndex must match the output size of
+     *                                      the original union。
+     *                                      Each Pair in the List represents an output source:
+     *                                      - Pair.first (Boolean): Indicates whether the output is from
+     *                                      the common side (true) or the other side (false).
+     *                                      - Pair.second (Object): When Pair.first is true, it stores
+     *                                      the common side's output expression.When false, it saves the output index
+     *                                      of the other side. Since the new union output is not yet constructed
+     *                                      at this point, only the index is stored.
+     *                                      The function’s check ensures that outputs at the same position in
+     *                                      union children either come from the common side or from the other side.
+     *                                      When the final join is constructed, the common side uses the first join's
+     *                                      common side, so only the first child’s outputs need to be processed to
+     *                                      fill in upperProjectExpressionOrIndex.
+     */
     private boolean checkUnionChildrenOutput(LogicalUnion union,
             List<Pair<LogicalJoin<?, ?>, Plan>> joinsAndCommonSides,
             List<List<NamedExpression>> otherOutputsList,
