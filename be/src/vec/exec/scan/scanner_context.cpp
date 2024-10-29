@@ -79,9 +79,10 @@ ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VS
                                const RowDescriptor* output_row_descriptor,
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                int64_t limit_, bool ignore_data_distribution,
+                               bool is_file_scan_operator,
                                pipeline::ScanLocalStateBase* local_state)
         : ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners, limit_,
-                         ignore_data_distribution, local_state) {
+                         ignore_data_distribution, is_file_scan_operator, local_state) {
     _parent = parent;
 
     // No need to increase scanner_ctx_cnt here. Since other constructor has already done it.
