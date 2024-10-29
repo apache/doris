@@ -18,7 +18,7 @@
 #include "vorc_reader.h"
 
 #include <cctz/civil_time_detail.h>
-#include <ctype.h>
+#include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
@@ -744,6 +744,185 @@ bool OrcReader::_init_search_argument(
     }
 }
 
+bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
+        const VExprContextSPtrs& common_expr_ctxs_push_down) {
+    if ((!_enable_filter_by_min_max) || common_expr_ctxs_push_down.empty()) {
+        return false;
+    }
+
+    auto to_orc_literal =
+            [&](const VSlotRef* slot_ref,
+                const VLiteral* literal) -> std::tuple<bool, orc::Literal, orc::PredicateDataType> {
+        const auto* value = literal->get_column_ptr()->get_data_at(0).data;
+        auto* slot = _tuple_descriptor->slots()[slot_ref->slot_id()];
+        auto slot_type = slot->type();
+        const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
+        const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
+        switch (slot_type.type) {
+#define M(NAME)                                                          \
+    case TYPE_##NAME: {                                                  \
+        auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>( \
+                orc_type, value, slot_type.precision, slot_type.scale);  \
+        return std::make_tuple(valid, orc_literal, predicate_type);      \
+    }
+#define APPLY_FOR_PRIMITIVE_TYPE(M) \
+    M(TINYINT)                      \
+    M(SMALLINT)                     \
+    M(INT)                          \
+    M(BIGINT)                       \
+    M(LARGEINT)                     \
+    M(CHAR)                         \
+    M(DATE)                         \
+    M(DATETIME)                     \
+    M(DATEV2)                       \
+    M(DATETIMEV2)                   \
+    M(VARCHAR)                      \
+    M(STRING)                       \
+    M(HLL)                          \
+    M(DECIMAL32)                    \
+    M(DECIMAL64)                    \
+    M(DECIMAL128I)                  \
+    M(DECIMAL256)                   \
+    M(DECIMALV2)                    \
+    M(BOOLEAN)                      \
+    M(IPV4)                         \
+    M(IPV6)
+            APPLY_FOR_PRIMITIVE_TYPE(M)
+#undef M
+        default: {
+            VLOG_CRITICAL << "Unsupported Convert Orc Literal [ColName=" << slot->col_name() << "]";
+            return std::make_tuple(false, orc::Literal(false), predicate_type);
+        }
+        }
+    };
+
+    auto sargBuilder = orc::SearchArgumentFactory::newBuilder();
+    // 递归地将expr转为SearchArgument
+    std::function<bool(const VExprSPtr&)> convert_expr_to_sargs = [&](const VExprSPtr& expr) {
+        if (expr == nullptr) {
+            return false;
+        }
+        // TODO: handle error
+        switch (expr->op()) {
+        case TExprOpcode::COMPOUND_AND:
+            sargBuilder->startAnd();
+            for (const auto& child : expr->children()) {
+                convert_expr_to_sargs(child);
+            }
+            sargBuilder->end();
+            break;
+        case TExprOpcode::COMPOUND_OR:
+            sargBuilder->startOr();
+            for (const auto& child : expr->children()) {
+                convert_expr_to_sargs(child);
+            }
+            sargBuilder->end();
+            break;
+        case TExprOpcode::COMPOUND_NOT:
+            sargBuilder->startNot();
+            DCHECK_EQ(expr->children().size(), 1);
+            convert_expr_to_sargs(expr->children()[0]);
+            sargBuilder->end();
+            break;
+        case TExprOpcode::GE: {
+            sargBuilder->startNot();
+            DCHECK(expr->children().size() == 2);
+            DCHECK(expr->children()[0]->is_slot_ref());
+            DCHECK(expr->children()[1]->is_literal());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
+            if (valid) {
+                sargBuilder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+            }
+            sargBuilder->end();
+            break;
+        }
+        case TExprOpcode::GT: {
+            sargBuilder->startNot();
+            DCHECK(expr->children().size() == 2);
+            DCHECK(expr->children()[0]->is_slot_ref());
+            DCHECK(expr->children()[1]->is_literal());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
+            if (valid) {
+                sargBuilder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+            }
+            sargBuilder->end();
+            break;
+        }
+        case TExprOpcode::LE: {
+            DCHECK(expr->children().size() == 2);
+            DCHECK(expr->children()[0]->is_slot_ref());
+            DCHECK(expr->children()[1]->is_literal());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
+            if (valid) {
+                sargBuilder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+            }
+            break;
+        }
+        case TExprOpcode::LT: {
+            DCHECK(expr->children().size() == 2);
+            DCHECK(expr->children()[0]->is_slot_ref());
+            DCHECK(expr->children()[1]->is_literal());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
+            if (valid) {
+                sargBuilder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+            }
+            break;
+        }
+        case TExprOpcode::EQ: {
+            DCHECK(expr->children().size() == 2);
+            DCHECK(expr->children()[0]->is_slot_ref());
+            DCHECK(expr->children()[1]->is_literal());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
+            if (valid) {
+                sargBuilder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+            }
+            break;
+        }
+        case TExprOpcode::NE: {
+            sargBuilder->startNot();
+            DCHECK(expr->children().size() == 2);
+            DCHECK(expr->children()[0]->is_slot_ref());
+            DCHECK(expr->children()[1]->is_literal());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
+            if (valid) {
+                sargBuilder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+            }
+            sargBuilder->end();
+            break;
+        }
+        // TODO: handle other operators
+        default: {
+            VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
+            return false;
+        }
+        }
+        return true;
+    };
+
+    sargBuilder->startAnd();
+    for (const auto& expr_ctx : common_expr_ctxs_push_down) {
+        if (!convert_expr_to_sargs(expr_ctx->root())) {
+            return false;
+        }
+    }
+    sargBuilder->end();
+    std::unique_ptr<orc::SearchArgument> sargs = sargBuilder->build();
+    _row_reader_options.searchArgument(std::move(sargs));
+    return true;
+}
+
 Status OrcReader::set_fill_columns(
         const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                 partition_columns,
@@ -854,7 +1033,11 @@ Status OrcReader::set_fill_columns(
         _lazy_read_ctx.can_lazy_read = true;
     }
 
-    if (_colname_to_value_range == nullptr || !_init_search_argument(_colname_to_value_range)) {
+    if (_common_expr_ctxs_push_down.empty() ||
+        !_init_search_argument_by_common_expr_ctxs_push_down(_common_expr_ctxs_push_down)) {
+        _lazy_read_ctx.can_lazy_read = false;
+    } else if (_colname_to_value_range == nullptr ||
+               !_init_search_argument(_colname_to_value_range)) {
         _lazy_read_ctx.can_lazy_read = false;
     }
 

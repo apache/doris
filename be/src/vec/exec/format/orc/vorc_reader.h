@@ -295,6 +295,8 @@ private:
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    bool _init_search_argument_by_common_expr_ctxs_push_down(
+            const VExprContextSPtrs& common_expr_ctxs_push_down);
     void _init_system_properties();
     void _init_file_description();
 
