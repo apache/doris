@@ -3494,9 +3494,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
-        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(false)) {
-            Backend backend = systemInfoService.getBackend(id);
+        List<Long> backendIds = null;
+        try {
+            backendIds = Env.getCurrentSystemInfo().getBackendsByCurrentCluster()
+                    .values().stream().map(Backend::getId).collect(Collectors.toList());
+        } catch (AnalysisException e) {
+            errorStatus.setErrorMsgs(
+                    Lists.newArrayList(String.format("create partition failed. error:%s", e.getMessage())));
+            result.setStatus(errorStatus);
+            LOG.warn("send create partition error status: {}", result, e);
+            return result;
+        }
+        for (Long id : backendIds) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(id);
             nodeInfos.add(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
         result.setNodes(nodeInfos);
@@ -3703,9 +3713,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
-        SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(false)) {
-            Backend backend = systemInfoService.getBackend(id);
+        List<Long> backendIds = null;
+        try {
+            backendIds = Env.getCurrentSystemInfo().getBackendsByCurrentCluster()
+                .values().stream().map(Backend::getId).collect(Collectors.toList());
+        } catch (AnalysisException e) {
+            errorStatus.setErrorMsgs(
+                    Lists.newArrayList(String.format("replace partition failed. error:%s", e.getMessage())));
+            result.setStatus(errorStatus);
+            LOG.warn("send replace partition error status: {}", result, e);
+            return result;
+        }
+        for (Long id : backendIds) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(id);
             nodeInfos.add(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
         result.setNodes(nodeInfos);

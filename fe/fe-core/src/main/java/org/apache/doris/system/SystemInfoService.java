@@ -164,7 +164,15 @@ public class SystemInfoService {
     public static TPaloNodesInfo createAliveNodesInfo() {
         TPaloNodesInfo nodesInfo = new TPaloNodesInfo();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(true /*need alive*/)) {
+        List<Long> backendIds;
+        try {
+            backendIds = systemInfoService.getBackendsByCurrentCluster()
+                .values().stream().filter(Backend::isAlive).map(Backend::getId).collect(Collectors.toList());
+        } catch (AnalysisException e) {
+            LOG.warn("failed to get backend ids", e);
+            return nodesInfo;
+        }
+        for (Long id : backendIds) {
             Backend backend = systemInfoService.getBackend(id);
             nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
@@ -363,7 +371,19 @@ public class SystemInfoService {
     public int getBackendsNumber(boolean needAlive) {
         int beNumber = ConnectContext.get().getSessionVariable().getBeNumberForTest();
         if (beNumber < 0) {
-            beNumber = getAllBackendIds(needAlive).size();
+            try {
+                beNumber = (int) getBackendsByCurrentCluster()
+                    .values().stream().filter(be -> {
+                        if (needAlive) {
+                            return be.isAlive();
+                        } else {
+                            // not filter, return all
+                            return true;
+                        }
+                    }).count();
+            } catch (AnalysisException e) {
+                LOG.warn("get backends error", e);
+            }
         }
         return beNumber;
     }

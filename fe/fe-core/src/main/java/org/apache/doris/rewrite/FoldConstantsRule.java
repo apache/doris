@@ -67,6 +67,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * This rule replaces a constant Expr with its equivalent LiteralExpr by evaluating the
@@ -361,7 +362,8 @@ public class FoldConstantsRule implements ExprRewriteRule {
         TNetworkAddress brpcAddress = null;
         Map<String, Map<String, Expr>> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendsByCurrentCluster()
+                    .values().stream().filter(Backend::isAlive).map(Backend::getId).collect(Collectors.toList());
             if (backendIds.isEmpty()) {
                 throw new LoadException("Failed to get all partitions. No alive backends");
             }

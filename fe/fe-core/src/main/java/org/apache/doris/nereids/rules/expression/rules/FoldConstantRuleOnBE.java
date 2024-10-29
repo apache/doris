@@ -107,6 +107,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Constant evaluation of an expression.
@@ -270,7 +271,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             Map<String, Expression> constMap, ConnectContext context) {
         Map<String, Expression> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getBackendsByCurrentCluster()
+                    .values().stream().filter(Backend::isAlive).map(Backend::getId).collect(Collectors.toList());
             if (backendIds.isEmpty()) {
                 throw new UserException("No alive backends");
             }
