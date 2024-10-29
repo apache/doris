@@ -4204,27 +4204,19 @@ public class SessionVariable implements Serializable, Writable {
         this.enableStrictConsistencyDml = value;
     }
 
-    public void disableStrictConsistencyDmlOnce() throws DdlException {
-        if (!enableStrictConsistencyDml) {
-            return;
+    /**
+     *
+     * @return true iff set success
+     */
+    public boolean setVarOnce(String varName, String value) {
+        try {
+            setIsSingleSetVar(true);
+            VariableMgr.setVar(this, new SetVar(varName, new StringLiteral(value)));
+            return true;
+        } catch (DdlException e) {
+            LOG.warn("set onece {} = {} failed", varName, value);
+            return false;
         }
-        setIsSingleSetVar(true);
-        VariableMgr.setVar(this,
-                new SetVar(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, new StringLiteral("false")));
-    }
-
-    public void disableConstantFoldingByBEOnce() throws DdlException {
-        if (!enableFoldConstantByBe) {
-            return;
-        }
-        setIsSingleSetVar(true);
-        VariableMgr.setVar(this,
-                new SetVar(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, new StringLiteral("false")));
-    }
-
-    public void disableNereidsJoinReorderOnce() throws DdlException {
-        setIsSingleSetVar(true);
-        VariableMgr.setVar(this, new SetVar(SessionVariable.DISABLE_JOIN_REORDER, new StringLiteral("true")));
     }
 
     // return number of variables by given variable annotation
