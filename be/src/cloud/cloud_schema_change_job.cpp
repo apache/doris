@@ -167,7 +167,7 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
     reader_context.is_unique = _base_tablet->keys_type() == UNIQUE_KEYS;
     reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
-    reader_context.delete_bitmap = &_base_tablet->tablet_meta()->delete_bitmap();
+    reader_context.delete_bitmap = _base_tablet->tablet_meta()->delete_bitmap_ptr();
     reader_context.version = Version(0, start_resp.alter_version());
 
     for (auto& split : rs_splits) {

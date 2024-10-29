@@ -672,7 +672,7 @@ Status TabletReader::init_reader_params_and_create_block(
     }
     reader_params->tablet_schema = merge_tablet_schema;
     if (tablet->enable_unique_key_merge_on_write()) {
-        reader_params->delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+        reader_params->delete_bitmap = tablet->tablet_meta()->delete_bitmap_ptr();
     }
 
     reader_params->return_columns.resize(read_tablet_schema->num_columns());

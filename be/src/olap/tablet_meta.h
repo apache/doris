@@ -237,6 +237,7 @@ public:
                                          ColumnPB* column);
 
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
+    DeleteBitmapPtr delete_bitmap_ptr() { return _delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
 
