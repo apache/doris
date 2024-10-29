@@ -149,11 +149,12 @@ struct ExtractTopLevelDomain {
     static size_t get_reserve_length_for_element() { return 5; }
 
     static void execute(const char* data, size_t size, const char*& res_data, size_t& res_size) {
+        res_data = data;
+        res_size = 0;
         StringRef host = get_url_host(data, size);
 
         if (host.size == 0) {
-            res_data = data;
-            res_size = 0;
+            return;
         } else {
             auto host_view = host.to_string_view();
             if (host_view[host_view.size() - 1] == '.') {
@@ -180,22 +181,11 @@ struct ExtractTopLevelDomain {
     }
 };
 
-struct FirstSignificantSubdomainDefaultLookup {
-    bool operator()(StringRef host) const { return tldLookup::isValid(host.data, host.size); }
-};
-
 struct ExtractFirstSignificantSubdomain {
     static size_t get_reserve_length_for_element() { return 10; }
 
     static void execute(const Pos data, const size_t size, Pos& res_data, size_t& res_size,
                         Pos* out_domain_end = nullptr) {
-        FirstSignificantSubdomainDefaultLookup loookup;
-        return execute(loookup, data, size, res_data, res_size, out_domain_end);
-    }
-
-    template <class Lookup>
-    static void execute(const Lookup& lookup, const Pos data, const size_t size, Pos& res_data,
-                        size_t& res_size, Pos* out_domain_end = nullptr) {
         res_data = data;
         res_size = 0;
 
@@ -250,7 +240,7 @@ struct ExtractFirstSignificantSubdomain {
 
         auto host_len = static_cast<size_t>(end_of_level_domain - last_periods[1] - 1);
         StringRef host {last_periods[1] + 1, host_len};
-        if (lookup(host)) {
+        if (tldLookup::is_valid(host.data, host.size)) {
             res_data += last_periods[2] + 1 - begin;
             res_size = last_periods[1] - last_periods[2] - 1;
         } else {

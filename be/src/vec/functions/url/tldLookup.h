@@ -28,7 +28,7 @@ private:
     static inline unsigned int hash(const char* str, size_t len);
 
 public:
-    static const char* isValid(const char* str, size_t len);
+    static const char* is_valid(const char* str, size_t len);
 };
 
 using tldLookup = TopLevelDomainLookupHash;

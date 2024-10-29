@@ -24,9 +24,6 @@
 #include <cstdint>
 #include <string>
 
-#if defined(__SSE2__)
-#include <emmintrin.h>
-#endif
 #if defined(__SSE4_2__)
 #include <nmmintrin.h>
 #endif
