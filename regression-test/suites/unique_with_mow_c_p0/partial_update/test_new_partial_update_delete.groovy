@@ -90,6 +90,7 @@ suite('test_new_partial_update_delete') {
                     "store_row_column" = "${use_row_store}"); """
 
             def output1 = sql "show create table ${tableName1}"
+            logger.info("output1: ${output1}")
             assertTrue output1[0][1].contains("\"enable_mow_light_delete\" = \"false\"");
             sql "insert into ${tableName1} values(1,1,1,1,1)"
             // 1,1,1,1,1
@@ -113,6 +114,7 @@ suite('test_new_partial_update_delete') {
             sql "set enable_unique_key_partial_update=false;"
             sql "set enable_insert_strict=true;"
             def output2 = sql "show create table ${tableName1}"
+            logger.info("output2: ${output2}")
             assertTrue output2[0][1].contains("\"enable_mow_light_delete\" = \"true\"");
             sql "insert into ${tableName1} values(2,2,2,2,2)"
             // 1,2,NULL,NULL,NULL
