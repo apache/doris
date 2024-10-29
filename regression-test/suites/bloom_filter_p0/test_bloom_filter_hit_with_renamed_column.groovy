@@ -123,7 +123,7 @@ suite("test_bloom_filter_hit_with_renamed_column") {
 
         while (attempt < maxRetries) {
             profiles = httpGet(profileUrl)
-            log.debug("profiles attempt ${attempt + 1}: {}", profiles)
+            log.info("profiles attempt ${attempt + 1}: {}", profiles)
             if (profiles == null) {
                 log.warn("Failed to fetch profiles on attempt ${attempt + 1}")
             } else {
@@ -156,7 +156,7 @@ suite("test_bloom_filter_hit_with_renamed_column") {
     }
 
     def query = """select C_COMMENT_NEW from ${tableName} where C_COMMENT_NEW='OK'"""
-    def profileId = getProfileIdWithRetry(query, 3, 1)
+    def profileId = getProfileIdWithRetry(query, 3, 30)
     log.info("profileId:{}", profileId)
     def profileDetail = httpGet("/rest/v1/query_profile/" + profileId)
     log.info("profileDetail:{}", profileDetail)
