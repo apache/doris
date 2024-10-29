@@ -49,9 +49,8 @@ void QueryCache::insert(const CacheKey& key, int64_t version, CacheResult& res,
     auto cache_value_ptr =
             std::make_unique<QueryCache::CacheValue>(version, std::move(cache_result), slot_orders);
 
-    QueryCacheHandle(this, LRUCachePolicyTrackingManual::insert(
-                                   key, (void*)cache_value_ptr.release(), cache_size, cache_size,
-                                   CachePriority::NORMAL));
+    QueryCacheHandle(this, LRUCachePolicy::insert(key, (void*)cache_value_ptr.release(), cache_size,
+                                                  cache_size, CachePriority::NORMAL));
 }
 
 bool QueryCache::lookup(const CacheKey& key, int64_t version, doris::QueryCacheHandle* handle) {

@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "cloud/cloud_compaction_action.h"
+#include "cloud/cloud_delete_bitmap_action.h"
 #include "cloud/config.h"
 #include "cloud/injection_point_action.h"
 #include "common/config.h"
@@ -47,6 +48,7 @@
 #include "http/action/health_action.h"
 #include "http/action/http_stream.h"
 #include "http/action/jeprofile_actions.h"
+#include "http/action/load_channel_action.h"
 #include "http/action/load_stream_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
@@ -188,6 +190,10 @@ Status HttpService::start() {
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/load_streams", load_stream_action);
 
+    // Register BE LoadChannel action
+    LoadChannelAction* load_channel_action = _pool.add(new LoadChannelAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/load_channels", load_channel_action);
+
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =
             _pool.add(new TabletsInfoAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
@@ -197,7 +203,20 @@ Status HttpService::start() {
     static_cast<void>(PprofActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register jeprof actions
-    static_cast<void>(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
+    SetJeHeapProfileActiveActions* set_jeheap_profile_active_action =
+            _pool.add(new SetJeHeapProfileActiveActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/active/{prof_value}",
+                                      set_jeheap_profile_active_action);
+
+    DumpJeHeapProfileToDotActions* dump_jeheap_profile_to_dot_action =
+            _pool.add(new DumpJeHeapProfileToDotActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump",
+                                      dump_jeheap_profile_to_dot_action);
+
+    DumpJeHeapProfileActions* dump_jeheap_profile_action =
+            _pool.add(new DumpJeHeapProfileActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump_only",
+                                      dump_jeheap_profile_action);
 
     // register metrics
     {
@@ -406,6 +425,11 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
+    CloudDeleteBitmapAction* count_delete_bitmap_action =
+            _pool.add(new CloudDeleteBitmapAction(DeleteBitmapActionType::COUNT_INFO, _env, engine,
+                                                  TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count",
+                                      count_delete_bitmap_action);
 #ifdef ENABLE_INJECTION_POINT
     InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",

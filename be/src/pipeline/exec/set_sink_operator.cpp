@@ -24,6 +24,7 @@
 #include "vec/core/materialize_block.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Block* in_block,
@@ -63,7 +64,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                                 valid_element_in_hash_tbl = arg.hash_table->size();
                             }
                         },
-                        *local_state._shared_state->hash_table_variants);
+                        local_state._shared_state->hash_table_variants->method_variant);
             }
             local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
                     ->set_ready();
@@ -87,22 +88,22 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
     vectorized::materialize_block_inplace(block);
     vectorized::ColumnRawPtrs raw_ptrs(_child_exprs.size());
     RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs, rows));
-
+    auto st = Status::OK();
     std::visit(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     vectorized::HashTableBuild<HashTableCtxType, is_intersect>
                             hash_table_build_process(&local_state, rows, raw_ptrs, state);
-                    static_cast<void>(hash_table_build_process(arg, local_state._arena));
+                    st = hash_table_build_process(arg, local_state._arena);
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
                     __builtin_unreachable();
                 }
             },
-            *local_state._shared_state->hash_table_variants);
+            local_state._shared_state->hash_table_variants->method_variant);
 
-    return Status::OK();
+    return st;
 }
 
 template <bool is_intersect>
@@ -119,7 +120,7 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
     rows = is_all_const ? 1 : rows;
 
     for (size_t i = 0; i < _child_exprs.size(); ++i) {
-        int result_col_id = result_locs[i];
+        size_t result_col_id = result_locs[i];
 
         if (is_all_const) {
             block.get_by_position(result_col_id).column =
@@ -181,8 +182,8 @@ Status SetSinkLocalState<is_intersect>::open(RuntimeState* state) {
 
     auto& parent = _parent->cast<Parent>();
     DCHECK(parent._cur_child_id == 0);
-    _shared_state->hash_table_variants = std::make_unique<SetHashTableVariants>();
-    _shared_state->hash_table_init();
+    _shared_state->hash_table_variants = std::make_unique<SetDataVariants>();
+    RETURN_IF_ERROR(_shared_state->hash_table_init());
     return Status::OK();
 }
 

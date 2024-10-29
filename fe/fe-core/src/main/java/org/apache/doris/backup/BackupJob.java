@@ -203,14 +203,14 @@ public class BackupJob extends AbstractJob {
             taskProgress.remove(task.getTabletId());
             taskErrMsg.remove(task.getTabletId());
 
-            SnapshotTask newTask = new SnapshotTask(null, replica.getBackendId(), task.getTabletId(),
+            SnapshotTask newTask = new SnapshotTask(null, replica.getBackendIdWithoutException(), task.getTabletId(),
                     task.getJobId(), task.getDbId(), tbl.getId(), task.getPartitionId(),
                     task.getIndexId(), task.getTabletId(),
                     task.getVersion(),
                     task.getSchemaHash(), timeoutMs, false /* not restore task */);
             AgentBatchTask batchTask = new AgentBatchTask();
             batchTask.addTask(newTask);
-            unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
+            unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
 
             //send task
             AgentTaskQueue.addTask(newTask);
@@ -612,13 +612,13 @@ public class BackupJob extends AbstractJob {
                                         + ". visible version: " + visibleVersion);
                         return;
                     }
-                    SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
+                    SnapshotTask task = new SnapshotTask(null, replica.getBackendIdWithoutException(), tablet.getId(),
                             jobId, dbId, olapTable.getId(), partition.getId(),
                             index.getId(), tablet.getId(),
                             visibleVersion,
                             schemaHash, timeoutMs, false /* not restore task */);
                     batchTask.addTask(task);
-                    unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
+                    unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
                 }
             }
 

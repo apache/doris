@@ -50,8 +50,6 @@ class PipelineFragmentContext;
 struct ReportStatusRequest {
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile = nullptr;
-    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -195,8 +193,6 @@ public:
 
     ThreadPool* get_memtable_flush_pool();
 
-    std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
-
     int64_t mem_limit() const { return _bytes_limit; }
 
     void set_merge_controller_handler(
@@ -259,7 +255,7 @@ private:
     // And will be shared by all instances of this query.
     // So that we can control the max thread that a query can be used to execute.
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token;
+    std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
     void _init_query_mem_tracker();
 

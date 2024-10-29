@@ -50,4 +50,9 @@ suite("test_join_on", "nereids_p0") {
         sql """ select * from join_on as j1 inner join join_on as j2 on j1.k3 = j2.k3; """
         exception "data type BITMAP could not used in ComparisonPredicate"
     }
+
+    test {
+        sql """select * from (select cast('' as variant) as a) t1 join (select cast('' as variant) as a) t2 on t1.a = t2.a"""
+        exception "variant type could not in join equal conditions"
+    }
 }

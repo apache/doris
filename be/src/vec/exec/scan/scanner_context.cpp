@@ -23,15 +23,19 @@
 
 #include <mutex>
 #include <ostream>
+#include <tuple>
 #include <utility>
 
 #include "common/config.h"
 #include "common/status.h"
+#include "olap/tablet.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
+#include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris::vectorized {
@@ -52,7 +56,7 @@ ScannerContext::ScannerContext(
           _output_row_descriptor(output_row_descriptor),
           _batch_size(state->batch_size()),
           limit(limit_),
-          _scanner_scheduler(state->exec_env()->scanner_scheduler()),
+          _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
           _ignore_data_distribution(ignore_data_distribution) {
     DCHECK(_output_row_descriptor == nullptr ||
@@ -67,6 +71,8 @@ ScannerContext::ScannerContext(
     _query_thread_context = {_query_id, _state->query_mem_tracker(),
                              _state->get_query_ctx()->workload_group()};
     _dependency = dependency;
+
+    DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
 
 // After init function call, should not access _parent
@@ -77,31 +83,26 @@ Status ScannerContext::init() {
     _scanner_wait_batch_timer = _local_state->_scanner_wait_batch_timer;
     _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
     _scale_up_scanners_counter = _local_state->_scale_up_scanners_counter;
+    _scanner_memory_used_counter = _local_state->_memory_used_counter;
 
 #ifndef BE_TEST
     // 3. get thread token
-    if (_state->get_query_ctx()) {
-        thread_token = _state->get_query_ctx()->get_token();
-        _simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
-        if (_simple_scan_scheduler) {
-            _should_reset_thread_name = false;
-        }
-        _remote_scan_task_scheduler = _state->get_query_ctx()->get_remote_scan_scheduler();
+    if (!_state->get_query_ctx()) {
+        return Status::InternalError("Query context of {} is not set",
+                                     print_id(_state->query_id()));
     }
+
+    thread_token = _state->get_query_ctx()->get_token();
+
+    if (_state->get_query_ctx()->get_scan_scheduler()) {
+        _should_reset_thread_name = false;
+    }
+
 #endif
     _local_state->_runtime_profile->add_info_string("UseSpecificThreadToken",
                                                     thread_token == nullptr ? "False" : "True");
 
-    int num_parallel_instances = _state->query_parallel_instance_num();
-
-    // NOTE: When ignore_data_distribution is true, the parallelism
-    // of the scan operator is regarded as 1 (actually maybe not).
-    // That will make the number of scan task can be submitted to the scheduler
-    // in a vary large value. This logicl is kept from the older implementation.
-    // https://github.com/apache/doris/pull/28266
-    if (_ignore_data_distribution) {
-        num_parallel_instances = 1;
-    }
+    const int num_parallel_instances = _state->query_parallel_instance_num();
 
     // _max_bytes_in_queue controls the maximum memory that can be used by a single scan instance.
     // scan_queue_mem_limit on FE is 100MB by default, on backend we will make sure its actual value
@@ -117,6 +118,37 @@ Status ScannerContext::init() {
         _set_scanner_done();
     }
 
+    // This is a track implementation.
+    // The logic is kept only for the purpose of the potential performance issue.
+    bool submit_many_scan_tasks_for_potential_performance_issue = true;
+    auto scanner = _all_scanners.front().lock();
+    DCHECK(scanner != nullptr);
+    // A query could have remote scan task and local scan task at the same time.
+    // So we need to compute the _scanner_scheduler in each scan operator instead of query context.
+    SimplifiedScanScheduler* simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
+    SimplifiedScanScheduler* remote_scan_task_scheduler =
+            _state->get_query_ctx()->get_remote_scan_scheduler();
+    if (scanner->_scanner->get_storage_type() == TabletStorageType::STORAGE_TYPE_LOCAL) {
+        // scan_scheduler could be empty if query does not have a workload group.
+        if (simple_scan_scheduler) {
+            _scanner_scheduler = simple_scan_scheduler;
+        } else {
+            _scanner_scheduler = _scanner_scheduler_global->get_local_scan_thread_pool();
+        }
+    } else {
+        // remote_scan_task_scheduler could be empty if query does not have a workload group.
+        if (remote_scan_task_scheduler) {
+            _scanner_scheduler = remote_scan_task_scheduler;
+        } else {
+            _scanner_scheduler = _scanner_scheduler_global->get_remote_scan_thread_pool();
+        }
+    }
+
+    // _scannner_scheduler will be used to submit scan task.
+    if (_scanner_scheduler->get_queue_size() * 2 > config::doris_scanner_thread_pool_queue_size) {
+        submit_many_scan_tasks_for_potential_performance_issue = false;
+    }
+
     // _max_thread_num controls how many scanners of this ScanOperator can be submitted to scheduler at a time.
     // The overall target of our system is to make full utilization of the resources.
     // At the same time, we dont want too many tasks are queued by scheduler, that is not necessary.
@@ -124,15 +156,27 @@ Status ScannerContext::init() {
     // 2 * config::doris_scanner_thread_pool_thread_num, so that we can make all io threads busy.
     // For example, on a 64-core machine, the default value of config::doris_scanner_thread_pool_thread_num will be 64*2 =128.
     // and the num_parallel_instances of this scan operator will be 64/2=32.
-    // For a query who has one scan nodes, the _max_thread_num of each scan node instance will be 2 * 128 / 32 = 8.
-    // We have 32 instances of this scan operator, so for the ScanNode, we have 8 * 32 = 256 scanner tasks can be submitted at a time.
-    // The thread pool of scanner is 128, that means we will have 128 tasks running in parallel and another 128 tasks are waiting in the queue.
-    // When first 128 tasks are finished, the next 128 tasks will be extricated from the queue and be executed,
-    // and another 128 tasks will be submitted to the queue if there are remaining.
-    _max_thread_num =
-            _state->num_scanner_threads() > 0
-                    ? _state->num_scanner_threads()
-                    : 2 * (config::doris_scanner_thread_pool_thread_num / num_parallel_instances);
+    // For a query who has one scan nodes, the _max_thread_num of each scan node instance will be 4 * 128 / 32 = 16.
+    // We have 32 instances of this scan operator, so for the ScanNode, we have 16 * 32 = 8 * 64 = 512 scanner tasks can be submitted at a time.
+    _max_thread_num = _state->num_scanner_threads() > 0 ? _state->num_scanner_threads() : 0;
+
+    if (_max_thread_num == 0) {
+        // NOTE: When ignore_data_distribution is true, the parallelism
+        // of the scan operator is regarded as 1 (actually maybe not).
+        // That will make the number of scan task can be submitted to the scheduler
+        // in a vary large value. This logicl is kept from the older implementation.
+        if (submit_many_scan_tasks_for_potential_performance_issue || _ignore_data_distribution) {
+            _max_thread_num = config::doris_scanner_thread_pool_thread_num / 1;
+        } else {
+            _max_thread_num =
+                    4 * (config::doris_scanner_thread_pool_thread_num / num_parallel_instances);
+            // In some rare cases, user may set num_parallel_instances to 1 handly to make many query could be executed
+            // in parallel. We need to make sure the _max_thread_num is smaller than previous value.
+            _max_thread_num =
+                    std::min(_max_thread_num, config::doris_scanner_thread_pool_thread_num);
+        }
+    }
+
     _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
     // In some situation, there are not too many big tablets involed, so we can reduce the thread number.
     // NOTE: when _all_scanners.size is zero, the _max_thread_num will be 0.
@@ -189,6 +233,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
     if (_free_blocks.try_dequeue(block)) {
         DCHECK(block->mem_reuse());
         _block_memory_usage -= block->allocated_bytes();
+        _scanner_memory_used_counter->set(_block_memory_usage);
         // A free block is reused, so the memory usage should be decreased
         // The caller of get_free_block will increase the memory usage
         update_peak_memory_usage(-block->allocated_bytes());
@@ -204,6 +249,7 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
     if (block->mem_reuse() && _block_memory_usage < _max_bytes_in_queue) {
         size_t block_size_to_reuse = block->allocated_bytes();
         _block_memory_usage += block_size_to_reuse;
+        _scanner_memory_used_counter->set(_block_memory_usage);
         block->clear_column_data();
         if (_free_blocks.enqueue(std::move(block))) {
             update_peak_memory_usage(block_size_to_reuse);
@@ -219,7 +265,7 @@ bool ScannerContext::empty_in_queue(int id) {
 Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
     _scanner_sched_counter->update(1);
     _num_scheduled_scanners++;
-    return _scanner_scheduler->submit(shared_from_this(), scan_task);
+    return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
 }
 
 void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) {

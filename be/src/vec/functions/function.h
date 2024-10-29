@@ -47,6 +47,10 @@ struct FuncExprParams;
 
 namespace doris::vectorized {
 
+struct FunctionAttr {
+    bool enable_decimal256 {false};
+};
+
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
     bool is_nullable = false;                                                            \
     bool is_datev2 = false;                                                              \
@@ -195,8 +199,7 @@ public:
             const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
-        return Status::NotSupported("evaluate_inverted_index is not supported in function: ",
-                                    get_name());
+        return Status::OK();
     }
 
     /// Do cleaning work when function is finished, i.e., release state variables in the
@@ -206,6 +209,8 @@ public:
     }
 
     virtual bool is_use_default_implementation_for_constants() const = 0;
+
+    virtual bool is_udf_function() const { return false; }
 
     /// The property of monotonicity for a certain range.
     struct Monotonicity {

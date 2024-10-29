@@ -66,7 +66,8 @@ public:
 
     // for vertical compaction
     static void vertical_split_columns(const TabletSchema& tablet_schema,
-                                       std::vector<std::vector<uint32_t>>* column_groups);
+                                       std::vector<std::vector<uint32_t>>* column_groups,
+                                       std::vector<uint32_t>* key_group_cluster_key_idxes);
     static Status vertical_compact_one_group(
             BaseTabletSPtr tablet, ReaderType reader_type, const TabletSchema& tablet_schema,
             bool is_key, const std::vector<uint32_t>& column_group,

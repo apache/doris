@@ -142,7 +142,7 @@ public:
                       JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
             return _find_batch_right_semi_anti(keys, build_idx_map, probe_idx, probe_rows);
         }
-        return std::tuple {0, 0U, 0};
+        return std::tuple {0, 0U, 0U};
     }
 
     /**
@@ -163,7 +163,7 @@ public:
                                               uint32_t* __restrict build_idxs,
                                               uint8_t* __restrict null_flags,
                                               bool picking_null_keys) {
-        auto matched_cnt = 0;
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
@@ -274,7 +274,7 @@ private:
                                                                  uint32_t* __restrict build_idxs) {
         static_assert(JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
-        auto matched_cnt = 0;
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
@@ -300,14 +300,14 @@ private:
             }
             probe_idx++;
         }
-        return std::tuple {probe_idx, 0U, 0};
+        return std::tuple {probe_idx, 0U, 0U};
     }
 
     template <int JoinOpType, bool need_judge_null>
     auto _find_batch_left_semi_anti(const Key* __restrict keys,
                                     const uint32_t* __restrict build_idx_map, int probe_idx,
                                     int probe_rows, uint32_t* __restrict probe_idxs) {
-        auto matched_cnt = 0;
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         while (probe_idx < probe_rows && matched_cnt < batch_size) {
@@ -334,7 +334,7 @@ private:
     auto _find_batch_conjunct(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
                               int probe_idx, uint32_t build_idx, int probe_rows,
                               uint32_t* __restrict probe_idxs, uint32_t* __restrict build_idxs) {
-        auto matched_cnt = 0;
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {
@@ -405,7 +405,7 @@ private:
                                       uint32_t build_idx, int probe_rows,
                                       uint32_t* __restrict probe_idxs, bool& probe_visited,
                                       uint32_t* __restrict build_idxs) {
-        auto matched_cnt = 0;
+        uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
         auto do_the_probe = [&]() {

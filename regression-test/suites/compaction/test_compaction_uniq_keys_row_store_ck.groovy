@@ -19,10 +19,6 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 
 suite("test_compaction_uniq_keys_row_store_ck", "p0") {
-    if (isCloudMode()) {
-        logger.info("cloud does not support mow cluster key")
-        return
-    }
     def realDb = "regression_test_serving_p0"
     def tableName = realDb + ".test_compaction_uniq_keys_row_store_ck"
     sql "CREATE DATABASE IF NOT EXISTS ${realDb}"
@@ -148,6 +144,7 @@ suite("test_compaction_uniq_keys_row_store_ck", "p0") {
             PROPERTIES ( "replication_num" = "1",
                     "enable_unique_key_merge_on_write" = "true",
                     "light_schema_change" = "true",
+                    "enable_unique_key_skip_bitmap_column" = "false",
                     "store_row_column" = "true"
             );
         """

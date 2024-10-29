@@ -155,7 +155,7 @@ public class CatalogTestUtil {
                         List<Replica> allReplicas = masterTablet.getReplicas();
                         for (Replica masterReplica : allReplicas) {
                             Replica slaveReplica = slaveTablet.getReplicaById(masterReplica.getId());
-                            if (slaveReplica.getBackendId() != masterReplica.getBackendId()
+                            if (slaveReplica.getBackendIdWithoutException() != masterReplica.getBackendIdWithoutException()
                                     || slaveReplica.getVersion() != masterReplica.getVersion()
                                     || slaveReplica.getLastFailedVersion() != masterReplica.getLastFailedVersion()
                                     || slaveReplica.getLastSuccessVersion() != masterReplica.getLastSuccessVersion()) {
@@ -409,7 +409,7 @@ public class CatalogTestUtil {
             }
             Tablet tablet = materializedIndex.getTablet(tabletId);
             for (Replica replica : tablet.getReplicas()) {
-                if (replica.getBackendId() == backendId) {
+                if (replica.getBackendIdWithoutException() == backendId) {
                     return replica.getPathHash();
                 }
             }

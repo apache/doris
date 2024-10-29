@@ -135,10 +135,11 @@ public:
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void clear_blocking_state() {
+    void clear_blocking_state(bool wake_up_by_downstream = false) {
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
+        _wake_up_by_downstream = _wake_up_by_downstream || wake_up_by_downstream;
         if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
@@ -223,6 +224,8 @@ public:
 
     RuntimeState* runtime_state() const { return _state; }
 
+    RuntimeProfile* get_task_profile() const { return _task_profile.get(); }
+
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
     void stop_if_finished() {
@@ -230,6 +233,10 @@ public:
             clear_blocking_state();
         }
     }
+
+    PipelineId pipeline_id() const { return _pipeline->id(); }
+
+    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
 
 private:
     friend class RuntimeFilterDependency;
@@ -306,11 +313,12 @@ private:
 
     Dependency* _execution_dep = nullptr;
 
-    std::atomic<bool> _finalized {false};
+    std::atomic<bool> _finalized = false;
     std::mutex _dependency_lock;
 
-    std::atomic<bool> _running {false};
-    std::atomic<bool> _eos {false};
+    std::atomic<bool> _running = false;
+    std::atomic<bool> _eos = false;
+    std::atomic<bool> _wake_up_by_downstream = false;
 };
 
 } // namespace doris::pipeline

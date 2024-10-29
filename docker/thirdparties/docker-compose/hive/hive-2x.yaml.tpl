@@ -24,7 +24,7 @@ services:
     environment:
       - CLUSTER_NAME=test
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-2x.env
     container_name: ${CONTAINER_UID}hadoop2-namenode
     expose:
       - "50070"
@@ -39,7 +39,7 @@ services:
   datanode:
     image: bde2020/hadoop-datanode:2.0.0-hadoop2.7.4-java8
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-2x.env
     environment:
       SERVICE_PRECONDITION: "${IP_HOST}:50070"
     container_name: ${CONTAINER_UID}hadoop2-datanode
@@ -55,7 +55,7 @@ services:
   hive-server:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-2x.env
     environment:
       HIVE_CORE_CONF_javax_jdo_option_ConnectionURL: "jdbc:postgresql://${IP_HOST}:${PG_PORT}/metastore"
       SERVICE_PRECONDITION: "${IP_HOST}:${HMS_PORT}"
@@ -76,7 +76,7 @@ services:
   hive-metastore:
     image: bde2020/hive:2.3.2-postgresql-metastore
     env_file:
-      - ./hadoop-hive.env
+      - ./hadoop-hive-2x.env
     command: /bin/bash /mnt/scripts/hive-metastore.sh
     environment:
       SERVICE_PRECONDITION: "${IP_HOST}:50070 ${IP_HOST}:50075 ${IP_HOST}:${PG_PORT}"

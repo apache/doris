@@ -68,6 +68,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
     private boolean isInMemory = false;
     private short minLoadReplicaNum = -1;
     private long ttlSeconds = 0L;
+    private boolean isInAtomicRestore = false;
 
     private String storagePolicy = "";
     private Boolean isBeingSynced = null;
@@ -215,6 +216,26 @@ public class TableProperty implements Writable, GsonPostProcessable {
 
     public TableProperty buildInMemory() {
         isInMemory = Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_INMEMORY, "false"));
+        return this;
+    }
+
+    public TableProperty buildInAtomicRestore() {
+        isInAtomicRestore = Boolean.parseBoolean(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "false"));
+        return this;
+    }
+
+    public boolean isInAtomicRestore() {
+        return isInAtomicRestore;
+    }
+
+    public TableProperty setInAtomicRestore() {
+        properties.put(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE, "true");
+        return this;
+    }
+
+    public TableProperty clearInAtomicRestore() {
+        properties.remove(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE);
         return this;
     }
 
@@ -596,6 +617,15 @@ public class TableProperty implements Writable, GsonPostProcessable {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
+    public void setEnableUniqueKeySkipBitmap(boolean enable) {
+        properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, Boolean.toString(enable));
+    }
+
+    public boolean getEnableUniqueKeySkipBitmap() {
+        return Boolean.parseBoolean(properties.getOrDefault(
+            PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, "false"));
+    }
+
     // In order to ensure that unique tables without the `enable_unique_key_merge_on_write` property specified
     // before version 2.1 still maintain the merge-on-read implementation after the upgrade, we will keep
     // the default value here as false.
@@ -705,6 +735,7 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildTimeSeriesCompactionLevelThreshold();
         buildTTLSeconds();
         buildVariantEnableFlattenNested();
+        buildInAtomicRestore();
 
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation

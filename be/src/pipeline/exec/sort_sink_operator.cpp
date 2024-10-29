@@ -31,7 +31,7 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _sort_blocks_memory_usage =
-            ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "SortBlocks", TUnit::BYTES, "MemoryUsage", 1);
+            ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageSortBlocks", TUnit::BYTES, 1);
     return Status::OK();
 }
 
@@ -90,7 +90,9 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TP
                                                                : std::vector<TExpr> {}),
           _algorithm(tnode.sort_node.__isset.algorithm ? tnode.sort_node.algorithm
                                                        : TSortAlgorithm::FULL_SORT),
-          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT) {}
+          _reuse_mem(_algorithm != TSortAlgorithm::HEAP_SORT) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -117,9 +119,12 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {
-        COUNTER_UPDATE(local_state._sort_blocks_memory_usage, (int64_t)in_block->bytes());
         RETURN_IF_ERROR(local_state._shared_state->sorter->append_block(in_block));
-        local_state._mem_tracker->set_consumption(local_state._shared_state->sorter->data_size());
+        int64_t data_size = local_state._shared_state->sorter->data_size();
+        COUNTER_SET(local_state._sort_blocks_memory_usage, data_size);
+        COUNTER_SET(local_state._memory_used_counter, data_size);
+        COUNTER_SET(local_state._peak_memory_usage_counter, data_size);
+
         RETURN_IF_CANCELLED(state);
 
         if (state->get_query_ctx()->has_runtime_predicate(_node_id)) {

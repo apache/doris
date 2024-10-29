@@ -156,6 +156,11 @@ public:
         return _inverted_index_iterators;
     }
 
+    bool has_inverted_index_in_iterators() const {
+        return std::any_of(_inverted_index_iterators.begin(), _inverted_index_iterators.end(),
+                           [](const auto& iterator) { return iterator != nullptr; });
+    }
+
 private:
     Status _next_batch_internal(vectorized::Block* block);
 

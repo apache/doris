@@ -24,6 +24,7 @@
 BvarLatencyRecorderWithTag g_bvar_ms_begin_txn("ms", "begin_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_precommit_txn("ms", "precommit_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_txn("ms", "commit_txn");
+BvarLatencyRecorderWithTag g_bvar_ms_commit_txn_eventually("ms", "commit_txn_eventually");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_txn("ms", "abort_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_get_txn("ms", "get_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id("ms", "get_current_max_txn_id");
@@ -72,6 +73,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_update_delete_bitmap("ms", "update_delete_b
 BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap("ms", "get_delete_bitmap");
 BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap_update_lock("ms",
                                                                    "get_delete_bitmap_update_lock");
+BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap("ms", "remove_delete_bitmap");
 BvarLatencyRecorderWithTag g_bvar_ms_get_instance("ms", "get_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach("ms", "get_rl_task_commit_attach");
 BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress("ms", "reset_rl_progress");

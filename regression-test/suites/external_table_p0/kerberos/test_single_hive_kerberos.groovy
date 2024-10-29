@@ -16,6 +16,14 @@
 // under the License.
 
 suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,external_docker_kerberos") {
+    def command = "sudo docker ps"
+    def process = command.execute()
+    process.waitFor()
+
+    def output = process.in.text
+
+    println "Docker containers:"
+    println output
     String enabled = context.config.otherConfigs.get("enableKerberosTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String hms_catalog_name = "test_single_hive_kerberos"
@@ -29,6 +37,10 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
                 "hadoop.security.authentication" = "kerberos",
                 "hadoop.kerberos.principal"="presto-server/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "/keytabs/presto-server.keytab",
+                "hadoop.security.auth_to_local" = "RULE:[2:\$1@\$0](.*@LABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\$1@\$0](.*@OTHERLABS.TERADATA.COM)s/@.*//
+                                   RULE:[2:\$1@\$0](.*@OTHERREALM.COM)s/@.*//
+                                   DEFAULT",
                 "hive.metastore.sasl.enabled " = "true",
                 "hive.metastore.kerberos.principal" = "hive/_HOST@LABS.TERADATA.COM"
             );
@@ -57,7 +69,7 @@ suite("test_single_hive_kerberos", "p0,external,kerberos,external_docker,externa
             logger.info(e.toString())
             // caused by a warning msg if enable sasl on hive but "hive.metastore.sasl.enabled" is not true:
             // "set_ugi() not successful, Likely cause: new client talking to old server. Continuing without it."
-            assertTrue(e.toString().contains("org.apache.thrift.transport.TTransportException: null"))
+            assertTrue(e.toString().contains("thrift.transport.TTransportException"))
         }
 
         try {

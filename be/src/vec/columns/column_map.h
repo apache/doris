@@ -131,6 +131,8 @@ public:
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         return append_data_by_selector_impl<ColumnMap>(res, selector);

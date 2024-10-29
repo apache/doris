@@ -64,6 +64,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/memory_reclamation.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
@@ -383,6 +384,16 @@ Status VNodeChannel::init(RuntimeState* state) {
     // a relatively large value to improve the import performance.
     _batch_size = std::max(_batch_size, 8192);
 
+    if (_state) {
+        QueryContext* query_ctx = _state->get_query_ctx();
+        if (query_ctx) {
+            auto wg_ptr = query_ctx->workload_group();
+            if (wg_ptr) {
+                _wg_id = wg_ptr->id();
+            }
+        }
+    }
+
     _inited = true;
     return Status::OK();
 }
@@ -425,6 +436,10 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     request->set_is_incremental(is_incremental);
     request->set_txn_expiration(_parent->_txn_expiration);
     request->set_write_file_cache(_parent->_write_file_cache);
+
+    if (_wg_id > 0) {
+        request->set_workload_group_id(_wg_id);
+    }
 
     auto open_callback = DummyBrpcCallback<PTabletWriterOpenResult>::create_shared();
     auto open_closure = AutoReleaseClosure<
@@ -1165,6 +1180,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_nano_seconds(state->nano_seconds());
     _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
@@ -1241,7 +1257,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
-            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->is_fixed_partial_update() && !_schema->auto_increment_coulumn().empty(),
             _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
@@ -1406,7 +1422,7 @@ Status VTabletWriter::_send_new_partition_batch() {
 
         Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
 
-        // these order is only.
+        // these order is unique.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.

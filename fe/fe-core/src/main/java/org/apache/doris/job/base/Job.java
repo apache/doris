@@ -153,4 +153,11 @@ public interface Job<T extends AbstractTask, C> {
      * @return TRow
      */
     TRow getTvfInfo();
+
+    /**
+     * Generates a common error message when the execution queue is full.
+     * @param taskId task id
+     * @return error msg for user
+     */
+    String formatMsgWhenExecuteQueueFull(Long taskId);
 }

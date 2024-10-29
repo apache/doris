@@ -231,7 +231,6 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
                                                            output_block->columns()));
     *eos = _child_eos && _child_block.rows() == 0;
     local_state.reached_limit(output_block, eos);
-    COUNTER_SET(local_state._rows_returned_counter, local_state._num_rows_returned);
     return Status::OK();
 }
 

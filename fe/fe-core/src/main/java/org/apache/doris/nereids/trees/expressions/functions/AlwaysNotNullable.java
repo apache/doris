@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.Expression;
+
 /**
  * nullable is always false.
  *
@@ -26,5 +29,11 @@ public interface AlwaysNotNullable extends ComputeNullable {
     @Override
     default boolean nullable() {
         return false;
+    }
+
+    // return value of this function if the input data is empty.
+    // for example, count(*) of empty table is 0;
+    default Expression resultForEmptyInput() {
+        throw new AnalysisException("should implement resultForEmptyInput() for " + this.getClass());
     }
 }

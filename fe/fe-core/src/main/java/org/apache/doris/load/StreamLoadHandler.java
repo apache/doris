@@ -42,6 +42,7 @@ import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Preconditions;
@@ -108,7 +109,9 @@ public class StreamLoadHandler {
             return;
         }
 
-        LOG.info("stream load put request: {}", request);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("stream load put request: {}", request);
+        }
         // create connect context
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
@@ -247,7 +250,9 @@ public class StreamLoadHandler {
                     throw new UserException("txn does not exist: " + request.getTxnId());
                 }
                 txnState.addTableIndexes(table);
-                if (request.isPartialUpdate()) {
+                TUniqueKeyUpdateMode uniqueKeyUpdateMode = request.getUniqueKeyUpdateMode();
+                if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS
+                        || uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS) {
                     txnState.setSchemaForPartialUpdate(table);
                 }
             }

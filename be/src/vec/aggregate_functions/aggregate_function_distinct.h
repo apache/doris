@@ -338,8 +338,6 @@ public:
 
     DataTypePtr get_return_type() const override { return nested_func->get_return_type(); }
 
-    bool allocates_memory_in_arena() const override { return true; }
-
     AggregateFunctionPtr transmit_to_stable() override {
         return AggregateFunctionPtr(new AggregateFunctionDistinct<Data, true>(
                 nested_func, IAggregateFunction::argument_types));

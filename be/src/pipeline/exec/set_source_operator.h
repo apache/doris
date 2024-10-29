@@ -26,7 +26,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 template <bool is_intersect>
 class SetSourceOperatorX;
 
@@ -82,8 +82,8 @@ private:
 
     void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
                              RowRefListWithFlags& value, int& block_size);
-    const int _child_quantity;
+    const size_t _child_quantity;
 };
-
+#include "common/compile_check_end.h"
 } // namespace pipeline
 } // namespace doris

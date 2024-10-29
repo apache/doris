@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
@@ -56,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -79,6 +82,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -184,6 +189,7 @@ public class NereidsPlanner extends Planner {
                 ExplainLevel explainLevel, boolean showPlanProcess,
                 Consumer<Plan> lockCallback) {
         try {
+            long beforePlanGcTime = getGarbageCollectionTime();
             if (plan instanceof LogicalSqlCache) {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
@@ -211,6 +217,10 @@ public class NereidsPlanner extends Planner {
             try (Lock lock = new Lock(plan, cascadesContext)) {
                 Plan resultPlan = planWithoutLock(plan, explainLevel, showPlanProcess, requireProperties);
                 lockCallback.accept(resultPlan);
+                if (statementContext.getConnectContext().getExecutor() != null) {
+                    statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                            .setNereidsGarbageCollectionTime(getGarbageCollectionTime() - beforePlanGcTime);
+                }
                 return resultPlan;
             }
         } finally {
@@ -254,6 +264,19 @@ public class NereidsPlanner extends Planner {
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
                 return rewrittenPlan;
             }
+        }
+
+        // if we cannot get table row count, skip join reorder
+        // except:
+        //   1. user set leading hint
+        //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
+        if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest
+                && !cascadesContext.isLeadingDisableJoinReorder()) {
+            List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
+                    .collectToList(LogicalOlapScan.class::isInstance);
+            Optional<String> disableJoinReorderReason = StatsCalculator
+                    .disableJoinReorderIfStatsInvalid(scans, cascadesContext);
+            disableJoinReorderReason.ifPresent(statementContext::setDisableJoinReorderReason);
         }
 
         optimize();
@@ -522,6 +545,15 @@ public class NereidsPlanner extends Planner {
         }
     }
 
+    private long getGarbageCollectionTime() {
+        List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        long initialGCTime = 0;
+        for (GarbageCollectorMXBean gcBean : gcMxBeans) {
+            initialGCTime += gcBean.getCollectionTime();
+        }
+        return initialGCTime;
+    }
+
     /**
      * getting hints explain string, which specified by enumerate and show in lists
      * @param hints hint map recorded in statement context
@@ -531,7 +563,7 @@ public class NereidsPlanner extends Planner {
         String used = "";
         String unUsed = "";
         String syntaxError = "";
-        int distributeHintIndex = 1;
+        int distributeHintIndex = 0;
         for (Hint hint : hints) {
             String distributeIndex = "";
             if (hint instanceof DistributeHint) {
@@ -673,7 +705,7 @@ public class NereidsPlanner extends Planner {
         if (physicalPlan instanceof ComputeResultSet) {
             Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext);
+                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
                 return resultSet;
             }

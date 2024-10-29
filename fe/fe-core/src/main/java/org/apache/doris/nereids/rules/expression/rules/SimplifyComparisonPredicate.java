@@ -234,9 +234,10 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                     int toScale = ((DecimalV3Type) left.getDataType()).getScale();
                     if (comparisonPredicate instanceof EqualTo) {
                         try {
-                            return comparisonPredicate.withChildren(left,
-                                    new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                            literal.getValue().setScale(toScale)));
+                            return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                    comparisonPredicate.withChildren(left,
+                                            new DecimalV3Literal((DecimalV3Type) left.getDataType(),
+                                                    literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             if (left.nullable()) {
                                 // TODO: the ideal way is to return an If expr like:
@@ -253,24 +254,25 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule i
                         }
                     } else if (comparisonPredicate instanceof NullSafeEqual) {
                         try {
-                            return comparisonPredicate.withChildren(left,
-                                    new DecimalV3Literal((DecimalV3Type) left.getDataType(),
-                                            literal.getValue().setScale(toScale)));
+                            return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                    comparisonPredicate.withChildren(left,
+                                            new DecimalV3Literal((DecimalV3Type) left.getDataType(),
+                                                    literal.getValue().setScale(toScale, RoundingMode.UNNECESSARY))));
                         } catch (ArithmeticException e) {
                             return BooleanLiteral.of(false);
                         }
                     } else if (comparisonPredicate instanceof GreaterThan
                             || comparisonPredicate instanceof LessThanEqual) {
-                        return comparisonPredicate.withChildren(left, literal.roundFloor(toScale));
+                        return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                comparisonPredicate.withChildren(left, literal.roundFloor(toScale)));
                     } else if (comparisonPredicate instanceof LessThan
                             || comparisonPredicate instanceof GreaterThanEqual) {
-                        return comparisonPredicate.withChildren(left,
-                                literal.roundCeiling(toScale));
+                        return TypeCoercionUtils.processComparisonPredicate((ComparisonPredicate)
+                                comparisonPredicate.withChildren(left, literal.roundCeiling(toScale)));
                     }
                 }
             } else if (left.getDataType().isIntegerLikeType()) {
-                return processIntegerDecimalLiteralComparison(comparisonPredicate, left,
-                        literal.getValue());
+                return processIntegerDecimalLiteralComparison(comparisonPredicate, left, literal.getValue());
             }
         }
 

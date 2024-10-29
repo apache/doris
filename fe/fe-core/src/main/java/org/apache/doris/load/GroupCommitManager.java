@@ -190,18 +190,32 @@ public class GroupCommitManager {
             throws LoadException, DdlException {
         // If a group commit request is sent to the follower FE, we will send this request to the master FE. master FE
         // can select a BE and return this BE id to follower FE.
+        String clusterName = "";
+        if (Config.isCloudMode()) {
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (Exception e) {
+                LOG.warn("failed to get cluster name", e);
+                throw new LoadException(e.getMessage());
+            }
+        }
         if (!Env.getCurrentEnv().isMaster()) {
             try {
                 long backendId = new MasterOpExecutor(context)
-                        .getGroupCommitLoadBeId(tableId, context.getCloudCluster());
+                        .getGroupCommitLoadBeId(tableId, clusterName);
                 return Env.getCurrentSystemInfo().getBackend(backendId);
             } catch (Exception e) {
                 throw new LoadException(e.getMessage());
             }
         } else {
-            // Master FE will select BE by itself.
-            return Env.getCurrentSystemInfo()
-                    .getBackend(selectBackendForGroupCommitInternal(tableId, context.getCloudCluster()));
+            try {
+                // Master FE will select BE by itself.
+                return Env.getCurrentSystemInfo()
+                    .getBackend(selectBackendForGroupCommitInternal(tableId, clusterName));
+            } catch (Exception e) {
+                LOG.warn("get backend failed, tableId: {}, exception", tableId, e);
+                throw new LoadException(e.getMessage());
+            }
         }
     }
 
@@ -379,10 +393,10 @@ public class GroupCommitManager {
     private void updateLoadDataInternal(long tableId, long receiveData) {
         if (tableToPressureMap.containsKey(tableId)) {
             tableToPressureMap.get(tableId).add(receiveData);
-            LOG.info("Update load data for table{}, receiveData {}, tablePressureMap {}", tableId, receiveData,
+            LOG.info("Update load data for table {}, receiveData {}, tablePressureMap {}", tableId, receiveData,
                     tableToPressureMap.toString());
-        } else {
-            LOG.warn("can not find backend id: {}", tableId);
+        } else if (LOG.isDebugEnabled()) {
+            LOG.debug("can not find table id {}", tableId);
         }
     }
 }

@@ -30,13 +30,15 @@ class RuntimeState;
 } // namespace doris
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 DataGenSourceOperatorX::DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
         : OperatorX<DataGenLocalState>(pool, tnode, operator_id, descs),
           _tuple_id(tnode.data_gen_scan_node.tuple_id),
           _tuple_desc(nullptr),
-          _runtime_filter_descs(tnode.runtime_filters) {}
+          _runtime_filter_descs(tnode.runtime_filters) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status DataGenSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<DataGenLocalState>::init(tnode, state));
@@ -87,8 +89,8 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     // TODO: use runtime filter to filte result block, maybe this node need derive from vscan_node.
     for (const auto& filter_desc : p._runtime_filter_descs) {
         std::shared_ptr<IRuntimeFilter> runtime_filter;
-        RETURN_IF_ERROR(state->register_consumer_runtime_filter(
-                filter_desc, p.ignore_data_distribution(), p.node_id(), &runtime_filter));
+        RETURN_IF_ERROR(state->register_consumer_runtime_filter(filter_desc, p.is_serial_operator(),
+                                                                p.node_id(), &runtime_filter));
         runtime_filter->init_profile(_runtime_profile.get());
     }
     return Status::OK();

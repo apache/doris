@@ -39,6 +39,7 @@ VScanner::VScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_stat
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()) {
     _total_rf_num = _local_state->runtime_filter_num();
+    DorisMetrics::instance()->scanner_cnt->increment(1);
 }
 
 Status VScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts) {

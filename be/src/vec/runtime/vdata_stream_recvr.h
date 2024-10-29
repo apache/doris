@@ -50,6 +50,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class MemTracker;
 class PBlock;
 class MemTrackerLimiter;
@@ -69,7 +70,8 @@ class VDataStreamRecvr;
 class VDataStreamRecvr : public HasTaskExecutionCtx {
 public:
     class SenderQueue;
-    VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
+    VDataStreamRecvr(VDataStreamMgr* stream_mgr, pipeline::ExchangeLocalState* parent,
+                     RuntimeState* state, const RowDescriptor& row_desc,
                      const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                      int num_senders, bool is_merging, RuntimeProfile* profile);
 
@@ -120,6 +122,8 @@ private:
     // DataStreamMgr instance used to create this recvr. (Not owned)
     VDataStreamMgr* _mgr = nullptr;
 
+    pipeline::ExchangeLocalState* _parent = nullptr;
+
     QueryThreadContext _query_thread_context;
 
     // Fragment and node id of the destination exchange node this receiver is used by.
@@ -152,8 +156,6 @@ private:
     RuntimeProfile::Counter* _data_arrival_timer = nullptr;
     RuntimeProfile::Counter* _decompress_timer = nullptr;
     RuntimeProfile::Counter* _decompress_bytes = nullptr;
-    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
     // Number of rows received
     RuntimeProfile::Counter* _rows_produced_counter = nullptr;
@@ -272,3 +274,5 @@ protected:
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

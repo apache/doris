@@ -63,7 +63,8 @@ public:
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int data_version) const override;
     char* serialize(const IColumn& column, char* buf, int data_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int data_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int data_version) const override;
 
     MutableColumnPtr create_column() const override;
 
