@@ -754,7 +754,7 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
             [&](const VSlotRef* slot_ref,
                 const VLiteral* literal) -> std::tuple<bool, orc::Literal, orc::PredicateDataType> {
         const auto* value = literal->get_column_ptr()->get_data_at(0).data;
-        auto* slot = _tuple_descriptor->slots()[slot_ref->slot_id()];
+        auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
         auto slot_type = slot->type();
         const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
         const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
@@ -1038,6 +1038,12 @@ Status OrcReader::set_fill_columns(
         _lazy_read_ctx.can_lazy_read = false;
     } else if (_colname_to_value_range == nullptr ||
                !_init_search_argument(_colname_to_value_range)) {
+        _lazy_read_ctx.can_lazy_read = false;
+    }
+
+    if ((!_common_expr_ctxs_push_down.empty() &&
+         !_init_search_argument_by_common_expr_ctxs_push_down(_common_expr_ctxs_push_down)) ||
+        (_colname_to_value_range == nullptr || !_init_search_argument(_colname_to_value_range))) {
         _lazy_read_ctx.can_lazy_read = false;
     }
 
