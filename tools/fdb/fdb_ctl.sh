@@ -95,7 +95,7 @@ function download_fdb() {
         wget "${URL}/fdbmonitor.x86_64" -O "${TMP}/fdbmonitor"
         wget "${URL}/libfdb_c.x86_64.so" -O "${TMP}/libfdb_c.x86_64.so"
     elif [[ "${arch}" == "aarch64" ]]; then
-        local URL="https://gavin-tmp-bj.oss-cn-beijing.aliyuncs.com/luwei/fdb/${FDB_VERSION}"
+        local URL="https://doris-build.oss-cn-beijing.aliyuncs.com/thirdparty/fdb/aarch64"
         local TMP="${FDB_PKG_DIR}-tmp"
 
         rm -rf "${TMP}"
