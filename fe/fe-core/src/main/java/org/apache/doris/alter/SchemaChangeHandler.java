@@ -183,8 +183,11 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Set<String> newColNameSet = Sets.newHashSet(column.getName());
 
-        return addColumnInternal(olapTable, column, columnPos, targetIndexId, baseIndexId, indexSchemaMap,
+        boolean lightSchemaChange = true;
+        addColumnInternal(olapTable, column, columnPos, targetIndexId, baseIndexId, indexSchemaMap,
                 newColNameSet, false, colUniqueIdSupplierMap);
+        lightSchemaChange = checkLightSchemaChange(olapTable, column, indexSchemaMap);
+        return lightSchemaChange;
     }
 
     private void processAddColumn(AddColumnClause alterClause, Table externalTable, List<Column> newSchema)
@@ -241,8 +244,9 @@ public class SchemaChangeHandler extends AlterHandler {
 
         boolean lightSchemaChange = true;
         for (Column column : columns) {
-            boolean result = addColumnInternal(olapTable, column, null, targetIndexId, baseIndexId, indexSchemaMap,
+            addColumnInternal(olapTable, column, null, targetIndexId, baseIndexId, indexSchemaMap,
                     newColNameSet, ignoreSameColumn, colUniqueIdSupplierMap);
+            boolean result = checkLightSchemaChange(olapTable, column, indexSchemaMap);
             if (!result) {
                 lightSchemaChange = false;
             }
@@ -887,18 +891,16 @@ public class SchemaChangeHandler extends AlterHandler {
      * @param newColNameSet
      * @param ignoreSameColumn
      * @param colUniqueIdSupplierMap
-     * @return true: can light schema change, false: cannot
+     * @return void
      * @throws DdlException
      */
-    private boolean addColumnInternal(OlapTable olapTable, Column newColumn, ColumnPosition columnPos,
+    private void addColumnInternal(OlapTable olapTable, Column newColumn, ColumnPosition columnPos,
                                       long targetIndexId, long baseIndexId,
                                       Map<Long, LinkedList<Column>> indexSchemaMap,
                                       Set<String> newColNameSet, boolean ignoreSameColumn,
                                       Map<Long, IntSupplier> colUniqueIdSupplierMap)
             throws DdlException {
 
-        //only new table generate ColUniqueId, exist table do not.
-        boolean lightSchemaChange = olapTable.getEnableLightSchemaChange();
         String newColName = newColumn.getName();
 
         // check the validation of aggregation method on column.
@@ -961,12 +963,6 @@ public class SchemaChangeHandler extends AlterHandler {
         if (newColumn.getAggregationType() == AggregateType.BITMAP_UNION
                 && KeysType.AGG_KEYS != olapTable.getKeysType()) {
             throw new DdlException("BITMAP_UNION must be used in AGG_KEYS");
-        }
-
-        //type key column do not allow light schema change.
-        if (newColumn.isKey()) {
-            LOG.debug("newColumn: {}, isKey()==true", newColumn);
-            lightSchemaChange = false;
         }
 
         // check if the new column already exist in base schema.
@@ -1033,7 +1029,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, true,
                         baseIndexNewColumnUniqueId);
                 if (targetIndexId == -1L) {
-                    return lightSchemaChange;
+                    return;
                 }
                 // 2. add to rollup
                 modIndexSchema = indexSchemaMap.get(targetIndexId);
@@ -1054,7 +1050,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, true,
                         baseIndexNewColumnUniqueId);
                 // no specified target index. return
-                return lightSchemaChange;
+                return;
             } else {
                 // add to rollup index
                 List<Column> modIndexSchema = indexSchemaMap.get(targetIndexId);
@@ -1088,7 +1084,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
             if (targetIndexId == -1L) {
                 // no specified target index. return
-                return lightSchemaChange;
+                return;
             }
 
             // 2. add to rollup index
@@ -1097,6 +1093,64 @@ public class SchemaChangeHandler extends AlterHandler {
                     ? targetIndexColUniqueIdSupplier.getAsInt() : Column.COLUMN_UNIQUE_ID_INIT_VALUE;
             modIndexSchema = indexSchemaMap.get(targetIndexId);
             checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, false, rollUpNewColumnUniqueId);
+        }
+        return;
+    }
+
+    /**
+     * @param olapTable
+     * @param newColumn
+     * @param indexSchemaMap
+     * @return true: can light schema change, false: cannot
+     * @throws DdlException
+     */
+    private boolean checkLightSchemaChange(OlapTable olapTable, Column newColumn,
+                                           Map<Long, LinkedList<Column>> indexSchemaMap) {
+        // only new table generate ColUniqueId, exist table do not.
+        boolean lightSchemaChange = olapTable.getEnableLightSchemaChange();
+        if (!lightSchemaChange || !newColumn.isKey()) {
+            return lightSchemaChange;
+        }
+
+        long baseIndexId = olapTable.getBaseIndexId();
+        Set<String> baseColumnNames = Sets.newHashSet();
+
+        // check light schema change with add key column
+        for (Long alterIndexId : indexSchemaMap.keySet()) {
+            List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
+            int newColumnPos = -1;
+            for (int i = 0; i < alterSchema.size(); ++i) {
+                if (alterSchema.get(i).getName() == newColumn.getName()) {
+                    newColumnPos = i;
+                }
+            }
+
+            if (newColumnPos >= 0) {
+                // add key column in short key columns
+                MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(alterIndexId);
+                if (newColumnPos < currentIndexMeta.getShortKeyColumnCount()) {
+                    return false;
+                }
+
+                // not support add key column for mv index
+                if (alterIndexId != baseIndexId) {
+                    if (baseColumnNames.isEmpty()) {
+                        for (Column col : olapTable.getBaseSchemaKeyColumns()) {
+                            baseColumnNames.add(col.getName());
+                        }
+                    }
+                    for (Column col : olapTable.getKeyColumnsByIndexId(alterIndexId)) {
+                        if (null != col.getDefineExpr() || !baseColumnNames.contains(col.getName())) {
+                            return false;
+                        }
+                    }
+                }
+
+                // unique key merge on write
+                if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                    return false;
+                }
+            }
         }
         return lightSchemaChange;
     }
