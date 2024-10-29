@@ -89,7 +89,7 @@ try:
         # Create a new PR for the cherry-picked changes
         new_pr = repo.create_pull(
             title=f"{TARGET_BRANCH}: {pr.title}",  # Prefix with branch name
-            body=pr.body+ "\n Cherry-picked from #"+pr.number,  # Keep the original PR body
+            body=f"PR Body: {pr.body} \n Cherry-picked from #{pr.number}",  # Keep the original PR body
             head=new_branch_name,
             base=TARGET_BRANCH
         )
