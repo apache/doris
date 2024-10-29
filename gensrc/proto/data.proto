@@ -37,6 +37,10 @@ message PQueryStatistics {
     repeated PNodeStatistics nodes_statistics = 6;
     optional int64 scan_bytes_from_local_storage = 7;
     optional int64 scan_bytes_from_remote_storage = 8;
+    optional int64 spill_write_block_bytes = 9;
+    optional int64 spill_write_file_bytes = 10;
+    optional int64 spill_read_block_bytes = 11;
+    optional int64 spill_read_file_bytes = 12;
 }
 
 message PRowBatch {

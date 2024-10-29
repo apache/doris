@@ -48,12 +48,12 @@ SpillStream::SpillStream(RuntimeState* state, int64_t stream_id, SpillDataDir* d
           profile_(profile) {
     _total_file_count = profile_->get_counter("SpillWriteFileTotalCount");
     _current_file_count = profile_->get_counter("SpillWriteFileCurrentCount");
-    _current_file_size = profile_->get_counter("SpillWriteFileCurrentSize");
+    _current_file_size = profile_->get_counter("SpillWriteFileCurrentBytes");
 }
 
 void SpillStream::update_shared_profiles(RuntimeProfile* source_op_profile) {
     _current_file_count = source_op_profile->get_counter("SpillWriteFileCurrentCount");
-    _current_file_size = source_op_profile->get_counter("SpillWriteFileCurrentSize");
+    _current_file_size = source_op_profile->get_counter("SpillWriteFileCurrentBytes");
 }
 
 SpillStream::~SpillStream() {
