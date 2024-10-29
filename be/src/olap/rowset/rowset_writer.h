@@ -98,8 +98,6 @@ public:
 
     virtual Status create_inverted_index_file_writer(
             uint32_t segment_id, InvertedIndexFileWriterPtr* index_file_writer) {
-        std::string segment_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
-                _context.segment_path(segment_id))};
         // Create file writer for the inverted index format v2.
         io::FileWriterPtr idx_file_v2_ptr;
         if (_context.tablet_schema->get_inverted_index_storage_format() !=
@@ -107,6 +105,8 @@ public:
             RETURN_IF_ERROR(
                     create_file_writer(segment_id, idx_file_v2_ptr, FileType::INVERTED_INDEX_FILE));
         }
+        std::string segment_prefix {InvertedIndexDescriptor::get_index_file_path_prefix(
+                _context.segment_path(segment_id))};
         *index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                 _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
                 _context.tablet_schema->get_inverted_index_storage_format(),
