@@ -49,7 +49,7 @@ suite("docs/table-design/index/ngram-bloomfilter-index.md") {
 
         streamLoad {
             table "amazon_reviews"
-            file "${getS3Endpoint()}/regression/doc/amazon_reviews_2010.snappy.parquet"
+            file "${getS3Url()}/regression/doc/amazon_reviews_2010.snappy.parquet"
             db curDbName
             set "format", "parquet"
             check { result, exception, startTime, endTime ->
