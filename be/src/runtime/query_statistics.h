@@ -88,7 +88,28 @@ public:
     int64_t get_scan_rows() { return scan_rows; }
     int64_t get_scan_bytes() { return scan_bytes; }
     int64_t get_current_used_memory_bytes() { return current_used_memory_bytes; }
+    
+    void add_exec_stats_item(uint32_t node_id, int64_t push, int64_t pull, int64_t pred_filter, int64_t index_filter,
+                             int64_t rf_filter);
+    void update_exec_stats_item(uint32_t node_id, int64_t push, int64_t pull, int64_t pred_filter, int64_t index_filter,
+                                int64_t rf_filter);
+    struct NodeExecStats {
+        std::atomic_int64_t push_rows;
+        std::atomic_int64_t pull_rows;
+        std::atomic_int64_t pred_filter_rows;
+        std::atomic_int64_t index_filter_rows;
+        std::atomic_int64_t rf_filter_rows;
 
+        NodeExecStats() : push_rows(0), pull_rows(0), pred_filter_rows(0), index_filter_rows(0), rf_filter_rows(0) {}
+
+        NodeExecStats(int64_t push, int64_t pull, int64_t pred_filter, int64_t index_filter, int64_t rf_filter)
+                : push_rows(push),
+                  pull_rows(pull),
+                  pred_filter_rows(pred_filter),
+                  index_filter_rows(index_filter),
+                  rf_filter_rows(rf_filter) {}
+    };
+    std::unordered_map<uint32_t, std::shared_ptr<NodeExecStats>> _exec_stats_items;
 private:
     std::atomic<int64_t> scan_rows;
     std::atomic<int64_t> scan_bytes;

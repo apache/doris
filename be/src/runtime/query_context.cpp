@@ -210,6 +210,15 @@ void QueryContext::set_ready_to_execute_only() {
     set_execution_dependency_ready();
 }
 
+void QueryContext::init_node_exec_stats(const std::vector<int32_t>& exec_stats_node_ids) {
+    std::call_once(_node_exec_stats_init_flag, [this, &exec_stats_node_ids]() {
+        for (int32_t node_id : exec_stats_node_ids) {
+            auto node_exec_stats = std::make_shared<NodeExecStats>();
+            _node_exec_stats[node_id] = node_exec_stats;
+        }
+    });
+}
+
 void QueryContext::set_execution_dependency_ready() {
     _execution_dependency->set_ready();
 }
@@ -277,6 +286,15 @@ void QueryContext::set_pipeline_context(
 void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs) {
     _exec_env->runtime_query_statistics_mgr()->register_query_statistics(
             print_id(_query_id), qs, current_connect_fe, _query_options.query_type);
+}
+
+void QueryContext::register_query_context() {
+    auto ctx_ptr = std::make_shared<QueryContext>(this->_query_id, this->_exec_env,
+                           this->_query_options, this->coord_addr,
+                           this->_is_pipeline, this->_is_nereids, this->current_connect_fe,
+                           this->_query_source);
+
+    _exec_env->runtime_query_statistics_mgr()->register_query_context(ctx_ptr);
 }
 
 std::shared_ptr<QueryStatistics> QueryContext::get_query_statistics() {

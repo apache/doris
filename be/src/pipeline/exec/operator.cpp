@@ -234,7 +234,25 @@ Status OperatorXBase::open(RuntimeState* state) {
     return Status::OK();
 }
 
+void OperatorXBase::update_exec_stats(RuntimeState* state) {
+    QueryContext* ctx = state->get_query_ctx();
+    if (ctx != nullptr && ctx->need_record_exec_stats(_node_id)) {
+        // todo: what's the input/output rows?
+        ctx->update_push_rows_stats(_node_id, state->num_rows_load_success()); // push means output rows
+        ctx->update_pull_rows_stats(_node_id, state->num_rows_load_total()); // pull means input rows
+        ctx->update_pred_filter_stats(_node_id, state->num_rows_load_unselected());
+        // todo: update rows after runtime filter
+        //if (_bloom_filter_eval_context.join_runtime_filter_input_counter != nullptr &&
+        //    _bloom_filter_eval_context.join_runtime_filter_output_counter != nullptr) {
+        //    int64_t input_rows = _bloom_filter_eval_context.join_runtime_filter_input_counter->value();
+        //    int64_t output_rows = _bloom_filter_eval_context.join_runtime_filter_output_counter->value();
+        //    ctx->update_rf_filter_stats(_node_id, input_rows - output_rows);
+        //}
+    }
+}
+
 Status OperatorXBase::close(RuntimeState* state) {
+    this->update_exec_stats(state);
     if (_child && !is_source()) {
         RETURN_IF_ERROR(_child->close(state));
     }

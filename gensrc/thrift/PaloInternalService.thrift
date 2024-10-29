@@ -779,6 +779,7 @@ struct TPipelineInstanceParams {
   7: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
   8: optional list<i32> topn_filter_source_node_ids // deprecated after we set topn_filter_descs
   9: optional list<PlanNodes.TTopnFilterDesc> topn_filter_descs
+  10: optional list<i32> exec_stats_node_ids
 }
 
 // ExecPlanFragment

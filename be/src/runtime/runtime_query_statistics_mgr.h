@@ -32,6 +32,7 @@
 
 #include "gutil/integral_types.h"
 #include "runtime/query_statistics.h"
+#include "runtime/query_context.h"
 #include "runtime/workload_management/workload_condition.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"
@@ -52,7 +53,7 @@ public:
     }
     ~QueryStatisticsCtx() = default;
 
-    void collect_query_statistics(TQueryStatistics* tq_s);
+    void collect_query_statistics(TQueryStatistics* tq_s, std::shared_ptr<QueryContext> query_context);
 
 public:
     std::vector<std::shared_ptr<QueryStatistics>> _qs_list;
@@ -77,6 +78,8 @@ public:
 
     void register_query_statistics(std::string query_id, std::shared_ptr<QueryStatistics> qs_ptr,
                                    TNetworkAddress fe_addr, TQueryType::type query_type);
+
+    void register_query_context(std::shared_ptr<QueryContext> ctx_ptr);
 
     void report_runtime_query_statistics();
 
@@ -106,6 +109,7 @@ public:
 private:
     std::shared_mutex _qs_ctx_map_lock;
     std::map<std::string, std::unique_ptr<QueryStatisticsCtx>> _query_statistics_ctx_map;
+    std::shared_ptr<QueryContext> _query_context; 
 
     std::mutex _report_profile_mutex;
     std::atomic_bool started = false;

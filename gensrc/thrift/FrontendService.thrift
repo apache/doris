@@ -399,6 +399,14 @@ struct TDetailedReportParams {
   4: optional bool is_fragment_level
 }
 
+struct TNodeExecStatsItemPB {
+    1: optional i64 push_rows
+    2: optional i64 pull_rows
+    3: optional i64 pred_filter_rows
+    4: optional i64 index_filter_rows
+    5: optional i64 rf_filter_rows
+    6: optional i32 node_id
+}
 
 struct TQueryStatistics {
     // A thrift structure identical to the PQueryStatistics structure.
@@ -413,6 +421,7 @@ struct TQueryStatistics {
     9: optional i64 shuffle_send_rows
     10: optional i64 scan_bytes_from_local_storage
     11: optional i64 scan_bytes_from_remote_storage
+    12: optional list<TNodeExecStatsItemPB> node_exec_stats_items
 }
 
 struct TReportWorkloadRuntimeStatusParams {

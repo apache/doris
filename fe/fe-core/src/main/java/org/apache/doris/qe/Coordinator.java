@@ -3192,6 +3192,7 @@ public class Coordinator implements CoordInterface {
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
                 localParams.runtime_filter_params.setRuntimeFilterMergeAddr(runtimeFilterMergeAddr);
+                localParams.setExecStatsNodeIds(fragment.getCollectExecStatsIds());
                 if (!topnFilters.isEmpty()) {
                     List<TTopnFilterDesc> filterDescs = new ArrayList<>();
                     for (TopnFilter filter : topnFilters) {
@@ -3199,6 +3200,7 @@ public class Coordinator implements CoordInterface {
                     }
                     localParams.setTopnFilterDescs(filterDescs);
                 }
+                localParams.setExecStatsNodeIds(fragment.getCollectExecStatsIds());
                 if (instanceExecParam.instanceId.equals(runtimeFilterMergeInstanceId)) {
                     Set<Integer> broadCastRf = assignedRuntimeFilters.stream().filter(RuntimeFilter::isBroadcast)
                             .map(r -> r.getFilterId().asInt()).collect(Collectors.toSet());

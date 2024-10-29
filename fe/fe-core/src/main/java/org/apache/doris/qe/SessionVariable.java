@@ -321,6 +321,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
     public static final String DPHYPER_LIMIT = "dphyper_limit";
     public static final String ENABLE_LEFT_ZIG_ZAG = "enable_left_zig_zag";
+
+    public static final String ENABLE_HBO_OPTIMIZATION = "enable_hbo_optimization";
+
+    public static final String ENABLE_HBO_TRACKER = "enable_hbo_tracker";
     public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
 
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
@@ -1384,6 +1388,21 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_LEFT_ZIG_ZAG)
     private boolean enableLeftZigZag = false;
+
+    public boolean isEnableHboOptimzation() {
+        return enableHboOptimzation;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_HBO_OPTIMIZATION)
+    private boolean enableHboOptimzation = true;
+
+    public boolean isEnableHboTracker() {
+        return enableHboTracker;
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_HBO_TRACKER)
+    private boolean enableHboTracker = true;
+
 
     /**
      * as the new optimizer is not mature yet, use this var

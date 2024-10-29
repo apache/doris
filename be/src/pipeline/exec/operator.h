@@ -729,6 +729,7 @@ public:
                           vectorized::Block* output_block) const;
     void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
     int parallel_tasks() const { return _parallel_tasks; }
+    virtual void update_exec_stats(RuntimeState* state);
 
     // To keep compatibility with older FE
     void set_serial_operator() { _is_serial_operator = true; }

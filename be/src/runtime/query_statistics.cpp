@@ -44,6 +44,31 @@ void QueryStatistics::merge(const QueryStatistics& other) {
     if (other_memory_used > 0) {
         this->current_used_memory_bytes = other_memory_used;
     }
+    for (const auto& [node_id, exec_stats_item] : other._exec_stats_items) {
+        update_exec_stats_item(node_id, exec_stats_item->push_rows, exec_stats_item->pull_rows,
+                                exec_stats_item->pred_filter_rows, exec_stats_item->index_filter_rows,
+                                exec_stats_item->rf_filter_rows);
+    }
+}
+
+void QueryStatistics::update_exec_stats_item(uint32_t node_id, int64_t push, int64_t pull, int64_t pred_filter,
+                                             int64_t index_filter, int64_t rf_filter) {
+    auto iter = _exec_stats_items.find(node_id);
+    if (iter == _exec_stats_items.end()) {
+        _exec_stats_items.insert(
+                {node_id, std::make_shared<NodeExecStats>(push, pull, pred_filter, index_filter, rf_filter)});
+    } else {
+        iter->second->push_rows += push;
+        iter->second->pull_rows += pull;
+        iter->second->pred_filter_rows += pred_filter;
+        iter->second->index_filter_rows += index_filter;
+        iter->second->rf_filter_rows += rf_filter;
+    }
+}
+
+void QueryStatistics::add_exec_stats_item(uint32_t node_id, int64_t push, int64_t pull, int64_t pred_filter,
+                                          int64_t index_filter, int64_t rf_filter) {
+    update_exec_stats_item(node_id, push, pull, pred_filter, index_filter, rf_filter);
 }
 
 void QueryStatistics::to_pb(PQueryStatistics* statistics) {
@@ -55,6 +80,16 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
     statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
     statistics->set_scan_bytes_from_remote_storage(_scan_bytes_from_remote_storage);
     statistics->set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
+
+    for (const auto& [node_id, exec_stats_item] : _exec_stats_items) {
+        auto new_exec_stats_item = statistics->add_node_exec_stats_items();
+        new_exec_stats_item->set_node_id(node_id);
+        new_exec_stats_item->set_push_rows(exec_stats_item->push_rows);
+        new_exec_stats_item->set_pull_rows(exec_stats_item->pull_rows);
+        new_exec_stats_item->set_index_filter_rows(exec_stats_item->index_filter_rows);
+        new_exec_stats_item->set_rf_filter_rows(exec_stats_item->rf_filter_rows);
+        new_exec_stats_item->set_pred_filter_rows(exec_stats_item->pred_filter_rows);
+    }
 }
 
 void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
@@ -69,6 +104,19 @@ void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
     statistics->__set_shuffle_send_rows(shuffle_send_rows);
     statistics->__set_scan_bytes_from_remote_storage(_scan_bytes_from_remote_storage);
     statistics->__set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
+
+    std::vector<TNodeExecStatsItemPB> pbList;
+    for (const auto& [node_id, exec_stats_item] : _exec_stats_items) {
+        TNodeExecStatsItemPB *pb = new TNodeExecStatsItemPB();
+        pb->__set_node_id(node_id);
+        pb->__set_push_rows(exec_stats_item->push_rows);
+        pb->__set_pull_rows(exec_stats_item->pull_rows);
+        pb->__set_index_filter_rows(exec_stats_item->index_filter_rows);
+        pb->__set_rf_filter_rows(exec_stats_item->rf_filter_rows);
+        pb->__set_pred_filter_rows(exec_stats_item->pred_filter_rows);
+        pbList.push_back(*pb);
+    }
+    statistics->__set_node_exec_stats_items(pbList);
 }
 
 void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
@@ -77,8 +125,16 @@ void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
     cpu_nanos = statistics.cpu_ms() * NANOS_PER_MILLIS;
     _scan_bytes_from_local_storage = statistics.scan_bytes_from_local_storage();
     _scan_bytes_from_remote_storage = statistics.scan_bytes_from_remote_storage();
+    for (int i = 0; i < statistics.node_exec_stats_items_size(); ++i) {
+        const auto& exec_stats_item = statistics.node_exec_stats_items(i);
+        update_exec_stats_item(exec_stats_item.node_id(), exec_stats_item.push_rows(), exec_stats_item.pull_rows(),
+                                exec_stats_item.pred_filter_rows(), exec_stats_item.index_filter_rows(),
+                                exec_stats_item.rf_filter_rows());
+    }
 }
 
-QueryStatistics::~QueryStatistics() {}
+QueryStatistics::~QueryStatistics() {
+    _exec_stats_items.clear();
+}
 
 } // namespace doris

@@ -293,6 +293,11 @@ public abstract class AbstractPhysicalJoin<
                 args.toArray());
     }
 
+    @Override
+    public boolean needCollectExecStats() {
+        return true;
+    }
+
     /**
      * true if this is a broadcast join
      */

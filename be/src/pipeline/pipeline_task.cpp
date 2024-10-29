@@ -100,6 +100,7 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
     auto* parent_profile = _state->get_sink_local_state()->profile();
     query_ctx->register_query_statistics(
             _state->get_sink_local_state()->get_query_statistics_ptr());
+    query_ctx->register_query_context();
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
@@ -122,6 +123,8 @@ Status PipelineTask::prepare(const TPipelineInstanceParams& local_params, const 
     if (query_context()->is_cancelled()) {
         clear_blocking_state();
     }
+    // todo: check if local_params's exec_stats_node_ids exists
+    query_ctx->init_node_exec_stats(local_params.exec_stats_node_ids);
     return Status::OK();
 }
 

@@ -187,8 +187,57 @@ public:
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
     void register_query_statistics(std::shared_ptr<QueryStatistics> qs);
+    void register_query_context();
 
     std::shared_ptr<QueryStatistics> get_query_statistics();
+
+    void init_node_exec_stats(const std::vector<int32_t>& exec_stats_node_ids);
+    bool need_record_exec_stats(int32_t plan_node_id) {
+        auto it = _node_exec_stats.find(plan_node_id);
+        return it != _node_exec_stats.end();
+    }
+
+    void update_push_rows_stats(int32_t plan_node_id, int64_t push_rows) {
+        auto it = _node_exec_stats.find(plan_node_id);
+        if (it != _node_exec_stats.end()) {
+            it->second->push_rows += push_rows;
+        }
+    }
+
+    void update_pull_rows_stats(int32_t plan_node_id, int64_t pull_rows) {
+        auto it = _node_exec_stats.find(plan_node_id);
+        if (it != _node_exec_stats.end()) {
+            it->second->pull_rows += pull_rows;
+        }
+    }
+
+    void update_pred_filter_stats(int32_t plan_node_id, int64_t pred_filter_rows) {
+        auto it = _node_exec_stats.find(plan_node_id);
+        if (it != _node_exec_stats.end()) {
+            it->second->pred_filter_rows += pred_filter_rows;
+        }
+    }
+
+    void update_index_filter_stats(int32_t plan_node_id, int64_t index_filter_rows) {
+        auto it = _node_exec_stats.find(plan_node_id);
+        if (it != _node_exec_stats.end()) {
+            it->second->index_filter_rows += index_filter_rows;
+        }
+    }
+
+    void update_rf_filter_stats(int32_t plan_node_id, int64_t rf_filter_rows) {
+        auto it = _node_exec_stats.find(plan_node_id);
+        if (it != _node_exec_stats.end()) {
+            it->second->rf_filter_rows += rf_filter_rows;
+        }
+    }
+
+    void force_set_pull_rows_stats(int32_t plan_node_id, int64_t pull_rows) {
+        auto it = _node_exec_stats.find(plan_node_id);
+        if (it != _node_exec_stats.end()) {
+            it->second->pull_rows.exchange(pull_rows);
+        }
+    }
 
     void register_memory_statistics();
 
@@ -345,6 +394,8 @@ private:
     std::unordered_map<int, std::vector<std::shared_ptr<TRuntimeProfileTree>>>
     _collect_realtime_query_profile() const;
 
+    std::once_flag _node_exec_stats_init_flag;
+
 public:
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     void add_fragment_profile(
@@ -353,6 +404,16 @@ public:
             std::shared_ptr<TRuntimeProfileTree> load_channel_profile);
 
     TReportExecStatusParams get_realtime_exec_status() const;
+
+    struct NodeExecStats {
+        std::atomic_int64_t push_rows;
+        std::atomic_int64_t pull_rows;
+        std::atomic_int64_t pred_filter_rows;
+        std::atomic_int64_t index_filter_rows;
+        std::atomic_int64_t rf_filter_rows;
+    };
+
+    std::unordered_map<int32_t, std::shared_ptr<NodeExecStats>> _node_exec_stats;
 
     bool enable_profile() const {
         return _query_options.__isset.enable_profile && _query_options.enable_profile;

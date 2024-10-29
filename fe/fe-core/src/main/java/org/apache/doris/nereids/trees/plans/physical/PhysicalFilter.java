@@ -158,4 +158,9 @@ public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         return new PhysicalFilter<>(conjuncts, groupExpression, null, physicalProperties,
                 statistics, child());
     }
+
+    @Override
+    public boolean needCollectExecStats() {
+        return true;
+    }
 }

@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
@@ -403,6 +404,21 @@ public class NereidsPlanner extends Planner {
             LOG.debug("End optimize plan");
         }
     }
+    private void collectExecStatsIds(PhysicalPlan root, PlanFragment fragment) {
+        if (ConnectContext.get() == null) {
+            return;
+        }
+        if (!ConnectContext.get().getSessionVariable().isEnableHboTracker()) {
+            return;
+        }
+        for (Object child : root.children()) {
+            collectExecStatsIds((PhysicalPlan) child, fragment);
+        }
+        if (root.needCollectExecStats()) {
+            // todo: make sure the plan id is valid
+            fragment.getCollectExecStatsIds().add(((PlanNode) root).getId().asInt());
+        }
+    }
 
     protected void splitFragments(PhysicalPlan resultPlan) {
         if (resultPlan instanceof PhysicalSqlCache) {
@@ -423,7 +439,7 @@ public class NereidsPlanner extends Planner {
             return;
         }
         PlanFragment root = physicalPlanTranslator.translatePlan(physicalPlan);
-
+        collectExecStatsIds(physicalPlan, root);
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
         physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();

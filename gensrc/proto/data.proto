@@ -37,6 +37,16 @@ message PQueryStatistics {
     repeated PNodeStatistics nodes_statistics = 6;
     optional int64 scan_bytes_from_local_storage = 7;
     optional int64 scan_bytes_from_remote_storage = 8;
+    repeated NodeExecStatsItemPB node_exec_stats_items = 9;
+}
+
+message NodeExecStatsItemPB {
+    optional int64 push_rows = 1;
+    optional int64 pull_rows = 2;
+    optional int64 pred_filter_rows = 3;
+    optional int64 index_filter_rows = 4;
+    optional int64 rf_filter_rows = 5;
+    optional uint32 node_id = 20;
 }
 
 message PRowBatch {

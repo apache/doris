@@ -318,6 +318,11 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 child());
     }
 
+    @Override
+    public boolean needCollectExecStats() {
+        return true;
+    }
+
     /**
      * used to push limit down to localAgg
      */

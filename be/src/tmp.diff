@@ -1,0 +1,137 @@
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800   1) // Licensed to the Apache Software Foundation (ASF) under one
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800   2) // or more contributor license agreements.  See the NOTICE file
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800   3) // distributed with this work for additional information
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800   4) // regarding copyright ownership.  The ASF licenses this file
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800   5) // to you under the Apache License, Version 2.0 (the
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800   6) // "License"); you may not use this file except in compliance
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800   7) // with the License.  You may obtain a copy of the License at
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800   8) //
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800   9) //   http://www.apache.org/licenses/LICENSE-2.0
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  10) //
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  11) // Unless required by applicable law or agreed to in writing,
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  12) // software distributed under the License is distributed on an
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  13) // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  14) // KIND, either express or implied.  See the License for the
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  15) // specific language governing permissions and limitations
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  16) // under the License.
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  17) 
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  18) #include "runtime/query_statistics.h"
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  19) 
+e412dd12e8f (Adonis Ling   2023-04-19 23:11:48 +0800  20) #include <gen_cpp/data.pb.h>
+db07e51cd39 (plat1ko       2022-08-29 12:06:01 +0800  21) #include <glog/logging.h>
+db07e51cd39 (plat1ko       2022-08-29 12:06:01 +0800  22) 
+6b2eed779c9 (Mryange       2023-10-25 10:00:35 +0800  23) #include <memory>
+6b2eed779c9 (Mryange       2023-10-25 10:00:35 +0800  24) 
+19862fef774 (wangbo        2024-01-15 10:42:06 +0800  25) #include "util/time.h"
+19862fef774 (wangbo        2024-01-15 10:42:06 +0800  26) 
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  27) namespace doris {
+0e5b1932433 (chenhao       2019-01-17 12:43:15 +0800  28) 
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  29) void QueryStatistics::merge(const QueryStatistics& other) {
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  30)     scan_rows += other.scan_rows;
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  31)     scan_bytes += other.scan_bytes;
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  32)     cpu_nanos += other.cpu_nanos;
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  33)     shuffle_send_bytes += other.shuffle_send_bytes;
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  34)     shuffle_send_rows += other.shuffle_send_rows;
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  35)     _scan_bytes_from_local_storage += other._scan_bytes_from_local_storage;
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  36)     _scan_bytes_from_remote_storage += other._scan_bytes_from_remote_storage;
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  37) 
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  38)     int64_t other_peak_mem = other.max_peak_memory_bytes;
+65661ce38e3 (wangbo        2024-01-16 21:24:30 +0800  39)     if (other_peak_mem > this->max_peak_memory_bytes) {
+65661ce38e3 (wangbo        2024-01-16 21:24:30 +0800  40)         this->max_peak_memory_bytes = other_peak_mem;
+65661ce38e3 (wangbo        2024-01-16 21:24:30 +0800  41)     }
+65661ce38e3 (wangbo        2024-01-16 21:24:30 +0800  42) 
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  43)     int64_t other_memory_used = other.current_used_memory_bytes;
+65661ce38e3 (wangbo        2024-01-16 21:24:30 +0800  44)     if (other_memory_used > 0) {
+65661ce38e3 (wangbo        2024-01-16 21:24:30 +0800  45)         this->current_used_memory_bytes = other_memory_used;
+19862fef774 (wangbo        2024-01-15 10:42:06 +0800  46)     }
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  47)     for (int i = 0; i < other._exec_stats_items.size(); ++i) {
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  48)         const auto& exec_stats_item = other._exec_stats_items.get(i);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  49)         update_exec_stats_item(exec_stats_item.node_id(), exec_stats_item.push_rows(), exec_stats_item.pull_rows(),
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  50)                                 exec_stats_item.pred_filter_rows(), exec_stats_item.index_filter_rows(),
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  51)                                 exec_stats_item.rf_filter_rows());
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  52)     }
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  53) }
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  54) 
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  55) void QueryStatistics::update_exec_stats_item(uint32_t node_id, int64_t push, int64_t pull, int64_t pred_filter,
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  56)                                              int64_t index_filter, int64_t rf_filter) {
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  57)     auto iter = _exec_stats_items.find(node_id);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  58)     if (iter == _exec_stats_items.end()) {
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  59)         _exec_stats_items.insert(
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  60)                 {node_id, std::make_shared<NodeExecStats>(push, pull, pred_filter, index_filter, rf_filter)});
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  61)     } else {
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  62)         iter->second->push_rows += push;
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  63)         iter->second->pull_rows += pull;
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  64)         iter->second->pred_filter_rows += pred_filter;
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  65)         iter->second->index_filter_rows += index_filter;
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  66)         iter->second->rf_filter_rows += rf_filter;
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  67)     }
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  68) }
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  69) 
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  70) void QueryStatistics::add_exec_stats_item(uint32_t node_id, int64_t push, int64_t pull, int64_t pred_filter,
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  71)                                           int64_t index_filter, int64_t rf_filter) {
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  72)     update_exec_stats_item(node_id, push, pull, pred_filter, index_filter, rf_filter);
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  73) }
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  74) 
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  75) void QueryStatistics::to_pb(PQueryStatistics* statistics) {
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  76)     DCHECK(statistics != nullptr);
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  77)     statistics->set_scan_rows(scan_rows);
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  78)     statistics->set_scan_bytes(scan_bytes);
+19862fef774 (wangbo        2024-01-15 10:42:06 +0800  79)     statistics->set_cpu_ms(cpu_nanos / NANOS_PER_MILLIS);
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  80)     statistics->set_returned_rows(returned_rows);
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  81)     statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
+da1cd324ae0 (Lightman      2024-04-27 13:54:41 +0800  82)     statistics->set_scan_bytes_from_remote_storage(_scan_bytes_from_remote_storage);
+da1cd324ae0 (Lightman      2024-04-27 13:54:41 +0800  83)     statistics->set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  84) 
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  85)     for (const auto& [node_id, exec_stats_item] : _exec_stats_items) {
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  86)         auto new_exec_stats_item = statistics->add_node_exec_stats_items();
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  87)         new_exec_stats_item->set_node_id(node_id);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  88)         new_exec_stats_item->set_push_rows(exec_stats_item->push_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  89)         new_exec_stats_item->set_pull_rows(exec_stats_item->pull_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  90)         new_exec_stats_item->set_index_filter_rows(exec_stats_item->index_filter_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  91)         new_exec_stats_item->set_rf_filter_rows(exec_stats_item->rf_filter_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  92)         new_exec_stats_item->set_pred_filter_rows(exec_stats_item->pred_filter_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800  93)     }
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  94) }
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800  95) 
+d9d54686212 (Mryange       2023-11-29 15:01:57 +0800  96) void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
+d9d54686212 (Mryange       2023-11-29 15:01:57 +0800  97)     DCHECK(statistics != nullptr);
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  98)     statistics->__set_scan_bytes(scan_bytes);
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800  99)     statistics->__set_scan_rows(scan_rows);
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800 100)     statistics->__set_cpu_ms(cpu_nanos / NANOS_PER_MILLIS);
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800 101)     statistics->__set_returned_rows(returned_rows);
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800 102)     statistics->__set_max_peak_memory_bytes(max_peak_memory_bytes);
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800 103)     statistics->__set_current_used_memory_bytes(current_used_memory_bytes);
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800 104)     statistics->__set_shuffle_send_bytes(shuffle_send_bytes);
+441125652c5 (Pxl           2024-07-22 10:56:56 +0800 105)     statistics->__set_shuffle_send_rows(shuffle_send_rows);
+da1cd324ae0 (Lightman      2024-04-27 13:54:41 +0800 106)     statistics->__set_scan_bytes_from_remote_storage(_scan_bytes_from_remote_storage);
+da1cd324ae0 (Lightman      2024-04-27 13:54:41 +0800 107)     statistics->__set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 108) 
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 109)     for (const auto& [node_id, exec_stats_item] : _exec_stats_items) {
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 110)         auto new_exec_stats_item = statistics->add_node_exec_stats_items();
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 111)         new_exec_stats_item->set_node_id(node_id);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 112)         new_exec_stats_item->set_push_rows(exec_stats_item->push_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 113)         new_exec_stats_item->set_pull_rows(exec_stats_item->pull_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 114)         new_exec_stats_item->set_index_filter_rows(exec_stats_item->index_filter_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 115)         new_exec_stats_item->set_rf_filter_rows(exec_stats_item->rf_filter_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 116)         new_exec_stats_item->set_pred_filter_rows(exec_stats_item->pred_filter_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 117)     }
+d9d54686212 (Mryange       2023-11-29 15:01:57 +0800 118) }
+d9d54686212 (Mryange       2023-11-29 15:01:57 +0800 119) 
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800 120) void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800 121)     scan_rows = statistics.scan_rows();
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800 122)     scan_bytes = statistics.scan_bytes();
+19862fef774 (wangbo        2024-01-15 10:42:06 +0800 123)     cpu_nanos = statistics.cpu_ms() * NANOS_PER_MILLIS;
+da1cd324ae0 (Lightman      2024-04-27 13:54:41 +0800 124)     _scan_bytes_from_local_storage = statistics.scan_bytes_from_local_storage();
+da1cd324ae0 (Lightman      2024-04-27 13:54:41 +0800 125)     _scan_bytes_from_remote_storage = statistics.scan_bytes_from_remote_storage();
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 126)     for (const auto& [node_id, exec_stats_item] : statistics) {
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 127)         update_exec_stats_item(node_id, exec_stats_item->push_rows, exec_stats_item->pull_rows,
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 128)                                 exec_stats_item->pred_filter_rows, exec_stats_item->index_filter_rows,
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 129)                                 exec_stats_item->rf_filter_rows);
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 130)     }
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800 131) }
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800 132) 
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 133) QueryStatistics::~QueryStatistics() {
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 134)     _exec_stats_items.clear();
+75b94456e10 (zhongjian.xzj 2024-10-17 15:28:30 +0800 135) }
+836c95c2caf (xy720         2021-11-22 14:46:08 +0800 136) 
+6fedf5881be (sduzh         2020-11-28 18:36:49 +0800 137) } // namespace doris

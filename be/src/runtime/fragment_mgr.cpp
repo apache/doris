@@ -825,7 +825,6 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     }
 
     query_ctx->set_pipeline_context(params.fragment_id, context);
-
     RETURN_IF_ERROR(context->submit());
     return Status::OK();
 }
