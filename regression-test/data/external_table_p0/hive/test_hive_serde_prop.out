@@ -28,13 +28,13 @@ b	2.2
 2	def
 
 -- !8 --
-1	null
+1	\N
 2	|||
 3	aaa
 4	"null"
 
 -- !9 --
-1	null
+1	\N
 2	|||
 3	aaa
 4	"null"
@@ -80,13 +80,13 @@ b	2.2
 2	def
 
 -- !8 --
-1	null
+1	\N
 2	|||
 3	aaa
 4	"null"
 
 -- !9 --
-1	null
+1	\N
 2	|||
 3	aaa
 4	"null"
