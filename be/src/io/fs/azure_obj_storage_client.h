@@ -51,6 +51,8 @@ public:
                                          std::vector<std::string> objs) override;
     ObjectStorageResponse delete_object(const ObjectStoragePathOptions& opts) override;
     ObjectStorageResponse delete_objects_recursively(const ObjectStoragePathOptions& opts) override;
+    ObjectStorageResponse copy_object(const ObjectStoragePathOptions& src_opts,
+                                      const ObjectStoragePathOptions& dst_opts) override;
     std::string generate_presigned_url(const ObjectStoragePathOptions& opts,
                                        int64_t expiration_secs, const S3ClientConf& conf) override;
 

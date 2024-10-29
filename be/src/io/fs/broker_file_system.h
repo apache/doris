@@ -63,6 +63,7 @@ protected:
     Status batch_upload_impl(const std::vector<Path>& local_files,
                              const std::vector<Path>& remote_files) override;
     Status download_impl(const Path& remote_file, const Path& local_file) override;
+    Status copy_path_impl(const Path& src, const Path& dest) override;
 
 private:
     BrokerFileSystem(const TNetworkAddress& broker_addr,

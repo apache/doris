@@ -53,8 +53,6 @@ public:
                              const std::function<bool(const FileInfo&)>& cb);
     // return disk available space where the given path is.
     Status get_space_info(const Path& path, size_t* capacity, size_t* available);
-    // Copy src path to dest path. If `src` is a directory, this method will call recursively for each directory entry.
-    Status copy_path(const Path& src, const Path& dest);
     // return true if parent path contain sub path
     static bool contain_path(const Path& parent, const Path& sub);
     // delete dir or file
@@ -94,7 +92,7 @@ protected:
     Status iterate_directory_impl(const std::string& dir,
                                   const std::function<bool(const FileInfo&)>& cb);
     Status get_space_info_impl(const Path& path, size_t* capacity, size_t* available);
-    Status copy_path_impl(const Path& src, const Path& dest);
+    Status copy_path_impl(const Path& src, const Path& dest) override;
     Status permission_impl(const Path& file, std::filesystem::perms prms);
 
 private:

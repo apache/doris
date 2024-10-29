@@ -314,7 +314,7 @@ private:
     Status _validate_alter_result(const TAlterTabletReqV2& request);
 
     Status _convert_historical_rowsets(const SchemaChangeParams& sc_params,
-                                       int64_t* real_alter_version);
+                                       int64_t* real_alter_version, bool* is_linked_sc);
 
     // Initialization Settings for creating a default value
     static Status _init_column_mapping(ColumnMapping* column_mapping,

@@ -359,10 +359,6 @@ Status LocalFileSystem::get_space_info_impl(const Path& path, size_t* capacity, 
     return Status::OK();
 }
 
-Status LocalFileSystem::copy_path(const Path& src, const Path& dest) {
-    FILESYSTEM_M(copy_path_impl(src, dest));
-}
-
 Status LocalFileSystem::copy_path_impl(const Path& src, const Path& dest) {
     std::error_code ec;
     std::filesystem::copy(src, dest, std::filesystem::copy_options::recursive, ec);

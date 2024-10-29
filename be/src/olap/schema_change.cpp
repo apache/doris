@@ -501,6 +501,13 @@ Status LinkedSchemaChange::process(RowsetReaderSharedPtr rowset_reader, RowsetWr
             DCHECK(ret == 1);
         }
     }
+    if (!rowset_reader->rowset()->is_local()) {
+        // use base_tablet's cooldown_meta_id to ensure that the cooldown_meta_id
+        // is the same for all replicas of the new tablet
+        std::lock_guard wlock(new_tablet->get_header_lock());
+        new_tablet->tablet_meta()->set_cooldown_meta_id(
+                base_tablet->tablet_meta()->cooldown_meta_id());
+    }
     return Status::OK();
 }
 
@@ -961,6 +968,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         } while (false);
     }
 
+    bool is_linked_sc = false;
     do {
         if (!res) {
             break;
@@ -1006,7 +1014,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         int64_t real_alter_version = 0;
         sc_params.enable_unique_key_merge_on_write =
                 _new_tablet->enable_unique_key_merge_on_write();
-        res = _convert_historical_rowsets(sc_params, &real_alter_version);
+        res = _convert_historical_rowsets(sc_params, &real_alter_version, &is_linked_sc);
         {
             std::lock_guard<std::shared_mutex> wrlock(_mutex);
             _tablet_ids_in_converting.erase(_new_tablet->tablet_id());
@@ -1038,7 +1046,13 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
     if (res) {
         // _validate_alter_result should be outside the above while loop.
         // to avoid requiring the header lock twice.
-        res = _validate_alter_result(request);
+        if (is_linked_sc &&
+            _base_tablet->cooldown_conf().cooldown_replica_id != _base_tablet->replica_id()) {
+            // only cooldown replica will do data copy for linked sc, skip validate for follower replica.
+            LOG(INFO) << "follower cooldown replica linked sc, skip _validate_alter_result";
+        } else {
+            res = _validate_alter_result(request);
+        }
     }
 
     // if failed convert history data, then just remove the new tablet
@@ -1074,7 +1088,8 @@ Status SchemaChangeJob::_get_versions_to_be_changed(std::vector<Version>* versio
 // The `real_alter_version` parameter indicates that the version of [0-real_alter_version] is
 // converted from a base tablet, only used for the mow table now.
 Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc_params,
-                                                    int64_t* real_alter_version) {
+                                                    int64_t* real_alter_version,
+                                                    bool* is_linked_sc) {
     LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
               << " base_tablet=" << _base_tablet->tablet_id()
               << ", new_tablet=" << _new_tablet->tablet_id() << ", job_id=" << _job_id;
@@ -1100,6 +1115,10 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
     LOG(INFO) << "schema change type, sc_sorting: " << sc_sorting
               << ", sc_directly: " << sc_directly << ", base_tablet=" << _base_tablet->tablet_id()
               << ", new_tablet=" << _new_tablet->tablet_id();
+
+    if (!sc_directly && !sc_sorting) {
+        *is_linked_sc = true;
+    }
 
     auto process_alter_exit = [&]() -> Status {
         {
@@ -1376,20 +1395,6 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             }
         }
     }
-
-    // if rs_reader has remote files, link schema change is not supported,
-    // use directly schema change instead.
-    if (!(*sc_directly) && !(*sc_sorting)) {
-        // check has remote rowset
-        // work for cloud and cold storage
-        for (const auto& rs_reader : sc_params.ref_rowset_readers) {
-            if (!rs_reader->rowset()->is_local()) {
-                *sc_directly = true;
-                break;
-            }
-        }
-    }
-
     return Status::OK();
 }
 

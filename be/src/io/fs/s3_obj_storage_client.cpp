@@ -426,6 +426,24 @@ ObjectStorageResponse S3ObjStorageClient::delete_objects_recursively(
     return ObjectStorageResponse::OK();
 }
 
+ObjectStorageResponse S3ObjStorageClient::copy_object(const ObjectStoragePathOptions& src_opts,
+                                                      const ObjectStoragePathOptions& dst_opts) {
+    Aws::S3::Model::CopyObjectRequest request;
+    request.WithCopySource(src_opts.bucket + "/" + src_opts.key)
+            .WithKey(dst_opts.key)
+            .WithBucket(dst_opts.bucket);
+
+    auto outcome = s3_put_rate_limit([&]() { return _client->CopyObject(request); });
+    if (outcome.IsSuccess()) {
+        return ObjectStorageResponse::OK();
+    }
+    return {convert_to_obj_response(s3fs_error(
+                    outcome.GetError(),
+                    fmt::format("failed to copy from {} to {}", src_opts.key, dst_opts.key))),
+            static_cast<int>(outcome.GetError().GetResponseCode()),
+            outcome.GetError().GetRequestId()};
+}
+
 std::string S3ObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
                                                        int64_t expiration_secs,
                                                        const S3ClientConf&) {

@@ -209,6 +209,7 @@ protected:
     virtual Status _close_file_writers();
     virtual Status _check_segment_number_limit(size_t segnum);
     virtual int64_t _num_seg() const;
+    virtual Status _link_files_to(RowsetSharedPtr rowset);
     // build a tmp rowset for load segment to calc delete_bitmap for this segment
     Status _build_tmp(RowsetSharedPtr& rowset_ptr);
 
@@ -292,6 +293,7 @@ private:
     Status _close_file_writers() override;
     Status _check_segment_number_limit(size_t segnum) override;
     int64_t _num_seg() const override;
+    Status _link_files_to(RowsetSharedPtr rowset) override;
     Status _wait_flying_segcompaction();
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();

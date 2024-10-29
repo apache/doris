@@ -49,6 +49,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
@@ -649,7 +650,7 @@ Status BetaRowsetWriter::_segcompaction_rename_last_segments() {
 
 Status BaseBetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
-    RETURN_IF_ERROR(rowset->link_files_to(_context.tablet_path, _context.rowset_id));
+    RETURN_IF_ERROR(_link_files_to(rowset));
     _num_rows_written += rowset->num_rows();
     _total_data_size += rowset->rowset_meta()->data_disk_size();
     _total_index_size += rowset->rowset_meta()->index_disk_size();
@@ -737,6 +738,30 @@ Status BaseBetaRowsetWriter::_close_file_writers() {
     // Flush and close segment files
     RETURN_NOT_OK_STATUS_WITH_WARN(_segment_creator.close(),
                                    "failed to close segment creator when build new rowset");
+    return Status::OK();
+}
+
+Status BaseBetaRowsetWriter::_link_files_to(RowsetSharedPtr rowset) {
+    RETURN_IF_ERROR(rowset->link_files_to(_context.tablet_path, _context.rowset_id));
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_link_files_to(RowsetSharedPtr rowset) {
+    if (rowset->is_local()) {
+        RETURN_IF_ERROR(rowset->link_files_to(_context.tablet_path, _context.rowset_id));
+    } else {
+        // use old rowset id for remote rowset
+        _rowset_meta->set_rowset_id(rowset->rowset_meta()->rowset_id());
+        _context.rowset_id = rowset->rowset_meta()->rowset_id();
+        TabletSharedPtr tablet =
+                _engine.tablet_manager()->get_tablet(rowset->rowset_meta()->tablet_id());
+        if (tablet->cooldown_conf().cooldown_replica_id == tablet->replica_id()) {
+            RETURN_IF_ERROR(rowset->copy_files_to(_context.tablet_path, _context.rowset_id));
+        } else {
+            LOG(INFO) << "tablet is not cooldown replica, skip copy remote file. tablet: "
+                      << _context.tablet_id;
+        }
+    }
     return Status::OK();
 }
 

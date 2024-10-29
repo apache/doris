@@ -379,21 +379,20 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
 }
 
 Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) {
-    if (!is_local()) {
-        DCHECK(false) << _rowset_meta->tablet_id() << ' ' << rowset_id();
-        return Status::InternalError("should be local rowset. tablet_id={} rowset_id={}",
-                                     _rowset_meta->tablet_id(), rowset_id().to_string());
+    const auto& fs = _rowset_meta->fs();
+    if (!fs) {
+        return Status::InternalError("fs is not initialized, resource_id={}",
+                                     _rowset_meta->resource_id());
     }
-
     bool exists = false;
     for (int i = 0; i < num_segments(); ++i) {
         auto dst_path = local_segment_path(dir, new_rowset_id.to_string(), i);
-        RETURN_IF_ERROR(io::global_local_filesystem()->exists(dst_path, &exists));
+        RETURN_IF_ERROR(fs->exists(dst_path, &exists));
         if (exists) {
             return Status::Error<FILE_ALREADY_EXIST>("file already exist: {}", dst_path);
         }
         auto src_path = local_segment_path(_tablet_path, rowset_id().to_string(), i);
-        RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(src_path, dst_path));
+        RETURN_IF_ERROR(fs->copy_path(src_path, dst_path));
         if (_schema->get_inverted_index_storage_format() == InvertedIndexStorageFormatPB::V1) {
             for (auto& column : _schema->columns()) {
                 // if (column.has_inverted_index()) {
@@ -407,8 +406,8 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     InvertedIndexDescriptor::get_index_file_path_prefix(dst_path),
                                     index_meta->index_id(), index_meta->get_index_suffix());
-                    RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(
-                            inverted_index_src_file_path, inverted_index_dst_file_path));
+                    RETURN_IF_ERROR(fs->copy_path(inverted_index_src_file_path,
+                                                  inverted_index_dst_file_path));
                     LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path
                               << ", "
                               << "to=" << inverted_index_dst_file_path;
@@ -422,8 +421,7 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                 std::string inverted_index_dst_file =
                         InvertedIndexDescriptor::get_index_file_path_v2(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(dst_path));
-                RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(inverted_index_src_file,
-                                                                         inverted_index_dst_file));
+                RETURN_IF_ERROR(fs->copy_path(inverted_index_src_file, inverted_index_dst_file));
                 LOG(INFO) << "success to copy file. from=" << inverted_index_src_file << ", "
                           << "to=" << inverted_index_dst_file;
             }

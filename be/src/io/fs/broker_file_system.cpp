@@ -426,4 +426,8 @@ std::string BrokerFileSystem::error_msg(const std::string& err) const {
     return fmt::format("({}:{}), {}", _broker_addr.hostname, _broker_addr.port, err);
 }
 
+Status BrokerFileSystem::copy_path_impl(const Path& src, const Path& dest) {
+    return Status::NotSupported("BrokerFileSystem not support this method!");
+}
+
 } // namespace doris::io

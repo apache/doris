@@ -424,6 +424,23 @@ Status S3FileSystem::download_impl(const Path& remote_file, const Path& local_fi
     return Status::OK();
 }
 
+Status S3FileSystem::copy_path_impl(const Path& src, const Path& dst) {
+    auto client = _client->get();
+    CHECK_S3_CLIENT(client);
+    auto src_key = DORIS_TRY(get_key(src));
+    auto dst_key = DORIS_TRY(get_key(dst));
+    // clang-format off
+    auto resp = client->copy_object( {.bucket = _bucket, .key = src_key,},
+                                     {.bucket = _bucket, .key = dst_key,} );
+    // clang-format on
+    if (resp.status.code == ErrorCode::OK) {
+        LOG(INFO) << "succeed copy data from " << src.native() << " to " << dst.native();
+        return Status::OK();
+    }
+    return {resp.status.code, std::move(resp.status.msg)};
+}
+
+
 // oss has public endpoint and private endpoint, is_public_endpoint determines
 // whether to return a public endpoint.
 std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,

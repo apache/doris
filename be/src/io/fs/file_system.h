@@ -104,6 +104,7 @@ public:
     Status file_size(const Path& file, int64_t* file_size) const;
     Status list(const Path& dir, bool only_file, std::vector<FileInfo>* files, bool* exists);
     Status rename(const Path& orig_name, const Path& new_name);
+    Status copy_path(const Path& src, const Path& dest);
 
     const std::string& id() const { return _id; }
     // file system type
@@ -160,6 +161,8 @@ protected:
 
     /// rename file from orig_name to new_name
     virtual Status rename_impl(const Path& orig_name, const Path& new_name) = 0;
+
+    virtual Status copy_path_impl(const Path& src, const Path& dest) = 0;
 
     // FIMXE(plat1ko): The implementation and semantics of this function are not completely
     // consistent, which is confused.

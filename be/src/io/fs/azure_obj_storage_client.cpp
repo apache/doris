@@ -401,6 +401,23 @@ ObjectStorageResponse AzureObjStorageClient::delete_objects_recursively(
     return ObjectStorageResponse::OK();
 }
 
+ObjectStorageResponse AzureObjStorageClient::copy_object(const ObjectStoragePathOptions& src_opts,
+                                                         const ObjectStoragePathOptions& dst_opts) {
+    auto src_client = _client->GetBlobClient(src_opts.key);
+    auto dst_client = _client->GetBlobClient(dst_opts.key);
+    return do_azure_client_call(
+            [&]() {
+                auto resp = s3_get_rate_limit([&]() {
+                    SCOPED_BVAR_LATENCY(s3_bvar::s3_copy_object_latency);
+                    return dst_client.CopyFromUri(src_client.GetUrl());
+                });
+                if (resp.Value.CopyStatus != Models::CopyStatus::Success) {
+                    throw Exception(Status::IOError<false>("Copy azure blob failed"));
+                }
+            },
+            src_opts);
+}
+
 std::string AzureObjStorageClient::generate_presigned_url(const ObjectStoragePathOptions& opts,
                                                           int64_t expiration_secs,
                                                           const S3ClientConf& conf) {

@@ -311,4 +311,18 @@ Status HdfsFileSystem::download_impl(const Path& remote_file, const Path& local_
     return local_writer->close();
 }
 
+Status HdfsFileSystem::copy_path_impl(const Path& src, const Path& dest) {
+    Path src_path = convert_path(src, _fs_name);
+    Path dest_path = convert_path(dest, _fs_name);
+    CHECK_HDFS_HANDLE(_fs_handle);
+    int ret =
+            hdfsCopy(_fs_handle->hdfs_fs, src_path.c_str(), _fs_handle->hdfs_fs, dest_path.c_str());
+    if (ret != 0) {
+        return Status::IOError("fail to copy path from {} to {}: {}", src_path.native(),
+                               dest_path.native(), hdfs_error());
+    }
+    LOG(INFO) << "succeed to copy path from " << src_path.native() << " to " << dest_path.native();
+    return Status::OK();
+}
+
 } // namespace doris::io
