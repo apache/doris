@@ -50,8 +50,8 @@ CloudBaseCompaction::~CloudBaseCompaction() = default;
 Status CloudBaseCompaction::prepare_compact() {
     Status st;
     Defer defer_set_st([&] {
-        cloud_tablet()->set_last_base_compaction_status(st.to_string());
         if (!st.ok()) {
+            cloud_tablet()->set_last_base_compaction_status(st.to_string());
             cloud_tablet()->set_last_base_compaction_failure_time(UnixMillis());
         }
     });
