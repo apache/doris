@@ -630,9 +630,13 @@ public class FunctionSet<T> {
     public static final String COUNT = "count";
     public static final String WINDOW_FUNNEL = "window_funnel";
 
-    public static final String REGR_COUNT = "regr_count";
-
     public static final String RETENTION = "retention";
+
+    public static final String REGR_AVGX = "regr_avgx";
+
+    public static final String REGR_AVGY = "regr_avgy";
+
+    public static final String REGR_COUNT = "regr_count";
 
     public static final String REGR_INTERCEPT = "regr_intercept";
 
@@ -671,6 +675,36 @@ public class FunctionSet<T> {
                 "",
                 null, false, true, true, true));
 
+        // regr_avgx
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_AVGX,
+                Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, false, false, true));
+
+        // regr_avgy
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_AVGY,
+                Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, false, false, true));
+
+        // regr_count
+        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_COUNT,
+                new ArrayList<Type>(), Type.BIGINT, Type.BIGINT,
+                "",
+                "",
+                "",
+                null, null,
+                "",
+                null, false, false, true, true));
+
         // regr_intercept
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_INTERCEPT,
                 Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
@@ -680,6 +714,7 @@ public class FunctionSet<T> {
                 null, null,
                 "",
                 null, false, false, false, true));
+
         // regr_slope
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_SLOPE,
                 Lists.newArrayList(Type.DOUBLE, Type.DOUBLE), Type.DOUBLE, Type.DOUBLE,
@@ -710,15 +745,6 @@ public class FunctionSet<T> {
                     "",
                     null, false, true, true, true));
         }
-
-        addBuiltin(AggregateFunction.createBuiltin(FunctionSet.REGR_COUNT,
-                new ArrayList<Type>(), Type.BIGINT, Type.BIGINT,
-                "",
-                "",
-                "",
-                null, null,
-                "",
-                null, false, true, true, true));
 
         // Vectorization does not need symbol any more, we should clean it in the future.
         addBuiltin(AggregateFunction.createBuiltin(FunctionSet.WINDOW_FUNNEL,

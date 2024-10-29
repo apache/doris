@@ -85,10 +85,20 @@ public:
 #ifdef __clang__
 #pragma clang fp reassociate(on)
 #endif
+        const ColVecType* column {};
+
         if constexpr (y_nullable) {
             const auto& y_column_nullable = assert_cast<const ColumnNullable&>(*columns[0]);
             if (y_column_nullable.is_null_at(row_num)) {
                 return;
+            }
+            if constexpr (is_regr_avgy) {
+                column = assert_cast<const ColVecType*>(
+                        y_column_nullable.get_nested_column_ptr().get());
+            }
+        } else {
+            if constexpr (is_regr_avgy) {
+                column = assert_cast<const ColVecType*>((*columns[0]).get_ptr().get());
             }
         }
 
@@ -97,13 +107,14 @@ public:
             if (x_column_nullable.is_null_at(row_num)) {
                 return;
             }
-        }
-
-        const ColVecType* column {};
-        if constexpr (is_regr_avgy) {
-            column = assert_cast<const ColVecType*>((*columns[0]).get_ptr().get());
+            if constexpr (!is_regr_avgy) {
+                column = assert_cast<const ColVecType*>(
+                        x_column_nullable.get_nested_column_ptr().get());
+            }
         } else {
-            column = assert_cast<const ColVecType*>((*columns[1]).get_ptr().get());
+            if constexpr (!is_regr_avgy) {
+                column = assert_cast<const ColVecType*>((*columns[0]).get_ptr().get());
+            }
         }
 
         if constexpr (IsDecimalNumber<T>) {
@@ -116,7 +127,7 @@ public:
 
     void reset(AggregateDataPtr place) const override {
         this->data(place).sum = {};
-        this->data(place).count = 0;
+        this->data(place).count = {};
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,

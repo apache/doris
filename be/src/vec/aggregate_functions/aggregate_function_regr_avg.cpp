@@ -65,7 +65,8 @@ AggregateFunctionPtr type_dispatch_for_aggregate_function_regr_avg(const DataTyp
 template <bool is_regr_avgy>
 AggregateFunctionPtr create_aggregate_function_regr_avg(const std::string& name,
                                                         const DataTypes& argument_types,
-                                                        const bool result_is_nullable) {
+                                                        const bool result_is_nullable,
+                                                        const AggregateFunctionAttr&) {
     bool y_is_nullable = argument_types[0]->is_nullable();
     bool x_is_nullable = argument_types[1]->is_nullable();
     WhichDataType y_type(remove_nullable(argument_types[0]));

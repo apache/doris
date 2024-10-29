@@ -285,7 +285,7 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitRegrAvgX(RegrAvgX regrAvgX, C context) {
-        return visitNullableAggregateFunction(regrAvgX, context);
+        return visitAggregateFunction(regrAvgX, context);
     }
 
     default R visitRegrAvgY(RegrAvgY regrAvgY, C context) {
