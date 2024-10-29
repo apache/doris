@@ -254,7 +254,6 @@ MetaServiceResponseStatus fix_tablet_stats_internal(
         }
         int64_t total_disk_size = 0;
         for (const auto& rs_meta : resp.rowset_meta()) {
-            rs_meta.rowset_id();
             total_disk_size += rs_meta.total_disk_size();
         }
 
@@ -349,6 +348,7 @@ MetaServiceResponseStatus check_new_tablet_stats(
         err = txn->get(tablet_stat_key, &tablet_stat_value);
         if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             st.set_code(cast_as<ErrCategory::READ>(err));
+            return st;
         }
         TabletStatsPB tablet_stat_check;
         tablet_stat_check.ParseFromArray(tablet_stat_value.data(), tablet_stat_value.size());
@@ -373,6 +373,7 @@ MetaServiceResponseStatus check_new_tablet_stats(
         err = txn->get(tablet_stat_data_size_key, &tablet_stat_data_size_value);
         if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
             st.set_code(cast_as<ErrCategory::READ>(err));
+            return st;
         }
         int64_t tablet_stat_data_size_check;
 

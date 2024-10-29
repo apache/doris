@@ -75,7 +75,7 @@ MetaServiceResponseStatus parse_fix_tablet_stats_param(
 MetaServiceResponseStatus fix_tablet_stats_internal(
         std::shared_ptr<TxnKv> txn_kv, std::pair<std::string, std::string>& key_pair,
         std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch,
-        const std::string& instance_id, size_t batch_size = 50);
+        const std::string& instance_id, size_t batch_size = 20);
 
 MetaServiceResponseStatus check_new_tablet_stats(
         std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,

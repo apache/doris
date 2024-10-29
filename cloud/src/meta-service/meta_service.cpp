@@ -2217,7 +2217,7 @@ MetaServiceResponseStatus MetaServiceImpl::fix_tablet_stats(std::string cloud_un
         do {
             st = fix_tablet_stats_internal(txn_kv_, key_pair, tablet_stat_shared_ptr_vec_batch,
                                            instance_id);
-            if (retry > 1) {
+            if (st.code() != MetaServiceCode::OK) {
                 LOG_WARNING("failed to fix tablet stats")
                         .tag("err", st.msg())
                         .tag("table id", table_id)
