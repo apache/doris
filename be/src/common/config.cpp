@@ -1006,7 +1006,7 @@ DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_read_cache_file_directly, "false");
-DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "false");
+DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
 DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.

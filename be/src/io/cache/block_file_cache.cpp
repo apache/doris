@@ -316,14 +316,10 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
             if (st.ok()) {
                 auto& queue = get_queue(origin_type);
                 queue.remove(cell.queue_iterator.value(), cache_lock);
-                if (config::enable_ttl_cache_evict_using_lru) {
-                    auto& ttl_queue = get_queue(FileCacheType::TTL);
-                    cell.queue_iterator = ttl_queue.add(
-                            cell.file_block->get_hash_value(), cell.file_block->offset(),
-                            cell.file_block->range().size(), cache_lock);
-                } else {
-                    cell.queue_iterator.reset();
-                }
+                auto& ttl_queue = get_queue(FileCacheType::TTL);
+                cell.queue_iterator = ttl_queue.add(
+                        cell.file_block->get_hash_value(), cell.file_block->offset(),
+                        cell.file_block->range().size(), cache_lock);
             } else {
                 LOG_WARNING("Failed to change key meta").error(st);
             }
@@ -733,11 +729,10 @@ BlockFileCache::FileBlockCell* BlockFileCache::add_cell(const UInt128Wrapper& ha
                      << " cache_type=" << cache_type_to_string(context.cache_type)
                      << " error=" << st.msg();
     }
-    if (cell.file_block->cache_type() != FileCacheType::TTL ||
-        config::enable_ttl_cache_evict_using_lru) {
-        auto& queue = get_queue(cell.file_block->cache_type());
-        cell.queue_iterator = queue.add(hash, offset, size, cache_lock);
-    }
+
+    auto& queue = get_queue(cell.file_block->cache_type());
+    cell.queue_iterator = queue.add(hash, offset, size, cache_lock);
+
     if (cell.file_block->cache_type() == FileCacheType::TTL) {
         if (_key_to_time.find(hash) == _key_to_time.end()) {
             _key_to_time[hash] = context.expiration_time;
@@ -1716,14 +1711,10 @@ void BlockFileCache::modify_expiration_time(const UInt128Wrapper& hash,
             if (st.ok()) {
                 auto& queue = get_queue(origin_type);
                 queue.remove(cell.queue_iterator.value(), cache_lock);
-                if (config::enable_ttl_cache_evict_using_lru) {
-                    auto& ttl_queue = get_queue(FileCacheType::TTL);
-                    cell.queue_iterator =
-                            ttl_queue.add(hash, cell.file_block->offset(),
-                                          cell.file_block->range().size(), cache_lock);
-                } else {
-                    cell.queue_iterator.reset();
-                }
+                auto& ttl_queue = get_queue(FileCacheType::TTL);
+                cell.queue_iterator =
+                        ttl_queue.add(hash, cell.file_block->offset(),
+                                      cell.file_block->range().size(), cache_lock);
             }
             if (!st.ok()) {
                 LOG_WARNING("").error(st);
@@ -1880,6 +1871,12 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["index_queue_max_elements"] = (double)_index_queue.get_max_element_size();
     stats["index_queue_curr_elements"] =
             (double)_cur_index_queue_element_count_metrics->get_value();
+
+    stats["ttl_queue_max_size"] = (double)_ttl_queue.get_max_size();
+    stats["ttl_queue_curr_size"] = (double)_cur_ttl_cache_lru_queue_cache_size_metrics->get_value();
+    stats["ttl_queue_max_elements"] = (double)_ttl_queue.get_max_element_size();
+    stats["ttl_queue_curr_elements"] =
+            (double)_cur_ttl_cache_lru_queue_element_count_metrics->get_value();
 
     stats["normal_queue_max_size"] = (double)_normal_queue.get_max_size();
     stats["normal_queue_curr_size"] = (double)_cur_normal_queue_element_count_metrics->get_value();
