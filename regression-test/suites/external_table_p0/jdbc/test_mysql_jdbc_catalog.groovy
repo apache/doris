@@ -77,8 +77,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         try_sql("DROP USER ${user}")
         sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
 
-        sql """drop database if exists ${internal_db_name}; """
-        sql """create database ${internal_db_name}; """
+        sql """create database if not exists ${internal_db_name}; """
 
         sql """drop catalog if exists ${catalog_name} """
 
