@@ -81,7 +81,7 @@ constexpr unsigned long long operator"" _kb(unsigned long long m) {
 void assert_range([[maybe_unused]] size_t assert_n, io::FileBlockSPtr file_block,
                   const io::FileBlock::Range& expected_range, io::FileBlock::State expected_state) {
     auto range = file_block->range();
-    std::cout << "assert_range num: "  << assert_n << std::endl;
+    std::cout << "assert_range num: " << assert_n << std::endl;
     ASSERT_EQ(range.left, expected_range.left);
     ASSERT_EQ(range.right, expected_range.right);
     ASSERT_EQ(file_block->state(), expected_state);
@@ -2532,7 +2532,7 @@ TEST_F(BlockFileCacheTest, ttl_change_expiration_time) {
         auto blocks = fromHolder(holder);
         ASSERT_EQ(blocks.size(), 1);
         // std::cout << "current cache size:"  << cache.get_used_cache_size() << std::endl;
-        std::cout << "cache capacity:"  << cache.capacity() << std::endl;
+        std::cout << "cache capacity:" << cache.capacity() << std::endl;
         auto map = cache.get_stats();
         for (auto& [key, value] : map) {
             std::cout << key << " : " << value << std::endl;

@@ -32,11 +32,11 @@ inline static constexpr size_t DEFAULT_INDEX_PERCENT = 5;
 
 using uint128_t = vectorized::UInt128;
 
-enum class FileCacheType {
-    INDEX,
-    NORMAL,
-    DISPOSABLE,
-    TTL,
+enum FileCacheType {
+    INDEX = 2,
+    NORMAL = 1,
+    DISPOSABLE = 0,
+    TTL = 3,
 };
 
 struct UInt128Wrapper {
