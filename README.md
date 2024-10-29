@@ -198,7 +198,7 @@ Add your company logo at Apache Doris Website: 🔗[Add Your Company](https://gi
 
 ### 📚 Docs
 
-All Documentation   🔗[Docs](https://doris.apache.org/docs/get-starting/quick-start)  
+All Documentation   🔗[Docs](https://doris.apache.org/docs/gettingStarted/quick-start/)  
 
 ### ⬇️ Download 
 
