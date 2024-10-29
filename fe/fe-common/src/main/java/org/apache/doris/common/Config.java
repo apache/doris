@@ -2020,7 +2020,7 @@ public class Config extends ConfigBase {
      * Even if a backend is healthy, still write a heartbeat editlog to update backend's lastUpdateMs of bdb image.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static long editlog_healthy_heartbeat_seconds = 300;
+    public static int editlog_healthy_heartbeat_seconds = 300;
 
     /**
      * Abort transaction time after lost heartbeat.

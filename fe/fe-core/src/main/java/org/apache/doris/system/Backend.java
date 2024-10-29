@@ -47,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -153,7 +154,7 @@ public class Backend implements Writable {
     // send some queries to this BE, it is not an important problem.
     private AtomicBoolean isShutDown = new AtomicBoolean(false);
 
-    private long lastEditlogHeartbeatTime = System.currentTimeMillis();
+    private long nextForceEditlogHeartbeatTime = System.currentTimeMillis() + (new SecureRandom()).nextInt(60 * 1000);
 
     public Backend() {
         this.host = "";
@@ -805,7 +806,7 @@ public class Backend implements Writable {
     public String getHealthyStatus() {
         return "Backend [id=" + id + ", isDecommission: " + isDecommissioned
                 + ", backendStatus: " + backendStatus + ", isAlive: " + isAlive.get() + ", lastUpdateTime: "
-                + TimeUtils.longToTimeString(lastUpdateMs) + "]";
+                + TimeUtils.longToTimeString(lastUpdateMs);
     }
 
     /**
@@ -885,9 +886,10 @@ public class Backend implements Writable {
             this.heartbeatFailureCounter = 0;
 
             // even if no change, write an editlog to make lastUpdateMs in image update
-            if (System.currentTimeMillis() - this.lastEditlogHeartbeatTime
-                    >= Config.editlog_healthy_heartbeat_seconds) {
+            if (System.currentTimeMillis() >= this.nextForceEditlogHeartbeatTime) {
                 isChanged = true;
+                int delaySecond = Config.editlog_healthy_heartbeat_seconds + (new SecureRandom()).nextInt(60);
+                this.nextForceEditlogHeartbeatTime = System.currentTimeMillis() + delaySecond * 1000L;
             }
         } else {
             // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
@@ -908,10 +910,6 @@ public class Backend implements Writable {
             // But notice that if isChanged = false, these msg will not sync to other FE.
             heartbeatErrMsg = hbResponse.getMsg() == null ? "Unknown error" : hbResponse.getMsg();
             lastMissingHeartbeatTime = System.currentTimeMillis();
-        }
-
-        if (isChanged) {
-            this.lastEditlogHeartbeatTime = System.currentTimeMillis();
         }
 
         return isChanged;
