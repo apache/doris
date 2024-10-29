@@ -165,9 +165,6 @@ public:
                                            _distribution_partition_exprs));
     }
 
-    bool require_shuffled_data_distribution() const override {
-        return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN;
-    }
     bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }

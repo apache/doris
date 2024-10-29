@@ -88,9 +88,6 @@ public:
     }
 
     bool require_data_distribution() const override { return true; }
-    bool require_shuffled_data_distribution() const override {
-        return !_partition_by_eq_expr_ctxs.empty();
-    }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,

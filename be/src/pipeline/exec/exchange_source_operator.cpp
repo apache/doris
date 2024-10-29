@@ -105,7 +105,9 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
                                                     tnode.exchange_node.input_row_tuples.size())),
-          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {}
+          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::init(tnode, state));

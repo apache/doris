@@ -4351,7 +4351,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isIgnoreStorageDataDistribution() {
-        return ignoreStorageDataDistribution && enableLocalShuffle;
+        return ignoreStorageDataDistribution && enableLocalShuffle && enableNereidsPlanner;
     }
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
@@ -4389,7 +4389,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isForceToLocalShuffle() {
-        return enableLocalShuffle && forceToLocalShuffle;
+        return enableLocalShuffle && forceToLocalShuffle && enableNereidsPlanner;
     }
 
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {
