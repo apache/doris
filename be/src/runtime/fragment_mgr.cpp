@@ -586,6 +586,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
 
 static void empty_function(RuntimeState*, Status*) {}
 
+// non-pipeline execute
 void FragmentMgr::_exec_actual(std::shared_ptr<PlanFragmentExecutor> fragment_executor,
                                const FinishCallback& cb) {
     VLOG_DEBUG << fmt::format("Instance {}|{} executing", print_id(fragment_executor->query_id()),
@@ -725,14 +726,18 @@ void FragmentMgr::remove_pipeline_context(
         auto query_id = f_context->get_query_id();
         std::vector<TUniqueId> ins_ids;
         f_context->instance_ids(ins_ids);
+
+        // for pipelineX we dont need these logs.
         bool all_done = q_context->countdown(ins_ids.size());
         for (const auto& ins_id : ins_ids) {
-            LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
-                     print_id(ins_id), all_done);
+            if (!f_context->is_pipeline_x()) {
+                LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
+                         print_id(ins_id), all_done);
+            }
             _pipeline_map.erase(ins_id);
             g_pipeline_fragment_instances_count << -1;
         }
-        if (all_done) {
+        if (!f_context->is_pipeline_x() && all_done) {
             LOG_INFO("Query {} finished", print_id(query_id));
             _query_ctx_map.erase(query_id);
         }

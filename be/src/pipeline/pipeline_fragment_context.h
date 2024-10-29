@@ -141,6 +141,8 @@ public:
 
     uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
+    bool is_pipeline_x() const { return _is_pipeline_x; }
+
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
@@ -154,6 +156,7 @@ protected:
     TUniqueId _query_id;
     TUniqueId _fragment_instance_id;
     int _fragment_id;
+    bool _is_pipeline_x = false;
 
     int _backend_num;
 

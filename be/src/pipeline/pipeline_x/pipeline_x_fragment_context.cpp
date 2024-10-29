@@ -108,7 +108,9 @@ PipelineXFragmentContext::PipelineXFragmentContext(
         ExecEnv* exec_env, const std::function<void(RuntimeState*, Status*)>& call_back,
         const report_status_callback& report_status_cb)
         : PipelineFragmentContext(query_id, TUniqueId(), fragment_id, -1, query_ctx, exec_env,
-                                  call_back, report_status_cb) {}
+                                  call_back, report_status_cb) {
+    _is_pipeline_x = true;
+}
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
     // The memory released by the query end is recorded in the query mem tracker.
