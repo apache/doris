@@ -1147,8 +1147,8 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     request->set_filter_size(local_filter_size);
     request->set_filter_id(_filter_id);
 
-    callback->cntl_->set_timeout_ms(get_runtime_filter_rpc_timeout_ms(state->execution_timeout()));
-    if (config::runtime_filter_ignore_eovercrowded) {
+    callback->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(state->execution_timeout()));
+    if (config::execution_ignore_eovercrowded) {
         callback->cntl_->ignore_eovercrowded();
     }
 
@@ -1189,8 +1189,8 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
     RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
 
     merge_filter_callback->cntl_->set_timeout_ms(
-            get_runtime_filter_rpc_timeout_ms(_state->execution_timeout));
-    if (config::runtime_filter_ignore_eovercrowded) {
+            get_execution_rpc_timeout_ms(_state->execution_timeout));
+    if (config::execution_ignore_eovercrowded) {
         merge_filter_callback->cntl_->ignore_eovercrowded();
     }
 

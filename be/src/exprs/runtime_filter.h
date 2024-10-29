@@ -113,10 +113,6 @@ static RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc)
     }
 }
 
-inline int32_t get_runtime_filter_rpc_timeout_ms(int32_t execution_timeout) {
-    return std::min(config::runtime_filter_rpc_timeout_sec, execution_timeout) * 1000;
-}
-
 enum class RuntimeFilterRole { PRODUCER = 0, CONSUMER = 1 };
 
 struct RuntimeFilterParams {
