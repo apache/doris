@@ -797,7 +797,7 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
     };
 
     auto sargBuilder = orc::SearchArgumentFactory::newBuilder();
-    // 递归地将expr转为SearchArgument
+    // convert expr to sargs recursively
     std::function<bool(const VExprSPtr&)> convert_expr_to_sargs = [&](const VExprSPtr& expr) {
         if (expr == nullptr) {
             return false;
@@ -902,7 +902,16 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
             sargBuilder->end();
             break;
         }
-        // TODO: handle other operators
+        case TExprOpcode::EQ_FOR_NULL: {
+            DCHECK(expr->children().size() == 1);
+            DCHECK(expr->children()[0]->is_slot_ref());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
+            const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
+            const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
+            sargBuilder->isNull(slot_ref->expr_name(), predicate_type);
+            break;
+        }
         default: {
             VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
             return false;
