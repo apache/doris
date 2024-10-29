@@ -782,7 +782,13 @@ Status BlockAggregator::aggregate_rows(
             key, &_tablet_schema, false, specified_rowsets, &loc, _writer._mow_context->max_version,
             segment_caches, &rowset, true, &previous_encoded_seq_value);
     int64_t pos = start;
-    DCHECK(st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
+    bool is_expected_st = (st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
+    DCHECK(is_expected_st || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
+            << "[BlockAggregator::aggregate_rows] unexpected error status while lookup_row_key:"
+            << st;
+    if (!is_expected_st) {
+        return st;
+    }
 
     std::string cur_seq_val;
     if (st.ok()) {
@@ -977,7 +983,14 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
             Status st = _writer._tablet->lookup_row_key(
                     key, &_tablet_schema, false, specified_rowsets, &loc,
                     _writer._mow_context->max_version, segment_caches, &rowset, true);
-            DCHECK(st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
+            bool is_expected_st = (st.is<ErrorCode::KEY_NOT_FOUND>() || st.ok());
+            DCHECK(is_expected_st || st.is<ErrorCode::MEM_LIMIT_EXCEEDED>())
+                    << "[BlockAggregator::aggregate_for_insert_after_delete] unexpected error "
+                       "status while lookup_row_key:"
+                    << st;
+            if (!is_expected_st) {
+                return st;
+            }
 
             Slice previous_seq_slice {};
             if (st.ok()) {
