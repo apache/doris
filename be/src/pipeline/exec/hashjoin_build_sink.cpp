@@ -131,7 +131,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
         const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
 
         // If the new size is greater than 95% of allocalted bytes, it maybe need to realloc.
-        if (((estimated_size_of_next_block + bytes) * 100 / allocated_bytes) >= 95) {
+        if (((estimated_size_of_next_block + bytes) * 100 / allocated_bytes) >= 85) {
             size_to_reserve += bytes + estimated_size_of_next_block;
         }
     }

@@ -59,9 +59,9 @@ public:
         _write_file_timer = profile->get_counter("SpillWriteFileTime");
         _serialize_timer = profile->get_counter("SpillWriteSerializeBlockTime");
         _write_block_counter = profile->get_counter("SpillWriteBlockCount");
-        _write_block_bytes_counter = profile->get_counter("SpillWriteBlockDataSize");
-        _write_file_total_size = profile->get_counter("SpillWriteFileTotalSize");
-        _write_file_current_size = profile->get_counter("SpillWriteFileCurrentSize");
+        _write_block_bytes_counter = profile->get_counter("SpillWriteBlockBytes");
+        _write_file_total_size = profile->get_counter("SpillWriteFileBytes");
+        _write_file_current_size = profile->get_counter("SpillWriteFileCurrentBytes");
         _write_rows_counter = profile->get_counter("SpillWriteRows");
     }
 

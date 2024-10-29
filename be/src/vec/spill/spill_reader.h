@@ -54,8 +54,8 @@ public:
         _read_file_timer = profile->get_counter("SpillReadFileTime");
         _deserialize_timer = profile->get_counter("SpillReadDerializeBlockTime");
         _read_block_count = profile->get_counter("SpillReadBlockCount");
-        _read_block_data_size = profile->get_counter("SpillReadBlockDataSize");
-        _read_file_size = profile->get_counter("SpillReadFileSize");
+        _read_block_data_size = profile->get_counter("SpillReadBlockBytes");
+        _read_file_size = profile->get_counter("SpillReadFileBytes");
         _read_rows_count = profile->get_counter("SpillReadRows");
         _read_file_count = profile->get_counter("SpillReadFileCount");
     }

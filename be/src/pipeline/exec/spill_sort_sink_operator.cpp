@@ -82,7 +82,7 @@ void SpillSortSinkLocalState::update_profile(RuntimeProfile* child_profile) {
 
 Status SpillSortSinkLocalState::close(RuntimeState* state, Status execsink_status) {
     dec_running_big_mem_op_num(state);
-    return Status::OK();
+    return Base::close(state, execsink_status);
 }
 
 Status SpillSortSinkLocalState::setup_in_memory_sort_op(RuntimeState* state) {

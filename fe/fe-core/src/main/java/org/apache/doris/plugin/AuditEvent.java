@@ -113,6 +113,14 @@ public class AuditEvent {
     public long scanBytesFromLocalStorage = -1;
     @AuditField(value = "scanBytesFromRemoteStorage")
     public long scanBytesFromRemoteStorage = -1;
+    @AuditField(value = "SpillWriteBlockBytes")
+    public long spillWriteBlockBytes = -1;
+    @AuditField(value = "SpillWriteFileBytes")
+    public long spillWriteFileBytes = -1;
+    @AuditField(value = "SpillReadBlockBytes")
+    public long spillReadBlockBytes = -1;
+    @AuditField(value = "SpillReadFileBytes")
+    public long spillReadFileBytes = -1;
 
     public long pushToAuditLogQueueTime;
 
@@ -269,6 +277,26 @@ public class AuditEvent {
 
         public AuditEventBuilder setScanBytesFromRemoteStorage(long scanBytesFromRemoteStorage) {
             auditEvent.scanBytesFromRemoteStorage = scanBytesFromRemoteStorage;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillWriteBlockBytes(long spillWriteBlockBytes) {
+            auditEvent.spillWriteBlockBytes = spillWriteBlockBytes;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillWriteFileBytes(long spillWriteFileBytes) {
+            auditEvent.spillWriteFileBytes = spillWriteFileBytes;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillReadBlockBytes(long spillReadBlockBytes) {
+            auditEvent.spillReadBlockBytes = spillReadBlockBytes;
+            return this;
+        }
+
+        public AuditEventBuilder setSpillReadFileBytes(long spillReadFileBytes) {
+            auditEvent.spillReadFileBytes = spillReadFileBytes;
             return this;
         }
 

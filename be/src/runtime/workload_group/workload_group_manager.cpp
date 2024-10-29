@@ -617,10 +617,10 @@ bool WorkloadGroupMgr::handle_single_query_(std::shared_ptr<QueryContext> query_
             } else {
                 // Use MEM_LIMIT_EXCEEDED so that FE could parse the error code and do try logic
                 query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
-                        "query({}) reserve memory failed, but could not find  memory that "
+                        "query({}) reserve memory failed, but could not find memory that "
                         "could "
-                        "release or spill to disk(usage:{}, limit: {})",
-                        query_id, memory_usage, query_ctx->get_mem_limit()));
+                        "release or spill to disk(memory usage:{}, limit: {})",
+                        query_id, PrettyPrinter::print_bytes(memory_usage), PrettyPrinter::print_bytes(query_ctx->get_mem_limit())));
             }
         } else {
             if (!GlobalMemoryArbitrator::is_exceed_hard_mem_limit()) {

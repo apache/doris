@@ -294,6 +294,20 @@ public:
         return Status::OK();
     }
 
+    Status close(RuntimeState* state) override {
+        if (Base::_query_statistics) {
+            auto* write_block_bytes = Base::profile()->get_counter("SpillWriteBlockBytes");
+            auto* write_file_bytes = Base::profile()->get_counter("SpillWriteFileBytes");
+            auto* read_block_bytes = Base::profile()->get_counter("SpillReadBlockBytes");
+            auto* read_file_bytes = Base::profile()->get_counter("SpillReadFileBytes");
+            Base::_query_statistics->add_spill_bytes(
+                    write_block_bytes ? write_block_bytes->value() : 0,
+                    write_file_bytes ? write_file_bytes->value() : 0, read_block_bytes->value(),
+                    read_file_bytes->value());
+        }
+        return Base::close(state);
+    }
+
     void init_spill_write_counters() {
         _spill_write_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteTime", 1);
 
@@ -311,9 +325,9 @@ public:
         _spill_write_block_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
         _spill_write_block_data_size =
-                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockDataSize", TUnit::BYTES, 1);
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
         _spill_write_file_total_size =
-                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteFileTotalSize", TUnit::BYTES, 1);
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteFileBytes", TUnit::BYTES, 1);
         _spill_write_rows_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteRows", TUnit::UNIT, 1);
         _spill_file_total_count =
@@ -338,23 +352,23 @@ public:
         _spill_read_block_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadBlockCount", TUnit::UNIT, 1);
         _spill_read_block_data_size =
-                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadBlockDataSize", TUnit::BYTES, 1);
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadBlockBytes", TUnit::BYTES, 1);
         _spill_read_file_size =
-                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadFileSize", TUnit::BYTES, 1);
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadFileBytes", TUnit::BYTES, 1);
         _spill_read_rows_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadRows", TUnit::UNIT, 1);
         _spill_read_file_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadFileCount", TUnit::UNIT, 1);
 
         _spill_file_current_size = ADD_COUNTER_WITH_LEVEL(
-                Base::profile(), "SpillWriteFileCurrentSize", TUnit::BYTES, 1);
+                Base::profile(), "SpillWriteFileCurrentBytes", TUnit::BYTES, 1);
         _spill_file_current_count = ADD_COUNTER_WITH_LEVEL(
                 Base::profile(), "SpillWriteFileCurrentCount", TUnit::UNIT, 1);
     }
 
     // These two counters are shared to spill source operators as the initial value
-    // Initialize values of counters 'SpillWriteFileCurrentSize' and 'SpillWriteFileCurrentCount'
-    // from spill sink operators' "SpillWriteFileTotalCount" and "SpillWriteFileTotalSize"
+    // Initialize values of counters 'SpillWriteFileCurrentBytes' and 'SpillWriteFileCurrentCount'
+    // from spill sink operators' "SpillWriteFileTotalCount" and "SpillWriteFileBytes"
     void copy_shared_spill_profile() {
         if (_copy_shared_spill_profile) {
             _copy_shared_spill_profile = false;
@@ -662,9 +676,6 @@ protected:
     int _nereids_id = -1;
     std::vector<int> _dests_id;
     std::string _name;
-
-    // Maybe this will be transferred to BufferControlBlock.
-    std::shared_ptr<QueryStatistics> _query_statistics;
 };
 
 template <typename LocalStateType>
@@ -718,7 +729,7 @@ public:
         _spill_write_block_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount", TUnit::UNIT, 1);
         _spill_write_block_data_size =
-                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockDataSize", TUnit::BYTES, 1);
+                ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockBytes", TUnit::BYTES, 1);
         _spill_write_rows_count =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteRows", TUnit::UNIT, 1);
 
@@ -727,6 +738,20 @@ public:
         _spill_min_rows_of_partition =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMinRowsOfPartition", TUnit::UNIT, 1);
         return Status::OK();
+    }
+
+    Status close(RuntimeState* state, Status exec_status) override {
+        if (Base::_query_statistics) {
+            auto* write_block_bytes = Base::profile()->get_counter("SpillWriteBlockBytes");
+            auto* write_file_bytes = Base::profile()->get_counter("SpillWriteFileBytes");
+            auto* read_block_bytes = Base::profile()->get_counter("SpillReadBlockBytes");
+            auto* read_file_bytes = Base::profile()->get_counter("SpillReadFileBytes");
+            Base::_query_statistics->add_spill_bytes(
+                    write_block_bytes->value(), write_file_bytes->value(),
+                    read_block_bytes ? read_block_bytes->value() : 0,
+                    read_file_bytes ? read_file_bytes->value() : 0);
+        }
+        return Base::close(state, exec_status);
     }
 
     std::vector<Dependency*> dependencies() const override {

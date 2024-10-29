@@ -432,7 +432,7 @@ struct BasicSpillSharedState {
     AtomicStatus _spill_status;
 
     // These two counters are shared to spill source operators as the initial value
-    // of 'SpillWriteFileCurrentSize' and 'SpillWriteFileCurrentCount'.
+    // of 'SpillWriteFileCurrentBytes' and 'SpillWriteFileCurrentCount'.
     // Total bytes of spill data written to disk file(after serialized)
     RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
     RuntimeProfile::Counter* _spill_file_total_count = nullptr;
@@ -441,7 +441,7 @@ struct BasicSpillSharedState {
         _spill_file_total_count =
                 ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileTotalCount", TUnit::UNIT, 1);
         _spill_write_file_total_size =
-                ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileTotalSize", TUnit::BYTES, 1);
+                ADD_COUNTER_WITH_LEVEL(sink_profile, "SpillWriteFileBytes", TUnit::BYTES, 1);
     }
 
     virtual void update_spill_stream_profiles(RuntimeProfile* source_profile) = 0;
