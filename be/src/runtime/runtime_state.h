@@ -450,7 +450,6 @@ public:
                        : 0;
     }
 
-
     bool is_nereids() const;
 
 private:
