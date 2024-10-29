@@ -168,10 +168,10 @@ suite("docs/table-design/data-partition.md") {
 
         sql "SHOW DYNAMIC PARTITION TABLES"
         sql """ ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true") """
-//  todo      cmd """ curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_enable=true """
+        cmd """ curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -XGET http://${context.config.feHttpAddress}/api/_set_config?dynamic_partition_enable=true """
 
         sql """ ADMIN SET FRONTEND CONFIG ("dynamic_partition_check_interval_seconds" = "7200") """
-// todo        cmd """ curl --location-trusted -u username:password -XGET http://fe_host:fe_http_port/api/_set_config?dynamic_partition_check_interval_seconds=432000 """
+        cmd """ curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -XGET http://${context.config.feHttpAddress}/api/_set_config?dynamic_partition_check_interval_seconds=432000 """
 
         sql "drop table if exists `DAILY_TRADE_VALUE`"
         sql """
