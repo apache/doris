@@ -38,8 +38,9 @@ suite("test_drop_index_with_format_v2", "inverted_index_format_v2"){
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW ALTER TABLE COLUMN WHERE TableName = "${table_name}" ORDER BY CreateTime DESC LIMIT 1;"""
             alter_res = alter_res.toString()
+            // "FINISHED does not indicate that the drop index operation is finished."
             if(alter_res.contains("FINISHED")) {
-                sleep(3000) // wait change table state to normal
+                sleep(10000) // wait change table state to normal
                 logger.info(table_name + " latest alter job finished, detail: " + alter_res)
                 break
             }

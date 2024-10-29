@@ -290,6 +290,11 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
     }
 
     // Inverted Index Files
+    // `without_index_uids != nullptr` means that there are some indices that are not needed.
+    if (_schema->get_inverted_index_storage_format() != InvertedIndexStorageFormatPB::V1 &&
+        without_index_uids != nullptr) {
+        return Status::OK();
+    }
     const auto& inverted_index_files = list_inverted_index_files();
     if (!inverted_index_files.has_value()) {
         LOG(WARNING) << "list inverted index files error:"
@@ -305,6 +310,21 @@ Status BetaRowset::link_files_to(const std::string& dir, RowsetId new_rowset_id,
                 status = Status::InvalidArgument("invalid inverted index file name: {}",
                                                  file.file_name);
                 return status;
+            }
+            // inverted index format v1
+            // file_name_fragment.index_suffix = _10283@path.idx
+            if (without_index_uids != nullptr && file_name_fragment.index_suffix != ".idx") {
+                int32_t index_id;
+                try {
+                    index_id = std::stoi(std::string(file_name_fragment.index_suffix.substr(1)));
+                } catch (...) {
+                    status = Status::InvalidArgument("invalid inverted index suffix: {}",
+                                                     file_name_fragment.index_suffix);
+                    return status;
+                }
+                if (without_index_uids->contains(index_id)) {
+                    continue;
+                }
             }
             const auto& dst_path = fmt::format("{}/{}_{}{}", dir, new_rowset_id.to_string(),
                                                file_name_fragment.seg_id + new_rowset_start_seg_id,
@@ -775,12 +795,15 @@ Result<std::vector<io::FileInfo>> BetaRowset::list_inverted_index_files() {
     DCHECK(exists);
 
     std::vector<io::FileInfo> filtered_files;
-    const auto& storage_resource = rowset_meta()->remote_storage_resource();
-    if (!is_local() && !storage_resource.has_value()) {
-        return ResultError(storage_resource.error());
+    Result<const StorageResource*> storage_resource;
+    if (!is_local()) {
+        storage_resource = rowset_meta()->remote_storage_resource();
+        if (!storage_resource.has_value()) {
+            return ResultError(storage_resource.error());
+        }
     }
 
-    if (storage_resource.has_value() && storage_resource.value()->path_version > 0) {
+    if (!is_local() && storage_resource.has_value() && storage_resource.value()->path_version > 0) {
         std::copy_if(files.begin(), files.end(), std::back_inserter(filtered_files),
                      [&](const io::FileInfo& file_info) {
                          // {tablet_id}/{rowset_id}/{seg_id}{index_suffix}
