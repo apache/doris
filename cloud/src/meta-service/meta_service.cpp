@@ -1537,7 +1537,7 @@ void MetaServiceImpl::get_rowset(::google::protobuf::RpcController* controller,
                     if (code != MetaServiceCode::OK) {
                         LOG(WARNING) << "advance_last_txn failed last_txn="
                                      << version_pb.pending_txn_ids(0) << " code=" << code
-                                     << "msg=" << msg;
+                                     << " msg=" << msg;
                         return;
                     }
                     continue;
