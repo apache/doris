@@ -207,7 +207,8 @@ Status BlockReader::init(const ReaderParams& read_params) {
         auto cid = read_params.origin_return_columns->at(i);
         for (int j = 0; j < read_params.return_columns.size(); ++j) {
             if (read_params.return_columns[j] == cid) {
-                if (j < _tablet->num_key_columns() || _tablet->keys_type() != AGG_KEYS) {
+                if (j < _tablet_schema->num_key_columns() ||
+                    _tablet_schema->keys_type() != AGG_KEYS) {
                     _normal_columns_idx.emplace_back(j);
                 } else {
                     _agg_columns_idx.emplace_back(j);
@@ -475,7 +476,7 @@ size_t BlockReader::_copy_agg_data() {
     for (auto idx : _agg_columns_idx) {
         auto& dst_column = _stored_data_columns[idx];
         if (_stored_has_variable_length_tag[idx]) {
-            //variable length type should replace ordered
+            // variable length type should replace ordered
             dst_column->clear();
             for (size_t i = 0; i < copy_size; i++) {
                 auto& ref = _stored_row_ref[i];
