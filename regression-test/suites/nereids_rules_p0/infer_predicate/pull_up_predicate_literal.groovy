@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_pull_up_predicate_literal") {
+suite("pull_up_predicate_literal") {
     sql """ DROP TABLE IF EXISTS test_pull_up_predicate_literal; """
-    sql "set enable_fallback_to_original_planner=false"
-    sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""
-    sql 'set runtime_filter_mode=off'
+    sql """
+       set enable_fallback_to_original_planner=false;
+       SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject';
+       set runtime_filter_mode=off;
+       set disable_join_reorder=true;
+       """
 
     sql """
      CREATE TABLE `test_pull_up_predicate_literal` (
