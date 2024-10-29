@@ -479,6 +479,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         return state == BackupJobState.FINISHED || state == BackupJobState.CANCELLED;
     }
 
+    public synchronized boolean isSnapshotDone() {
+        return state != BackupJobState.PENDING && state != BackupJobState.SNAPSHOTING;
+    }
+
     private void prepareAndSendSnapshotTask() {
         Database db = env.getInternalCatalog().getDbNullable(dbId);
         if (db == null) {
