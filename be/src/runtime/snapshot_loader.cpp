@@ -34,6 +34,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "bvar/reducer.h"
 #include "common/logging.h"
 #include "gutil/strings/split.h"
 #include "http/http_client.h"
@@ -52,11 +53,18 @@
 #include "olap/tablet_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "util/bvar_helper.h"
 #include "util/s3_uri.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
+
+DEFINE_PER_SECOND_BVAR(uint64_t, "http_download_files", "snapshot_loader",
+                       g_bvar_snapshot_http_download_files);
+DEFINE_PER_SECOND_BVAR(uint64_t, "http_download_bytes", "snapshot_loader",
+                       g_bvar_snapshot_http_download_bytes);
+
 namespace {
 
 Status upload_with_checksum(io::RemoteFileSystem& fs, std::string_view local_path,
@@ -648,6 +656,8 @@ Status SnapshotLoader::remote_http_download(
 
             // local_files always keep the updated local files
             local_files[filename] = LocalFileStat {file_size, remote_file_md5};
+            g_bvar_snapshot_http_download_files << 1;
+            g_bvar_snapshot_http_download_bytes << file_size;
         }
 
         uint64_t total_time_ms = watch.elapsed_time() / 1000 / 1000;
@@ -957,7 +967,7 @@ Status SnapshotLoader::_report_every(int report_threshold, int* counter, int32_t
             [&request, &report_st](FrontendServiceConnection& client) {
                 client->snapshotLoaderReport(report_st, request);
             },
-            10000);
+            10000, g_bvar_frontend_service_snapshot_loader_report_latency);
 
     if (!rpcStatus.ok()) {
         // rpc failed, ignore

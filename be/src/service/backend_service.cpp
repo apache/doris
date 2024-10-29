@@ -42,6 +42,7 @@
 #include <utility>
 #include <vector>
 
+#include "bvar/reducer.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -69,6 +70,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/arrow/row_batch.h"
+#include "util/bvar_helper.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "util/threadpool.h"
@@ -88,6 +90,15 @@ class TTransportException;
 } // namespace apache
 
 namespace doris {
+
+DEFINE_PER_SECOND_BVAR(uint64_t, "http_download_segment_files", "binlog",
+                       g_bvar_binlog_http_download_segment_files);
+DEFINE_PER_SECOND_BVAR(uint64_t, "http_download_segment_bytes", "binlog",
+                       g_bvar_binlog_http_download_segment_bytes);
+DEFINE_PER_SECOND_BVAR(uint64_t, "http_download_segment_index_files", "binlog",
+                       g_bvar_binlog_http_download_segment_index_files);
+DEFINE_PER_SECOND_BVAR(uint64_t, "http_download_segment_index_bytes", "binlog",
+                       g_bvar_binlog_http_download_segment_index_bytes);
 
 namespace {
 constexpr uint64_t kMaxTimeoutMs = 3000; // 3s
@@ -344,6 +355,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             status.to_thrift(&tstatus);
             return;
         }
+
+        g_bvar_binlog_http_download_segment_files << 1;
+        g_bvar_binlog_http_download_segment_bytes << segment_file_size;
     }
 
     // Step 6: get all segment index files
@@ -516,6 +530,9 @@ void _ingest_binlog(StorageEngine& engine, IngestBinlogArg* arg) {
             status.to_thrift(&tstatus);
             return;
         }
+
+        g_bvar_binlog_http_download_segment_index_files << 1;
+        g_bvar_binlog_http_download_segment_index_bytes << segment_index_file_size;
     }
 
     // Step 7: create rowset && calculate delete bitmap && commit

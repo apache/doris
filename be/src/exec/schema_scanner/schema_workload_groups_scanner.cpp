@@ -78,7 +78,7 @@ Status SchemaWorkloadGroupsScanner::_get_workload_groups_block_from_fe() {
             [&request, &result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(result, request);
             },
-            _rpc_timeout));
+            _rpc_timeout, g_bvar_frontend_service_fetch_schema_table_data_latency));
 
     Status status(Status::create(result.status));
     if (!status.ok()) {

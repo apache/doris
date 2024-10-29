@@ -362,7 +362,7 @@ Status GroupCommitTable::_create_group_commit_load(int be_exe_version,
                 [&result, &request](FrontendServiceConnection& client) {
                     client->streamLoadPut(result, request);
                 },
-                10000L);
+                10000L, g_bvar_frontend_service_stream_load_put_latency);
         if (!st.ok()) {
             LOG(WARNING) << "create group commit load rpc error, st=" << st.to_string();
             return st;
@@ -466,7 +466,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                     [&request, &result](FrontendServiceConnection& client) {
                         client->loadTxnCommit(result, request);
                     },
-                    config::txn_commit_rpc_timeout_ms);
+                    config::txn_commit_rpc_timeout_ms,
+                    g_bvar_frontend_service_load_txn_commit_latency);
             result_status = Status::create(result.status);
             // DELETE_BITMAP_LOCK_ERROR will be retried
             if (result_status.ok() || !result_status.is<ErrorCode::DELETE_BITMAP_LOCK_ERROR>()) {
@@ -496,7 +497,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {
                     client->loadTxnRollback(result, request);
-                });
+                },
+                g_bvar_frontend_service_load_txn_rollback_latency);
         result_status = Status::create<false>(result.status);
         DBUG_EXECUTE_IF("LoadBlockQueue._finish_group_commit_load.err_status", {
             std ::string msg = "abort txn";

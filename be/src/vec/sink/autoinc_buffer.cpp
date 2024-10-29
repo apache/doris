@@ -63,7 +63,8 @@ Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
                     master_addr.hostname, master_addr.port,
                     [&request, &result](FrontendServiceConnection& client) {
                         client->getAutoIncrementRange(result, request);
-                    });
+                    },
+                    g_bvar_frontend_service_get_auto_increment_range_latency);
         }
 
         if (_rpc_status.is<ErrorCode::NOT_MASTER>()) {

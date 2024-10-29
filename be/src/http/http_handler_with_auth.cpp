@@ -88,7 +88,8 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
                 master_addr.hostname, master_addr.port,
                 [&auth_result, &auth_request](FrontendServiceConnection& client) {
                     client->checkAuth(auth_result, auth_request);
-                });
+                },
+                g_bvar_frontend_service_check_auth_latency);
         if (!status) {
             return -1;
         }

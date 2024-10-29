@@ -285,7 +285,7 @@ Status VMetaScanner::_fetch_metadata(const TMetaScanRange& meta_scan_range) {
             [&request, &result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(result, request);
             },
-            time_out));
+            time_out, g_bvar_frontend_service_fetch_schema_table_data_latency));
 
     Status status(Status::create(result.status));
     if (!status.ok()) {

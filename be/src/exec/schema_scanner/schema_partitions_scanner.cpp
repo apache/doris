@@ -120,7 +120,7 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
             [&request, &result](FrontendServiceConnection& client) {
                 client->fetchSchemaTableData(result, request);
             },
-            _rpc_timeout_ms));
+            _rpc_timeout_ms, g_bvar_frontend_service_fetch_schema_table_data_latency));
 
     Status status(Status::create(result.status));
     if (!status.ok()) {

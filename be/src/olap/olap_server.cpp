@@ -752,7 +752,8 @@ void StorageEngine::_update_replica_infos_callback() {
                     master_addr.hostname, master_addr.port,
                     [&request, &result](FrontendServiceConnection& client) {
                         client->getTabletReplicaInfos(result, request);
-                    });
+                    },
+                    g_bvar_frontend_service_get_tablet_rplica_infos_latency);
 
             if (!rpc_st.ok()) {
                 LOG(WARNING) << "Failed to get tablet replica infos, encounter rpc failure, "

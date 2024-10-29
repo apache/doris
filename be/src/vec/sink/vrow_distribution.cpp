@@ -110,7 +110,7 @@ Status VRowDistribution::automatic_create_partition() {
             [&request, &result](FrontendServiceConnection& client) {
                 client->createPartition(result, request);
             },
-            time_out));
+            time_out, g_bvar_frontend_service_create_partition_latency));
 
     Status status(Status::create(result.status));
     VLOG_NOTICE << "automatic partition rpc end response " << result;
@@ -183,7 +183,7 @@ Status VRowDistribution::_replace_overwriting_partition() {
             [&request, &result](FrontendServiceConnection& client) {
                 client->replacePartition(result, request);
             },
-            time_out));
+            time_out, g_bvar_frontend_service_replace_partition_latency));
 
     Status status(Status::create(result.status));
     VLOG_NOTICE << "auto detect replace partition result: " << result;

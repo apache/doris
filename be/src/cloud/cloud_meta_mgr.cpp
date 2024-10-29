@@ -848,7 +848,8 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                             master_addr.hostname, master_addr.port,
                             [&request, &result](FrontendServiceConnection& client) {
                                 client->reportCommitTxnResult(result, request);
-                            }));
+                            },
+                            g_bvar_frontend_service_report_commit_txn_result_latency));
 
                     status = Status::create<false>(result);
                 }

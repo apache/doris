@@ -343,9 +343,11 @@ Status SingleReplicaCompaction::_make_snapshot(const std::string& ip, int port, 
 
     TAgentResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<BackendServiceClient>(
-            ip, port, [&request, &result](BackendServiceConnection& client) {
+            ip, port,
+            [&request, &result](BackendServiceConnection& client) {
                 client->make_snapshot(result, request);
-            }));
+            },
+            g_bvar_backend_service_make_snapshot_latency));
     if (result.status.status_code != TStatusCode::OK) {
         return Status::create(result.status);
     }
@@ -481,9 +483,11 @@ Status SingleReplicaCompaction::_release_snapshot(const std::string& ip, int por
                                                   const std::string& snapshot_path) {
     TAgentResult result;
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<BackendServiceClient>(
-            ip, port, [&snapshot_path, &result](BackendServiceConnection& client) {
+            ip, port,
+            [&snapshot_path, &result](BackendServiceConnection& client) {
                 client->release_snapshot(result, snapshot_path);
-            }));
+            },
+            g_bvar_backend_service_release_snapshot_latency));
     return Status::create(result.status);
 }
 
