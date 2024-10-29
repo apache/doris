@@ -243,17 +243,8 @@ information_schema
 mysql
 
 -- !specified_database_3 --
-DORIS
-Doris
-doris
-information_schema
-init_db
-mysql
-show_test_do_not_modify
 
 -- !specified_database_4 --
-information_schema
-mysql
 
 -- !ex_tb1 --
 {"k1":"v1", "k2":"v2"}
@@ -686,17 +677,8 @@ information_schema
 mysql
 
 -- !specified_database_3 --
-DORIS
-Doris
-doris
-information_schema
-init_db
-mysql
-show_test_do_not_modify
 
 -- !specified_database_4 --
-information_schema
-mysql
 
 -- !ex_tb1 --
 {"k1":"v1", "k2":"v2"}
