@@ -40,6 +40,7 @@
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class IndexChannel;
 class VNodeChannel;
@@ -230,3 +231,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

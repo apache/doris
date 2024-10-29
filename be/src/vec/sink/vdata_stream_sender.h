@@ -53,6 +53,7 @@
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class ObjectPool;
 class RuntimeState;
 class MemTracker;
@@ -232,3 +233,5 @@ protected:
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"
