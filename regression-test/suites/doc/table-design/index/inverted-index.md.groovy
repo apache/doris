@@ -17,7 +17,7 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/table-design/index/prefix-index.md") {
+suite("docs/table-design/index/inverted-index.md.groovy") {
     def waitUntilSchemaChangeDone = { tbl ->
         waitForSchemaChangeDone({
             sql " SHOW ALTER TABLE COLUMN FROM test_inverted_index WHERE TableName='${tbl}' ORDER BY createtime DESC LIMIT 1 "
@@ -82,7 +82,9 @@ suite("docs/table-design/index/prefix-index.md") {
         sql """ SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00' """
         sql """ CREATE INDEX idx_timestamp ON hackernews_1m(timestamp) USING INVERTED """
         waitUntilSchemaChangeDone("hackernews_1m")
-        sql """ BUILD INDEX idx_timestamp ON hackernews_1m """
+        if (!isCloudMode()) {
+            sql """ BUILD INDEX idx_timestamp ON hackernews_1m """
+        }
         sql """ SHOW ALTER TABLE COLUMN """
         sql """ SHOW BUILD INDEX """
         sql """ SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00' """
@@ -91,9 +93,12 @@ suite("docs/table-design/index/prefix-index.md") {
             SELECT count() FROM hackernews_1m WHERE parent = 11189;
             ALTER TABLE hackernews_1m ADD INDEX idx_parent(parent) USING INVERTED;
         """
+
         waitUntilSchemaChangeDone("hackernews_1m")
+        if (!isCloudMode()) {
+            sql "BUILD INDEX idx_parent ON hackernews_1m;"
+        }
         multi_sql """
-            BUILD INDEX idx_parent ON hackernews_1m;
             SHOW ALTER TABLE COLUMN;
             SHOW BUILD INDEX;
             SELECT count() FROM hackernews_1m WHERE parent = 11189;
