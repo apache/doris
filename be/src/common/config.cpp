@@ -903,7 +903,8 @@ DEFINE_mInt64(small_column_size_buffer, "100");
 
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "64");
-
+DEFINE_mInt32(runtime_filter_rpc_timeout_sec, "3600");
+DEFINE_mBool(runtime_filter_ignore_eovercrowded, "true");
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");
 DEFINE_mInt64(generate_cooldown_task_interval_sec, "20");
