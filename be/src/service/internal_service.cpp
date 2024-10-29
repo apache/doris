@@ -1159,7 +1159,10 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    tablet_schemas.push_back(res.value()->merged_tablet_schema());
+                    auto schema = res.value()->merged_tablet_schema();
+                    if (schema != nullptr) {
+                        tablet_schemas.push_back(schema);
+                    }
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
