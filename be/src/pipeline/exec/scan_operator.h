@@ -375,8 +375,8 @@ public:
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
     DataDistribution required_data_distribution() const override {
-        if (OperatorX<LocalStateType>::ignore_data_distribution()) {
-            // `ignore_data_distribution()` returns true means we ignore the distribution.
+        if (OperatorX<LocalStateType>::is_serial_operator()) {
+            // `is_serial_operator()` returns true means we ignore the distribution.
             return {ExchangeType::NOOP};
         }
         return {ExchangeType::BUCKET_HASH_SHUFFLE};

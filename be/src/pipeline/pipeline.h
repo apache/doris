@@ -114,7 +114,7 @@ public:
     int num_tasks() const { return _num_tasks; }
     bool close_task() { return _num_tasks_running.fetch_sub(1) == 1; }
 
-    std::string debug_string() {
+    std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(debug_string_buffer,
                        "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}]", _pipeline_id,

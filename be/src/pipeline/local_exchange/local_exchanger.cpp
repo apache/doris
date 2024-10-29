@@ -226,7 +226,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
                 new_block_wrapper->unref(local_state._shared_state, local_state._channel_id);
             }
         }
-    } else if (_num_senders != _num_sources || _ignore_source_data_distribution) {
+    } else if (_num_senders != _num_sources) {
         // In this branch, data just should be distributed equally into all instances.
         new_block_wrapper->ref(_num_partitions);
         for (size_t i = 0; i < _num_partitions; i++) {

@@ -341,7 +341,6 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         // TODO chenhao , calculated by cost
         result.setMinReservationBytes(0);
         result.setInitialReservationTotalClaims(0);
-        result.setUseSerialSource(useSerialSource(ConnectContext.get()));
         return result;
     }
 
