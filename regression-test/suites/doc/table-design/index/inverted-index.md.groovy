@@ -108,8 +108,10 @@ suite("docs/table-design/index/inverted-index.md.groovy") {
             ALTER TABLE hackernews_1m ADD INDEX idx_author(author) USING INVERTED;
         """
         waitUntilSchemaChangeDone("hackernews_1m")
+        if (!isCloudMode()) {
+            sql "BUILD INDEX idx_author ON hackernews_1m"
+        }
         multi_sql """
-            BUILD INDEX idx_author ON hackernews_1m;
             SHOW ALTER TABLE COLUMN;
             SHOW BUILD INDEX order by CreateTime desc limit 1;
             SELECT count() FROM hackernews_1m WHERE author = 'faster';
