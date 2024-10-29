@@ -211,12 +211,12 @@ public class Backend implements Writable {
         return tagMap.getOrDefault(Tag.CLOUD_UNIQUE_ID, "");
     }
 
-    public String getCloudPublicEndpoint() {
-        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, "");
+    public String getPublicEndpoint() {
+        return StringUtils.defaultIfEmpty(tagMap.getOrDefault(Tag.PUBLIC_ENDPOINT, ""), Config.be_public_endpoint);
     }
 
-    public String getCloudPrivateEndpoint() {
-        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, "");
+    public String getPrivateEndpoint() {
+        return StringUtils.defaultIfEmpty(tagMap.getOrDefault(Tag.PRIVATE_ENDPOINT, ""), Config.be_private_endpoint);
     }
 
     public long getId() {
@@ -995,12 +995,6 @@ public class Backend implements Writable {
         Map<String, String> displayTagMap = Maps.newHashMap();
         displayTagMap.putAll(tagMap);
 
-        if (displayTagMap.containsKey("cloud_cluster_public_endpoint")) {
-            displayTagMap.put("public_endpoint", displayTagMap.remove("cloud_cluster_public_endpoint"));
-        }
-        if (displayTagMap.containsKey("cloud_cluster_private_endpoint")) {
-            displayTagMap.put("private_endpoint", displayTagMap.remove("cloud_cluster_private_endpoint"));
-        }
         if (displayTagMap.containsKey("cloud_cluster_status")) {
             displayTagMap.put("compute_group_status", displayTagMap.remove("cloud_cluster_status"));
         }

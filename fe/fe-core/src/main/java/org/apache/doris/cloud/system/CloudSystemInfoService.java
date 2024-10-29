@@ -363,6 +363,52 @@ public class CloudSystemInfoService extends SystemInfoService {
         }
     }
 
+    private void addCloudBackends(List<HostInfo> hostInfos, String computeGroupId, String cloudUniqueId,
+            String publicEndpoint, String privateEndpoint) throws DdlException {
+        if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
+            throw new DdlException("unable to alter backends due to empty cloud_instance_id");
+        }
+        if (hostInfos.isEmpty()) {
+            return;
+        }
+        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+                .setClusterId(computeGroupId)
+                .setType(Cloud.ClusterPB.Type.COMPUTE)
+                .build();
+
+        for (HostInfo hostInfo : hostInfos) {
+            Cloud.NodeInfoPB nodeInfoPB = Cloud.NodeInfoPB.newBuilder()
+                    .setCloudUniqueId(cloudUniqueId)
+                    .setIp(hostInfo.getHost())
+                    .setHost(hostInfo.getHost())
+                    .setHeartbeatPort(hostInfo.getPort())
+                    .setCtime(System.currentTimeMillis() / 1000)
+                    .setPublicEndpoint(publicEndpoint)
+                    .setPrivateEndpoint(privateEndpoint)
+                    .build();
+            clusterPB = clusterPB.toBuilder().addNodes(nodeInfoPB).build();
+        }
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setInstanceId(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())
+                .setOp(Cloud.AlterClusterRequest.Operation.ADD_NODE)
+                .setCluster(clusterPB)
+                .build();
+
+        Cloud.AlterClusterResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("add backends, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("add backends not ok, response: {}", response);
+                throw new DdlException("failed to add backends errorCode: " + response.getStatus().getCode()
+                        + " msg: " + response.getStatus().getMsg());
+            }
+        } catch (RpcException e) {
+            throw new DdlException("failed to add backends", e);
+        }
+    }
+
     /**
      * @param hostInfos : backend's ip, hostName and port
      * @throws DdlException
@@ -381,8 +427,15 @@ public class CloudSystemInfoService extends SystemInfoService {
         String instanceId = Config.cluster_id == -1 ? ((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId()
                 : String.valueOf(Config.cluster_id);
 
+        String computeGroupPublicEndpoint = tagMap.getOrDefault(Tag.COMPUTE_GROUP_PUBLIC_ENDPOINT, "");
+        String computeGroupPrivateEndpoint = tagMap.getOrDefault(Tag.COMPUTE_GROUP_PRIVATE_ENDPOINT, "");
+        if (!computeGroupPublicEndpoint.isEmpty() || !computeGroupPrivateEndpoint.isEmpty()) {
+            updateClusterEndpoint(computeGroupId, computeGroupPublicEndpoint, computeGroupPrivateEndpoint);
+        }
         String cloudUniqueId = "1:" + instanceId + ":" + RandomIdentifierGenerator.generateRandomIdentifier(8);
-        alterBackendCluster(hostInfos, computeGroupId, cloudUniqueId, Cloud.AlterClusterRequest.Operation.ADD_NODE);
+        String publicEndpoint = tagMap.getOrDefault(Tag.PUBLIC_ENDPOINT, "");
+        String privateEndpoint = tagMap.getOrDefault(Tag.PRIVATE_ENDPOINT, "");
+        addCloudBackends(hostInfos, computeGroupId, cloudUniqueId, publicEndpoint, privateEndpoint);
     }
 
     // final entry of dropping backend
@@ -759,8 +812,8 @@ public class CloudSystemInfoService extends SystemInfoService {
             newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterNameMeta);
             newTagMap.put(Tag.CLOUD_CLUSTER_ID, clusterId);
             newTagMap.put(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(clusterStatus));
-            newTagMap.put(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, publicEndpoint);
-            newTagMap.put(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, privateEndpoint);
+            newTagMap.put(Tag.PUBLIC_ENDPOINT, publicEndpoint);
+            newTagMap.put(Tag.PRIVATE_ENDPOINT, privateEndpoint);
             newTagMap.put(Tag.CLOUD_UNIQUE_ID, node.getCloudUniqueId());
             Backend b = new Backend(Env.getCurrentEnv().getNextId(), node.getIp(), node.getHeartbeatPort());
             b.setTagMap(newTagMap);
@@ -935,6 +988,39 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new UserException("failed to create cluster", e);
         }
 
+    }
+
+    private void updateClusterEndpoint(String computeGroupId, String computeGroupPublicEndpoint,
+            String computeGroupPrivateEndpoint) throws UserException {
+        if (Strings.isNullOrEmpty(((CloudEnv) Env.getCurrentEnv()).getCloudInstanceId())) {
+            throw new DdlException("unable to create compute group due to empty cluster_id");
+        }
+
+        Cloud.ClusterPB clusterPB = Cloud.ClusterPB.newBuilder()
+                .setClusterId(computeGroupId)
+                .setPublicEndpoint(computeGroupPublicEndpoint)
+                .setPrivateEndpoint(computeGroupPrivateEndpoint)
+                .build();
+
+        Cloud.AlterClusterRequest request = Cloud.AlterClusterRequest.newBuilder()
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setOp(Cloud.AlterClusterRequest.Operation.UPDATE_CLUSTER_ENDPOINT)
+                .setCluster(clusterPB)
+                .build();
+
+        Cloud.AlterClusterResponse response;
+        try {
+            response = MetaServiceProxy.getInstance().alterCluster(request);
+            LOG.info("update cluster endpoint, request: {}, response: {}", request, response);
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to update cluter endpoint, response: {}", response);
+                throw new UserException("failed to update cluter endpoint errorCode: " + response.getStatus().getCode()
+                        + " msg: " + response.getStatus().getMsg());
+            }
+
+        } catch (RpcException e) {
+            throw new UserException("failed to update cluster endpoint", e);
+        }
     }
 
     public List<Pair<String, Integer>> getCurrentObFrontends() {

@@ -160,6 +160,8 @@ message NodeInfoPB {
     optional bool is_smooth_upgrade = 12;
     // fqdn
     optional string host = 13;
+    optional string public_endpoint = 14;
+    optional string private_endpoint = 15;
 }
 
 enum NodeStatusPB {

@@ -214,6 +214,10 @@ class Backend extends ServerNode {
         return path + '/conf/be.conf'
     }
 
+    String getHeartbeatPort() {
+        return heartbeatPort;
+    }
+
 }
 
 class MetaService extends ServerNode {

@@ -99,8 +99,8 @@ public class CloudClusterChecker extends MasterDaemon {
                 // Attach tag to BEs
                 String clusterName = remoteClusterIdToPB.get(addId).getClusterName();
                 String clusterId = remoteClusterIdToPB.get(addId).getClusterId();
-                String publicEndpoint = remoteClusterIdToPB.get(addId).getPublicEndpoint();
-                String privateEndpoint = remoteClusterIdToPB.get(addId).getPrivateEndpoint();
+                String clusterPublicEndpoint = remoteClusterIdToPB.get(addId).getPublicEndpoint();
+                String clusterPrivateEndpoint = remoteClusterIdToPB.get(addId).getPrivateEndpoint();
                 // For old versions that do no have status field set
                 ClusterStatus clusterStatus = remoteClusterIdToPB.get(addId).hasClusterStatus()
                         ? remoteClusterIdToPB.get(addId).getClusterStatus() : ClusterStatus.NORMAL;
@@ -117,8 +117,11 @@ public class CloudClusterChecker extends MasterDaemon {
                     newTagMap.put(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(clusterStatus));
                     newTagMap.put(Tag.CLOUD_CLUSTER_NAME, clusterName);
                     newTagMap.put(Tag.CLOUD_CLUSTER_ID, clusterId);
-                    newTagMap.put(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, publicEndpoint);
-                    newTagMap.put(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT, privateEndpoint);
+                    newTagMap.put(Tag.PUBLIC_ENDPOINT,
+                            node.getPublicEndpoint().isEmpty() ? clusterPublicEndpoint : node.getPublicEndpoint());
+                    newTagMap.put(Tag.PRIVATE_ENDPOINT,
+                            node.getPrivateEndpoint().isEmpty() ? clusterPrivateEndpoint
+                                    : node.getPrivateEndpoint());
                     newTagMap.put(Tag.CLOUD_UNIQUE_ID, node.getCloudUniqueId());
                     b.setTagMap(newTagMap);
                     toAdd.add(b);
@@ -266,7 +269,7 @@ public class CloudClusterChecker extends MasterDaemon {
                 Map<String, Backend> currentMap = new HashMap<>();
                 for (Backend be : currentBes) {
                     String endpoint = be.getHost() + ":" + be.getHeartbeatPort()
-                            + be.getCloudPublicEndpoint() + be.getCloudPrivateEndpoint();
+                            + be.getPublicEndpoint() + be.getPrivateEndpoint();
                     currentMap.put(endpoint, be);
                 }
                 return currentMap;
@@ -278,9 +281,13 @@ public class CloudClusterChecker extends MasterDaemon {
                         LOG.warn("cant get valid add from ms {}", node);
                         continue;
                     }
-                    String endpoint = host + ":" + node.getHeartbeatPort()
-                            + remoteClusterIdToPB.get(cid).getPublicEndpoint()
-                            + remoteClusterIdToPB.get(cid).getPrivateEndpoint();
+                    String publicEndpoint = node.getPublicEndpoint().isEmpty()
+                            ? remoteClusterIdToPB.get(cid).getPublicEndpoint()
+                            : node.getPublicEndpoint();
+                    String privateEndpoint = node.getPrivateEndpoint().isEmpty()
+                            ? remoteClusterIdToPB.get(cid).getPrivateEndpoint()
+                            : node.getPrivateEndpoint();
+                    String endpoint = host + ":" + node.getHeartbeatPort() + publicEndpoint + privateEndpoint;
                     Backend b = new Backend(Env.getCurrentEnv().getNextId(), host, node.getHeartbeatPort());
                     if (node.hasIsSmoothUpgrade()) {
                         b.setSmoothUpgradeDst(node.getIsSmoothUpgrade());
@@ -290,9 +297,8 @@ public class CloudClusterChecker extends MasterDaemon {
                     Map<String, String> newTagMap = Tag.DEFAULT_BACKEND_TAG.toMap();
                     newTagMap.put(Tag.CLOUD_CLUSTER_NAME, remoteClusterIdToPB.get(cid).getClusterName());
                     newTagMap.put(Tag.CLOUD_CLUSTER_ID, remoteClusterIdToPB.get(cid).getClusterId());
-                    newTagMap.put(Tag.CLOUD_CLUSTER_PUBLIC_ENDPOINT, remoteClusterIdToPB.get(cid).getPublicEndpoint());
-                    newTagMap.put(Tag.CLOUD_CLUSTER_PRIVATE_ENDPOINT,
-                            remoteClusterIdToPB.get(cid).getPrivateEndpoint());
+                    newTagMap.put(Tag.PUBLIC_ENDPOINT, publicEndpoint);
+                    newTagMap.put(Tag.PRIVATE_ENDPOINT, privateEndpoint);
                     newTagMap.put(Tag.CLOUD_UNIQUE_ID, node.getCloudUniqueId());
                     b.setTagMap(newTagMap);
                     nodeMap.put(endpoint, b);
