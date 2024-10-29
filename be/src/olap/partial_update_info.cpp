@@ -792,22 +792,20 @@ Status BlockAggregator::aggregate_rows(
 
     std::string cur_seq_val;
     if (st.ok()) {
-        for (int64_t i {start}; i < end; i++) {
-            auto& skip_bitmap = skip_bitmaps->at(i);
+        for (pos = start; pos < end; pos++) {
+            auto& skip_bitmap = skip_bitmaps->at(pos);
             bool row_has_sequence_col = (!skip_bitmap.contains(seq_col_unique_id));
             // Discard all the rows whose seq value is smaller than previous_encoded_seq_value.
             if (row_has_sequence_col) {
                 std::string seq_val {};
-                _writer._encode_seq_column(seq_column, i, &seq_val);
+                _writer._encode_seq_column(seq_column, pos, &seq_val);
                 if (Slice {seq_val}.compare(Slice {previous_encoded_seq_value}) < 0) {
                     continue;
                 }
                 cur_seq_val = std::move(seq_val);
-                pos = i;
                 break;
             }
             cur_seq_val = std::move(previous_encoded_seq_value);
-            pos = i;
             break;
         }
     } else {
