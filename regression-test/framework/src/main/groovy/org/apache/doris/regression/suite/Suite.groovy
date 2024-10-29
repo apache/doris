@@ -969,16 +969,24 @@ class Suite implements GroovyInterceptable {
     }
 
     String cmd(String cmd, int timeoutSecond = 0) {
-        def proc = cmd.execute()
+        var processBuilder = new ProcessBuilder()
+        processBuilder.command("/bin/bash", "-c", cmd)
+        var process = processBuilder.start()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()
-        proc.consumeProcessOutput(outBuf, errBuf)
-        if (timeoutSecond > 0) {
-            proc.waitForOrKill(timeoutSecond * 1000)
-        } else {
-            proc.waitFor()
+        process.consumeProcessOutput(outBuf, errBuf)
+        var reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line)
         }
-        if (proc.exitValue() != 0) {
+        // wait until cmd finish
+        if (timeoutSecond > 0) {
+            process.waitForOrKill(timeoutSecond * 1000)
+        } else {
+            process.waitFor()
+        }
+        if (process.exitValue() != 0) {
             println outBuf
             throw new RuntimeException(errBuf.toString())
         }
