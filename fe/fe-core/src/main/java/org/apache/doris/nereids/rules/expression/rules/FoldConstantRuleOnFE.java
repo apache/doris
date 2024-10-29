@@ -187,7 +187,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         } else if (expr instanceof AggregateExpression && ((AggregateExpression) expr).getFunction().isDistinct()) {
             return expr;
         }
-        return expr.accept(this, ctx);
+        // ATTN: we must return original expr, because OrToIn is implemented with MutableState,
+        //   newExpr will lose these states leading to dead loop by OrToIn -> SimplifyRange -> FoldConstantByFE
+        Expression newExpr = expr.accept(this, ctx);
+        if (newExpr.equals(expr)) {
+            return expr;
+        }
+        return newExpr;
     }
 
     /**
