@@ -81,7 +81,7 @@ public:
     [[nodiscard]] bool is_merging() const { return _is_merging; }
 
     DataDistribution required_data_distribution() const override {
-        if (OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
+        if (OperatorX<ExchangeLocalState>::is_serial_operator()) {
             return {ExchangeType::NOOP};
         }
         return _partition_type == TPartitionType::HASH_PARTITIONED
