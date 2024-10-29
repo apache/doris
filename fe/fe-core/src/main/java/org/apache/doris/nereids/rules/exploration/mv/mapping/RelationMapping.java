@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
 import com.google.common.collect.BiMap;
@@ -30,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -95,15 +97,18 @@ public class RelationMapping extends Mapping {
             //    {tableA0 -> tableA2, tableA1 -> tableA3}
             //    {tableA0 -> tableA3, tableA1 -> tableA2}
             // ]
+            // query is select * from tableA0, tableA1, tableA4
             List<BiMap<MappedRelation, MappedRelation>> relationMappingPowerList = new ArrayList<>();
-            UniqueCombinator<MappedRelation> combinator = new UniqueCombinator<>();
-            List<List<List<MappedRelation>>> generateCombinations = combinator.generateCombinations(
-                    new ArrayList<>(sourceMappedRelations),
-                    new ArrayList<>(targetMappedRelations));
-            for (List<List<MappedRelation>> combinationPairs : generateCombinations) {
+            List<Pair<MappedRelation[], MappedRelation[]>> combinations = getUniquePermutation(
+                    sourceMappedRelations.toArray(sourceMappedRelations.toArray(new MappedRelation[0])),
+                    targetMappedRelations.toArray(new MappedRelation[0]));
+            for (Pair<MappedRelation[], MappedRelation[]> combination : combinations) {
                 BiMap<MappedRelation, MappedRelation> combinationBiMap = HashBiMap.create();
-                for (List<MappedRelation> combinationPair : combinationPairs) {
-                    combinationBiMap.put(combinationPair.get(0), combinationPair.get(1));
+                MappedRelation[] key = combination.key();
+                MappedRelation[] value = combination.value();
+                int length = Math.min(key.length, value.length);
+                for (int i = 0; i < length; i++) {
+                    combinationBiMap.put(key[i], value[i]);
                 }
                 relationMappingPowerList.add(combinationBiMap);
             }
@@ -149,50 +154,56 @@ public class RelationMapping extends Mapping {
         return Objects.hash(mappedRelationMap);
     }
 
-    private static class UniqueCombinator<T> {
-
-        private final List<List<List<T>>> combinationResult = new ArrayList<>();
-        private boolean[] used;
-
-        /**
-         * Combination and remove duplicated element
-         * For example:
-         * Given [1, 4, 5] and [191, 194, 195]
-         * This would return
-         * [
-         * [(1, 191) (4, 194) (5, 195)],
-         * [(1, 191) (4, 195) (5, 194)],
-         * [(1, 194) (4, 191) (5, 195)],
-         * [(1, 194) (4, 195) (5, 191)],
-         * [(1, 195) (4, 191) (5, 194)],
-         * [(1, 195) (4, 194) (5, 191)]
-         * ]
-         * */
-        public List<List<List<T>>> generateCombinations(List<T> left, List<T> right) {
-            if (left.size() != right.size()) {
-                return combinationResult;
-            }
-
-            used = new boolean[right.size()];
-            List<List<T>> current = new ArrayList<>();
-            backtrack(left, right, 0, current);
-
-            return combinationResult;
+    /**
+     * Permutation and remove duplicated element
+     * For example:
+     * Given [1, 4, 5] and [191, 194, 195]
+     * This would return
+     * [
+     * [(1, 191) (4, 194) (5, 195)],
+     * [(1, 191) (4, 195) (5, 194)],
+     * [(1, 194) (4, 191) (5, 195)],
+     * [(1, 194) (4, 195) (5, 191)],
+     * [(1, 195) (4, 191) (5, 194)],
+     * [(1, 195) (4, 194) (5, 191)]
+     * ]
+     * */
+    private static List<Pair<MappedRelation[], MappedRelation[]>> getUniquePermutation(
+            MappedRelation[] left, MappedRelation[] right) {
+        boolean needSwap = left.length > right.length;
+        if (needSwap) {
+            MappedRelation[] temp = left;
+            left = right;
+            right = temp;
         }
 
-        private void backtrack(List<T> left, List<T> right, int index, List<List<T>> current) {
-            if (index == left.size()) {
-                combinationResult.add(new ArrayList<>(current));
-                return;
+        boolean[] used = new boolean[right.length];
+        MappedRelation[] current = new MappedRelation[left.length];
+        List<Pair<MappedRelation[], MappedRelation[]>> results = new ArrayList<>();
+        backtrack(left, right, 0, used, current, results);
+        if (needSwap) {
+            List<Pair<MappedRelation[], MappedRelation[]>> tmpResults = results;
+            results = new ArrayList<>();
+            for (Pair<MappedRelation[], MappedRelation[]> relation : tmpResults) {
+                results.add(Pair.of(relation.value(), relation.key()));
             }
-            for (int i = 0; i < right.size(); i++) {
-                if (!used[i]) {
-                    used[i] = true;
-                    current.add(Lists.newArrayList(left.get(index), right.get(i)));
-                    backtrack(left, right, index + 1, current);
-                    current.remove(current.size() - 1);
-                    used[i] = false;
-                }
+        }
+        return results;
+    }
+
+    private static void backtrack(MappedRelation[] left, MappedRelation[] right, int index,
+            boolean[] used, MappedRelation[] current, List<Pair<MappedRelation[], MappedRelation[]>> results) {
+        if (index == left.length) {
+            results.add(Pair.of(Arrays.copyOf(left, left.length), Arrays.copyOf(current, current.length)));
+            return;
+        }
+
+        for (int i = 0; i < right.length; i++) {
+            if (!used[i]) {
+                used[i] = true;
+                current[index] = right[i];
+                backtrack(left, right, index + 1, used, current, results);
+                used[i] = false;
             }
         }
     }
