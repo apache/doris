@@ -49,7 +49,15 @@ Status _create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_nam
 Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs) {
     if (bthread_self() != 0) { // running in bthread
         Status st;
-        std::thread t([&] { st = _create_hdfs_fs(hdfs_params, fs_name, fs); });
+        auto btx = butex_create();
+        std::atomic_bool done = false;
+        std::thread t([&] {
+            st = _create_hdfs_fs(hdfs_params, fs_name, fs);
+            done = true;
+            butex_wake(btx);
+        });
+        if (!done) butex_wait(btx);
+        butex_destroy(btx);
         if (t.joinable()) {
             t.join();
         }
