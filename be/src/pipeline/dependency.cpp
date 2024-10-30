@@ -106,16 +106,6 @@ std::string RuntimeFilterDependency::debug_string(int indentation_level) {
     return fmt::to_string(debug_string_buffer);
 }
 
-Dependency* RuntimeFilterDependency::is_blocked_by(PipelineTask* task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
-    auto ready = _ready.load();
-    if (!ready && task) {
-        _add_block_task(task);
-        task->_blocked_dep = this;
-    }
-    return ready ? nullptr : this;
-}
-
 void RuntimeFilterTimer::call_timeout() {
     _parent->set_ready();
 }

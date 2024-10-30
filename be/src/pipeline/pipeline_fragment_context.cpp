@@ -215,7 +215,6 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     PipelineId id = _next_pipeline_id++;
     auto pipeline = std::make_shared<Pipeline>(
             id, parent ? std::min(parent->num_tasks(), _num_instances) : _num_instances,
-            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
             parent ? parent->num_tasks() : _num_instances);
     if (idx >= 0) {
         _pipelines.insert(_pipelines.begin() + idx, pipeline);
