@@ -33,6 +33,7 @@ public abstract class FormatChecker {
 
     protected abstract boolean doCheck();
 
+    /** check */
     public final boolean check() {
         this.checkStartIndex = stringInspect.index();
         boolean valid = doCheck();
