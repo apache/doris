@@ -43,12 +43,11 @@ Status _create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_nam
     return Status::OK();
 }
 
-bool is_bthread() {
-    return (bthread_self() != 0);
-}
-
+// https://brpc.apache.org/docs/server/basics/
+// According to the brpc doc, JNI code checks stack layout and cannot be run in
+// bthreads so create a pthread for creating hdfs connection if necessary.
 Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs) {
-    if (is_bthread()) {
+    if (bthread_self() != 0) { // running in bthread
         Status st;
         std::thread t([&] { st = _create_hdfs_fs(hdfs_params, fs_name, fs); });
         if (t.joinable()) {
