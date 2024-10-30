@@ -2019,7 +2019,10 @@ visible_functions = {
     "Url": [
         [['domain'], 'STRING', ['STRING'], ''],
         [['domain_without_www'], 'STRING', ['STRING'], ''],
-        [['protocol'], 'STRING', ['STRING'], '']
+        [['protocol'], 'STRING', ['STRING'], ''],
+        [['top_level_domain'], 'STRING', ['STRING'], ''],
+        [['cut_to_first_significant_subdomain'], 'STRING', ['STRING'], ''],
+        [['first_significant_subdomain'], 'STRING', ['STRING'], '']
     ],
 
     # search functions
