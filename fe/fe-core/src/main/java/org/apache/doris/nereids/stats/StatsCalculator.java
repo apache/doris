@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -262,27 +263,75 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         groupExpression.setStatDerived(true);
     }
 
+    private boolean isVisibleSlotReference(Slot slot) {
+        if (slot instanceof SlotReference) {
+            Optional<Column> colOpt = ((SlotReference) slot).getColumn();
+            if (colOpt.isPresent()) {
+                return colOpt.get().isVisible();
+            }
+        }
+        return false;
+    }
+
+    private ColumnStatistic getColumnStatsFromTableCache(CatalogRelation catalogRelation, SlotReference slot) {
+        long idxId = -1;
+        if (catalogRelation instanceof OlapScan) {
+            idxId = ((OlapScan) catalogRelation).getSelectedIndexId();
+        }
+        return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
+    }
+
+    // check validation of ndv.
+    private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
+        for (Slot slot : ((Plan) olapScan).getOutput()) {
+            if (isVisibleSlotReference(slot)) {
+                ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, (SlotReference) slot);
+                if (!cache.isUnKnown) {
+                    if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
+                            || cache.ndv > rowCount * 10) {
+                        return Optional.of("slot " + slot.getName() + " has invalid column stats: " + cache);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     /**
-     * disable join reorder if any table row count is not available.
+     * disable join reorder if
+     * 1. any table rowCount is not available, or
+     * 2. col stats ndv=0 but minExpr or maxExpr is not null
+     * 3. ndv > 10 * rowCount
      */
-    public static void disableJoinReorderIfTableRowCountNotAvailable(
-            List<LogicalOlapScan> scans, CascadesContext context) {
+    public static Optional<String> disableJoinReorderIfStatsInvalid(List<LogicalOlapScan> scans,
+            CascadesContext context) {
         StatsCalculator calculator = new StatsCalculator(context);
+        if (ConnectContext.get() == null) {
+            // ut case
+            return Optional.empty();
+        }
         for (LogicalOlapScan scan : scans) {
             double rowCount = calculator.getOlapTableRowCount(scan);
-            // analyzed rowCount may be zero, but BE-reported rowCount could be positive.
-            // check ndv validation when reported rowCount > 0
-            if (rowCount == -1 && ConnectContext.get() != null) {
+            // row count not available
+            if (rowCount == -1) {
+                LOG.info("disable join reorder since row count not available: "
+                        + scan.getTable().getNameWithFullQualifiers());
+                return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
+            }
+            // ndv abnormal
+            Optional<String> reason = calculator.checkNdvValidation(scan, rowCount);
+            if (reason.isPresent()) {
                 try {
                     ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
-                    LOG.info("disable join reorder since row count not available: "
-                            + scan.getTable().getNameWithFullQualifiers());
+                    LOG.info("disable join reorder since col stats invalid: "
+                            + reason.get());
                 } catch (Exception e) {
                     LOG.info("disableNereidsJoinReorderOnce failed");
                 }
-                return;
+                return reason;
             }
         }
+        return Optional.empty();
     }
 
     @Override
