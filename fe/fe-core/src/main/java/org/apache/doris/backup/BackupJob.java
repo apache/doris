@@ -1068,7 +1068,11 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         info.add(String.valueOf(jobId));
         info.add(label);
         info.add(dbName);
-        info.add(state.name());
+        String processState = "";
+        if (state == BackupJobState.UPLOADING) {
+            processState = (1 - unfinishedTaskIds.entrySet().size() * 1.00  / snapshotInfos.size()) * 100 + "%";
+        }
+        info.add(state.name() + " " + processState);
         info.add(getBackupObjs());
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(TimeUtils.longToTimeString(snapshotFinishedTime));
