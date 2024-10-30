@@ -46,7 +46,7 @@ suite("test_workload_group_follow_user_mtmv") {
 
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql """use ${dbName}"""
-        set property 'default_workload_group' = '${group1}';
+        sql """set property 'default_workload_group' = '${group1}';"""
         sql """drop materialized view if exists ${mvName};"""
         sql """
             CREATE MATERIALIZED VIEW ${mvName}
