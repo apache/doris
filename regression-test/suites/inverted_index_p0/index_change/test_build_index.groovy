@@ -97,7 +97,7 @@ suite("test_build_index", "inverted_index"){
             }
             if (alter_res.size() > 0) {
                 def last_job_state = alter_res[alter_res.size()-1][7];
-                if (last_job_state == "RUNNING") {
+                if (last_job_state == "RUNNING" || last_job_state == "FINISHED") {
                     logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
                     return last_job_state;
                 }
@@ -181,7 +181,7 @@ suite("test_build_index", "inverted_index"){
     // BUILD INDEX and expect state is RUNNING
     sql """ BUILD INDEX idx_comment ON ${tableName} """
     def state = wait_for_last_build_index_on_table_running(tableName, timeout)
-    if (state != "SKIPPED") {
+    if (state == "RUNNING") {
         def result = sql """ SHOW BUILD INDEX WHERE TableName = "${tableName}" ORDER BY JobId """
         assertEquals(result[result.size()-1][1], tableName)
         assertTrue(result[result.size()-1][3].contains("ADD INDEX"))

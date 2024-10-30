@@ -17,6 +17,7 @@
 
 #include "exchange_source_operator.h"
 
+#include <cstdint>
 #include <memory>
 
 #include "pipeline/exec/operator.h"
@@ -29,7 +30,7 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
 
@@ -104,7 +105,9 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
                                                     tnode.exchange_node.input_row_tuples.size())),
-          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {}
+          _offset(tnode.exchange_node.__isset.offset ? tnode.exchange_node.offset : 0) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status ExchangeSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorX<ExchangeLocalState>::init(tnode, state));
@@ -158,9 +161,10 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
                 local_state.num_rows_skipped += block->rows();
                 block->set_num_rows(0);
             } else if (local_state.num_rows_skipped < _offset) {
-                auto offset = _offset - local_state.num_rows_skipped;
+                int64_t offset = _offset - local_state.num_rows_skipped;
                 local_state.num_rows_skipped = _offset;
-                block->set_num_rows(block->rows() - offset);
+                // should skip some rows
+                block->skip_num_rows(offset);
             }
         }
         if (local_state.num_rows_returned() + block->rows() < _limit) {

@@ -18,11 +18,18 @@
 package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -141,11 +148,13 @@ import org.apache.doris.statistics.StatisticRange;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 import org.apache.doris.statistics.TableStatsMeta;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -212,24 +221,40 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
-     * disable join reorder if any table row count is not available.
+     * disable join reorder if
+     * 1. any table rowCount is not available, or
+     * 2. col stats ndv=0 but minExpr or maxExpr is not null
+     * 3. ndv > 10 * rowCount
      */
-    public static void disableJoinReorderIfTableRowCountNotAvailable(
-            List<LogicalOlapScan> scans, CascadesContext context) {
+    public static Optional<String> disableJoinReorderIfStatsInvalid(List<LogicalOlapScan> scans,
+            CascadesContext context) {
         StatsCalculator calculator = new StatsCalculator(context);
+        if (ConnectContext.get() == null) {
+            // ut case
+            return Optional.empty();
+        }
         for (LogicalOlapScan scan : scans) {
             double rowCount = calculator.getOlapTableRowCount(scan);
-            if (rowCount == -1 && ConnectContext.get() != null) {
+            // row count not available
+            if (rowCount == -1) {
+                LOG.info("disable join reorder since row count not available: "
+                        + scan.getTable().getNameWithFullQualifiers());
+                return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
+            }
+            // ndv abnormal
+            Optional<String> reason = calculator.checkNdvValidation(scan, rowCount);
+            if (reason.isPresent()) {
                 try {
                     ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
-                    LOG.info("disable join reorder since row count not available: "
-                            + scan.getTable().getNameWithFullQualifiers());
+                    LOG.info("disable join reorder since col stats invalid: "
+                            + reason.get());
                 } catch (Exception e) {
                     LOG.info("disableNereidsJoinReorderOnce failed");
                 }
-                return;
+                return reason;
             }
         }
+        return Optional.empty();
     }
 
     /**
@@ -403,6 +428,22 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return rowCount;
     }
 
+    // check validation of ndv.
+    private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
+        for (Slot slot : ((Plan) olapScan).getOutput()) {
+            if (isVisibleSlotReference(slot)) {
+                ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, (SlotReference) slot);
+                if (!cache.isUnKnown) {
+                    if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
+                            || cache.ndv > rowCount * 10) {
+                        return Optional.of("slot " + slot.getName() + " has invalid column stats: " + cache);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
     private Statistics computeOlapScan(OlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         double tableRowCount = getOlapTableRowCount(olapScan);
@@ -483,6 +524,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 });
                 for (SlotReference slot : visibleOutputSlots) {
                     ColumnStatistic cache = getColumnStatsFromPartitionCache(olapScan, slot, selectedPartitionNames);
+                    if (slot.getColumn().isPresent()) {
+                        cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
+                    }
                     ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
                             selectedPartitionsRowCount);
                     colStatsBuilder.normalizeAvgSizeByte(slot);
@@ -490,6 +534,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
                 builder.setRowCount(selectedPartitionsRowCount);
+            } else {
+                // estimate table rowCount according to pruned partition num
+                tableRowCount = tableRowCount * olapScan.getSelectedPartitionIds().size()
+                        / olapScan.getTable().getPartitionNum();
             }
         }
         // 1. no partition is pruned, or
@@ -506,6 +554,125 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             builder.setRowCount(tableRowCount);
         }
         return builder.build();
+    }
+
+    private ColumnStatistic updateMinMaxForPartitionKey(OlapTable olapTable,
+            List<String> selectedPartitionNames,
+            SlotReference slot, ColumnStatistic cache) {
+        if (olapTable.getPartitionType() == PartitionType.LIST) {
+            cache = updateMinMaxForListPartitionKey(olapTable, selectedPartitionNames, slot, cache);
+        } else if (olapTable.getPartitionType() == PartitionType.RANGE) {
+            cache = updateMinMaxForTheFirstRangePartitionKey(olapTable, selectedPartitionNames, slot, cache);
+        }
+        return cache;
+    }
+
+    private double convertLegacyLiteralToDouble(LiteralExpr literal) throws AnalysisException {
+        return StatisticsUtil.convertToDouble(literal.getType(), literal.getStringValue());
+    }
+
+    private ColumnStatistic updateMinMaxForListPartitionKey(OlapTable olapTable,
+            List<String> selectedPartitionNames,
+            SlotReference slot, ColumnStatistic cache) {
+        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getColumn().get());
+        if (partitionColumnIdx != -1) {
+            try {
+                LiteralExpr minExpr = null;
+                LiteralExpr maxExpr = null;
+                double minValue = 0;
+                double maxValue = 0;
+                for (String selectedPartitionName : selectedPartitionNames) {
+                    PartitionItem item = olapTable.getPartitionItemOrAnalysisException(
+                            selectedPartitionName);
+                    if (item instanceof ListPartitionItem) {
+                        ListPartitionItem lp = (ListPartitionItem) item;
+                        for (PartitionKey key : lp.getItems()) {
+                            if (minExpr == null) {
+                                minExpr = key.getKeys().get(partitionColumnIdx);
+                                minValue = convertLegacyLiteralToDouble(minExpr);
+                                maxExpr = key.getKeys().get(partitionColumnIdx);
+                                maxValue = convertLegacyLiteralToDouble(maxExpr);
+                            } else {
+                                double current = convertLegacyLiteralToDouble(key.getKeys().get(partitionColumnIdx));
+                                if (current > maxValue) {
+                                    maxValue = current;
+                                    maxExpr = key.getKeys().get(partitionColumnIdx);
+                                } else if (current < minValue) {
+                                    minValue = current;
+                                    minExpr = key.getKeys().get(partitionColumnIdx);
+                                }
+                            }
+                        }
+                    }
+                }
+                if (minExpr != null) {
+                    cache = new ColumnStatisticBuilder(cache)
+                            .setMinExpr(minExpr)
+                            .setMinValue(minValue)
+                            .setMaxExpr(maxExpr)
+                            .setMaxValue(maxValue)
+                            .build();
+                }
+            } catch (AnalysisException e) {
+                LOG.debug(e.getMessage());
+            }
+        }
+        return cache;
+    }
+
+    private ColumnStatistic updateMinMaxForTheFirstRangePartitionKey(OlapTable olapTable,
+            List<String> selectedPartitionNames,
+            SlotReference slot, ColumnStatistic cache) {
+        int partitionColumnIdx = olapTable.getPartitionColumns().indexOf(slot.getColumn().get());
+        // for multi partition keys, only the first partition key need to adjust min/max
+        if (partitionColumnIdx == 0) {
+            // update partition column min/max by partition info
+            try {
+                LiteralExpr minExpr = null;
+                LiteralExpr maxExpr = null;
+                double minValue = 0;
+                double maxValue = 0;
+                for (String selectedPartitionName : selectedPartitionNames) {
+                    PartitionItem item = olapTable.getPartitionItemOrAnalysisException(
+                            selectedPartitionName);
+                    if (item instanceof RangePartitionItem) {
+                        RangePartitionItem ri = (RangePartitionItem) item;
+                        Range<PartitionKey> range = ri.getItems();
+                        PartitionKey upper = range.upperEndpoint();
+                        PartitionKey lower = range.lowerEndpoint();
+                        if (maxExpr == null) {
+                            maxExpr = upper.getKeys().get(partitionColumnIdx);
+                            maxValue = convertLegacyLiteralToDouble(maxExpr);
+                            minExpr = lower.getKeys().get(partitionColumnIdx);
+                            minValue = convertLegacyLiteralToDouble(minExpr);
+                        } else {
+                            double currentValue = convertLegacyLiteralToDouble(upper.getKeys()
+                                    .get(partitionColumnIdx));
+                            if (currentValue > maxValue) {
+                                maxValue = currentValue;
+                                maxExpr = upper.getKeys().get(partitionColumnIdx);
+                            }
+                            currentValue = convertLegacyLiteralToDouble(lower.getKeys().get(partitionColumnIdx));
+                            if (currentValue < minValue) {
+                                minValue = currentValue;
+                                minExpr = lower.getKeys().get(partitionColumnIdx);
+                            }
+                        }
+                    }
+                }
+                if (minExpr != null) {
+                    cache = new ColumnStatisticBuilder(cache)
+                            .setMinExpr(minExpr)
+                            .setMinValue(minValue)
+                            .setMaxExpr(maxExpr)
+                            .setMaxValue(maxValue)
+                            .build();
+                }
+            } catch (AnalysisException e) {
+                LOG.debug(e.getMessage());
+            }
+        }
+        return cache;
     }
 
     @Override

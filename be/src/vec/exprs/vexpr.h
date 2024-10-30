@@ -155,9 +155,9 @@ public:
     VExprSPtr get_child(int i) const { return _children[i]; }
     int get_num_children() const { return _children.size(); }
 
-    virtual bool need_judge_selectivity() {
+    virtual bool is_rf_wrapper() const {
         return std::ranges::any_of(_children.begin(), _children.end(),
-                                   [](VExprSPtr child) { return child->need_judge_selectivity(); });
+                                   [](VExprSPtr child) { return child->is_rf_wrapper(); });
     }
 
     virtual void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) {
@@ -286,7 +286,8 @@ protected:
     /// 1. Set constant columns result of function arguments.
     /// 2. Call function's prepare() to initialize function state, fragment-local or
     /// thread-local according the input `FunctionStateScope` argument.
-    Status init_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
+    Status init_function_context(RuntimeState* state, VExprContext* context,
+                                 FunctionContext::FunctionStateScope scope,
                                  const FunctionBasePtr& function) const;
 
     /// Helper function to close function context, fragment-local or thread-local according

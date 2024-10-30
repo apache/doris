@@ -169,6 +169,8 @@ public class StatementContext implements Closeable {
 
     private List<PlannerHook> plannerHooks = new ArrayList<>();
 
+    private String disableJoinReorderReason;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -557,5 +559,13 @@ public class StatementContext implements Closeable {
         tableId = StatementScopeIdGenerator.newTableId();
         this.tableIdMapping.put(tableIdentifier, tableId);
         return tableId;
+    }
+
+    public Optional<String> getDisableJoinReorderReason() {
+        return Optional.ofNullable(disableJoinReorderReason);
+    }
+
+    public void setDisableJoinReorderReason(String disableJoinReorderReason) {
+        this.disableJoinReorderReason = disableJoinReorderReason;
     }
 }

@@ -36,6 +36,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -86,6 +87,8 @@ public class IcebergScanNode extends FileQueryScanNode {
     private IcebergSource source;
     private Table icebergTable;
     private List<String> pushdownIcebergPredicates = Lists.newArrayList();
+    private boolean pushDownCount = false;
+    private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
 
     /**
      * External file scan node for Query iceberg table
@@ -137,6 +140,9 @@ public class IcebergScanNode extends FileQueryScanNode {
         int formatVersion = icebergSplit.getFormatVersion();
         fileDesc.setFormatVersion(formatVersion);
         fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
+        if (pushDownCount) {
+            fileDesc.setRowCount(icebergSplit.getRowCount());
+        }
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
@@ -255,9 +261,24 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         TPushAggOp aggOp = getPushDownAggNoGroupingOp();
-        if (aggOp.equals(TPushAggOp.COUNT) && getCountFromSnapshot() >= 0) {
+        if (aggOp.equals(TPushAggOp.COUNT)) {
             // we can create a special empty split and skip the plan process
-            return splits.isEmpty() ? splits : Collections.singletonList(splits.get(0));
+            if (splits.isEmpty()) {
+                return splits;
+            }
+            long countFromSnapshot = getCountFromSnapshot();
+            if (countFromSnapshot >= 0) {
+                pushDownCount = true;
+                List<Split> pushDownCountSplits;
+                if (countFromSnapshot > COUNT_WITH_PARALLEL_SPLITS) {
+                    int parallelNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), parallelNum));
+                } else {
+                    pushDownCountSplits = Collections.singletonList(splits.get(0));
+                }
+                assignCountToSplits(pushDownCountSplits, countFromSnapshot);
+                return pushDownCountSplits;
+            }
         }
 
         selectedPartitionNum = partitionPathSet.size();
@@ -374,12 +395,6 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     protected void toThrift(TPlanNode planNode) {
         super.toThrift(planNode);
-        if (getPushDownAggNoGroupingOp().equals(TPushAggOp.COUNT)) {
-            long countFromSnapshot = getCountFromSnapshot();
-            if (countFromSnapshot >= 0) {
-                planNode.setPushDownCount(countFromSnapshot);
-            }
-        }
     }
 
     @Override
@@ -398,5 +413,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
         return super.getNodeExplainString(prefix, detailLevel)
                 + String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb);
+    }
+
+    private void assignCountToSplits(List<Split> splits, long totalCount) {
+        int size = splits.size();
+        long countPerSplit = totalCount / size;
+        for (int i = 0; i < size - 1; i++) {
+            ((IcebergSplit) splits.get(i)).setRowCount(countPerSplit);
+        }
+        ((IcebergSplit) splits.get(size - 1)).setRowCount(countPerSplit + totalCount % size);
     }
 }

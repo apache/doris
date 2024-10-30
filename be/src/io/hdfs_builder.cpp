@@ -20,17 +20,16 @@
 #include <fmt/format.h>
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <cstdarg>
 #include <cstdlib>
-#include <fstream>
 #include <utility>
 #include <vector>
 
-#include "agent/utils.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "hadoop_hdfs/hdfs.h"
 #include "io/fs/hdfs.h"
 #include "util/string_util.h"
-#include "util/uid_util.h"
 
 namespace doris {
 

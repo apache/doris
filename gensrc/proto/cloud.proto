@@ -642,6 +642,7 @@ message BeginTxnResponse {
     optional MetaServiceResponseStatus status = 1;
     optional int64 txn_id = 2;
     optional int64 dup_txn_id = 3;
+    optional TxnStatusPB txn_status = 4;
     // TODO: There may be more fields TBD
 }
 

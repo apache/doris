@@ -42,7 +42,7 @@ private:
     BlockQueueSharedPtr _queue;
 
     // Owned by the RuntimeState.
-    VExprContextSPtrs _output_vexpr_ctxs;
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
 };
@@ -61,7 +61,7 @@ private:
     const RowDescriptor& _row_desc;
     cctz::time_zone _timezone_obj;
     const std::vector<TExpr>& _t_output_expr;
-    VExprContextSPtrs _output_vexpr_ctxs;
+    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 };
 
 } // namespace doris::pipeline

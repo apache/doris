@@ -18,6 +18,7 @@
 suite("const_expr_column_pruning") {
     sql """SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"""
     // should only keep one column in union
-    sql "select count(1) from(select 3, 6 union all select 1, 3) t"
-    sql "select count(a) from(select 3 a, 6 union all select 1, 3) t"
+    sql """select count(1) from(select 3, 6 union all select 1, 3) t"""
+    sql """select count(1) from(select 3, 6 union all select "1", 3) t"""
+    sql """select count(a) from(select 3 a, 6 union all select "1", 3) t"""
 }

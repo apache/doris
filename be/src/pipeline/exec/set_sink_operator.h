@@ -23,6 +23,7 @@
 #include "operator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 template <class HashTableContext, bool is_intersected>
@@ -93,7 +94,6 @@ public:
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
-    bool require_shuffled_data_distribution() const override { return true; }
 
 private:
     template <class HashTableContext, bool is_intersected>
@@ -106,13 +106,14 @@ private:
                                  size_t& rows);
 
     const int _cur_child_id;
-    const int _child_quantity;
+    const size_t _child_quantity;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
     const bool _is_colocate;
     const std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child;
 };
+#include "common/compile_check_end.h"
 
 } // namespace pipeline
 } // namespace doris

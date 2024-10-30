@@ -19,7 +19,9 @@
 
 #include <stdint.h>
 
+#include <atomic>
 #include <memory>
+#include <mutex>
 
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
@@ -53,13 +55,10 @@ private:
 
 public:
     ExchangeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state),
-              current_channel_idx(0),
-              only_local_exchange(false),
-              _serializer(this) {
+            : Base(parent, state), _serializer(this) {
         _finish_dependency =
                 std::make_shared<Dependency>(parent->operator_id(), parent->node_id(),
-                                             parent->get_name() + "_FINISH_DEPENDENCY", true);
+                                             parent->get_name() + "_FINISH_DEPENDENCY", false);
     }
 
     std::vector<Dependency*> dependencies() const override {
@@ -112,10 +111,11 @@ public:
         return Status::OK();
     }
     Status _send_new_partition_batch();
-    std::vector<vectorized::PipChannel*> channels;
-    std::vector<std::shared_ptr<vectorized::PipChannel>> channel_shared_ptrs;
-    int current_channel_idx; // index of current channel to send to if _random == true
-    bool only_local_exchange;
+    std::vector<std::shared_ptr<vectorized::Channel>> channels;
+    int current_channel_idx {0}; // index of current channel to send to if _random == true
+    bool only_local_exchange {false};
+
+    void on_channel_finished(InstanceLoId channel_id);
 
     // for external table sink hash partition
     std::unique_ptr<vectorized::ScaleWriterPartitioningExchanger<HashPartitionFunction>>
@@ -123,9 +123,8 @@ public:
 
 private:
     friend class ExchangeSinkOperatorX;
-    friend class vectorized::Channel<ExchangeSinkLocalState>;
-    friend class vectorized::PipChannel;
-    friend class vectorized::BlockSerializer<ExchangeSinkLocalState>;
+    friend class vectorized::Channel;
+    friend class vectorized::BlockSerializer;
 
     std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
@@ -154,7 +153,7 @@ private:
     int _sender_id;
     std::shared_ptr<vectorized::BroadcastPBlockHolderMemLimiter> _broadcast_pb_mem_limiter;
 
-    vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
+    vectorized::BlockSerializer _serializer;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
     std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
@@ -179,7 +178,7 @@ private:
      */
     std::vector<std::shared_ptr<Dependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    int _partition_count;
+    size_t _partition_count;
 
     std::shared_ptr<Dependency> _finish_dependency;
 
@@ -203,6 +202,10 @@ private:
     std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
     std::atomic<bool> _reach_limit = false;
     int _last_local_channel_idx = -1;
+
+    std::atomic_int _working_channels_count = 0;
+    std::set<InstanceLoId> _finished_channels;
+    std::mutex _finished_channels_mutex;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -221,6 +224,7 @@ public:
     Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
                            int num_receivers = 1);
     DataDistribution required_data_distribution() const override;
+    bool is_serial_operator() const override { return true; }
 
 private:
     friend class ExchangeSinkLocalState;
@@ -228,13 +232,14 @@ private:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    template <typename Channels, typename HashValueType>
-    Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
-                            const HashValueType* channel_ids, int rows, vectorized::Block* block,
-                            bool eos);
+    Status channel_add_rows(RuntimeState* state,
+                            std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+                            size_t num_channels, const uint32_t* __restrict channel_ids,
+                            size_t rows, vectorized::Block* block, bool eos);
 
-    template <typename Channels>
-    Status channel_add_rows_with_idx(RuntimeState* state, Channels& channels, int num_channels,
+    Status channel_add_rows_with_idx(RuntimeState* state,
+                                     std::vector<std::shared_ptr<vectorized::Channel>>& channels,
+                                     size_t num_channels,
                                      std::vector<std::vector<uint32_t>>& channel2rows,
                                      vectorized::Block* block, bool eos);
     RuntimeState* _state = nullptr;

@@ -31,6 +31,7 @@
 #include "gutil/integral_types.h"
 #include "pipeline/common/agg_utils.h"
 #include "pipeline/common/join_utils.h"
+#include "pipeline/common/set_utils.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/join/process_hash_table_probe.h"
 #include "vec/common/sort/partition_sorter.h"
@@ -45,7 +46,7 @@ class VSlotRef;
 } // namespace doris::vectorized
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class Dependency;
 class PipelineTask;
 struct BasicSharedState;
@@ -110,19 +111,19 @@ public:
     // Notify downstream pipeline tasks this dependency is ready.
     void set_ready();
     void set_ready_to_read() {
-        DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
+        DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->set_ready();
     }
     void set_block_to_read() {
-        DCHECK(_shared_state->source_deps.size() == 1) << debug_string();
+        DCHECK_EQ(_shared_state->source_deps.size(), 1) << debug_string();
         _shared_state->source_deps.front()->block();
     }
     void set_ready_to_write() {
-        DCHECK(_shared_state->sink_deps.size() == 1) << debug_string();
+        DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
         _shared_state->sink_deps.front()->set_ready();
     }
     void set_block_to_write() {
-        DCHECK(_shared_state->sink_deps.size() == 1) << debug_string();
+        DCHECK_EQ(_shared_state->sink_deps.size(), 1) << debug_string();
         _shared_state->sink_deps.front()->block();
     }
 
@@ -173,7 +174,7 @@ struct FakeSharedState final : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(FakeSharedState)
 };
 
-struct CountedFinishDependency final : public Dependency {
+class CountedFinishDependency final : public Dependency {
 public:
     using SharedState = FakeSharedState;
     CountedFinishDependency(int id, int node_id, std::string name)
@@ -503,7 +504,7 @@ struct SpillSortSharedState : public BasicSharedState,
     ~SpillSortSharedState() override = default;
 
     // This number specifies the maximum size of sub blocks
-    static constexpr int SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
+    static constexpr size_t SORT_BLOCK_SPILL_BATCH_BYTES = 8 * 1024 * 1024;
     void update_spill_block_batch_row_count(const vectorized::Block* block) {
         auto rows = block->rows();
         if (rows > 0 && 0 == avg_row_bytes) {
@@ -524,7 +525,7 @@ struct SpillSortSharedState : public BasicSharedState,
 
     std::deque<vectorized::SpillStreamSPtr> sorted_streams;
     size_t avg_row_bytes = 0;
-    int spill_block_batch_row_count;
+    size_t spill_block_batch_row_count;
 };
 
 struct UnionSharedState : public BasicSharedState {
@@ -610,7 +611,7 @@ struct HashJoinSharedState : public JoinSharedState {
     std::shared_ptr<vectorized::Arena> arena = std::make_shared<vectorized::Arena>();
 
     // maybe share hash table with other fragment instances
-    std::shared_ptr<HashTableVariants> hash_table_variants = std::make_shared<HashTableVariants>();
+    std::shared_ptr<JoinDataVariants> hash_table_variants = std::make_shared<JoinDataVariants>();
     const std::vector<TupleDescriptor*> build_side_child_desc;
     size_t build_exprs_size = 0;
     std::shared_ptr<vectorized::Block> build_block;
@@ -650,24 +651,6 @@ public:
     std::mutex sink_eos_lock;
 };
 
-using SetHashTableVariants =
-        std::variant<std::monostate, vectorized::SetSerializedHashTableContext,
-                     vectorized::SetMethodOneString,
-                     vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt8>,
-                     vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt16>,
-                     vectorized::SetPrimaryTypeHashTableContext<vectorized::UInt32>,
-                     vectorized::SetPrimaryTypeHashTableContext<UInt64>,
-                     vectorized::SetPrimaryTypeHashTableContext<UInt128>,
-                     vectorized::SetPrimaryTypeHashTableContext<UInt256>,
-                     vectorized::SetFixedKeyHashTableContext<UInt64, true>,
-                     vectorized::SetFixedKeyHashTableContext<UInt64, false>,
-                     vectorized::SetFixedKeyHashTableContext<UInt128, true>,
-                     vectorized::SetFixedKeyHashTableContext<UInt128, false>,
-                     vectorized::SetFixedKeyHashTableContext<UInt256, true>,
-                     vectorized::SetFixedKeyHashTableContext<UInt256, false>,
-                     vectorized::SetFixedKeyHashTableContext<UInt136, true>,
-                     vectorized::SetFixedKeyHashTableContext<UInt136, false>>;
-
 struct SetSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(SetSharedState)
 public:
@@ -682,7 +665,7 @@ public:
     //// shared static states (shared, decided in prepare/open...)
 
     /// init in setup_local_state
-    std::unique_ptr<SetHashTableVariants> hash_table_variants = nullptr; // the real data HERE.
+    std::unique_ptr<SetDataVariants> hash_table_variants = nullptr; // the real data HERE.
     std::vector<bool> build_not_ignore_null;
 
     // The SET operator's child might have different nullable attributes.
@@ -694,7 +677,7 @@ public:
     std::vector<vectorized::VExprContextSPtrs> child_exprs_lists;
 
     /// init in build side
-    int child_quantity;
+    size_t child_quantity;
     vectorized::VExprContextSPtrs build_child_exprs;
     std::vector<Dependency*> probe_finished_children_dependency;
 
@@ -704,64 +687,7 @@ public:
     std::atomic<bool> ready_for_read = false;
 
     /// called in setup_local_state
-    void hash_table_init() {
-        using namespace vectorized;
-        if (child_exprs_lists[0].size() == 1 && (!build_not_ignore_null[0])) {
-            // Single column optimization
-            switch (child_exprs_lists[0][0]->root()->result_type()) {
-            case TYPE_BOOLEAN:
-            case TYPE_TINYINT:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt8>>();
-                break;
-            case TYPE_SMALLINT:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt16>>();
-                break;
-            case TYPE_INT:
-            case TYPE_FLOAT:
-            case TYPE_DATEV2:
-            case TYPE_DECIMAL32:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt32>>();
-                break;
-            case TYPE_BIGINT:
-            case TYPE_DOUBLE:
-            case TYPE_DATETIME:
-            case TYPE_DATE:
-            case TYPE_DECIMAL64:
-            case TYPE_DATETIMEV2:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt64>>();
-                break;
-            case TYPE_CHAR:
-            case TYPE_VARCHAR:
-            case TYPE_STRING: {
-                hash_table_variants->emplace<vectorized::SetMethodOneString>();
-                break;
-            }
-            case TYPE_LARGEINT:
-            case TYPE_DECIMALV2:
-            case TYPE_DECIMAL128I:
-                hash_table_variants->emplace<vectorized::SetPrimaryTypeHashTableContext<UInt128>>();
-                break;
-            default:
-                hash_table_variants->emplace<SetSerializedHashTableContext>();
-            }
-            return;
-        }
-
-        // here need to change type to nullable, because some case eg:
-        // (select 0) intersect (select null) the build side hash table should not
-        // ignore null value.
-        std::vector<DataTypePtr> data_types;
-        for (int i = 0; i < child_exprs_lists[0].size(); i++) {
-            const auto& ctx = child_exprs_lists[0][i];
-            data_types.emplace_back(build_not_ignore_null[i]
-                                            ? make_nullable(ctx->root()->data_type())
-                                            : ctx->root()->data_type());
-        }
-        if (!try_get_hash_map_context_fixed<NormalHashMap, HashCRC32, RowRefListWithFlags>(
-                    *hash_table_variants, data_types)) {
-            hash_table_variants->emplace<SetSerializedHashTableContext>();
-        }
-    }
+    Status hash_table_init();
 };
 
 enum class ExchangeType : uint8_t {
@@ -941,5 +867,5 @@ private:
     std::vector<std::atomic_int64_t> _queues_mem_usage;
     const int64_t _each_queue_limit;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

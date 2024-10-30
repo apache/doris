@@ -1,0 +1,62 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+name: Auto Cherry-Pick to Branch
+
+on:
+  pull_request_target:
+    types:
+      - closed
+    branches:
+      - master
+permissions:
+  checks: write
+  contents: write
+  pull-requests: write
+jobs:
+  auto_cherry_pick:
+    runs-on: ubuntu-latest
+    if: ${{ contains(github.event.pull_request.labels.*.name, 'dev/3.0.x') && github.event.pull_request.merged == true }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        run: |
+          pip install PyGithub
+      - name: Check SHA
+        run: |
+            expected_sha="80b7c6087f2a3e4f4c7f035a52e8e7b05ce00f27aa5c1bd52179df685c912447f94a96145fd3204a3958d8ed9777de5a5183b120e99e0e95bbca0366d69b0ac0"
+            calculated_sha=$(sha512sum tools/auto-pick-script.py | awk '{ print $1 }')
+            if [ "$calculated_sha" != "$expected_sha" ]; then
+              echo "SHA mismatch! Expected: $expected_sha, but got: $calculated_sha"
+              exit 1
+            else
+              echo "SHA matches: $calculated_sha"
+            fi
+      - name: Auto cherry-pick
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          CONFLICT_LABEL: cherry-pick-conflict-in-3.0
+        run: |
+          python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-3.0  

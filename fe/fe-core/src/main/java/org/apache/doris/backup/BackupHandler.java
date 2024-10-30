@@ -336,7 +336,9 @@ public class BackupHandler extends MasterDaemon implements Writable {
             AbstractJob currentJob = getCurrentJob(db.getId());
             if (currentJob != null && !currentJob.isDone()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                               "Can only run one backup or restore job of a database at same time");
+                                               "Can only run one backup or restore job of a database at same time "
+                                               + ", current running: label = " + currentJob.getLabel() + " jobId = "
+                                               + currentJob.getJobId() + ", to run label = " + stmt.getLabel());
             }
 
             if (stmt instanceof BackupStmt) {
@@ -419,14 +421,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
             try {
                 if (olapTbl.existTempPartitions()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Do not support backup table with temp partitions");
+                            "Do not support backup table " + olapTbl.getName() + " with temp partitions");
                 }
 
                 PartitionNames partitionNames = tblRef.getPartitionNames();
                 if (partitionNames != null) {
                     if (partitionNames.isTemp()) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                "Do not support backup temp partitions");
+                                "Do not support backup temp partitions in table " + tblRef.getName());
                     }
 
                     for (String partName : partitionNames.getPartitionNames()) {
@@ -667,7 +669,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (partitionNames != null) {
             if (partitionNames.isTemp()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Do not support restoring temporary partitions");
+                        "Do not support restoring temporary partitions in table " + tblName);
             }
             // check the selected partitions
             for (String partName : partitionNames.getPartitionNames()) {

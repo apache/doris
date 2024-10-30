@@ -45,7 +45,7 @@ suite ("testAggQueryOnAggMV1") {
 
     sql "analyze table emps with sync;"
 
-    mv_rewrite_all_fail("select * from emps order by empid;")
+    mv_rewrite_all_fail("select * from emps order by empid;", ["emps_mv", "emps_mv_count_key", "emps_mv_if"])
     qt_select_star "select * from emps order by empid;"
 
 
@@ -69,7 +69,7 @@ suite ("testAggQueryOnAggMV1") {
     
     qt_select_mv "select deptno, count(deptno) from emps where deptno=1 group by deptno order by deptno;"
 
-    mv_rewrite_all_fail("select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;")
+    mv_rewrite_all_fail("select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;", ["emps_mv", "emps_mv_count_key", "emps_mv_if"])
         
     qt_select_mv "select deptno, sum(salary), max(commission) from emps where salary=1 group by deptno order by deptno;"
 

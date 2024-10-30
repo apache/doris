@@ -69,10 +69,10 @@ public:
         } else if (_merge_by_exchange) {
             // The current sort node is used for the ORDER BY
             return {ExchangeType::PASSTHROUGH};
+        } else {
+            return {ExchangeType::NOOP};
         }
-        return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
-    bool require_shuffled_data_distribution() const override { return _is_analytic_sort; }
     bool require_data_distribution() const override { return _is_colocate; }
 
     size_t get_revocable_mem_size(RuntimeState* state) const;

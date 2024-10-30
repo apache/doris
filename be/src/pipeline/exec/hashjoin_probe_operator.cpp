@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/descriptors.h"
@@ -26,7 +27,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 HashJoinProbeLocalState::HashJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
         : JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>(state, parent),
           _process_hashtable_ctx_variants(std::make_unique<HashTableCtxVariants>()) {}
@@ -154,7 +155,7 @@ bool HashJoinProbeLocalState::_need_probe_null_map(vectorized::Block& block,
                                                    const std::vector<int>& res_col_ids) {
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
         if (!_shared_state->is_null_safe_eq_join[i]) {
-            auto column = block.get_by_position(res_col_ids[i]).column.get();
+            const auto* column = block.get_by_position(res_col_ids[i]).column.get();
             if (check_and_get_column<vectorized::ColumnNullable>(*column)) {
                 return true;
             }
@@ -295,15 +296,15 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                     if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                            st = process_hashtable_ctx
-                                         .template process<need_null_map_for_probe, ignore_null>(
-                                                 arg,
-                                                 need_null_map_for_probe
-                                                         ? &local_state._null_map_column->get_data()
-                                                         : nullptr,
-                                                 mutable_join_block, &temp_block,
-                                                 local_state._probe_block.rows(), _is_mark_join,
-                                                 _have_other_join_conjunct);
+                            st = process_hashtable_ctx.template process<need_null_map_for_probe,
+                                                                        ignore_null>(
+                                    arg,
+                                    need_null_map_for_probe
+                                            ? &local_state._null_map_column->get_data()
+                                            : nullptr,
+                                    mutable_join_block, &temp_block,
+                                    cast_set<uint32_t>(local_state._probe_block.rows()),
+                                    _is_mark_join, _have_other_join_conjunct);
                         } else {
                             st = Status::InternalError("uninited hash table");
                         }
@@ -311,7 +312,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                         st = Status::InternalError("uninited hash table probe");
                     }
                 },
-                *local_state._shared_state->hash_table_variants,
+                local_state._shared_state->hash_table_variants->method_variant,
                 *local_state._process_hashtable_ctx_variants,
                 vectorized::make_bool_variant(local_state._need_null_map_for_probe),
                 vectorized::make_bool_variant(local_state._shared_state->probe_ignore_null));
@@ -332,7 +333,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                             st = Status::InternalError("uninited hash table probe");
                         }
                     },
-                    *local_state._shared_state->hash_table_variants,
+                    local_state._shared_state->hash_table_variants->method_variant,
                     *local_state._process_hashtable_ctx_variants);
         } else {
             *eos = true;
@@ -645,7 +646,7 @@ Status HashJoinProbeOperatorX::open(RuntimeState* state) {
         }
     }
 
-    const int right_col_idx =
+    const size_t right_col_idx =
             (_is_right_semi_anti && !_have_other_join_conjunct) ? 0 : _left_table_data_types.size();
     size_t idx = 0;
     for (const auto* slot : slots_to_check) {

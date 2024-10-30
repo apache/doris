@@ -67,9 +67,10 @@ public:
 protected:
     Status merge_input_rowsets();
 
+    // merge inverted index files
     Status do_inverted_index_compaction();
 
-    void construct_skip_inverted_index(RowsetWriterContext& ctx);
+    void construct_index_compaction_columns(RowsetWriterContext& ctx);
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 

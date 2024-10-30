@@ -373,8 +373,6 @@ private:
                 new_size = _base_evaluate<false, false>(&column, nullptr, sel, size);
             }
         }
-        _evaluated_rows += size;
-        _passed_rows += new_size;
         return new_size;
     }
 

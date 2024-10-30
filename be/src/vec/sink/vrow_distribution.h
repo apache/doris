@@ -143,7 +143,7 @@ private:
     std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
 
     Status _save_missing_values(std::vector<std::vector<std::string>>& col_strs, int col_size,
-                                Block* block, std::vector<int64_t> filter,
+                                Block* block, const std::vector<int64_t>& filter,
                                 const std::vector<const NullMap*>& col_null_maps);
 
     void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
@@ -162,14 +162,19 @@ private:
             vectorized::Block* block, const std::vector<uint16_t>& partition_col_idx,
             bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
             int64_t& rows_stat_val);
+    // the whole process to deal missing rows. will call _save_missing_values
+    Status _deal_missing_map(vectorized::Block* block,
+                             const std::vector<uint16_t>& partition_cols_idx,
+                             int64_t& rows_stat_val);
 
     Status _generate_rows_distribution_for_non_auto_partition(
             vectorized::Block* block, bool has_filtered_rows,
             std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
     Status _generate_rows_distribution_for_auto_overwrite(
-            vectorized::Block* block, bool has_filtered_rows,
-            std::vector<RowPartTabletIds>& row_part_tablet_ids);
+            vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
+            bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
+            int64_t& rows_stat_val);
     Status _replace_overwriting_partition();
 
     void _reset_row_part_tablet_ids(std::vector<RowPartTabletIds>& row_part_tablet_ids,

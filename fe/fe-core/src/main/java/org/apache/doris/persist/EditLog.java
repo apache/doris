@@ -346,7 +346,7 @@ public class EditLog {
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         env.getMaterializedViewHandler().replayDropRollup(
                                 new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
-                                        batchDropInfo.getTableName(), indexId, false, 0),
+                                        batchDropInfo.getTableName(), indexId, false, false, 0),
                                 env);
                     }
                     break;
@@ -1955,7 +1955,9 @@ public class EditLog {
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {
-        logEdit(OperationType.OP_MODIFY_COMMENT, op);
+        long logId = logEdit(OperationType.OP_MODIFY_COMMENT, op);
+        LOG.info("log modify comment, logId : {}, infos: {}", logId, op);
+        Env.getCurrentEnv().getBinlogManager().addModifyComment(op, logId);
     }
 
     public void logCreateSqlBlockRule(SqlBlockRule rule) {

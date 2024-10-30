@@ -73,8 +73,9 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     if (is_struct(arg_type) || is_array(arg_type) || is_map(arg_type)) {
         real_function_name = "collection_" + real_function_name;
     }
-    _function = SimpleFunctionFactory::instance().get_function(real_function_name,
-                                                               argument_template, _data_type);
+    _function = SimpleFunctionFactory::instance().get_function(
+            real_function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         return Status::NotSupported("Function {} is not implemented", real_function_name);
     }
@@ -98,7 +99,7 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
     for (auto& child : _children) {
         RETURN_IF_ERROR(child->open(state, context, scope));
     }
-    RETURN_IF_ERROR(VExpr::init_function_context(context, scope, _function));
+    RETURN_IF_ERROR(VExpr::init_function_context(state, context, scope, _function));
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
     }

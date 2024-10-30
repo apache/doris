@@ -104,7 +104,7 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size, int
 }
 
 BufferControlBlock::~BufferControlBlock() {
-    cancel();
+    cancel(Status::Cancelled("Cancelled"));
 }
 
 Status BufferControlBlock::init() {
@@ -275,12 +275,12 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     return Status::OK();
 }
 
-void BufferControlBlock::cancel() {
+void BufferControlBlock::cancel(const Status& reason) {
     std::unique_lock<std::mutex> l(_lock);
     _is_cancelled = true;
     _arrow_data_arrival.notify_all();
     for (auto& ctx : _waiting_rpc) {
-        ctx->on_failure(Status::Cancelled("Cancelled"));
+        ctx->on_failure(reason);
     }
     _waiting_rpc.clear();
     _update_dependency();

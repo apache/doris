@@ -40,6 +40,10 @@ class Transaction;
 
 constexpr std::string_view BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
 
+void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
+                         const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
+                         std::string& msg, GetRowsetResponse* response);
+
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,
@@ -297,6 +301,9 @@ public:
     std::pair<MetaServiceCode, std::string> get_instance_info(const std::string& instance_id,
                                                               const std::string& cloud_unique_id,
                                                               InstanceInfoPB* instance);
+
+    MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
+                                               std::string table_id_str);
 
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
