@@ -22,11 +22,11 @@ suite("test_pull_up_agg") {
     sql 'set runtime_filter_mode=off'
     sql 'set disable_join_reorder=true'
 
-    sql "drop table if exists test_like1"
-    sql "drop table if exists test_like2"
+    sql "drop table if exists test_pull_up_agg_t1"
+    sql "drop table if exists test_pull_up_agg_t2"
 
     sql """
-    CREATE TABLE `test_like1` (
+    CREATE TABLE `test_pull_up_agg_t1` (
     `a` INT NULL,
     `b` VARCHAR(10) NULL,
     `c` INT NULL,
@@ -40,7 +40,7 @@ suite("test_pull_up_agg") {
     """
 
     sql """
-    CREATE TABLE `test_like2` (
+    CREATE TABLE `test_pull_up_agg_t2` (
     `a` INT NULL,
     `b` VARCHAR(10) NULL,
     `c` INT NULL,
@@ -54,32 +54,32 @@ suite("test_pull_up_agg") {
     """
 
     sql """
-    insert into test_like1 values(1,'d2',3,5),(0,'d2',3,5),(-3,'d2',2,2),(-2,'d2',2,2);
+    insert into test_pull_up_agg_t1 values(1,'d2',3,5),(0,'d2',3,5),(-3,'d2',2,2),(-2,'d2',2,2);
     """
 
     sql """
-    insert into test_like2 values(1,'d2',2,2),(-3,'d2',2,2),(0,'d2',3,5);
+    insert into test_pull_up_agg_t2 values(1,'d2',2,2),(-3,'d2',2,2),(0,'d2',3,5);
     """
 
-    qt_test_max_less "explain shape plan select * from (select max(a) c1 from test_like1 where a<10 group by a having max(a)>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_max_greater "explain shape plan select * from (select max(a) c1 from test_like1 where a>10 group by a having max(a)>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_max_less_equal "explain shape plan select * from (select max(a) c1 from test_like1 where a<=10 group by a having max(a)>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_max_greater_equal "explain shape plan select * from (select max(a) c1 from test_like1 where a>=10 group by a having max(a)>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_max_equal "explain shape plan select * from (select max(a) c1 from test_like1 where a=10 group by a having max(a)>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_max_null_safe_equal "explain shape plan select * from (select max(a) c1 from test_like1 where a<=>10 group by a having max(a)>1) t inner join test_like2 t2 on t.c1=t2.a;"
+    qt_test_max_less "explain shape plan select * from (select max(a) c1 from test_pull_up_agg_t1 where a<10 group by a having max(a)>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_max_greater "explain shape plan select * from (select max(a) c1 from test_pull_up_agg_t1 where a>10 group by a having max(a)>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_max_less_equal "explain shape plan select * from (select max(a) c1 from test_pull_up_agg_t1 where a<=10 group by a having max(a)>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_max_greater_equal "explain shape plan select * from (select max(a) c1 from test_pull_up_agg_t1 where a>=10 group by a having max(a)>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_max_equal "explain shape plan select * from (select max(a) c1 from test_pull_up_agg_t1 where a=10 group by a having max(a)>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_max_null_safe_equal "explain shape plan select * from (select max(a) c1 from test_pull_up_agg_t1 where a<=>10 group by a having max(a)>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
 
     // test min(non-groupby-column)
-    qt_test_min_less "explain shape plan select * from (select min(c) c1 from test_like1 where c<10 group by a having min(c)<1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_min_greater "explain shape plan select * from (select min(c) c1 from test_like1 where c>10 group by a having min(c)>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_min_less_equal "explain shape plan select * from (select min(c) c1 from test_like1 where c<=10 group by a having min(c)>=1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_min_greater_equal "explain shape plan select * from (select min(c) c1 from test_like1 where c>=10 group by a having min(c)<=1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_min_equal "explain shape plan select * from (select min(c) c1 from test_like1 where c=10 group by a having min(c)>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_min_null_safe_equal "explain shape plan select * from (select min(c) c1 from test_like1 where c<=>10 group by a having min(c)=1) t inner join test_like2 t2 on t.c1=t2.a;"
+    qt_test_min_less "explain shape plan select * from (select min(c) c1 from test_pull_up_agg_t1 where c<10 group by a having min(c)<1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_min_greater "explain shape plan select * from (select min(c) c1 from test_pull_up_agg_t1 where c>10 group by a having min(c)>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_min_less_equal "explain shape plan select * from (select min(c) c1 from test_pull_up_agg_t1 where c<=10 group by a having min(c)>=1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_min_greater_equal "explain shape plan select * from (select min(c) c1 from test_pull_up_agg_t1 where c>=10 group by a having min(c)<=1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_min_equal "explain shape plan select * from (select min(c) c1 from test_pull_up_agg_t1 where c=10 group by a having min(c)>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_min_null_safe_equal "explain shape plan select * from (select min(c) c1 from test_pull_up_agg_t1 where c<=>10 group by a having min(c)=1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
 
-    qt_test_avg_less "explain shape plan select * from (select avg(c) c1 from test_like1 where c<10 group by a having a>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_avg_greater "explain shape plan select * from (select avg(c) c1 from test_like1 where c>10 group by a having a>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_avg_less_equal "explain shape plan select * from (select avg(c) c1 from test_like1 where c<=10 group by a having a>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_avg_greater_equal "explain shape plan select * from (select avg(c) c1 from test_like1 where c>=10 group by a having a>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_avg_equal "explain shape plan select * from (select avg(c) c1 from test_like1 where c=10 group by a having a>1) t inner join test_like2 t2 on t.c1=t2.a;"
-    qt_test_avg_null_safe_equal "explain shape plan select * from (select avg(c) c1 from test_like1 where c<=>10 group by a having a>1) t inner join test_like2 t2 on t.c1=t2.a;"
+    qt_test_avg_less "explain shape plan select * from (select avg(c) c1 from test_pull_up_agg_t1 where c<10 group by a having a>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_avg_greater "explain shape plan select * from (select avg(c) c1 from test_pull_up_agg_t1 where c>10 group by a having a>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_avg_less_equal "explain shape plan select * from (select avg(c) c1 from test_pull_up_agg_t1 where c<=10 group by a having a>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_avg_greater_equal "explain shape plan select * from (select avg(c) c1 from test_pull_up_agg_t1 where c>=10 group by a having a>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_avg_equal "explain shape plan select * from (select avg(c) c1 from test_pull_up_agg_t1 where c=10 group by a having a>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
+    qt_test_avg_null_safe_equal "explain shape plan select * from (select avg(c) c1 from test_pull_up_agg_t1 where c<=>10 group by a having a>1) t inner join test_pull_up_agg_t2 t2 on t.c1=t2.a;"
 }
