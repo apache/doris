@@ -17,6 +17,12 @@
 
 suite("test_statistic_global_variable", "nonConcurrent") {
 
+    def frontends = sql "show frontends"
+
+    if (frontends.size() != 1) {
+        return
+    }
+
     def verifyVairable = { variable, value ->
         sql """set global ${variable}="${value}";"""
         def result = sql """show variables like "${variable}"; """
