@@ -53,6 +53,7 @@ statementBase
     | supportedJobStatement              #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
+    | supportedUseStatement             #supportedUseStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -826,6 +827,10 @@ optionWithoutType
     | variable                                                          #setVariableWithoutType
     ;
 
+supportedUseStatement
+    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
+    ;
+
 variable
     : (DOUBLEATSIGN ((GLOBAL | LOCAL | SESSION) DOT)?)? identifier EQ (expression | DEFAULT) #setSystemVariable
     | ATSIGN identifier EQ expression #setUserVariable
@@ -845,8 +850,7 @@ unsupoortedUnsetStatement
     ;
 
 unsupportedUseStatement
-    : USE (catalog=identifier DOT)? database=identifier                              #useDatabase
-    | USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
+    : USE ((catalog=identifier DOT)? database=identifier)? ATSIGN cluster=identifier #useCloudCluster
     | SWITCH catalog=identifier                                                      #switchCatalog
     ;
 
