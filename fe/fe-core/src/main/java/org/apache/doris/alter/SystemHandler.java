@@ -109,9 +109,9 @@ public class SystemHandler extends AlterHandler {
             AtomicInteger totalTabletNum = new AtomicInteger(0);
             List<Long> sampleTablets = Lists.newArrayList();
             List<Long> sampleLeakyTablets = Lists.newArrayList();
-            boolean removedTablets = checkRemoveTablets(beId, 10, sampleTablets, sampleLeakyTablets, totalTabletNum);
+            boolean migratedTablets = checkMigrateTablets(beId, 10, sampleTablets, sampleLeakyTablets, totalTabletNum);
             long walNum = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
-            if (Config.drop_backend_after_decommission && removedTablets && walNum == 0) {
+            if (Config.drop_backend_after_decommission && migratedTablets && walNum == 0) {
                 try {
                     systemInfoService.dropBackend(beId);
                     LOG.info("no available tablet on decommission backend {}, drop it", beId);
@@ -209,12 +209,13 @@ public class SystemHandler extends AlterHandler {
     /*
      * check if the specified backends can be dropped
      * 1. backend does not have any tablet.
-     * 2. all tablets in backend have been recycled.
+     * 2. all tablets in backend have been recycled or leaky.
      *
-     * return at most 10 sampleTablets
+     * sampleTablets: sample normal tablets
+     * sampleLeakyTablets: sample leaky tablets
      *
      */
-    private boolean checkRemoveTablets(long beId, int sampleLimit, List<Long> sampleTablets,
+    private boolean checkMigrateTablets(long beId, int sampleLimit, List<Long> sampleTablets,
             List<Long> sampleLeakyTablets, AtomicInteger totalTabletNum) {
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         List<Long> backendTabletIds = invertedIndex.getTabletIdsByBackendId(beId);

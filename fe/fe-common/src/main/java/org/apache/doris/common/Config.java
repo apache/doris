@@ -1349,7 +1349,7 @@ public class Config extends ConfigBase {
     /**
      * When decommission a backend, need to migrate all its tablets to other backends.
      * But there maybe some leaky tablets due to forgetting to delete them from TabletInvertIndex.
-     * They are not in use. Decommissio can skip migrating them.
+     * They are not in use. Decommission can skip migrating them.
      * For safety, decommission wait for a period after founding leaky tablets.
      */
     @ConfField(mutable = true, masterOnly = true)
