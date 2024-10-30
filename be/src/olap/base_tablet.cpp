@@ -442,6 +442,7 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
                                   bool with_seq_col,
                                   const std::vector<RowsetSharedPtr>& specified_rowsets,
                                   RowLocation* row_location, uint32_t version,
+                                  DeleteBitmapPtr cur_version_delete_bitmap,
                                   std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
                                   RowsetSharedPtr* rowset, bool with_rowid,
                                   std::string* encoded_seq_value, OlapReaderStatistics* stats) {
@@ -482,6 +483,10 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             segment_caches[i] = std::make_unique<SegmentCacheHandle>();
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                     std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true));
+            for (const auto& seg : segment_caches[i]->get_segments()) {
+                DeleteBitmap::BitmapKey bmk(rs->rowset_id(), seg->id(), version);
+                cur_version_delete_bitmap->set(bmk, *(_tablet_meta->delete_bitmap().get_agg(bmk)));
+            }
         }
         auto& segments = segment_caches[i]->get_segments();
         DCHECK_EQ(segments.size(), num_segments);
@@ -495,7 +500,9 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
-            if (s.ok() && _tablet_meta->delete_bitmap().contains_agg_without_cache(
+            DCHECK(cur_version_delete_bitmap->get({loc.rowset_id, loc.segment_id, version}) !=
+                   nullptr);
+            if (s.ok() && cur_version_delete_bitmap->contains(
                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
