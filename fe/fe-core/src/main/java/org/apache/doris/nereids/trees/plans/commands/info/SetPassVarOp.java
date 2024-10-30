@@ -21,7 +21,6 @@ import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -70,8 +69,7 @@ public class SetPassVarOp extends SetVarOp {
         }
 
         // 2. No user can set password for root expect for root user itself
-        if (userIdent.getQualifiedUser().equals(Auth.ROOT_USER)
-                && !ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()).equals(Auth.ROOT_USER)) {
+        if (userIdent.getQualifiedUser().equals(Auth.ROOT_USER)) {
             throw new AnalysisException("Can not set password for root user, except root itself");
         }
 
