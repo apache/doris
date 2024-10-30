@@ -85,13 +85,14 @@ inline std::string segment_mem_tracker_name(uint32_t segment_id) {
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, const SegmentWriterOptions& opts,
-                             io::FileWriterPtr inverted_file_writer)
+                             InvertedIndexFileWriter* inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
+          _inverted_index_file_writer(inverted_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
@@ -131,17 +132,6 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 _key_index_size.push_back(column.index_length());
             }
         }
-    }
-    if (_tablet_schema->has_inverted_index()) {
-        _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                _opts.rowset_ctx->fs(),
-                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
-                        file_writer->path().c_str())},
-                _opts.rowset_ctx->rowset_id.to_string(), segment_id,
-                _tablet_schema->get_inverted_index_storage_format(),
-                std::move(inverted_file_writer));
-        _inverted_index_file_writer->set_file_writer_opts(
-                _opts.rowset_ctx->get_file_writer_options());
     }
 }
 
@@ -224,11 +214,12 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         opts.need_bloom_filter = false;
         opts.need_bitmap_index = false;
     }
-    opts.inverted_index_file_writer = _inverted_index_file_writer.get();
+    opts.inverted_index_file_writer = _inverted_index_file_writer;
     for (const auto* index : opts.indexes) {
         if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
             opts.inverted_index = index;
             opts.need_inverted_index = true;
+            DCHECK(_inverted_index_file_writer != nullptr);
             // TODO support multiple inverted index
             break;
         }
@@ -1011,10 +1002,6 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
-    if (_inverted_index_file_writer != nullptr) {
-        RETURN_IF_ERROR(_inverted_index_file_writer->close());
-        _inverted_index_file_info = _inverted_index_file_writer->get_index_file_info();
-    }
     return Status::OK();
 }
 
@@ -1253,13 +1240,6 @@ Status SegmentWriter::_generate_short_key_index(
         last_key = std::move(key);
     }
     return Status::OK();
-}
-
-int64_t SegmentWriter::get_inverted_index_total_size() {
-    if (_inverted_index_file_writer != nullptr) {
-        return _inverted_index_file_writer->get_index_file_total_size();
-    }
-    return 0;
 }
 
 inline bool SegmentWriter::_is_mow() {
