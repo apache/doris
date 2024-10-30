@@ -42,9 +42,6 @@ JavaFunctionCall::JavaFunctionCall(const TFunction& fn, const DataTypes& argumen
 Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == nullptr) {
-        return Status::InternalError("Failed to get/create JVM");
-    }
 
     if (scope == FunctionContext::FunctionStateScope::THREAD_LOCAL) {
         std::shared_ptr<JniContext> jni_ctx = std::make_shared<JniContext>();
