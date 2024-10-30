@@ -109,7 +109,7 @@ Status DataTypeJsonbSerDe::deserialize_column_from_json_vector(IColumn& column,
 Status DataTypeJsonbSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                                           const FormatOptions& options) const {
     JsonBinaryValue value;
-    RETURN_IF_ERROR(value.from_json_string(slice.data, cast_set<int>(slice.size)));
+    RETURN_IF_ERROR(value.from_json_string(slice.data, slice.size));
 
     auto& column_string = assert_cast<ColumnString&>(column);
     column_string.insert_data(value.value(), value.size());
@@ -218,8 +218,7 @@ Status DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjs
     if (jsonb_val.empty()) {
         return Status::OK();
     }
-    JsonbValue* val =
-            JsonbDocument::createValue(jsonb_val.data, cast_set<uint32_t>(jsonb_val.size));
+    JsonbValue* val = JsonbDocument::createValue(jsonb_val.data, jsonb_val.size);
     if (val == nullptr) {
         return Status::InternalError("Failed to get json document from jsonb");
     }
@@ -241,7 +240,7 @@ Status DataTypeJsonbSerDe::read_one_cell_from_json(IColumn& column,
     rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
     result.Accept(writer);
     JsonbParser parser;
-    bool ok = parser.parse(buffer.GetString(), cast_set<unsigned int>(buffer.GetLength()));
+    bool ok = parser.parse(buffer.GetString(), buffer.GetLength());
     CHECK(ok);
     col.insert_data(parser.getWriter().getOutput()->getBuffer(),
                     parser.getWriter().getOutput()->getSize());
@@ -270,8 +269,8 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
     column_string.reserve(column_string.size() + arg.string_value_size());
     JsonBinaryValue value;
     for (int i = 0; i < arg.string_value_size(); ++i) {
-        RETURN_IF_ERROR(value.from_json_string(arg.string_value(i).c_str(),
-                                               cast_set<int>(arg.string_value(i).size())));
+        RETURN_IF_ERROR(
+                value.from_json_string(arg.string_value(i).c_str(), arg.string_value(i).size()));
         column_string.insert_data(value.value(), value.size());
     }
     return Status::OK();

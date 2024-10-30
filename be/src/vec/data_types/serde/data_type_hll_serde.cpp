@@ -119,13 +119,13 @@ void DataTypeHLLSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
                                                Arena* mem_pool, int32_t col_id,
                                                int64_t row_num) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
-    auto& data_column = assert_cast<const ColumnHLL&>(column);
+    const auto& data_column = assert_cast<const ColumnHLL&>(column);
     auto& hll_value = const_cast<HyperLogLog&>(data_column.get_element(row_num));
     auto size = hll_value.max_serialized_size();
-    auto ptr = reinterpret_cast<char*>(mem_pool->alloc(size));
+    auto* ptr = reinterpret_cast<char*>(mem_pool->alloc(size));
     size_t actual_size = hll_value.serialize((uint8_t*)ptr);
     result.writeStartBinary();
-    result.writeBinary(reinterpret_cast<const char*>(ptr), cast_set<uint32_t>(actual_size));
+    result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
     result.writeEndBinary();
 }
 void DataTypeHLLSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {

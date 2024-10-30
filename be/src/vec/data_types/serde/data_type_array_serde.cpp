@@ -222,12 +222,13 @@ Status DataTypeArraySerDe::serialize_one_cell_to_hive_text(
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                  Arena* mem_pool, int32_t col_id,
                                                  int64_t row_num) const {
+    // JsonbKeyValue::keyid_type is uint16_t and col_id is int32_t, need a cast
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     const char* begin = nullptr;
     // maybe serialize_value_into_arena should move to here later.
     StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
     result.writeStartBinary();
-    result.writeBinary(value.data, cast_set<uint32_t>(value.size));
+    result.writeBinary(value.data, value.size);
     result.writeEndBinary();
 }
 

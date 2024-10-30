@@ -83,13 +83,13 @@ Status DataTypeBitMapSerDe::read_column_from_pb(IColumn& column, const PValues& 
 void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                   Arena* mem_pool, int32_t col_id,
                                                   int64_t row_num) const {
-    auto& data_column = assert_cast<const ColumnBitmap&>(column);
+    const auto& data_column = assert_cast<const ColumnBitmap&>(column);
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     auto bitmap_value = const_cast<BitmapValue&>(data_column.get_element(row_num));
     // serialize the content of string
-    auto size = cast_set<uint32_t>(bitmap_value.getSizeInBytes());
+    auto size = bitmap_value.getSizeInBytes();
     // serialize the content of string
-    auto ptr = mem_pool->alloc(size);
+    auto* ptr = mem_pool->alloc(size);
     bitmap_value.write_to(const_cast<char*>(ptr));
     result.writeStartBinary();
     result.writeBinary(reinterpret_cast<const char*>(ptr), size);

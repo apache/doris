@@ -24,9 +24,6 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
-// #include <cstddef>
-// #include <cstdint>
-
 #include "common/status.h"
 #include "data_type_serde.h"
 #include "util/jsonb_writer.h"
@@ -262,8 +259,7 @@ public:
         result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
         const auto& data_ref = column.get_data_at(row_num);
         result.writeStartBinary();
-        result.writeBinary(reinterpret_cast<const char*>(data_ref.data),
-                           cast_set<uint32_t>(data_ref.size));
+        result.writeBinary(reinterpret_cast<const char*>(data_ref.data), data_ref.size);
         result.writeEndBinary();
     }
 

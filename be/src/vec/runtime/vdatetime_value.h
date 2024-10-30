@@ -356,7 +356,7 @@ public:
     }
 
     bool from_date_format_str(const char* format, int format_len, const char* value,
-                              int value_len) {
+                              int64_t value_len) {
         memset(this, 0, sizeof(*this));
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
@@ -731,8 +731,8 @@ private:
     void set_zero(int type);
     void set_max_time(bool neg);
 
-    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
-                              const char** sub_val_end);
+    bool from_date_format_str(const char* format, int format_len, const char* value,
+                              int64_t value_len, const char** sub_val_end);
 
     // 1 bits for neg. 3 bits for type. 12bit for second
     uint16_t _neg : 1;  // Used for time value.
@@ -783,7 +783,7 @@ public:
         return datetime;
     }
 
-    void set_microsecond(uint32_t microsecond);
+    void set_microsecond(uint64_t microsecond);
 
     bool from_olap_date(uint64_t date) {
         auto [year, month, day] = std::tuple {0, 0, 0};
@@ -832,7 +832,7 @@ public:
                                        int max_valid_length) const;
 
     bool from_date_format_str(const char* format, int format_len, const char* value,
-                              int value_len) {
+                              int64_t value_len) {
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
 
@@ -1287,8 +1287,8 @@ public:
         }
     }
 
-    bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
-                              const char** sub_val_end);
+    bool from_date_format_str(const char* format, int format_len, const char* value,
+                              int64_t value_len, const char** sub_val_end);
     static constexpr int MAX_DATE_PARTS = 7;
     static constexpr uint32_t MAX_TIME_PART_VALUE[3] = {23, 59, 59};
 

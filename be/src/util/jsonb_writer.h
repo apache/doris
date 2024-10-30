@@ -344,8 +344,8 @@ public:
             str_pos_ = os_->tellp();
 
             // fill the size bytes with 0 for now
-            uint32_t size = 0;
-            os_->write((char*)&size, sizeof(uint32_t));
+            uint64_t size = 0;
+            os_->write((char*)&size, sizeof(uint64_t));
 
             kvState_ = WS_Binary;
             return true;
@@ -358,11 +358,11 @@ public:
     bool writeEndBinary() {
         if (kvState_ == WS_Binary) {
             std::streampos cur_pos = os_->tellp();
-            int32_t size = (int32_t)(cur_pos - str_pos_ - sizeof(uint32_t));
+            auto size = (cur_pos - str_pos_ - sizeof(uint64_t));
             assert(size >= 0);
 
             os_->seekp(str_pos_);
-            os_->write((char*)&size, sizeof(uint32_t));
+            os_->write((char*)&size, sizeof(uint64_t));
             os_->seekp(cur_pos);
 
             kvState_ = WS_Value;
@@ -372,7 +372,7 @@ public:
         return false;
     }
 
-    uint32_t writeBinary(const char* bin, uint32_t len) {
+    uint32_t writeBinary(const char* bin, uint64_t len) {
         if (kvState_ == WS_Binary) {
             os_->write(bin, len);
             return len;

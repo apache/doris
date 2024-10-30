@@ -85,7 +85,7 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
         if (datetimev2_value.from_date_format_str(date_format.data(),
                                                   cast_set<int>(date_format.size()), slice.data,
-                                                  cast_set<int>(slice.size))) {
+                                                  slice.size)) {
             val = datetimev2_value.to_date_int_val();
         } else {
             val = MIN_DATETIME_V2;
@@ -166,7 +166,7 @@ void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
             // convert second
             v.from_unixtime(utc_epoch / divisor, ctz);
             // get rest time
-            v.set_microsecond(cast_set<uint32_t>(utc_epoch % divisor));
+            v.set_microsecond(utc_epoch % divisor);
             col_data.emplace_back(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(v));
         }
     } else {

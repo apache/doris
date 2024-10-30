@@ -88,7 +88,7 @@ public:
         auto ptr = mem_pool->alloc(actual_size);
         result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
         result.writeStartBinary();
-        result.writeBinary(reinterpret_cast<const char*>(ptr), cast_set<uint32_t>(actual_size));
+        result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
         result.writeEndBinary();
     }
 

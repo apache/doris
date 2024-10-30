@@ -101,7 +101,7 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     }
     JsonbParser json_parser;
     // encode as jsonb
-    bool succ = json_parser.parse(value_str.data(), cast_set<unsigned int>(value_str.size()));
+    bool succ = json_parser.parse(value_str.data(), value_str.size());
     if (!succ) {
         // not a valid json insert raw text
         result.writeStartString();
@@ -110,9 +110,8 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     } else {
         // write a json binary
         result.writeStartBinary();
-        result.writeBinary(
-                json_parser.getWriter().getOutput()->getBuffer(),
-                cast_set<uint32_t, long>(json_parser.getWriter().getOutput()->getSize()));
+        result.writeBinary(json_parser.getWriter().getOutput()->getBuffer(),
+                           json_parser.getWriter().getOutput()->getSize());
         result.writeEndBinary();
     }
 }

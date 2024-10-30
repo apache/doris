@@ -201,7 +201,7 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
     } else if constexpr (std::is_same_v<T, Decimal256>) {
         // use binary type, since jsonb does not support int256
         result.writeStartBinary();
-        result.writeBinary(data_ref.data, cast_set<uint32_t>(data_ref.size));
+        result.writeBinary(data_ref.data, data_ref.size);
         result.writeEndBinary();
     } else {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
