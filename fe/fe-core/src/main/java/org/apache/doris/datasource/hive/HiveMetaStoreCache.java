@@ -628,7 +628,6 @@ public class HiveMetaStoreCache {
         Map<Long, PartitionItem> idToPartitionItem = new HashMap<>();
         for (String partitionName : partitionNames) {
             if (partitionNameToIdMapBefore.containsKey(partitionName)) {
-                //check ??
                 LOG.info("addPartitionsCache partitionName:[{}] has exist in table:[{}]", partitionName, tblName);
                 continue;
             }
