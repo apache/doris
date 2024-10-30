@@ -28,6 +28,7 @@
 #include <map>
 #include <memory>
 #include <ostream>
+#include <random>
 #include <sstream>
 #include <string>
 #include <typeinfo>
@@ -412,7 +413,12 @@ struct RowsetId {
             auto [_, ec] = std::from_chars(rowset_id_str.data(),
                                            rowset_id_str.data() + rowset_id_str.length(), high);
             if (ec != std::errc {}) [[unlikely]] {
-                LOG(FATAL) << "failed to init rowset id: " << rowset_id_str;
+                LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
+                high = []() {
+                    std::mt19937_64 rg(std::random_device {}());
+                    return std::uniform_int_distribution<int64_t>()(rg);
+                }();
+                init(1, high, 0, 0);
             }
             init(1, high, 0, 0);
         } else {
