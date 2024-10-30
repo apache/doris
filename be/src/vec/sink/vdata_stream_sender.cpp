@@ -238,14 +238,13 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
     }
 
     {
+        SCOPED_TIMER(_parent->merge_block_timer());
         if (rows) {
             if (!rows->empty()) {
-                SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
                 const auto* begin = rows->data();
                 RETURN_IF_ERROR(_mutable_block->add_rows(block, begin, begin + rows->size()));
             }
         } else if (!block->empty()) {
-            SCOPED_TIMER(_parent->merge_block_timer());
             RETURN_IF_ERROR(_mutable_block->merge(*block));
         }
     }
