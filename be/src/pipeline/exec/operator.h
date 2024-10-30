@@ -309,8 +309,9 @@ public:
             auto* read_file_bytes = Base::profile()->get_counter("SpillReadFileBytes");
             Base::_query_statistics->add_spill_bytes(
                     write_block_bytes ? write_block_bytes->value() : 0,
-                    write_file_bytes ? write_file_bytes->value() : 0, read_block_bytes->value(),
-                    read_file_bytes->value());
+                    write_file_bytes ? write_file_bytes->value() : 0,
+                    read_block_bytes ? read_block_bytes->value() : 0,
+                    read_file_bytes ? read_file_bytes->value() : 0);
         }
         return Base::close(state);
     }
@@ -753,7 +754,8 @@ public:
             auto* read_block_bytes = Base::profile()->get_counter("SpillReadBlockBytes");
             auto* read_file_bytes = Base::profile()->get_counter("SpillReadFileBytes");
             Base::_query_statistics->add_spill_bytes(
-                    write_block_bytes->value(), write_file_bytes->value(),
+                    write_block_bytes ? write_block_bytes->value() : 0,
+                    write_file_bytes ? write_file_bytes->value() : 0,
                     read_block_bytes ? read_block_bytes->value() : 0,
                     read_file_bytes ? read_file_bytes->value() : 0);
         }

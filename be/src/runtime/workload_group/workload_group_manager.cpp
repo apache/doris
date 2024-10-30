@@ -31,6 +31,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/mem_info.h"
+#include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "util/time.h"
 #include "vec/core/block.h"
@@ -637,12 +638,24 @@ bool WorkloadGroupMgr::handle_single_query_(std::shared_ptr<QueryContext> query_
                 return true;
             } else {
                 // Use MEM_LIMIT_EXCEEDED so that FE could parse the error code and do try logic
-                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
-                        "query({}) reserve memory failed, but could not find memory that "
-                        "could "
-                        "release or spill to disk(memory usage:{}, limit: {})",
+                auto msg1 = fmt::format(
+                        "query {} reserve memory failed, but could not find memory that could "
+                        "release or spill to disk. Query memory usage: {}, limit: {}, process "
+                        "memory info: {}"
+                        ", wg info: {}.",
                         query_id, PrettyPrinter::print_bytes(memory_usage),
-                        PrettyPrinter::print_bytes(query_ctx->get_mem_limit())));
+                        PrettyPrinter::print_bytes(query_ctx->get_mem_limit()),
+                        GlobalMemoryArbitrator::process_memory_used_details_str(),
+                        query_ctx->workload_group()->memory_debug_string());
+                auto msg2 = msg1 + fmt::format(
+                                           " Query Memory Tracker Summary: {}."
+                                           " Load Memory Tracker Summary: {}",
+                                           MemTrackerLimiter::make_type_trackers_profile_str(
+                                                   MemTrackerLimiter::Type::QUERY),
+                                           MemTrackerLimiter::make_type_trackers_profile_str(
+                                                   MemTrackerLimiter::Type::LOAD));
+                LOG(INFO) << msg2;
+                query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(msg1));
             }
         } else {
             if (!GlobalMemoryArbitrator::is_exceed_hard_mem_limit()) {

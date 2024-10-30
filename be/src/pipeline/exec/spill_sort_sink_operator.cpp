@@ -136,6 +136,10 @@ Status SpillSortSinkOperatorX::open(RuntimeState* state) {
     return _sort_sink_operator->open(state);
 }
 
+size_t SpillSortSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state.get_reserve_mem_size(state, eos);
+}
 Status SpillSortSinkOperatorX::revoke_memory(RuntimeState* state,
                                              const std::shared_ptr<SpillContext>& spill_context) {
     auto& local_state = get_local_state(state);
@@ -188,6 +192,12 @@ Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Bloc
         }
     }
     return Status::OK();
+}
+
+size_t SpillSortSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& parent = Base::_parent->template cast<Parent>();
+    return parent._sort_sink_operator->get_reserve_mem_size_for_next_sink(_runtime_state.get(),
+                                                                          eos);
 }
 
 Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,

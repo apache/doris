@@ -24,6 +24,7 @@
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
+#include "util/pretty_printer.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
@@ -128,10 +129,9 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
         const auto allocated_bytes = _build_side_mutable_block.allocated_bytes();
         const auto bytes_per_row = bytes / build_block_rows;
         const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
-
-        // If the new size is greater than 95% of allocalted bytes, it maybe need to realloc.
+        // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
         if (((estimated_size_of_next_block + bytes) * 100 / allocated_bytes) >= 85) {
-            size_to_reserve += bytes + estimated_size_of_next_block;
+            size_to_reserve += (size_t)(allocated_bytes * 1.15);
         }
     }
 
@@ -343,7 +343,8 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     }
 
     LOG(INFO) << "build block rows: " << block.rows() << ", columns count: " << block.columns()
-              << ", bytes/allocated_bytes: " << block.bytes() << "/" << block.allocated_bytes();
+              << ", bytes/allocated_bytes: " << PrettyPrinter::print_bytes(block.bytes()) << "/"
+              << PrettyPrinter::print_bytes(block.allocated_bytes());
 
     block.replace_if_overflow();
 

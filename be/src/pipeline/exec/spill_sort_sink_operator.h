@@ -41,6 +41,7 @@ public:
     Dependency* finishdependency() override { return _finish_dependency.get(); }
 
     Status setup_in_memory_sort_op(RuntimeState* state);
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
     Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
 
 private:
@@ -85,6 +86,8 @@ public:
         RETURN_IF_ERROR(DataSinkOperatorX<SpillSortSinkLocalState>::set_child(child));
         return _sort_sink_operator->set_child(child);
     }
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 

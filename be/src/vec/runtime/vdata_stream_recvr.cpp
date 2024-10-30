@@ -406,6 +406,9 @@ Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_n
                                    int64_t packet_seq, ::google::protobuf::Closure** done,
                                    const int64_t wait_for_worker,
                                    const uint64_t time_to_find_recvr) {
+    if (_parent->state()->get_query_ctx()->low_memory_mode()) {
+        set_low_memory_mode();
+    }
     SCOPED_ATTACH_TASK(_query_thread_context);
     int use_sender_id = _is_merging ? sender_id : 0;
     return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done,

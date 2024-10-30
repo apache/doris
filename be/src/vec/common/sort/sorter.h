@@ -121,6 +121,8 @@ public:
 
     virtual size_t data_size() const = 0;
 
+    virtual size_t get_reserve_mem_size(RuntimeState* state, bool eos) const { return 0; }
+
     // for topn runtime predicate
     const SortDescription& get_sort_description() const { return _sort_description; }
     virtual Field get_top_value() { return Field {Field::Types::Null}; }
@@ -170,6 +172,8 @@ public:
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
 
     size_t data_size() const override;
+
+    size_t get_reserve_mem_size(RuntimeState* state, bool eos) const override;
 
     Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
                                      int batch_size, bool* eos) override;

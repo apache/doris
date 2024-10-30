@@ -36,6 +36,8 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
 
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
+
 private:
     friend class SortSinkOperatorX;
 
@@ -78,6 +80,8 @@ public:
     bool require_data_distribution() const override { return _is_colocate; }
 
     size_t get_revocable_mem_size(RuntimeState* state) const;
+
+    size_t get_reserve_mem_size_for_next_sink(RuntimeState* state, bool eos);
 
     Status prepare_for_spill(RuntimeState* state);
 
