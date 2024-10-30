@@ -578,6 +578,9 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                     should_use_default = (delete_sign_column_data[it->second] != 0);
                 }
             }
+            if (!should_use_default && tablet_column.is_on_update_current_timestamp()) {
+                should_use_default = true;
+            }
             if (should_use_default) {
                 if (tablet_column.has_default_value()) {
                     new_col->insert_from(default_value_col, 0);
@@ -650,7 +653,9 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
             DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
             DCHECK(cid != tablet_schema.version_col_idx());
             DCHECK(!tablet_column.is_row_store_column());
-
+            if (!use_default && tablet_column.is_on_update_current_timestamp()) {
+                use_default = true;
+            }
             if (use_default || (delete_sign_column_data != nullptr &&
                                 delete_sign_column_data[pos_in_old_block] != 0)) {
                 if (tablet_column.has_default_value()) {
