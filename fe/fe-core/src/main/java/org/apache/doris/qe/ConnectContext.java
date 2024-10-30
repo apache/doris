@@ -554,6 +554,10 @@ public class ConnectContext {
         userVars.put(setVar.getVariable().toLowerCase(), setVar.getResult());
     }
 
+    public void setUserVar(String name, LiteralExpr value) {
+        userVars.put(name.toLowerCase(), value);
+    }
+
     public @Nullable Literal getLiteralForUserVar(String varName) {
         varName = varName.toLowerCase();
         if (userVars.containsKey(varName)) {

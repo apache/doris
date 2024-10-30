@@ -190,6 +190,7 @@ struct ProcessHashTableBuild {
                bool* has_null_key) {
         if (short_circuit_for_null || ignore_null) {
             // first row is mocked and is null
+            // TODO: Need to test the for loop. break may better
             for (uint32_t i = 1; i < _rows; i++) {
                 if ((*null_map)[i]) {
                     *has_null_key = true;

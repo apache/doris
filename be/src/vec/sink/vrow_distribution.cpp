@@ -50,7 +50,7 @@ VRowDistribution::_get_partition_function() {
 
 Status VRowDistribution::_save_missing_values(
         std::vector<std::vector<std::string>>& col_strs, // non-const ref for move
-        int col_size, Block* block, std::vector<int64_t> filter,
+        int col_size, Block* block, const std::vector<int64_t>& filter,
         const std::vector<const NullMap*>& col_null_maps) {
     // de-duplication for new partitions but save all rows.
     RETURN_IF_ERROR(_batching_block->add_rows(block, filter));
@@ -366,7 +366,7 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
     auto num_rows = block->rows();
     std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
 
-    auto partition_col = block->get_by_position(partition_keys[0]);
+    auto& partition_col = block->get_by_position(partition_keys[0]);
     _missing_map.clear();
     _missing_map.reserve(partition_col.column->size());
     bool stop_processing = false;

@@ -1200,7 +1200,13 @@ public class StmtExecutor {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
         masterOpExecutor.execute();
-        if (parsedStmt instanceof SetStmt) {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            // for nereids command
+            if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
+                Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+                forward.afterForwardToMaster(context);
+            }
+        } else if (parsedStmt instanceof SetStmt) {
             SetStmt setStmt = (SetStmt) parsedStmt;
             setStmt.modifySetVarsForExecute();
             for (SetVar var : setStmt.getSetVars()) {
