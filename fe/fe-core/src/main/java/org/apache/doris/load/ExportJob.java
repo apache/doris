@@ -207,7 +207,7 @@ public class ExportJob implements Writable {
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
-    private List<ExportTaskExecutor> jobExecutorList;
+    private List<ExportTaskExecutor> jobExecutorList = Lists.newArrayList();
 
     private Integer finishedTaskCount = 0;
     private List<List<OutfileInfo>> allOutfileInfo = Lists.newArrayList();
