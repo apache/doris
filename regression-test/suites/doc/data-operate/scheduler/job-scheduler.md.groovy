@@ -21,6 +21,15 @@ suite("docs/data-operate/scheduler/job-scheduler.md", "p0,external,mysql,externa
     def dropJobIfExists = { job_name ->
         sql "DROP JOB IF EXISTS where jobName='${job_name}'"
     }
+    def createJobButMuteOutdateTime = { sqlText ->
+        try {
+            sql sqlText
+        } catch (Exception e) {
+            if (!e.getMessage().contains("startTimeMs must be greater than current time")) {
+                throw e
+            }
+        }
+    }
 
     try {
         multi_sql """
@@ -34,13 +43,13 @@ suite("docs/data-operate/scheduler/job-scheduler.md", "p0,external,mysql,externa
             ) properties ("replication_num" = "1");
         """
         dropJobIfExists("my_job")
-        sql "CREATE JOB my_job ON SCHEDULE AT '2025-01-01 00:00:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2"
+        createJobButMuteOutdateTime "CREATE JOB my_job ON SCHEDULE AT '2025-01-01 00:00:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2"
         dropJobIfExists("my_job")
-        sql "CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2025-01-01 00:00:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 WHERE create_time >=  days_add(now(),-1)"
+        createJobButMuteOutdateTime "CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2025-01-01 00:00:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 WHERE create_time >=  days_add(now(),-1)"
         dropJobIfExists("my_job")
-        sql "CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2025-01-01 00:00:00' ENDS '2026-01-01 00:10:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 WHERE create_time >=  days_add(now(),-1)"
+        createJobButMuteOutdateTime "CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2025-01-01 00:00:00' ENDS '2026-01-01 00:10:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 WHERE create_time >=  days_add(now(),-1)"
         dropJobIfExists("my_job")
-        sql "CREATE JOB my_job ON SCHEDULE AT current_timestamp DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2"
+        createJobButMuteOutdateTime "CREATE JOB my_job ON SCHEDULE AT current_timestamp DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2"
 
         sql """
             CREATE TABLE IF NOT EXISTS user_activity (
@@ -96,20 +105,16 @@ suite("docs/data-operate/scheduler/job-scheduler.md", "p0,external,mysql,externa
             ");
         """
 
-        try {
-            dropJobIfExists("one_time_load_job")
-            sql """
-            CREATE JOB one_time_load_job
-              ON SCHEDULE
-              AT '2024-8-10 03:00:00'
-              DO
-              INSERT INTO user_activity SELECT * FROM activity.user.activity
-            """
-        } catch (Exception e) {
-            assertTrue(e.getMessage().contains("startTimeMs must be greater than current time"))
-        }
+        dropJobIfExists("one_time_load_job")
+        createJobButMuteOutdateTime """
+        CREATE JOB one_time_load_job
+          ON SCHEDULE
+          AT '2024-8-10 03:00:00'
+          DO
+          INSERT INTO user_activity SELECT * FROM activity.user.activity
+        """
         dropJobIfExists("schedule_load")
-        sql """
+        createJobButMuteOutdateTime """
             CREATE JOB schedule_load
               ON SCHEDULE EVERY 1 DAY
               DO
