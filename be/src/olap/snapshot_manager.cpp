@@ -86,7 +86,13 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
         auto tablet_id = dp->param<int64>("tablet_id", -1);
         if (tablet_id != -1 && tablet_id == request.tablet_id) {
             LOG(INFO) << "Debug: SnapshotManager::make_snapshot.wait";
-            sleep(20);
+            for (int i = 0; i < 1000; i++) {
+                if (_engine.tablet_manager()->get_tablet(request.tablet_id) == nullptr) {
+                    sleep(3);
+                    break;
+                }
+                sleep(1);
+            }
         }
     });
 

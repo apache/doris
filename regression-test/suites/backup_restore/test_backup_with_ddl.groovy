@@ -22,6 +22,7 @@ suite("test_backup_with_ddl") {
 
     def insert_num = 5
      
+    sql "DROP DATABASE IF EXISTS ${dbName}"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
@@ -40,12 +41,15 @@ suite("test_backup_with_ddl") {
 
     for (int i = 0; i < insert_num; ++i) {
         sql """
-               INSERT INTO ${dbName}.${tableName} VALUES (${i}, ${i})
+               INSERT INTO ${dbName}.${tableName} VALUES (1, ${i})
             """ 
     }
     sql " sync "
     def res = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(res.size(), insert_num)
+
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
 
     result = sql_return_maparray """show tablets from ${dbName}.${tableName}"""
     assertNotNull(result)
@@ -55,8 +59,7 @@ suite("test_backup_with_ddl") {
         break
     }
 
-
-    logger.info("=== Test 1: drop table ===")
+    logger.info("========= Test 1: ignore checkBuckupRunning when truncate table ===")
     def snapshotName1 = "snapshot_test_1"
 
     GetDebugPoint().enableDebugPointForAllBEs("SnapshotManager::make_snapshot.wait", [tablet_id:"${tabletId}"]);
@@ -68,18 +71,46 @@ suite("test_backup_with_ddl") {
             PROPERTIES ("type" = "full")
         """
 
-    //GetDebugPoint().enableDebugPointForAllFEs('FE.checkBuckupRunning.ignore', null)
+    GetDebugPoint().enableDebugPointForAllFEs('FE.checkBuckupRunning.ignore', null)
     
     // wait backup snapshoting
-    count = 10 // 20s
+    count = 200 // 20s
     for (int i = 0; i < count; ++i) {
         def records = sql_return_maparray "SHOW BACKUP FROM ${dbName}"
         int found = 0
         for (def res2 : records) {
-            //logger.info("row is ${res2}")
-            logger.info("row.State is ${res2.State}")
+            if (res2.State.equals("SNAPSHOTING")) {
+                found = 1
+                break
+            }
+        }
+        if (found == 1) {
+            break
+        }
+        Thread.sleep(100)
+    }
 
-            if (res2.State .equals("SNAPSHOTING")) {
+    // truncate ok
+    sql """
+        truncate table ${dbName}.${tableName};
+    """
+
+    sql "sync"
+    // assert truncate success
+    res = sql "SELECT * FROM ${dbName}.${tableName}"
+    assertEquals(res.size(), 0)
+
+    // wait backup canceled, failed to get tablet
+    count = 100 // 200s
+    def found = 0
+    for (int i = 0; i < count; ++i) {
+        def records = sql_return_maparray "SHOW BACKUP FROM ${dbName}"
+        found = 0
+        for (def res2 : records) {
+            logger.info("row.State is ${res2.State}")
+            logger.info("row.TaskErrMsg is ${res2.TaskErrMsg}")
+
+            if (res2.State.equals("CANCELLED") && (res2.TaskErrMsg as String).contains("failed to get tablet")) {
                 found = 1
                 break
             }
@@ -89,23 +120,75 @@ suite("test_backup_with_ddl") {
         }
         Thread.sleep(2000)
     }
+
+    assertEquals(found, 1)
+
+    syncer.waitSnapshotFinish(dbName)
+
+    GetDebugPoint().disableDebugPointForAllBEs("SnapshotManager::make_snapshot.wait")
+    GetDebugPoint().disableDebugPointForAllFEs('FE.checkBuckupRunning.ignore')
+
+
+
+    logger.info("========= Test 2: checkBuckupRunning when truncate table ===")
+    def snapshotName2 = "snapshot_test_2"
+
+    for (int i = 0; i < insert_num; ++i) {
+    sql """
+         INSERT INTO ${dbName}.${tableName} VALUES (${i}, ${i})
+        """
+    }
+    sql " sync "
+
+    result = sql_return_maparray """show tablets from ${dbName}.${tableName}"""
+    assertNotNull(result)
+    tabletId = null
+    for (def res1 : result) {
+        tabletId = res1.TabletId
+        break
+    }
+    logger.info("========= show tablet ${tabletId}  ===")
+
+    sql """
+            BACKUP SNAPSHOT ${dbName}.${snapshotName2}
+            TO `__keep_on_local__`
+            ON (${tableName})
+            PROPERTIES ("type" = "full")
+        """
+
+    // wait backup snapshoting
+    count = 200 // 20s
+    found = 0
+    for (int i = 0; i < count; ++i) {
+        def records = sql_return_maparray "SHOW BACKUP FROM ${dbName}"
+        found = 0
+        for (def res2 : records) {
+            if (res2.State .equals("SNAPSHOTING")) {
+                found = 1
+                break
+            }
+        }
+        if (found == 1) {
+            break
+        }
+        Thread.sleep(100)
+    }
+
+    assertEquals(found, 1)
+
     
     // truncate fail errCode = 2, detailMessage = Backup is running on this db: test_backup_with_ddl_db
     try_sql """
         truncate table ${dbName}.${tableName};
     """
-    def res = sql "SELECT * FROM ${dbName}.${tableName}"
+    // assert truncate fail
+    res = sql "SELECT * FROM ${dbName}.${tableName}"
     assertEquals(res.size(), insert_num)
 
     syncer.waitSnapshotFinish(dbName)
   
-    GetDebugPoint().disableDebugPointForAllBEs("SnapshotManager::make_snapshot.wait")
-    GetDebugPoint().disableDebugPointForAllFEs('FE.checkBuckupRunning.ignore')
 
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql "DROP DATABASE ${dbName} FORCE"
 
 }
-
-//test_create_table_exception.groovy
-//disableDebugPointForAllFEs
