@@ -205,6 +205,8 @@ import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.StructLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
+import org.apache.doris.nereids.DorisParser.SupportedUnsetDefaultStorageVaultStatementContext;
+import org.apache.doris.nereids.DorisParser.SupportedUnsetVariableStatementContext;
 import org.apache.doris.nereids.DorisParser.SystemVariableContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
@@ -421,6 +423,8 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
@@ -3821,6 +3825,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Object visitUnsupported(UnsupportedContext ctx) {
         return UnsupportedCommand.INSTANCE;
+    }
+
+    @Override
+    public LogicalPlan visitSupportedUnsetVariableStatement(SupportedUnsetVariableStatementContext ctx) {
+        SetType type = SetType.DEFAULT;
+        if (ctx.GLOBAL() != null) {
+            type = SetType.GLOBAL;
+        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
+            type = SetType.SESSION;
+        }
+        if (ctx.ALL() != null) {
+            return new UnsetVariableCommand(type, true);
+        } else if (ctx.identifier() != null) {
+            return new UnsetVariableCommand(type, ctx.identifier().getText());
+        }
+        throw new AnalysisException("Should add 'ALL' or variable name");
+    }
+
+    @Override
+    public LogicalPlan visitSupportedUnsetDefaultStorageVaultStatement(
+            SupportedUnsetDefaultStorageVaultStatementContext ctx) {
+        return new UnsetDefaultStorageVaultCommand();
     }
 
     @Override

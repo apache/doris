@@ -54,12 +54,13 @@ statementBase
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
     | supportedSetStatement             #supportedSetStatementAlias
+    | supportedUnsetVariableStatement           #supportedUnsetVariableStatementAlias
+    | supportedUnsetDefaultStorageVaultStatement  #supportedUnsetDefaultStorageVaultStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
 unsupportedStatement
-    : unsupoortedUnsetStatement
-    | unsupportedUseStatement
+    : unsupportedUseStatement
     | unsupportedDmlStatement
     | unsupportedKillStatement
     | unsupportedDescribeStatement
@@ -839,9 +840,12 @@ isolationLevel
     : ISOLATION LEVEL ((READ UNCOMMITTED) | (READ COMMITTED) | (REPEATABLE READ) | (SERIALIZABLE))
     ;
 
-unsupoortedUnsetStatement
+supportedUnsetVariableStatement
     : UNSET (GLOBAL | SESSION | LOCAL)? VARIABLE (ALL | identifier)
-    | UNSET DEFAULT STORAGE VAULT
+    ;
+
+supportedUnsetDefaultStorageVaultStatement
+    : UNSET DEFAULT STORAGE VAULT
     ;
 
 unsupportedUseStatement
