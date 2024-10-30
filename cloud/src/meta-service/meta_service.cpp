@@ -1776,9 +1776,6 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         std::string key;
         meta_delete_bitmap_key(key_info, &key);
         delete_bitmap_keys.add_delete_bitmap_keys(key);
-        LOG(INFO) << "update delete bitmap key=" << request->rowset_ids(i) << "|"
-                  << request->versions(i) << "|" << request->segment_ids(i)
-                  << ",hex key=" << hex(key);
     }
     // no need to record pending key for compaction or schema change,
     // because delete bitmap will attach to new rowset, just delete new rowset if failed

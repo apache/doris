@@ -335,7 +335,6 @@ void put(Transaction* txn, std::string_view key, std::string_view value, uint8_t
     auto split_vec = split_string(value, split_size);
     int64_t suffix_base = ver;
     suffix_base <<= 56;
-    LOG(INFO) << "key=" << hex(key) << ",split_vec size=" << split_vec.size();
     for (size_t i = 0; i < split_vec.size(); ++i) {
         std::string k(key);
         encode_int64(suffix_base + i, &k);

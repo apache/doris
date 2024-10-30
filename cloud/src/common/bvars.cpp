@@ -70,7 +70,6 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_copy_job("ms", "get_copy_job");
 BvarLatencyRecorderWithTag g_bvar_ms_get_copy_files("ms", "get_copy_files");
 BvarLatencyRecorderWithTag g_bvar_ms_filter_copy_files("ms", "filter_copy_files");
 BvarLatencyRecorderWithTag g_bvar_ms_update_delete_bitmap("ms", "update_delete_bitmap");
-BvarLatencyRecorderWithTag g_bvar_ms_update_delete_bitmap2("ms", "update_delete_bitmap2");
 BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap("ms", "get_delete_bitmap");
 BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap_update_lock("ms",
                                                                    "get_delete_bitmap_update_lock");

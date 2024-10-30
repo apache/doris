@@ -792,8 +792,6 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     // 3. store delete bitmap
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(*this, -1, initiator,
                                                             output_rowset_delete_bitmap.get()));
-    RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap2(*this, -1, initiator,
-                                                             output_rowset_delete_bitmap.get()));
     return Status::OK();
 }
 

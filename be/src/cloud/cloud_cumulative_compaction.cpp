@@ -393,11 +393,6 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                 if (d->isEmpty()) {
                     continue;
                 }
-                VLOG_DEBUG << "tablet_id=" << _tablet->tablet_meta()->tablet_id()
-                           << " get_agg result:key=" << rowset->rowset_id().to_string() << "|"
-                           << seg_id << "|" << pre_max_version
-                           << ",bitmap size=" << d->cardinality()
-                           << ",bitmap byte=" << d->getSizeInBytes();
                 int ret = new_delete_bitmap->set(end, *d);
                 DCHECK(ret == 1);
                 if (ret != 1) {
@@ -422,8 +417,6 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                                                        std::get<2>(it->first),
                                                        std::get<2>(it->first)));
             }
-//            RETURN_IF_ERROR(_engine.meta_mgr().remove_old_version_delete_bitmap(
-//                    _tablet->tablet_id(), to_delete));
             RETURN_IF_ERROR(_engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
                     *cloud_tablet(), new_delete_bitmap.get()));
 
@@ -431,11 +424,6 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                             _input_rowsets.back()->end_version());
             for (auto it = new_delete_bitmap->delete_bitmap.begin();
                  it != new_delete_bitmap->delete_bitmap.end(); it++) {
-                VLOG_DEBUG << "tablet_id=" << _tablet->tablet_meta()->tablet_id()
-                           << " set key=" << std::get<0>(it->first).to_string() << "|"
-                           << std::get<1>(it->first) << "|" << std::get<2>(it->first)
-                           << ",size=" << it->second.cardinality()
-                           << ",byte=" << it->second.getSizeInBytes();
                 int ret = _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
                 DCHECK(ret == 1);
                 if (ret != 1) {
