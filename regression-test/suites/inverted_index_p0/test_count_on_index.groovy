@@ -144,7 +144,32 @@ suite("test_count_on_index_httplogs", "p0") {
         sql """ set enable_common_expr_pushdown = true """
         sql """set experimental_enable_nereids_planner=true;"""
         sql """set enable_fallback_to_original_planner=false;"""
+        sql """analyze table ${testTable_dup} with sync""";
         // case1: test duplicate table
+        def maxRetries = 3
+        def attempt = 0
+        def success = false
+
+        while (attempt < maxRetries && !success) {
+            try {
+                explain {
+                    sleep(10000)
+                    sql("select COUNT() from ${testTable_dup}")
+                    notContains("cardinality=0")
+                }
+                success = true
+            } catch (Exception e) {
+                attempt++
+                log.error("Attempt ${attempt} failed: ${e.message}")
+                if (attempt < maxRetries) {
+                    log.info("Retrying... (${attempt + 1}/${maxRetries})")
+                    sleep(1000)
+                } else {
+                    log.error("All ${maxRetries} attempts failed.")
+                    throw e
+                }
+            }
+        }
         explain {
             sql("select COUNT() from ${testTable_dup} where request match 'GET'")
             contains "pushAggOp=COUNT_ON_INDEX"
