@@ -1299,7 +1299,7 @@ alter table web_page modify column wp_max_ad_count set stats ('row_count'='2040'
 """
 
 sql """
-alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'num_nulls'='30', 'avg_size'='120', 'max_size'='120' )
+alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'avg_size'='120', 'max_size'='120' )
 """
 
 sql """
