@@ -642,7 +642,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             sendCalcDeleteBitmaptask(dbId, transactionId, backendToPartitionInfos);
         } catch (UserException e) {
-            LOG.warn("failed to sendCalcDeleteBitmaptask for txn=" + transactionId + ",exception=" + e);
+            LOG.warn("failed to sendCalcDeleteBitmaptask for txn=" + transactionId + ",exception=" + e.getMessage());
             removeDeleteBitmapUpdateLock(tableToPartitions, transactionId);
             throw e;
         }
