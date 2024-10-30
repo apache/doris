@@ -176,8 +176,7 @@ suite("slow_fold_constant_case_when") {
         """
 
 
-    test {
-        sql """
+    def sqlStr = """
                 SELECT `_____` ,
          `c24` ,
          `c28` ,
@@ -811,6 +810,15 @@ FROM
         ORDER BY  _____ nulls last
             """
 
+    sql "set enable_fold_constant_by_be=false"
+    test {
+        sql sqlStr
+        time 60000
+    }
+
+    sql "set enable_fold_constant_by_be=true"
+    test {
+        sql sqlStr
         time 60000
     }
 }
