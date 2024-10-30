@@ -38,6 +38,9 @@ class DorisFSDirectory;
 using InvertedIndexDirectoryMap =
         std::map<std::pair<int64_t, std::string>, std::unique_ptr<lucene::store::Directory>>;
 
+class InvertedIndexFileWriter;
+using InvertedIndexFileWriterPtr = std::unique_ptr<InvertedIndexFileWriter>;
+
 class FileInfo {
 public:
     std::string filename;
@@ -65,8 +68,14 @@ public:
     int64_t write_v1();
     Status close();
     int64_t headerLength();
-    InvertedIndexFileInfo get_index_file_info() const { return _file_info; }
-    int64_t get_index_file_total_size() const { return _total_file_size; }
+    const InvertedIndexFileInfo* get_index_file_info() const {
+        DCHECK(_closed) << debug_string();
+        return &_file_info;
+    }
+    int64_t get_index_file_total_size() const {
+        DCHECK(_closed) << debug_string();
+        return _total_file_size;
+    }
     const io::FileSystemSPtr& get_fs() const { return _fs; }
     void sort_files(std::vector<FileInfo>& file_infos);
     void copyFile(const char* fileName, lucene::store::Directory* dir,
@@ -75,6 +84,20 @@ public:
 
     void set_file_writer_opts(const io::FileWriterOptions& opts) { _opts = opts; }
 
+    std::string debug_string() const {
+        std::stringstream indices_dirs;
+        for (const auto& [index, dir] : _indices_dirs) {
+            indices_dirs << "index id is: " << index.first << " , index suffix is: " << index.second
+                         << " , index dir is: " << dir->toString();
+        }
+        return fmt::format(
+                "inverted index file writer debug string: index storage format is: {}, index path "
+                "prefix is: {}, rowset id is: {}, seg id is: {}, closed is: {}, total file size "
+                "is: {}, index dirs is: {}",
+                _storage_format, _index_path_prefix, _rowset_id, _seg_id, _closed, _total_file_size,
+                indices_dirs.str());
+    }
+
 private:
     InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;
@@ -82,14 +105,18 @@ private:
     std::string _rowset_id;
     int64_t _seg_id;
     InvertedIndexStorageFormatPB _storage_format;
+
+    // write to disk or stream
+    io::FileWriterPtr _idx_v2_writer = nullptr;
+    io::FileWriterOptions _opts;
+
     // v1: all file size
     // v2: file size
     int64_t _total_file_size = 0;
-    // write to disk or stream
-    io::FileWriterPtr _idx_v2_writer;
-    io::FileWriterOptions _opts;
-
     InvertedIndexFileInfo _file_info;
+
+    // only once
+    bool _closed = false;
 };
 } // namespace segment_v2
 } // namespace doris
