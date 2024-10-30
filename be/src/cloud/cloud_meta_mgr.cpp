@@ -1129,25 +1129,26 @@ Status CloudMetaMgr::remove_old_version_delete_bitmap(
 }
 
 void CloudMetaMgr::check_table_size_correctness(const RowsetMeta& rs_meta) {
-    if (config::enable_table_size_correctness_check) {
-        int64_t total_segment_size = get_segment_file_size(rs_meta);
-        int64_t total_inverted_index_size = get_inverted_index_file_szie(rs_meta);
-        if (rs_meta.data_disk_size() != total_segment_size ||
-            rs_meta.index_disk_size() != total_inverted_index_size ||
-            rs_meta.data_disk_size() + rs_meta.index_disk_size() != rs_meta.total_disk_size()) {
-            LOG(WARNING) << "[Cloud table table size check failed]:"
-                         << " tablet id: " << rs_meta.tablet_id()
-                         << ", rowset id:" << rs_meta.rowset_id()
-                         << ", rowset data disk size:" << rs_meta.data_disk_size()
-                         << ", rowset real data disk size:" << total_segment_size
-                         << ", rowset index disk size:" << rs_meta.index_disk_size()
-                         << ", rowset real index disk size:" << total_inverted_index_size
-                         << ", rowset total disk size:" << rs_meta.total_disk_size()
-                         << ", rowset segment path:"
-                         << StorageResource().remote_segment_path(
-                                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), 0);
-            DCHECK(false);
-        }
+    if (!config::enable_table_size_correctness_check) {
+        return;
+    }
+    int64_t total_segment_size = get_segment_file_size(rs_meta);
+    int64_t total_inverted_index_size = get_inverted_index_file_szie(rs_meta);
+    if (rs_meta.data_disk_size() != total_segment_size ||
+        rs_meta.index_disk_size() != total_inverted_index_size ||
+        rs_meta.data_disk_size() + rs_meta.index_disk_size() != rs_meta.total_disk_size()) {
+        LOG(WARNING) << "[Cloud table table size check failed]:"
+                     << " tablet id: " << rs_meta.tablet_id()
+                     << ", rowset id:" << rs_meta.rowset_id()
+                     << ", rowset data disk size:" << rs_meta.data_disk_size()
+                     << ", rowset real data disk size:" << total_segment_size
+                     << ", rowset index disk size:" << rs_meta.index_disk_size()
+                     << ", rowset real index disk size:" << total_inverted_index_size
+                     << ", rowset total disk size:" << rs_meta.total_disk_size()
+                     << ", rowset segment path:"
+                     << StorageResource().remote_segment_path(rs_meta.tablet_id(),
+                                                              rs_meta.rowset_id().to_string(), 0);
+        DCHECK(false);
     }
 }
 
