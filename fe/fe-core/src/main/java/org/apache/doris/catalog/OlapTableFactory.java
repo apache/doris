@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
@@ -51,6 +52,7 @@ public class OlapTableFactory {
         public Map<String, String> mvProperties;
         public MTMVPartitionInfo mvPartitionInfo;
         public MTMVRelation relation;
+        public UserIdentity createUser;
     }
 
     private BuildParams params;
@@ -168,6 +170,14 @@ public class OlapTableFactory {
         return this;
     }
 
+    private OlapTableFactory withCreateUser(UserIdentity createUser) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.createUser = createUser;
+        return this;
+    }
+
     public OlapTableFactory withExtraParams(DdlStmt stmt) {
         boolean isMaterializedView = stmt instanceof CreateMTMVStmt;
         if (!isMaterializedView) {
@@ -179,6 +189,7 @@ public class OlapTableFactory {
                     .withQuerySql(createMTMVStmt.getQuerySql())
                     .withMvProperties(createMTMVStmt.getMvProperties())
                     .withMvPartitionInfo(createMTMVStmt.getMvPartitionInfo())
+                    .withCreateUser(createMTMVStmt.getCreateUser())
                     .withMvRelation(createMTMVStmt.getRelation());
         }
     }

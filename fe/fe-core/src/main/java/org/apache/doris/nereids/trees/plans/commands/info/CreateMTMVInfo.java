@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ListPartitionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -121,6 +122,7 @@ public class CreateMTMVInfo {
     private PartitionDesc partitionDesc;
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
+    private UserIdentity createUser;
 
     /**
      * constructor for create MTMV
@@ -168,6 +170,7 @@ public class CreateMTMVInfo {
                     mvName.getDb() + ": " + mvName.getTbl());
             throw new AnalysisException(message);
         }
+        this.createUser = ctx.getCurrentUserIdentity();
         analyzeProperties();
         analyzeQuery(ctx, this.mvProperties);
         // analyze column
@@ -496,7 +499,7 @@ public class CreateMTMVInfo {
                 .collect(Collectors.toList());
         return new CreateMTMVStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
                 distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment,
-                partitionDesc, mvPartitionInfo, relation);
+                partitionDesc, mvPartitionInfo, relation, createUser);
     }
 
 }

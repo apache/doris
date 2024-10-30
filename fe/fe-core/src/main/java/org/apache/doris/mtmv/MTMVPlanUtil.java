@@ -44,6 +44,7 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -65,6 +66,11 @@ public class MTMVPlanUtil {
         Optional<String> workloadGroup = mtmv.getWorkloadGroup();
         if (workloadGroup.isPresent()) {
             ctx.getSessionVariable().setWorkloadGroup(workloadGroup.get());
+        } else if (mtmv.getCreateUser() != null) {
+            String groupName = Env.getCurrentEnv().getAuth().getWorkloadGroup(mtmv.getCreateUser().getQualifiedUser());
+            if (!StringUtils.isEmpty(groupName)) {
+                ctx.getSessionVariable().setWorkloadGroup(groupName);
+            }
         }
         ctx.setStartTime();
         // Set db&catalog to be used when creating materialized views to avoid SQL statements not writing the full path

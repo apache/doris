@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -87,6 +88,8 @@ public class MTMV extends OlapTable {
     private MTMVPartitionInfo mvPartitionInfo;
     @SerializedName("rs")
     private MTMVRefreshSnapshot refreshSnapshot;
+    @SerializedName("cu")
+    private UserIdentity createUser;
     // Should update after every fresh, not persist
     private MTMVCache cache;
 
@@ -113,6 +116,7 @@ public class MTMV extends OlapTable {
         this.mvProperties = params.mvProperties;
         this.mvPartitionInfo = params.mvPartitionInfo;
         this.relation = params.relation;
+        this.createUser = params.createUser;
         this.refreshSnapshot = new MTMVRefreshSnapshot();
         this.envInfo = new EnvInfo(-1L, -1L);
         mvRwLock = new ReentrantReadWriteLock(true);
@@ -300,6 +304,10 @@ public class MTMV extends OlapTable {
         } finally {
             readMvUnlock();
         }
+    }
+
+    public UserIdentity getCreateUser() {
+        return createUser;
     }
 
     /**
@@ -521,6 +529,7 @@ public class MTMV extends OlapTable {
         if (refreshSnapshot == null) {
             refreshSnapshot = new MTMVRefreshSnapshot();
         }
+        createUser = materializedView.createUser;
     }
 
     // toString() is not easy to find where to call the method
