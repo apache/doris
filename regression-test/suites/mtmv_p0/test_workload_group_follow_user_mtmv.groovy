@@ -46,7 +46,16 @@ suite("test_workload_group_follow_user_mtmv") {
 
     connect(user=user, password="${pwd}", url=context.config.jdbcUrl) {
         sql """use ${dbName}"""
+        sql """
+            create workload group if not exists ${group1}
+            properties (
+                "cpu_share"="1024",
+                "memory_limit"="30%",
+                "enable_memory_overcommit"="true"
+            );
+            """
         sql """set property 'default_workload_group' = '${group1}';"""
+        sql """ DROP WORKLOAD GROUP  ${group1}"""
         sql """drop materialized view if exists ${mvName};"""
         sql """
             CREATE MATERIALIZED VIEW ${mvName}
