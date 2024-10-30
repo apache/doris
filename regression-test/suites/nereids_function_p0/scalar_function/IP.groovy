@@ -65,14 +65,14 @@ suite("nereids_scalar_fn_IP") {
     qt_sql_inet_ntoa_str "select id, inet_ntoa(ip4_str) from fn_test_ip_nullable order by id"
 
     // test IPV4_STRING_TO_NUM_OR_DEFAULT/IPV6_STRING_TO_NUM_OR_DEFAULT
-    qt_sql_string2num_or_default_ipv6 "select id, ipv6_string_to_num_or_default(ip6) from fn_test_ip_nullable order by id"
-    qt_sql_string2num_or_default_ipv6_str "select id, ipv6_string_to_num_or_default(ip6_str) from fn_test_ip_nullable order by id"
+    qt_sql_string2num_or_default_ipv6 "select id, hex(ipv6_string_to_num_or_default(ip6)) from fn_test_ip_nullable order by id"
+    qt_sql_string2num_or_default_ipv6_str "select id, hex(ipv6_string_to_num_or_default(ip6_str)) from fn_test_ip_nullable order by id"
     qt_sql_string2num_or_default_ipv4 "select id, ipv4_string_to_num_or_default(ip4) from fn_test_ip_nullable order by id"
     qt_sql_string2num_or_default_ipv4_str "select id, ipv4_string_to_num_or_default(ip4_str) from fn_test_ip_nullable order by id"
 
     // test IPV4_STRING_TO_NUM_OR_NULL/IPV6_STRING_TO_NUM_OR_NULL
-    qt_sql_string2num_or_null_ipv6 "select id, ipv6_string_to_num_or_null(ip6) from fn_test_ip_nullable order by id"
-    qt_sql_string2num_or_null_ipv6_str "select id, ipv6_string_to_num_or_null(ip6_str) from fn_test_ip_nullable order by id"
+    qt_sql_string2num_or_null_ipv6 "select id, hex(ipv6_string_to_num_or_null(ip6)) from fn_test_ip_nullable order by id"
+    qt_sql_string2num_or_null_ipv6_str "select id, hex(ipv6_string_to_num_or_null(ip6_str)) from fn_test_ip_nullable order by id"
     qt_sql_string2num_or_null_ipv4 "select id, ipv4_string_to_num_or_null(ip4) from fn_test_ip_nullable order by id"
     qt_sql_string2num_or_null_ipv4_str "select id, ipv4_string_to_num_or_null(ip4_str) from fn_test_ip_nullable order by id"
 
@@ -155,7 +155,7 @@ suite("nereids_scalar_fn_IP") {
 
 
     // test IPV4_STRING_TO_NUM/IPV6_STRING_TO_NUM
-    qt_sql_not_null_ipv6_string_to_num 'select id, ipv6_string_to_num(ip6) from fn_test_ip_not_nullable order by id'
+    qt_sql_not_null_ipv6_string_to_num 'select id, hex(ipv6_string_to_num(ip6)) from fn_test_ip_not_nullable order by id'
 
     // string has 'null' this invalid data
     test {
@@ -185,14 +185,14 @@ suite("nereids_scalar_fn_IP") {
     qt_sql_not_null_inet_ntoa_str "select id, inet_ntoa(ip4_str) from fn_test_ip_not_nullable order by id"
 
     // test IPV4_STRING_TO_NUM_OR_DEFAULT/IPV6_STRING_TO_NUM_OR_DEFAULT
-    qt_sql_not_null_string2num_or_default_ipv6 "select id, ipv6_string_to_num_or_default(ip6) from fn_test_ip_not_nullable order by id"
-    qt_sql_not_null_string2num_or_default_ipv6_str "select id, ipv6_string_to_num_or_default(ip6_str) from fn_test_ip_not_nullable order by id"
+    qt_sql_not_null_string2num_or_default_ipv6 "select id, hex(ipv6_string_to_num_or_default(ip6)) from fn_test_ip_not_nullable order by id"
+    qt_sql_not_null_string2num_or_default_ipv6_str "select id, hex(ipv6_string_to_num_or_default(ip6_str)) from fn_test_ip_not_nullable order by id"
     qt_sql_not_null_string2num_or_default_ipv4 "select id, ipv4_string_to_num_or_default(ip4) from fn_test_ip_not_nullable order by id"
     qt_sql_not_null_string2num_or_default_ipv4_str "select id, ipv4_string_to_num_or_default(ip4_str) from fn_test_ip_not_nullable order by id"
 
     // test IPV4_STRING_TO_NUM_OR_NULL/IPV6_STRING_TO_NUM_OR_NULL
-    qt_sql_not_null_string2num_or_null_ipv6 "select id, ipv6_string_to_num_or_null(ip6) from fn_test_ip_not_nullable order by id"
-    qt_sql_not_null_string2num_or_null_ipv6_str "select id, ipv6_string_to_num_or_null(ip6_str) from fn_test_ip_not_nullable order by id"
+    qt_sql_not_null_string2num_or_null_ipv6 "select id, hex(ipv6_string_to_num_or_null(ip6)) from fn_test_ip_not_nullable order by id"
+    qt_sql_not_null_string2num_or_null_ipv6_str "select id, hex(ipv6_string_to_num_or_null(ip6_str)) from fn_test_ip_not_nullable order by id"
     qt_sql_not_null_string2num_or_null_ipv4 "select id, ipv4_string_to_num_or_null(ip4) from fn_test_ip_not_nullable order by id"
     qt_sql_not_null_string2num_or_null_ipv4_str "select id, ipv4_string_to_num_or_null(ip4_str) from fn_test_ip_not_nullable order by id"
 
