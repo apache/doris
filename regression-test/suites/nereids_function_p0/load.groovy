@@ -29,7 +29,12 @@ suite("load") {
 
     // test ipv4/ipv6
     sql """ drop table if exists fn_test_ip_nullable """
-    sql """ CREATE TABLE IF NOT EXISTS fn_test_ip_nullable (id int, ip4 ipv4, ip6 ipv6) engine=olap
+    sql """ CREATE TABLE IF NOT EXISTS fn_test_ip_nullable (id int, ip4 ipv4, ip6 ipv6, ip4_str string, ip6_str string) engine=olap
+                                                                                         DISTRIBUTED BY HASH(`id`) BUCKETS 4
+                                                                                         properties("replication_num" = "1") """
+
+    sql """ drop table if exists fn_test_ip_not_nullable """
+    sql """ CREATE TABLE IF NOT EXISTS fn_test_ip_not_nullable (id int, ip4 ipv4 not null, ip6 ipv6 not null, ip4_str string, ip6_str string) engine=olap
                                                                                          DISTRIBUTED BY HASH(`id`) BUCKETS 4
                                                                                          properties("replication_num" = "1") """
     // make some special ip address
@@ -95,7 +100,7 @@ suite("load") {
     streamLoad {
         table "fn_test_ip_nullable"
         db "regression_test_nereids_function_p0"
-        file "fn_test_ip_special.csv"
+        file "fn_test_ip_special1.csv"
         set 'column_separator', ';'
         time 60000
 
@@ -110,12 +115,31 @@ suite("load") {
         }
     }
 
+    streamLoad {
+        table "fn_test_ip_not_nullable"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_ip_special_no_null1.csv"
+        set 'column_separator', ';'
+        set "max_filter_ratio", "0.1"
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(28, json.NumberTotalRows)
+            assertEquals(27, json.NumberLoadedRows)
+        }
+    }
+
     // make some normal ipv4/ipv6 data for sql function , which is increased one by one
     // 29-50 A 类地址 ; 51-68 B 类地址 ; 69-87 C 类地址 ; 88-100 D 类地址
     streamLoad {
         table "fn_test_ip_nullable"
         db "regression_test_nereids_function_p0"
-        file "fn_test_ip_normal.csv"
+        file "fn_test_ip_normal1.csv"
         set 'column_separator', ';'
         time 60000
 
@@ -129,6 +153,43 @@ suite("load") {
             assertEquals(72, json.NumberLoadedRows)
         }
     }
+
+    streamLoad {
+        table "fn_test_ip_not_nullable"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_ip_normal1.csv"
+        set 'column_separator', ';'
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(72, json.NumberTotalRows)
+            assertEquals(72, json.NumberLoadedRows)
+        }
+    }
+
+    streamLoad {
+        table "fn_test_ip_not_nullable"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_ip_invalid.csv"
+        set 'column_separator', ';'
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(31, json.NumberTotalRows)
+            assertEquals(0, json.NumberLoadedRows)
+        }
+    }
+
 
     sql """
         CREATE TABLE IF NOT EXISTS `fn_test` (
