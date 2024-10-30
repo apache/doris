@@ -68,17 +68,9 @@ suite("test_workload_group_follow_user_mtmv") {
         sql """
                 refresh MATERIALIZED VIEW ${mvName} AUTO;
             """
-        def jobName = getJobName(dbName, mvName);
-        logger.info(jobName)
-        waitingMTMVTaskFinishedNotNeedSuccess(jobName)
-        def errors = sql """select ErrorMsg from tasks('type'='mv') where MvName='${mvName}' and MvDatabaseName='${dbName}';"""
-        logger.info("errors: " + errors.toString())
-        assertTrue(errors.toString().contains("${group1}"))
+        waitingMTMVTaskFinishedByMvName(mvName)
         sql """
                 DROP MATERIALIZED VIEW ${mvName}
             """
     }
-
-
-
 }
