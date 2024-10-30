@@ -21,6 +21,7 @@ import org.apache.doris.nereids.util.Utils;
 
 import java.util.function.Predicate;
 
+/** FormatChecker */
 public abstract class FormatChecker {
     protected final StringInspect stringInspect;
     protected int checkStartIndex;

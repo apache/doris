@@ -44,16 +44,16 @@ import java.util.function.UnaryOperator;
 public class DateLiteral extends Literal {
     public static final String JAVA_DATE_FORMAT = "yyyy-MM-dd";
 
+    public static final Set<Character> punctuations = ImmutableSet.of('!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
+            '-', '+', '=', '_', '{', '}', '[', ']', '|', '\\', ':', ';', '"', '\'', '<', '>', ',', '.', '?', '/', '~',
+            '`');
+
     // for cast datetime type to date type.
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
     private static final DateLiteral MIN_DATE = new DateLiteral(0, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
-    public static final Set<Character> punctuations = ImmutableSet.of('!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
-            '-', '+', '=', '_', '{', '}', '[', ']', '|', '\\', ':', ';', '"', '\'', '<', '>', ',', '.', '?', '/', '~',
-            '`');
 
     protected long year;
     protected long month;
@@ -209,7 +209,9 @@ public class DateLiteral extends Literal {
                     }
                 } else {
                     final String currentString = s;
-                    return Result.err(() -> new AnalysisException("date/datetime literal [" + currentString + "] is invalid"));
+                    return Result.err(
+                            () -> new AnalysisException("date/datetime literal [" + currentString + "] is invalid")
+                    );
                 }
                 i = j;
                 partNumber += 1;
@@ -230,7 +232,9 @@ public class DateLiteral extends Literal {
                     sb.append(':');
                 } else {
                     final String currentString = s;
-                    return Result.err(() -> new AnalysisException("date/datetime literal [" + currentString + "] is invalid"));
+                    return Result.err(
+                            () -> new AnalysisException("date/datetime literal [" + currentString + "] is invalid")
+                    );
                 }
             } else {
                 break;
@@ -264,6 +268,7 @@ public class DateLiteral extends Literal {
         return Result.ok(sb.toString());
     }
 
+    /** parseDateLiteral */
     public static Result<DateLiteral, AnalysisException> parseDateLiteral(String s) {
         Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
         if (parseResult.isError()) {
@@ -280,6 +285,7 @@ public class DateLiteral extends Literal {
         return Result.ok(new DateLiteral(year, month, day));
     }
 
+    /** parseDateTime */
     public static Result<TemporalAccessor, AnalysisException> parseDateTime(String s) {
         // fast parse '2022-01-01'
         if (s.length() == 10 && s.charAt(4) == '-' && s.charAt(7) == '-') {
@@ -336,7 +342,9 @@ public class DateLiteral extends Literal {
 
             // if Year is not present, throw exception
             if (!dateTime.isSupported(ChronoField.YEAR)) {
-                return Result.err(() -> new AnalysisException("date/datetime literal [" + originalString + "] is invalid"));
+                return Result.err(
+                        () -> new AnalysisException("date/datetime literal [" + originalString + "] is invalid")
+                );
             }
 
             return Result.ok(dateTime);

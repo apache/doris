@@ -130,6 +130,7 @@ public class DateTimeLiteral extends DateLiteral {
         return scale;
     }
 
+    /** parseDateTimeLiteral */
     public static Result<DateTimeLiteral, AnalysisException> parseDateTimeLiteral(String s, boolean isV2) {
         Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
         if (parseResult.isError()) {

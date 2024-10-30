@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 
 import java.util.function.Predicate;
 
+/** AtLeastChecker */
 public class AtLeastChecker extends FormatChecker {
     private int minCount;
     private int maxRead;
