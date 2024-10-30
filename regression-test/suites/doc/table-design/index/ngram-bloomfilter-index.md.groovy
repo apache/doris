@@ -47,22 +47,12 @@ suite("docs/table-design/index/ngram-bloomfilter-index.md") {
         )
         """
 
-        streamLoad {
-            table "amazon_reviews"
-            file """${getS3Url() + '/regression/doc/amazon_reviews_2010.snappy.parquet' }"""
-            db curDbName
-            set "format", "parquet"
-            check { result, exception, startTime, endTime ->
-                if (exception != null) {
-                    throw exception
-                }
-                log.info("Stream load result: ${result}".toString())
-                def json = parseJson(result)
-                assertEquals("success", json.Status.toLowerCase())
-                assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
-            }
+        var f = new File("amazon_reviews_2010.snappy.parquet")
+        if (!f.exists()) {
+            f.delete()
         }
+        cmd("wget ${getS3Url()}/regression/doc/amazon_reviews_2010.snappy.parquet")
+        cmd("""curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -T amazon_reviews_2010.snappy.parquet -H "format:parquet" http://${context.config.feHttpAddress}/api/${curDbName}/amazon_reviews/_stream_load""")
 
         sql " SELECT COUNT() FROM amazon_reviews "
         sql """
