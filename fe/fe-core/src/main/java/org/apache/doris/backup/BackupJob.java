@@ -209,11 +209,10 @@ public class BackupJob extends AbstractJob {
                     task.getIndexId(), task.getTabletId(),
                     task.getVersion(),
                     task.getSchemaHash(), timeoutMs, false /* not restore task */);
-            AgentBatchTask batchTask = new AgentBatchTask();
-            batchTask.addTask(newTask);
             unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
 
             //send task
+            AgentBatchTask batchTask = new AgentBatchTask(newTask);
             AgentTaskQueue.addTask(newTask);
             AgentTaskExecutor.submit(batchTask);
 
@@ -447,7 +446,7 @@ public class BackupJob extends AbstractJob {
         // copy all related schema at this moment
         List<Table> copiedTables = Lists.newArrayList();
         List<Resource> copiedResources = Lists.newArrayList();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
             Table tbl = db.getTableNullable(tblName);
@@ -695,7 +694,7 @@ public class BackupJob extends AbstractJob {
             beToSnapshots.put(info.getBeId(), info);
         }
 
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (Long beId : beToSnapshots.keySet()) {
             List<SnapshotInfo> infos = beToSnapshots.get(beId);
             int totalNum = infos.size();
@@ -851,7 +850,7 @@ public class BackupJob extends AbstractJob {
         }
         // we do not care about the release snapshot tasks' success or failure,
         // the GC thread on BE will sweep the snapshot, finally.
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
                     info.getTabletId(), info.getPath());
