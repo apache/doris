@@ -25,7 +25,6 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
-#include <limits>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -33,14 +32,11 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_stream_load_executor.h"
-#include "cloud/cloud_tablet_hotspot.h"
-#include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "io/cache/block_file_cache.h"
-#include "io/cache/block_file_cache_downloader.h"
+#include "geo/geo_utils.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
@@ -93,7 +89,7 @@
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
-#include "util/disk_info.h"
+#include "util/disk_info.h" // IWYU pragma: keep
 #include "util/dns_cache.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
@@ -217,6 +213,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
 
     TimezoneUtils::load_timezones_to_cache();
+    Geo::geodist_init();
 
     static_cast<void>(ThreadPoolBuilder("SendBatchThreadPool")
                               .set_min_threads(config::send_batch_thread_pool_thread_num)

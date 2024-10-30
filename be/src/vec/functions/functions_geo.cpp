@@ -25,6 +25,8 @@
 
 #include "geo/geo_common.h"
 #include "geo/geo_types.h"
+#include "geo/geo_utils.h"
+#include "geo/s2_bridge.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/columns_number.h"
@@ -32,7 +34,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
@@ -264,14 +265,15 @@ struct StDistanceSphere {
         auto null_map = ColumnUInt8::create(size, 0);
         auto& null_map_data = null_map->get_data();
         for (int row = 0; row < size; ++row) {
-            double distance = 0;
-            if (!GeoPoint::ComputeDistance(x_lng->get_element(row), x_lat->get_element(row),
-                                           y_lng->get_element(row), y_lat->get_element(row),
-                                           &distance)) {
+            if (!point_from_degrees_valid(x_lat->get_element(row), x_lng->get_element(row)) ||
+                !point_from_degrees_valid(y_lat->get_element(row), y_lng->get_element(row))) {
                 null_map_data[row] = 1;
                 res->insert_default();
                 continue;
             }
+            double distance =
+                    Geo::sphere_distance(x_lng->get_element(row), x_lat->get_element(row),
+                                         y_lng->get_element(row), y_lat->get_element(row));
             res->insert_value(distance);
         }
 
