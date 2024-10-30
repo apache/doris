@@ -2811,7 +2811,7 @@ public class StmtExecutor {
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         context.getMysqlChannel().flush();
-        context.getState().setNoop();
+        context.getState().setOk();
     }
 
     private void sendFields(List<String> colNames, List<Type> types) throws IOException {

@@ -211,7 +211,8 @@ public class AuditLogHelper {
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName())
-                .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
+                .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables())
+                .setCommandType(ctx.getCommand().toString());
 
         if (ctx.getState().isQuery()) {
             if (!ctx.getSessionVariable().internalSession) {

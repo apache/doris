@@ -526,7 +526,7 @@ public class ConnectContext {
     }
 
     public AuditEventBuilder getAuditEventBuilder() {
-        return auditEventBuilder;
+        return new AuditEventBuilder();
     }
 
     public void setThreadLocalInfo() {
