@@ -624,7 +624,7 @@ public:
     Status add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end,
                     const std::vector<int>* column_offset = nullptr);
     Status add_rows(const Block* block, size_t row_begin, size_t length);
-    Status add_rows(const Block* block, std::vector<int64_t> rows);
+    Status add_rows(const Block* block, const std::vector<int64_t>& rows);
 
     /// remove the column with the specified name
     void erase(const String& name);
