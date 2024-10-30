@@ -17,7 +17,6 @@
 
 package org.apache.doris.scheduler.manager;
 
-import org.apache.doris.load.ExportJob;
 import org.apache.doris.scheduler.disruptor.TaskDisruptor;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
