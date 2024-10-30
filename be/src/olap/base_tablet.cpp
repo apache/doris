@@ -1199,7 +1199,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                 const vectorized::IColumn& old_value_col =
                         *old_block.get_by_position(cid - rowset_schema->num_key_columns()).column;
                 if (rids_be_overwritten.contains(idx)) {
-                    new_col->insert_from(old_value_col, idx);
+                    new_col->insert_from(old_value_col, read_index_old[idx]);
                 } else {
                     fill_one_cell(rs_column, idx, new_col, default_value_col, old_value_col,
                                   cur_col, skip_bitmaps->at(idx).contains(col_uid),
