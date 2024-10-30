@@ -235,9 +235,7 @@ public:
 
     // This method is called by workload group manager to set query's memlimit using slot
     // If user set query limit explicitly, then should use less one
-    void set_mem_limit(int64_t new_mem_limit) {
-        query_mem_tracker->set_limit(std::min<int64_t>(new_mem_limit, _user_set_mem_limit));
-    }
+    void set_mem_limit(int64_t new_mem_limit) { query_mem_tracker->set_limit(new_mem_limit); }
 
     int64_t get_mem_limit() const { return query_mem_tracker->limit(); }
 
@@ -245,6 +243,7 @@ public:
         _expected_mem_limit = std::min<int64_t>(new_mem_limit, _user_set_mem_limit);
     }
 
+    // Expected mem limit is the limit when workload group reached limit.
     int64_t expected_mem_limit() { return _expected_mem_limit; }
 
     std::shared_ptr<MemTrackerLimiter>& get_mem_tracker() { return query_mem_tracker; }

@@ -148,6 +148,7 @@ void QueryContext::_init_query_mem_tracker() {
     }
     query_mem_tracker->set_overcommit(enable_mem_overcommit());
     _user_set_mem_limit = bytes_limit;
+    _expected_mem_limit = _user_set_mem_limit;
 }
 
 QueryContext::~QueryContext() {
@@ -386,7 +387,7 @@ void QueryContext::add_fragment_profile(
 #endif
 
     std::lock_guard<std::mutex> l(_profile_mutex);
-    LOG_INFO("Query X add fragment profile, query {}, fragment {}, pipeline profile count {} ",
+    LOG_INFO("Add fragment profile, query {}, fragment {}, pipeline profile count {} ",
              print_id(this->_query_id), fragment_id, pipeline_profiles.size());
 
     _profile_map.insert(std::make_pair(fragment_id, pipeline_profiles));
