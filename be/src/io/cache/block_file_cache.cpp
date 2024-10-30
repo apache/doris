@@ -21,6 +21,7 @@
 #include "io/cache/block_file_cache.h"
 
 #include "common/status.h"
+#include "cpp/sync_point.h"
 
 #if defined(__APPLE__)
 #include <sys/mount.h>
@@ -869,6 +870,9 @@ bool BlockFileCache::try_reserve_for_ttl_without_lru(size_t size,
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
     auto limit = config::max_ttl_cache_ratio * _capacity;
+
+    TEST_INJECTION_POINT_CALLBACK("BlockFileCache::change_limit1", &limit);
+
     if ((_cur_ttl_size + size) * 100 > limit) {
         return false;
     }
