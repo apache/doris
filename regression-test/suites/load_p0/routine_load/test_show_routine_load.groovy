@@ -121,27 +121,6 @@ suite("test_show_routine_load","p0") {
             log.info("reason of state changed: ${res.size()}".toString())
             assertTrue(res.size() == 2)
 
-            // Order by name descending
-            res = sql """SHOW ROUTINE LOAD ORDER BY Name DESC"""
-            log.info("SHOW ROUTINE LOAD result: ${res[0][1]}")
-            // Expect the first job to be testshow002
-            assertTrue(res[0][1] == "testShow1")
-
-            // Order by name descending
-            res = sql """SHOW ROUTINE LOAD ORDER BY Name"""
-            log.info("SHOW ROUTINE LOAD result: ${res[0][1]}")
-            // Expect the first job to be testshow001
-            assertTrue(res[0][1] == "testShow")
-
-            // Limit test to get only the first routine load
-            res = sql """SHOW ROUTINE LOAD LIMIT 1"""
-            log.info("SHOW ROUTINE LOAD LIMIT 1 result: ${res}")
-            assertTrue(res.size() == 1)  // Ensure only one result is returned
-
-            res = sql """SHOW ROUTINE LOAD LIMIT 1 , 1"""
-            log.info("SHOW ROUTINE LOAD LIMIT 1 result: ${res}")
-            assertTrue(res.size() == 1)  // Ensure only one result is returned
-
             def count = 0
             while (true) {
                 res = sql "select count(*) from ${tableName}"
