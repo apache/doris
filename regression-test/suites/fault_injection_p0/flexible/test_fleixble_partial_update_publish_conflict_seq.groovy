@@ -21,6 +21,9 @@ import org.awaitility.Awaitility
 
 suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
 
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
+
     def tableName = "test_flexible_partial_update_publish_conflict_seq"
     sql """ DROP TABLE IF EXISTS ${tableName} force;"""
     sql """ CREATE TABLE ${tableName} (
@@ -39,8 +42,8 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         "store_row_column" = "false"); """
     def show_res = sql "show create table ${tableName}"
     assertTrue(show_res.toString().contains('"enable_unique_key_skip_bitmap_column" = "true"'))
-    sql """insert into ${tableName} values(1,1,1,1,1),(2,2,2,2,2),(4,4,4,4,4),(5,5,5,5,5),(6,6,6,6,6);"""
-    order_qt_sql "select k,v1,v2,v3,v4,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName};"
+    sql """insert into ${tableName} values(1,1,1,1,1),(2,1,2,2,2),(3,1,3,3,3),(4,1,4,4,4),(14,1,14,14,14),(15,1,15,15,15),(16,1,16,16,16),(17,1,17,17,17),(27,1,27,27,27),(28,1,28,28,28),(29,1,29,29,29);"""
+    qt_sql "select k,v1,v2,v3,v4,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
 
     def beNodes = sql_return_maparray("show backends;")
     def tabletStat = sql_return_maparray("show tablets from ${tableName};").get(0)
@@ -56,19 +59,27 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
     logger.info("tablet ${tabletId} on backend ${tabletBackend.Host} with backendId=${tabletBackend.BackendId}");
 
 
-    def enable_publish_spin_wait = {
+    def enable_publish_spin_wait = { tokenName -> 
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait", [token: "${tokenName}"])
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait", [token: "${tokenName}"])
         }
     }
 
-    def enable_block_in_publish = {
+    def disable_publish_spin_wait = {
         if (isCloudMode()) {
-            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block")
+            GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.enable_spin_wait")
         } else {
-            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block")
+            GetDebugPoint().disableDebugPointForAllBEs("EnginePublishVersionTask::execute.enable_spin_wait")
+        }
+    }
+
+    def enable_block_in_publish = { passToken -> 
+        if (isCloudMode()) {
+            GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.block", [pass_token: "${passToken}"])
+        } else {
+            GetDebugPoint().enableDebugPointForAllBEs("EnginePublishVersionTask::execute.block", [pass_token: "${passToken}"])
         }
     }
 
@@ -97,6 +108,8 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         // block the flexible partial update in publish phase
         enable_publish_spin_wait()
         enable_block_in_publish()
+
+        // load 1
         def t1 = Thread.start {
             streamLoad {
                 table "${tableName}"
@@ -105,12 +118,13 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
                 set 'strict_mode', 'false'
                 set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
                 file "test3.json"
-                time 20000
+                time 60000
             }
         }
 
         Thread.sleep(500)
 
+        // load 2
         def t2 = Thread.start {
             streamLoad {
                 table "${tableName}"
@@ -119,9 +133,24 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
                 set 'strict_mode', 'false'
                 set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
                 file "test4.json"
-                time 20000
+                time 60000
             }
         }
+
+        // row(1)'s seq value: origin < load 2 < load 1
+        // row(2)'s seq value: origin < load 1 < load 2
+        // row(3)'s seq value: origin < load 1, load 2 without seq val
+        // row(4)'s seq value: origin < load 2, load 1 without seq val
+
+        // row(14)'s seq value: origin < load 2(with delete sign) < load 1
+        // row(15)'s seq value: origin < load 1 < load 2(with delete sign)
+        // row(16)'s seq value: origin < load 1, load 2 without seq val, with delete sign
+        // row(17)'s seq value: origin < load 2(with delete sign), load 1 without seq val
+        
+        // row(27)'s seq value: origin < load 2 < load 1(with delete sign)
+        // row(28)'s seq value: origin < load 1(with delete sign) < load 2
+        // row(29)'s seq value: origin < load 1(with delete sign), load 2 without seq val
+        // row(30)'s seq value: origin < load 2, load 1 without seq val, with delete sign
 
         Thread.sleep(500)
 
@@ -130,7 +159,57 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         t2.join()
 
         qt_sql "select k,v1,v2,v3,v4,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k;"
-        inspectRows "select k,v1,v2,v3,v4,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;" 
+        inspectRows "select k,v1,v2,v3,v4,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;" 
+
+
+        // ===========================================================================================
+        // publish alignment read from rowsets which have multi-segments
+        GetDebugPoint().clearDebugPointsForAllFEs()
+        GetDebugPoint().clearDebugPointsForAllBEs()
+        sql "truncate table ${tableName}"
+        enable_publish_spin_wait("token1")
+        enable_block_in_publish("-1")
+        def t3 = Thread.start {
+            sql "set insert_visible_timeout_ms=60000;"
+            sql "sync;"
+            sql "insert into ${tableName} values(1,10,1,1,1),(2,20,2,2,2);"
+        }
+        Thread.sleep(700)
+        def t4 = Thread.start {
+            sql "set enable_unique_key_partial_update=true;"
+            sql "set insert_visible_timeout_ms=60000;"
+            sql "set enable_insert_strict=false;"
+            sql "sync;"
+            sql "insert into ${tableName}(k,v1,v2,v3) values(1,99,99,99);"
+        }
+        Thread.sleep(700)
+        enable_publish_spin_wait("token2")
+        def t5 = Thread.start {
+            streamLoad {
+                table "${tableName}"
+                set 'format', 'json'
+                set 'read_json_by_line', 'true'
+                set 'strict_mode', 'false'
+                set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
+                file "test6.json"
+                time 40000
+            }
+        }
+        Thread.sleep(700)
+        // let t3 and t4 publish
+        enable_block_in_publish("token1")
+        t3.join()
+        t4.join()
+        Thread.sleep(3000)
+        qt_sql1 "select k,v1,v2,v3,v4 from ${tableName} order by k;"
+
+        // let t5 publish
+        // in publish phase, t5 will read from t4 which has multi segments
+        enable_block_in_publish("token2")
+        t5.join()
+        qt_sql2 "select k,v1,v2,v3,v4 from ${tableName} order by k;"
+        inspectRows "select k,v1,v2,v3,v4,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__),__DORIS_DELETE_SIGN__ from ${tableName} order by k,__DORIS_VERSION_COL__,__DORIS_SEQUENCE_COL__;" 
+
     } catch(Exception e) {
         logger.info(e.getMessage())
         throw e

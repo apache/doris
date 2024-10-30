@@ -19,6 +19,9 @@ import org.junit.Assert
 
 suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
 
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().clearDebugPointsForAllBEs()
+
     def tableName = "test_flexible_partial_update_publish_conflict"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ CREATE TABLE ${tableName} (
@@ -116,6 +119,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
 
 
         // ==================================================================================================
+        // publish alignment read from rowsets which have multi-segments
         sql "truncate table ${tableName}"
         enable_publish_spin_wait("token1")
         enable_block_in_publish("-1")
@@ -153,6 +157,7 @@ suite("test_flexible_partial_update_publish_conflict", "nonConcurrent") {
         Thread.sleep(1000)
         qt_sql1 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
         // let t5 publish
+        // in publish phase, t5 will read from t4 which has multi segments
         enable_block_in_publish("token2")
         t5.join()
         qt_sql2 "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
