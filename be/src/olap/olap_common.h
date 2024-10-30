@@ -418,7 +418,6 @@ struct RowsetId {
                     std::mt19937_64 rg(std::random_device {}());
                     return std::uniform_int_distribution<int64_t>()(rg);
                 }();
-                init(1, high, 0, 0);
             }
             init(1, high, 0, 0);
         } else {
