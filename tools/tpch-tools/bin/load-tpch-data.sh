@@ -309,9 +309,8 @@ echo "Finish load tpch data, Time taken: $((end_time - start_time)) seconds"
 echo '============================================'
 run_sql() {
     echo "$*"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
-    if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute SQL command: '$*'"
+    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*" 2>&1; then
+        echo "Error: Failed to execute SQL command: '$*'" >&2
         exit 1
     fi
 }

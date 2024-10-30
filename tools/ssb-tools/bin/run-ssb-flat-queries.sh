@@ -95,9 +95,8 @@ echo "DB: ${DB:='ssb'}"
 
 run_sql() {
     echo "$@"
-    mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D"${DB}" -e "$@"
-    if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute the SQL command: $@"
+    if ! mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D"${DB}" -e "$@" 2>&1; then
+        echo "Error: Failed to execute the SQL command: $@" >&2
         exit 1
     fi
 }
@@ -124,9 +123,12 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     hot2=0
     echo -ne "q${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out \
+        2>"${RESULT_DIR}"/result"${i}".log
+
     if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log"
+        echo "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -134,9 +136,12 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out \
+        2>"${RESULT_DIR}"/result"${i}".log
+
     if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute query q${i} (hot run 1). Check the log: ${RESULT_DIR}/result${i}.log"
+        echo "Error: Failed to execute query q${i} (hot run 1). Check the log: ${RESULT_DIR}/result${i}.log" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -144,9 +149,12 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
+    mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out \
+        2>"${RESULT_DIR}"/result"${i}".log
+
     if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log"
+        echo "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log" >&2
         continue
     fi
     end=$(date +%s%3N)

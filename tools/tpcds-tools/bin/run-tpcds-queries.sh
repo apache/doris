@@ -121,25 +121,25 @@ echo "Time Unit: ms"
 
 run_sql() {
     echo "$*"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
-    if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute the SQL command: '$*'"
+    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*" 2>&1; then
+        echo "Error: Failed to execute the SQL command: '$*'" >&2
         exit 1
     fi
 }
 get_session_variable() {
     k="$1"
-    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "show variables like '${k}'\G" 2>&1 | grep " Value: ")
+
     if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-        echo "Error: Failed to execute SQL command: show variables like '${k}'\G"
+        echo "Error: Failed to execute SQL command: 'show variables like ${k}\G'" >&2
         exit 1
     fi
 
     if [[ ${PIPESTATUS[1]} -eq 1 ]]; then
-        echo "Warning: No lines containing 'Value: ' were found for variable '${k}'."
+        echo "Warning: No 'Value:' found for variable '${k}'." >&2
         return 1
     elif [[ ${PIPESTATUS[1]} -ne 0 ]]; then
-        echo "Error: An error occurred while running grep."
+        echo "Error: An error occurred while running 'grep'." >&2
         exit 1
     fi
     echo "${v/*Value: /}"
@@ -158,9 +158,8 @@ backup_session_variables() {
 clean_up() {
     echo "restore session variables:"
     cat "${backup_session_variables_file}"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"source ${backup_session_variables_file};"
-    if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to restore session variables from '${backup_session_variables_file}'."
+    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"source ${backup_session_variables_file};" 2>&1; then
+        echo "Error: Failed to restore session variables from '${backup_session_variables_file}'." >&2
         exit 1
     fi
 }
@@ -193,9 +192,10 @@ for i in ${query_array[@]}; do
     hot2=0
     echo -ne "query${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
-    if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log"
+    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+         <"${TPCDS_QUERIES_DIR}/query${i}.sql" \
+         >"${RESULT_DIR}/result${i}.out" 2>"${RESULT_DIR}/result${i}.log"; then
+        echo "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -203,9 +203,10 @@ for i in ${query_array[@]}; do
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
-    if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute query q${i} (hot run 1). Check the log: ${RESULT_DIR}/result${i}.log"
+    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+         <"${TPCDS_QUERIES_DIR}/query${i}.sql" \
+         >"${RESULT_DIR}/result${i}.out" 2>"${RESULT_DIR}/result${i}.log"; then
+        echo "Error: Failed to execute query q${i} (hot run 1). Check the log: ${RESULT_DIR}/result${i}.log" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -213,9 +214,10 @@ for i in ${query_array[@]}; do
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCDS_QUERIES_DIR}"/query"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log
-    if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log"
+    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+         <"${TPCDS_QUERIES_DIR}/query${i}.sql" \
+         >"${RESULT_DIR}/result${i}.out" 2>"${RESULT_DIR}/result${i}.log"; then
+        echo "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log" >&2
         continue
     fi
     end=$(date +%s%3N)

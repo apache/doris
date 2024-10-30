@@ -118,25 +118,25 @@ echo "Time Unit: ms"
 
 run_sql() {
     echo "$*"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
-    if [[ $? -ne 0 ]]; then
-        echo "Error: Failed to execute SQL command: '$*'"
+    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*" 2>&1; then
+        echo "Error: Failed to execute SQL command: '$*'" >&2
         exit 1
     fi
 }
 get_session_variable() {
     k="$1"
-    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" \
+        -e"show variables like '${k}'\G" 2>&1 | grep " Value: ")
     if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-        echo "Error: Failed to execute SQL command: show variables like '${k}'\G"
+        echo "Error: Failed to execute SQL command: show variables like '${k}'\G" >&2
         exit 1
     fi
 
     if [[ ${PIPESTATUS[1]} -eq 1 ]]; then
-        echo "Warning: No lines containing 'Value: ' were found for variable '${k}'."
+        echo "Warning: No lines containing 'Value: ' were found for variable '${k}'." >&2
         return 1
     elif [[ ${PIPESTATUS[1]} -ne 0 ]]; then
-        echo "Error: An error occurred while running grep."
+        echo "Error: An error occurred while running grep for variable '${k}'." >&2
         exit 1
     fi
     echo "${v/*Value: /}"
