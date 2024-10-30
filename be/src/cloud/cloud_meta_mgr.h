@@ -94,11 +94,9 @@ public:
 
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
                                 DeleteBitmap* delete_bitmap);
-    Status update_delete_bitmap2(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
-                                 DeleteBitmap* delete_bitmap);
 
-    Status update_delete_bitmap_without_lock(const CloudTablet& tablet,
-                                             DeleteBitmap* delete_bitmap);
+    Status cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                   DeleteBitmap* delete_bitmap);
 
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);

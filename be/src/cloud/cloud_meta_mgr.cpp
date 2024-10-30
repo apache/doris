@@ -1039,9 +1039,6 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
         bitmap.runOptimize();
         std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
         bitmap.write(bitmap_data.data());
-        LOG(INFO) << "update delete bitmap key=" << std::get<0>(key).to_string() << "|"
-                  << std::get<1>(key) << "|" << std::get<2>(key)
-                  << ",value size=" << bitmap_data.length() << ",value=" << bitmap_data;
         *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
     }
     auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
@@ -1053,40 +1050,9 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     return st;
 }
 
-Status CloudMetaMgr::update_delete_bitmap2(const CloudTablet& tablet, int64_t lock_id,
-                                          int64_t initiator, DeleteBitmap* delete_bitmap) {
-    VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
-    UpdateDeleteBitmapRequest req;
-    UpdateDeleteBitmapResponse res;
-    req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_table_id(tablet.table_id());
-    req.set_partition_id(tablet.partition_id());
-    req.set_tablet_id(tablet.tablet_id());
-    req.set_lock_id(lock_id);
-    req.set_initiator(initiator);
-    for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
-        req.add_rowset_ids(std::get<0>(key).to_string());
-        req.add_segment_ids(std::get<1>(key));
-        req.add_versions(std::get<2>(key));
-        std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
-        bitmap.write(bitmap_data.data());
-        LOG(INFO) << "update delete bitmap key=" << std::get<0>(key).to_string() << "|"
-                  << std::get<1>(key) << "|" << std::get<2>(key)
-                  << ",value size=" << bitmap_data.length() << ",value=" << bitmap_data;
-        *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
-    }
-    auto st = retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap2);
-    if (res.status().code() == MetaServiceCode::LOCK_EXPIRED) {
-        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
-                "lock expired when update delete bitmap, tablet_id: {}, lock_id: {}",
-                tablet.tablet_id(), lock_id);
-    }
-    return st;
-}
-
-Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet,
-                                                       DeleteBitmap* delete_bitmap) {
-    LOG(INFO) << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
+Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                             DeleteBitmap* delete_bitmap) {
+    LOG(INFO) << "cloud_update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
               << ",delete_bitmap size:" << delete_bitmap->delete_bitmap.size();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
