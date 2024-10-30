@@ -431,8 +431,8 @@ private:
     // first, read predicate columns by various index
     // second, read non-predicate columns
     // so we need a field to stand for columns first time to read
-    std::vector<ColumnId> _first_read_column_ids;
-    std::vector<ColumnId> _second_read_column_ids;
+    std::vector<ColumnId> _predicate_column_ids;
+    std::vector<ColumnId> _non_predicate_column_ids;
     std::vector<ColumnId> _columns_to_filter;
     std::vector<ColumnId> _converted_column_ids;
     std::vector<int> _schema_block_id_map; // map from schema column id to column idx in Block

@@ -77,14 +77,12 @@ struct RowsetReaderContext {
     const DeleteBitmap* delete_bitmap = nullptr;
     bool record_rowids = false;
     RowIdConversion* rowid_conversion;
-    bool is_vertical_compaction = false;
     bool is_key_column_group = false;
     const std::set<int32_t>* output_columns = nullptr;
     RowsetId rowset_id;
     // slots that cast may be eliminated in storage layer
     std::map<std::string, TypeDescriptor> target_cast_type_for_variants;
     int64_t ttl_seconds = 0;
-    size_t topn_limit = 0;
 };
 
 } // namespace doris
