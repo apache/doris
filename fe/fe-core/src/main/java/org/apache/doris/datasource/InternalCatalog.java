@@ -885,6 +885,11 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void checkBuckupRunning(Database db, OlapTable olapTable) throws DdlException {
+        if (DebugPointUtil.isEnable("FE.checkBuckupRunning.ignore")) {
+            LOG.info("FE.checkBuckupRunning.ignore");
+            return;
+        }
+
         BackupJob backupJob = (BackupJob) Env.getCurrentEnv().getBackupHandler().getJob(db.getId());
         if (backupJob != null && !backupJob.isDone()
                 && (olapTable == null || backupJob.getBackupMeta().getTable(olapTable.getId()) != null)) {

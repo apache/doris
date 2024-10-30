@@ -82,6 +82,14 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
         return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
+    DBUG_EXECUTE_IF("SnapshotManager::make_snapshot.wait", {
+        auto tablet_id = dp->param<int64>("tablet_id", -1);
+        if (tablet_id != -1 && tablet_id == request.tablet_id) {
+            LOG(INFO) << "Debug: SnapshotManager::make_snapshot.wait";
+            sleep(20);
+        }
+    });
+
     TabletSharedPtr target_tablet = _engine.tablet_manager()->get_tablet(request.tablet_id);
 
     DBUG_EXECUTE_IF("SnapshotManager::make_snapshot.inject_failure", { target_tablet = nullptr; })
