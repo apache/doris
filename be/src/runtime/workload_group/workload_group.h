@@ -29,6 +29,7 @@
 #include <string>
 #include <unordered_set>
 
+#include "common/factory_creator.h"
 #include "common/status.h"
 #include "service/backend_options.h"
 #include "util/hash_util.hpp"
@@ -55,6 +56,8 @@ class WorkloadGroup;
 struct WorkloadGroupInfo;
 struct TrackerLimiterGroup;
 class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
+    ENABLE_FACTORY_CREATOR(WorkloadGroup);
+
 public:
     explicit WorkloadGroup(const WorkloadGroupInfo& tg_info);
 
@@ -135,6 +138,8 @@ public:
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
         return _memory_limit > 0;
     }
+
+    TWgSlotMemoryPolicy::type slot_memory_policy() const { return _slot_mem_policy; }
 
     bool exceed_limit() {
         std::shared_lock<std::shared_mutex> r_lock(_mutex);
@@ -229,6 +234,7 @@ private:
     std::atomic<int64_t> _scan_bytes_per_second {-1};
     std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
     std::atomic<int> _total_query_slot_count = 0;
+    std::atomic<TWgSlotMemoryPolicy::type> _slot_mem_policy {TWgSlotMemoryPolicy::DISABLED};
 
     // means workload group is mark dropped
     // new query can not submit
@@ -273,6 +279,7 @@ struct WorkloadGroupInfo {
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
     const int total_query_slot_count = 0;
+    const TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::DISABLED;
     const int write_buffer_ratio = 0;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;

@@ -47,8 +47,8 @@ namespace doris {
 const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
 const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
-const static int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
-const static int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
+const static int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 75;
+const static int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 90;
 // This is a invalid value, and should ignore this value during usage
 const static int TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE = 0;
 const static int LOAD_BUFFER_RATIO_DEFAULT_VALUE = 20;
@@ -70,7 +70,8 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info)
           _spill_high_watermark(tg_info.spill_high_watermark),
           _scan_bytes_per_second(tg_info.read_bytes_per_second),
           _remote_scan_bytes_per_second(tg_info.remote_read_bytes_per_second),
-          _total_query_slot_count(tg_info.total_query_slot_count) {
+          _total_query_slot_count(tg_info.total_query_slot_count),
+          _slot_mem_policy(tg_info.slot_mem_policy) {
     std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
     for (const auto& data_dir : data_dir_list) {
         _scan_io_throttle_map[data_dir.path] =
@@ -93,8 +94,8 @@ std::string WorkloadGroup::debug_string() const {
     auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
     return fmt::format(
             "WorkloadGroup[id = {}, name = {}, version = {}, cpu_share = {}, "
-            "total_query_slot_count={}, "
-            "memory_limit = {}, write_buffer_ratio= {}%, "
+            "total_query_slot_count = {}, "
+            "memory_limit = {}, slot_memory_policy = {}, write_buffer_ratio= {}%, "
             "enable_memory_overcommit = {}, total_mem_used = {},"
             "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
             "{}, spill_high_watermark = {},cpu_hard_limit = {}, scan_thread_num = "
@@ -102,8 +103,8 @@ std::string WorkloadGroup::debug_string() const {
             "is_shutdown={}, query_num={}, "
             "read_bytes_per_second={}, remote_read_bytes_per_second={}]",
             _id, _name, _version, cpu_share(), _total_query_slot_count,
-            PrettyPrinter::print(_memory_limit, TUnit::BYTES), _load_buffer_ratio,
-            _enable_memory_overcommit ? "true" : "false",
+            PrettyPrinter::print(_memory_limit, TUnit::BYTES), to_string(_slot_mem_policy),
+            _load_buffer_ratio, _enable_memory_overcommit ? "true" : "false",
             PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
             PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
             mem_used_ratio, _spill_low_watermark, _spill_high_watermark, cpu_hard_limit(),
@@ -176,6 +177,7 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
             _remote_scan_bytes_per_second = tg_info.remote_read_bytes_per_second;
             _total_query_slot_count = tg_info.total_query_slot_count;
             _load_buffer_ratio = tg_info.write_buffer_ratio;
+            _slot_mem_policy = tg_info.slot_mem_policy;
         } else {
             return;
         }
@@ -551,6 +553,12 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         write_buffer_ratio = tworkload_group_info.write_buffer_ratio;
     }
 
+    // 18 slot memory policy
+    TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::DISABLED;
+    if (tworkload_group_info.__isset.slot_memory_policy) {
+        slot_mem_policy = tworkload_group_info.slot_memory_policy;
+    }
+
     return {.id = tg_id,
             .name = name,
             .cpu_share = cpu_share,
@@ -567,6 +575,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
             .read_bytes_per_second = read_bytes_per_second,
             .remote_read_bytes_per_second = remote_read_bytes_per_second,
             .total_query_slot_count = total_query_slot_count,
+            .slot_mem_policy = slot_mem_policy,
             .write_buffer_ratio = write_buffer_ratio};
 }
 
