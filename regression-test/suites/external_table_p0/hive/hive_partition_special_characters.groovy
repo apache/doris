@@ -80,14 +80,14 @@ suite("hive_partition_special_characters", "p0,external,hive,external_docker,ext
 
             logger.info(""" docker insert 2""")            
             hive_docker """ drop table if exists ${table_name_2} """ 
-            hive_docker """ create table ${table_name_2} (id int) partitioned by (pt1 string, pt2 string) """
+            hive_docker """ create table ${table_name_2} (id int) partitioned by (pt1 string, `pt2=x!!!! **1+1/&^%3` string) """
 
             special_characters.eachWithIndex { outerItem, outerIndex ->
                 special_characters.eachWithIndex { innerItem, innerIndex ->
                     
                     def insert_value = outerIndex * 100 + innerIndex;
 
-                    hive_docker """ insert into  ${table_name_2} partition(pt1="${outerItem}",pt2="${innerItem}")   values ("${insert_value}"); """
+                    hive_docker """ insert into  ${table_name_2} partition(pt1="${outerItem}",`pt2=x!!!! **1+1/&^%3`="${innerItem}")   values ("${insert_value}"); """
                     println("  Outer Item: ${outerItem}, Inner Item: ${innerItem}, value = ${insert_value}")
                 }
             }   
@@ -101,20 +101,20 @@ suite("hive_partition_special_characters", "p0,external,hive,external_docker,ext
             qt_sql4 """ show partitions from ${table_name_2} """
 
             special_characters.eachWithIndex { item, index ->
-                qt_sql_where2 """ select * from  ${table_name_2} where pt2 = "${item}"  order by id""" 
+                qt_sql_where2 """ select * from  ${table_name_2} where `pt2=x!!!! **1+1/&^%3` = "${item}"  order by id""" 
             }
 
 
             logger.info(""" docker insert 3""")            
             hive_docker """ drop table if exists ${table_name_3} """ 
-            hive_docker """ create table ${table_name_3} (id int) partitioned by (pt1 string, pt2 string,pt3 string,pt4 string,pt5 string) """
+            hive_docker """ create table ${table_name_3} (id int) partitioned by (pt1 string, `pt2=x!!!! **1+1/&^%3` string,pt3 string,pt4 string,pt5 string) """
 
 
             special_characters.eachWithIndex { outerItem, outerIndex ->
                 special_characters.eachWithIndex { innerItem, innerIndex ->
                     
                     def insert_value = outerIndex * 100 + innerIndex;
-                    hive_docker """ insert into  ${table_name_3} partition(pt1="${outerItem}", pt2="1", pt3="1",pt4="${innerItem}",pt5="1")   values ("${insert_value}"); """
+                    hive_docker """ insert into  ${table_name_3} partition(pt1="${outerItem}", `pt2=x!!!! **1+1/&^%3`="1", pt3="1",pt4="${innerItem}",pt5="1")   values ("${insert_value}"); """
                     println("  Outer Item: ${outerItem}, Inner Item: ${innerItem}, value = ${insert_value}")
                 }
             }   
@@ -167,7 +167,7 @@ suite("hive_partition_special_characters", "p0,external,hive,external_docker,ext
 
             logger.info(""" doris insert 2""")            
             hive_docker """ drop table if exists ${table_name_2} """ 
-            hive_docker """ create table ${table_name_2} (id int) partitioned by (pt1 string, pt2 string) """
+            hive_docker """ create table ${table_name_2} (id int) partitioned by (pt1 string, `pt2=x!!!! **1+1/&^%3` string) """
             sql """refresh catalog ${catalog_name} """
             sql """switch ${catalog_name} """
             sql """ use `default` """
@@ -177,7 +177,7 @@ suite("hive_partition_special_characters", "p0,external,hive,external_docker,ext
                     
                     def insert_value = outerIndex * 100 + innerIndex;
 
-                    sql """ insert into  ${table_name_2} (pt1,pt2,id)   values ("${outerItem}","${innerItem}","${insert_value}"); """
+                    sql """ insert into  ${table_name_2} (pt1,`pt2=x!!!! **1+1/&^%3`,id)   values ("${outerItem}","${innerItem}","${insert_value}"); """
                     println("  Outer Item: ${outerItem}, Inner Item: ${innerItem}, value = ${insert_value}")
                 }
             }   
@@ -191,7 +191,7 @@ suite("hive_partition_special_characters", "p0,external,hive,external_docker,ext
             qt_sql4 """ show partitions from ${table_name_2} """
 
             special_characters.eachWithIndex { item, index ->
-                qt_sql_where2 """ select * from  ${table_name_2} where pt2 = "${item}"  order by id""" 
+                qt_sql_where2 """ select * from  ${table_name_2} where `pt2=x!!!! **1+1/&^%3` = "${item}"  order by id""" 
             }
 
 
@@ -199,7 +199,7 @@ suite("hive_partition_special_characters", "p0,external,hive,external_docker,ext
 
             logger.info(""" docker insert 3""")            
             hive_docker """ drop table if exists ${table_name_3} """ 
-            hive_docker """ create table ${table_name_3} (id int) partitioned by (pt1 string, pt2 string,pt3 string,pt4 string,pt5 string) """
+            hive_docker """ create table ${table_name_3} (id int) partitioned by (pt1 string, `pt2=x!!!! **1+1/&^%3` string,pt3 string,pt4 string,pt5 string) """
             sql """refresh catalog ${catalog_name} """
             sql """switch ${catalog_name} """
             sql """ use `default` """
@@ -208,7 +208,7 @@ suite("hive_partition_special_characters", "p0,external,hive,external_docker,ext
                 special_characters.eachWithIndex { innerItem, innerIndex ->
                     
                     def insert_value = outerIndex * 100 + innerIndex;
-                    sql """ insert into  ${table_name_3} (pt1, pt2, pt3,pt4,pt5,id)   values ("${outerItem}","1","1","${innerItem}","1","${insert_value}"); """
+                    sql """ insert into  ${table_name_3} (pt1, `pt2=x!!!! **1+1/&^%3`, pt3,pt4,pt5,id)   values ("${outerItem}","1","1","${innerItem}","1","${insert_value}"); """
                     println("  Outer Item: ${outerItem}, Inner Item: ${innerItem}, value = ${insert_value}")
                 }
             }   

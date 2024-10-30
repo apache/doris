@@ -324,9 +324,9 @@ public class HiveMetaStoreCache {
             StringBuilder sb = new StringBuilder();
             Preconditions.checkState(key.getValues().size() == partitionColumns.size());
             for (int i = 0; i < partitionColumns.size(); i++) {
-                sb.append(partitionColumns.get(i).getName());
+                // Partition name and value  may contain special character, like / and so on. Need to encode.
+                sb.append(FileUtils.escapePathName(partitionColumns.get(i).getName()));
                 sb.append("=");
-                // Partition value may contain special character, like / and so on. Need to encode.
                 sb.append(FileUtils.escapePathName(key.getValues().get(i)));
                 sb.append("/");
             }
