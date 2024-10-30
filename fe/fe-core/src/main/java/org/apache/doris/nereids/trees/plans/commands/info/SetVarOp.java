@@ -15,16 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.SetType;
+import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 
 /**
- * forward to master.
+ * SetVarOp
  */
-public interface Forward {
-    RedirectStatus toRedirectStatus();
+public abstract class SetVarOp {
+    private SetType type;
 
-    default void afterForwardToMaster(ConnectContext ctx) throws Exception {}
+    /** constructor*/
+    public SetVarOp(SetType type) {
+        this.type = type;
+    }
+
+    /**validate*/
+    public void validate(ConnectContext ctx) throws UserException {}
+
+    public void run(ConnectContext ctx) throws Exception {}
+
+    public SetType getType() {
+        return type;
+    }
+
+    public void setType(SetType type) {
+        this.type = type;
+    }
+
+    public String toSql() {
+        return "";
+    }
+
+    public boolean needAuditEncryption() {
+        return false;
+    }
+
+    public void afterForwardToMaster(ConnectContext ctx) throws Exception {}
 }

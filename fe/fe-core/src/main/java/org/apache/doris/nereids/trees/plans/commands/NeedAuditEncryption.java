@@ -17,14 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.RedirectStatus;
-import org.apache.doris.qe.ConnectContext;
-
 /**
- * forward to master.
+ * NeedAuditEncryption
  */
-public interface Forward {
-    RedirectStatus toRedirectStatus();
+public interface NeedAuditEncryption {
 
-    default void afterForwardToMaster(ConnectContext ctx) throws Exception {}
+    boolean needAuditEncryption();
+
+    String toSql();
+
 }

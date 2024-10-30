@@ -17,14 +17,32 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.StmtType;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
 
 /**
- * forward to master.
+ * SetTransactionCommand
  */
-public interface Forward {
-    RedirectStatus toRedirectStatus();
+public class SetTransactionCommand extends Command implements ForwardWithSync {
+    public SetTransactionCommand() {
+        super(PlanType.SET_TRANSACTION_COMMAND);
+    }
 
-    default void afterForwardToMaster(ConnectContext ctx) throws Exception {}
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // do nothing
+    }
+
+    @Override
+    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+        return visitor.visitSetTransactionCommand(this, context);
+    }
+
+    @Override
+    public StmtType stmtType() {
+        return StmtType.SET;
+    }
 }
