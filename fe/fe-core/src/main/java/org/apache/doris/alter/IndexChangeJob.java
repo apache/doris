@@ -63,7 +63,7 @@ import java.util.Set;
 
 public class IndexChangeJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(IndexChangeJob.class);
-
+    private static final int MAX_FAILED_NUM = 10;
 
     public enum JobState {
         // CHECKSTYLE OFF
@@ -372,8 +372,13 @@ public class IndexChangeJob implements Writable {
             LOG.info("inverted index tasks not finished. job: {}, partitionId: {}", jobId, partitionId);
             List<AgentTask> tasks = invertedIndexBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
-                if (task.getFailedTimes() > 3) {
+                if (task.getFailedTimes() >= MAX_FAILED_NUM) {
                     LOG.warn("alter inverted index task failed: " + task.getErrorMsg());
+                    // If error is E-216, it indicates obtaining lock failed.
+                    // we should retry this task.
+                    if (task.getErrorMsg().contains("E-216")) {
+                        continue;
+                    }
                     Set<Long> failedBackends = failedTabletBackends.computeIfAbsent(task.getTabletId(),
                             k -> new HashSet<>());
                     failedBackends.add(task.getBackendId());
@@ -382,7 +387,7 @@ public class IndexChangeJob implements Writable {
                     int failedTaskCount = failedBackends.size();
                     if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
                         throw new AlterCancelException("inverted index tasks failed on same tablet reach threshold "
-                            + failedTaskCount);
+                            + failedTaskCount + ", error: " + task.getErrorMsg());
                     }
                 }
             }
