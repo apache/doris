@@ -48,4 +48,42 @@ public class FloatLiteral extends FractionalLiteral {
     public LiteralExpr toLegacyLiteral() {
         return new org.apache.doris.analysis.FloatLiteral(getDouble(), Type.FLOAT);
     }
+
+    public static boolean isValidFloat(String str) {
+        if (str == null || str.isEmpty()) {
+            return true;
+        }
+
+        int index = 0;
+        char c = str.charAt(index);
+        if (c == '+' || c == '-') {
+            index++;
+        }
+
+        while (index < str.length()) {
+            c = str.charAt(index++);
+            if (c == 'E' || c == '.') {
+                break;
+            }
+            if (!Character.isDigit(c)) {
+                return false;
+            }
+        }
+
+        for (; index < str.length(); index++) {
+            c = str.charAt(index);
+            if (!('0' <= c && c <= '9')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // private boolean parseIntegerParts(String str, int index) {
+    //     int index = 0;
+    //     char c = str.charAt(index);
+    //     if (c == '+' || c == '-') {
+    //         index++;
+    //     }
+    // }
 }

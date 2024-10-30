@@ -39,4 +39,32 @@ public abstract class IntegerLikeLiteral extends NumericLiteral {
     }
 
     public abstract Number getNumber();
+
+    public static boolean isValidInteger(String str) {
+        if (str == null || str.isEmpty()) {
+            return true;
+        }
+
+        int index = 0;
+
+        char c = str.charAt(index);
+        if (c == '+' || c == '-') {
+            index++;
+        }
+
+        for (; index < str.length(); index++) {
+            c = str.charAt(index);
+            if (!('0' <= c && c <= '9')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public static void main(String[] args) {
+        System.out.println(isValidInteger("01"));
+        System.out.println(isValidInteger("+01"));
+        System.out.println(isValidInteger("-01"));
+        System.out.println(isValidInteger("- 01"));
+    }
 }
