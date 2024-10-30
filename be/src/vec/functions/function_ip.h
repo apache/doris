@@ -652,10 +652,8 @@ public:
     size_t get_number_of_arguments() const override { return 2; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return std::make_shared<DataTypeUInt8>();
+        return make_nullable(std::make_shared<DataTypeUInt8>());
     }
-
-    bool use_default_implementation_for_nulls() const override { return false; }
 
     template <PrimitiveType PT, typename ColumnType>
     void execute_impl_with_ip(size_t input_rows_count, bool addr_const, bool cidr_const,
