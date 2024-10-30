@@ -15,16 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands;
+package org.apache.doris.nereids.trees.plans.commands.info;
 
-import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.qe.ConnectContext;
 
 /**
- * forward to master.
+ * SetNamesVarOp
  */
-public interface Forward {
-    RedirectStatus toRedirectStatus();
+public class SetNamesVarOp extends SetVarOp {
+    public SetNamesVarOp() {
+        super(SetType.DEFAULT);
+    }
 
-    default void afterForwardToMaster(ConnectContext ctx) throws Exception {}
+    @Override
+    public void run(ConnectContext ctx) throws Exception {
+        // do nothing
+    }
 }
