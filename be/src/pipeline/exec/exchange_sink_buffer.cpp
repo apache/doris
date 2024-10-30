@@ -480,18 +480,11 @@ bool ExchangeSinkBuffer<Parent>::_is_receiver_eof(InstanceLoId id) {
 }
 
 template <typename Parent>
-void ExchangeSinkBuffer<Parent>::_turn_off_channel(InstanceLoId id, bool cleanup) {
+void ExchangeSinkBuffer<Parent>::_turn_off_channel(InstanceLoId id, bool /*cleanup*/) {
     if (!_rpc_channel_is_idle[id]) {
         _rpc_channel_is_idle[id] = true;
         auto all_done = _busy_channels.fetch_sub(1) == 1;
         _set_ready_to_finish(all_done);
-        if (cleanup && all_done) {
-            auto weak_task_ctx = weak_task_exec_ctx();
-            if (auto pip_ctx = weak_task_ctx.lock()) {
-                DCHECK(_parent);
-                _parent->set_reach_limit();
-            }
-        }
     }
 }
 
