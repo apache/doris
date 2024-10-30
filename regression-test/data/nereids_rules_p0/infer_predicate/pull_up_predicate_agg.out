@@ -4,70 +4,70 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = t2.a)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a < 10) and (test_like1.a > 1))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a < 10) and (test_pull_up_agg_t1.a > 1))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a < 10) and (t2.a > 1))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_max_greater --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = t2.a)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a > 10))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a > 10))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a > 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_max_less_equal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = t2.a)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a <= 10) and (test_like1.a > 1))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a <= 10) and (test_pull_up_agg_t1.a > 1))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a <= 10) and (t2.a > 1))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_max_greater_equal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = t2.a)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a >= 10))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a >= 10))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a >= 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_max_equal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = t2.a)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a = 10))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a = 10))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a = 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_max_null_safe_equal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = t2.a)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a <=> 10) and (test_like1.a > 1))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a <=> 10) and (test_pull_up_agg_t1.a > 1))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a <=> 10) and (t2.a > 1))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_min_less --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = t2.a)) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.c < 1))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.c < 1))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a < 1))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_min_greater --
 PhysicalResultSink
@@ -75,10 +75,10 @@ PhysicalResultSink
 ----filter((c1 > 1))
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
-----------filter((test_like1.c > 10))
-------------PhysicalOlapScan[test_like1]
+----------filter((test_pull_up_agg_t1.c > 10))
+------------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a > 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_min_less_equal --
 PhysicalResultSink
@@ -86,10 +86,10 @@ PhysicalResultSink
 ----filter((c1 >= 1))
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
-----------filter((test_like1.c <= 10))
-------------PhysicalOlapScan[test_like1]
+----------filter((test_pull_up_agg_t1.c <= 10))
+------------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a <= 10) and (t2.a >= 1))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_min_greater_equal --
 PhysicalResultSink
@@ -101,10 +101,10 @@ PhysicalResultSink
 ----filter((c1 > 1))
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
-----------filter((test_like1.c = 10))
-------------PhysicalOlapScan[test_like1]
+----------filter((test_pull_up_agg_t1.c = 10))
+------------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a = 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_min_null_safe_equal --
 PhysicalResultSink
@@ -112,68 +112,68 @@ PhysicalResultSink
 ----filter((c1 = 1))
 ------hashAgg[GLOBAL]
 --------hashAgg[LOCAL]
-----------filter((test_like1.c <=> 10))
-------------PhysicalOlapScan[test_like1]
+----------filter((test_pull_up_agg_t1.c <=> 10))
+------------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a <=> 10) and (t2.a = 1))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_avg_less --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = expr_cast(a as DOUBLE))) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a > 1) and (test_like1.c < 10))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a > 1) and (test_pull_up_agg_t1.c < 10))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a < 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_avg_greater --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = expr_cast(a as DOUBLE))) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a > 1) and (test_like1.c > 10))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a > 1) and (test_pull_up_agg_t1.c > 10))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a > 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_avg_less_equal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = expr_cast(a as DOUBLE))) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a > 1) and (test_like1.c <= 10))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a > 1) and (test_pull_up_agg_t1.c <= 10))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a <= 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_avg_greater_equal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = expr_cast(a as DOUBLE))) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a > 1) and (test_like1.c >= 10))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a > 1) and (test_pull_up_agg_t1.c >= 10))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a >= 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_avg_equal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = expr_cast(a as DOUBLE))) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a > 1) and (test_like1.c = 10))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a > 1) and (test_pull_up_agg_t1.c = 10))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a = 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
 -- !test_avg_null_safe_equal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((t.c1 = expr_cast(a as DOUBLE))) otherCondition=()
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
---------filter((test_like1.a > 1) and (test_like1.c <=> 10))
-----------PhysicalOlapScan[test_like1]
+--------filter((test_pull_up_agg_t1.a > 1) and (test_pull_up_agg_t1.c <=> 10))
+----------PhysicalOlapScan[test_pull_up_agg_t1]
 ----filter((t2.a <=> 10))
-------PhysicalOlapScan[test_like2]
+------PhysicalOlapScan[test_pull_up_agg_t2]
 
