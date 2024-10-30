@@ -46,7 +46,7 @@ public:
 
     Status _process_conjuncts(RuntimeState* state) override;
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
-    bool _should_push_down_common_expr() override { return true; }
+    bool _should_push_down_common_expr() override { return state()->enable_common_expr_pushdown(); }
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }

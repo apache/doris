@@ -746,7 +746,7 @@ bool OrcReader::_init_search_argument(
 
 bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
         const VExprContextSPtrs& common_expr_ctxs_push_down) {
-    if ((!_enable_filter_by_min_max) || common_expr_ctxs_push_down.empty()) {
+    if (!_enable_filter_by_min_max) {
         return false;
     }
 
@@ -802,26 +802,31 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
         if (expr == nullptr) {
             return false;
         }
-        // TODO: handle error
         switch (expr->op()) {
         case TExprOpcode::COMPOUND_AND:
             sargBuilder->startAnd();
             for (const auto& child : expr->children()) {
-                convert_expr_to_sargs(child);
+                if (!convert_expr_to_sargs(child)) {
+                    return false;
+                }
             }
             sargBuilder->end();
             break;
         case TExprOpcode::COMPOUND_OR:
             sargBuilder->startOr();
             for (const auto& child : expr->children()) {
-                convert_expr_to_sargs(child);
+                if (!convert_expr_to_sargs(child)) {
+                    return false;
+                }
             }
             sargBuilder->end();
             break;
         case TExprOpcode::COMPOUND_NOT:
             sargBuilder->startNot();
             DCHECK_EQ(expr->children().size(), 1);
-            convert_expr_to_sargs(expr->children()[0]);
+            if (!convert_expr_to_sargs(expr->children()[0])) {
+                return false;
+            }
             sargBuilder->end();
             break;
         case TExprOpcode::GE: {
@@ -832,9 +837,10 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
             const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
             auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (valid) {
-                sargBuilder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+            if (!valid) {
+                return false;
             }
+            sargBuilder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
             sargBuilder->end();
             break;
         }
@@ -846,9 +852,10 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
             const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
             auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (valid) {
-                sargBuilder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+            if (!valid) {
+                return false;
             }
+            sargBuilder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
             sargBuilder->end();
             break;
         }
@@ -859,9 +866,10 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
             const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
             auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (valid) {
-                sargBuilder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+            if (!valid) {
+                return false;
             }
+            sargBuilder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
             break;
         }
         case TExprOpcode::LT: {
@@ -871,9 +879,10 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
             const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
             auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (valid) {
-                sargBuilder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+            if (!valid) {
+                return false;
             }
+            sargBuilder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
             break;
         }
         case TExprOpcode::EQ: {
@@ -883,9 +892,10 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
             const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
             auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (valid) {
-                sargBuilder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+            if (!valid) {
+                return false;
             }
+            sargBuilder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
             break;
         }
         case TExprOpcode::NE: {
@@ -896,9 +906,10 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
             const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
             auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (valid) {
-                sargBuilder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+            if (!valid) {
+                return false;
             }
+            sargBuilder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
             sargBuilder->end();
             break;
         }
@@ -921,10 +932,11 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
                 DCHECK(expr->children()[i]->is_literal());
                 const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
                 auto [valid, orc_literal, type] = to_orc_literal(slot_ref, literal);
-                if (valid) {
-                    literals.emplace_back(orc_literal);
-                    predicate_type = type;
+                if (!valid) {
+                    return false;
                 }
+                literals.emplace_back(orc_literal);
+                predicate_type = type;
             }
             if (!literals.empty()) {
                 sargBuilder->in(slot_ref->expr_name(), predicate_type, literals);
@@ -940,10 +952,11 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
                 DCHECK(expr->children()[i]->is_literal());
                 const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
                 auto [valid, orc_literal, type] = to_orc_literal(slot_ref, literal);
-                if (valid) {
-                    literals.emplace_back(orc_literal);
-                    predicate_type = type;
+                if (!valid) {
+                    return false;
                 }
+                literals.emplace_back(orc_literal);
+                predicate_type = type;
             }
             if (!literals.empty()) {
                 sargBuilder->startNot();
@@ -1082,20 +1095,10 @@ Status OrcReader::set_fill_columns(
         _lazy_read_ctx.can_lazy_read = true;
     }
 
-    if (_common_expr_ctxs_push_down.empty() ||
-        !_init_search_argument_by_common_expr_ctxs_push_down(_common_expr_ctxs_push_down)) {
-        _lazy_read_ctx.can_lazy_read = false;
-    } else if (_colname_to_value_range == nullptr ||
-               !_init_search_argument(_colname_to_value_range)) {
-        _lazy_read_ctx.can_lazy_read = false;
-    }
-
-    if (!_common_expr_ctxs_push_down.empty()) {
-        if (!_init_search_argument_by_common_expr_ctxs_push_down(_common_expr_ctxs_push_down)) {
-            _lazy_read_ctx.can_lazy_read = false;
-        }
-    } else if (_colname_to_value_range == nullptr ||
-               !_init_search_argument(_colname_to_value_range)) {
+    // when _common_expr_ctxs_push_down is not empty, we use this expr to build search argument not _colname_to_value_range
+    if ((!_common_expr_ctxs_push_down.empty() ||
+         !_init_search_argument_by_common_expr_ctxs_push_down(_common_expr_ctxs_push_down)) &&
+        (_colname_to_value_range == nullptr || !_init_search_argument(_colname_to_value_range))) {
         _lazy_read_ctx.can_lazy_read = false;
     }
 
