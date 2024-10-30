@@ -69,6 +69,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final Supplier<Set<Slot>> inputSlots = Suppliers.memoize(
             () -> collect(e -> e instanceof Slot && !(e instanceof ArrayItemSlot)));
     private final int fastChildrenHashCode;
+    private boolean inferNotNull = false;
 
     protected Expression(Expression... children) {
         super(children);
@@ -174,6 +175,14 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         checkLimit();
         this.inferred = inferred;
         this.hasUnbound = hasUnbound || this instanceof Unbound;
+    }
+
+    public void setInferNotNull(boolean inferNotNull) {
+        this.inferNotNull = inferNotNull;
+    }
+
+    public boolean isInferNotNull() {
+        return inferNotNull;
     }
 
     private void checkLimit() {

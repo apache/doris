@@ -421,7 +421,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         ),
                         custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
                         bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        bottomUp(new EliminateNotNull()),
                         custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
                 ),
                 topic("adjust preagg status",
@@ -433,6 +432,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // SORT_PRUNING should be applied after mergeLimit
                         custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
                         bottomUp(
+                                new EliminateNotNull(),
                                 new EliminateEmptyRelation(),
                                 // after eliminate empty relation under union, we could get
                                 // limit
