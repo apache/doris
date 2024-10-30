@@ -470,6 +470,16 @@ static HttpResponse process_get_tablet_stats(MetaServiceImpl* service, brpc::Con
     return http_text_reply(resp.status(), body);
 }
 
+static HttpResponse process_fix_tablet_stats(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string_view cloud_unique_id = http_query(uri, "cloud_unique_id");
+    std::string_view table_id = http_query(uri, "table_id");
+
+    MetaServiceResponseStatus st =
+            service->fix_tablet_stats(std::string(cloud_unique_id), std::string(table_id));
+    return http_text_reply(st, st.DebugString());
+}
+
 static HttpResponse process_get_stage(MetaServiceImpl* service, brpc::Controller* ctrl) {
     GetStageRequest req;
     PARSE_MESSAGE_OR_RETURN(ctrl, req);
@@ -578,12 +588,15 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"show_meta_ranges", process_show_meta_ranges},
             {"txn_lazy_commit", process_txn_lazy_commit},
             {"injection_point", process_injection_point},
+            {"fix_tablet_stats", process_fix_tablet_stats},
             {"v1/decode_key", process_decode_key},
             {"v1/encode_key", process_encode_key},
             {"v1/get_value", process_get_value},
             {"v1/show_meta_ranges", process_show_meta_ranges},
             {"v1/txn_lazy_commit", process_txn_lazy_commit},
             {"v1/injection_point", process_injection_point},
+            // for get
+            {"get_instance", process_get_instance_info},
             // for get
             {"get_instance", process_get_instance_info},
             {"get_obj_store_info", process_get_obj_store_info},
