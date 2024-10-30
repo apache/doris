@@ -107,7 +107,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.stream.Collectors;
 
 /**
  * Constant evaluation of an expression.
