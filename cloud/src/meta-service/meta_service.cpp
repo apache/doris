@@ -2131,6 +2131,8 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
                      << " request initiator=" << request->initiator() << " msg " << msg;
         return;
     }
+    std::string lock_key =
+            meta_delete_bitmap_update_lock_key({instance_id, request->table_id(), -1});
     txn->remove(lock_key);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
