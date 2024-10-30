@@ -701,8 +701,7 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
         bool is_continue = false;
         std::optional<std::map<std::string, std::string>> first_properties;
         for (const auto& rowset : _input_rowsets) {
-            const auto* tablet_index =
-                    rowset->tablet_schema()->get_inverted_index(col_unique_id, "");
+            const auto* tablet_index = rowset->tablet_schema()->inverted_index(col_unique_id);
             // no inverted index or index id is different from current index id
             if (tablet_index == nullptr || tablet_index->index_id() != index.index_id()) {
                 is_continue = true;

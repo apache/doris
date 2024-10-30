@@ -208,7 +208,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         opts.inverted_index = inverted_index;
         opts.need_inverted_index = true;
         DCHECK(_inverted_index_file_writer != nullptr);
-        opts.inverted_index_file_writer = _inverted_index_file_writer.get();
+        opts.inverted_index_file_writer = _inverted_index_file_writer;
     }
 
 #define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
