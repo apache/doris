@@ -51,7 +51,7 @@ CL_NS_USE(util)
 
 namespace doris::segment_v2 {
 
-class IndexCompactionTest : public testing::Test {
+class IndexCompactionWriteIndexTest : public testing::Test {
 public:
     const std::string kTestDir = "./ut_dir/index_compress_test";
 
@@ -65,8 +65,8 @@ public:
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(kTestDir).ok());
     }
 
-    IndexCompactionTest() = default;
-    ~IndexCompactionTest() override = default;
+    IndexCompactionWriteIndexTest() = default;
+    ~IndexCompactionWriteIndexTest() override = default;
 
     static constexpr int32_t doc_count = 100000;
 };
@@ -167,7 +167,7 @@ static void index_compaction(const std::string& path,
     })
 }
 
-TEST_F(IndexCompactionTest, test_compaction_exception) {
+TEST_F(IndexCompactionWriteIndexTest, test_compaction_exception) {
     std::srand(getDaySeed());
     std::string name = "field_name";
 

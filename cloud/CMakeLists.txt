@@ -411,6 +411,10 @@ if (${MAKE_TEST} STREQUAL "ON")
     add_definitions(-DBE_TEST)
 endif ()
 
+if (ENABLE_INJECTION_POINT)
+    add_definitions(-DENABLE_INJECTION_POINT)
+endif()
+
 # Add libs if needed, download to current dir -- ${BUILD_DIR}
 set(FDB_LIB "fdb_lib_7_1_23.tar.xz")
 file(GLOB RELEASE_FILE_LIST LIST_DIRECTORIES false "/etc/*release*")
