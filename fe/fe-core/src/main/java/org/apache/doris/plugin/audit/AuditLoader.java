@@ -219,10 +219,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private class LoadWorker implements Runnable {
-        // private AuditStreamLoader loader;
 
-        public LoadWorker(AuditStreamLoader loader) {
-            // this.loader = loader;
+        public LoadWorker() {
         }
 
         public void run() {

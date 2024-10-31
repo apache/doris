@@ -25,6 +25,11 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.List;
 
+/**
+ * call flush_audit_log()
+ * This will flush audit log immediately to the audit_log table.
+ * Mainly for test cases, so that we don't need to wait 60 sec to flush the audit log.
+ */
 public class CallFlushAuditLogFunc extends CallFunc {
 
     private UserIdentity user;
