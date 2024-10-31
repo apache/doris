@@ -74,6 +74,8 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Id").add("Name").add(WorkloadGroup.CPU_SHARE).add(WorkloadGroup.MEMORY_LIMIT)
             .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
+            .add(WorkloadGroup.WRITE_BUFFER_RATIO)
+            .add(WorkloadGroup.SLOT_MEMORY_POLICY)
             .add(WorkloadGroup.MAX_CONCURRENCY).add(WorkloadGroup.MAX_QUEUE_SIZE)
             .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
             .add(WorkloadGroup.SCAN_THREAD_NUM).add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
