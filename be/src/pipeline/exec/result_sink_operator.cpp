@@ -146,7 +146,6 @@ Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, 
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
-    COUNTER_UPDATE(local_state.blocks_sent_counter(), 1);
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         SCOPED_TIMER(local_state._fetch_row_id_timer);
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
