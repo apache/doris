@@ -289,15 +289,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
 
         if (properties.containsKey(WRITE_BUFFER_RATIO)) {
-            String memoryLimit = properties.get(WRITE_BUFFER_RATIO);
-            if (!memoryLimit.endsWith("%")) {
-                throw new DdlException(WRITE_BUFFER_RATIO + " " + memoryLimit
-                        + " requires a percentage and ends with a '%'");
-            }
-            String memLimitErr = WRITE_BUFFER_RATIO + " " + memoryLimit
+            String writeBufSizeStr = properties.get(WRITE_BUFFER_RATIO);
+            String memLimitErr = WRITE_BUFFER_RATIO + " " + writeBufSizeStr
                     + " requires a positive int number.";
+            if (writeBufSizeStr.endsWith("%")) {
+                writeBufSizeStr = writeBufSizeStr.substring(0, writeBufSizeStr.length() - 1);
+            }
             try {
-                if (Integer.parseInt(memoryLimit.substring(0, memoryLimit.length() - 1)) < 0) {
+                if (Integer.parseInt(writeBufSizeStr) < 0) {
                     throw new DdlException(memLimitErr);
                 }
             } catch (NumberFormatException e) {
