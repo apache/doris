@@ -63,7 +63,9 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -75,6 +77,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
 
 
 public class BackupJob extends AbstractJob {
@@ -132,6 +135,11 @@ public class BackupJob extends AbstractJob {
 
     public BackupJob() {
         super(JobType.BACKUP);
+    }
+
+    public BackupJob(JobType jobType) {
+        super(jobType);
+        assert jobType == JobType.BACKUP || jobType == JobType.BACKUP_COMPRESSED;
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
@@ -1050,13 +1058,35 @@ public class BackupJob extends AbstractJob {
             job.readFields(in);
             return job;
         } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), BackupJob.class);
+            String json = Text.readString(in);
+            if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
+                return GsonUtils.fromJsonCompressed(in, BackupJob.class);
+            } else {
+                return GsonUtils.GSON.fromJson(json, BackupJob.class);
+            }
         }
     }
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
+        if (type == JobType.BACKUP_COMPRESSED) {
+            type = JobType.BACKUP;
 
+            Text text = new Text();
+            text.readFields(in);
+
+            ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
+            try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
+                try (DataInputStream stream = new DataInputStream(gzipStream)) {
+                    readOthers(in);
+                }
+            }
+        } else {
+            readOthers(in);
+        }
+    }
+
+    public void readOthers(DataInput in) throws IOException {
         // table refs
         int size = in.readInt();
         tableRefs = Lists.newArrayList();
