@@ -51,19 +51,19 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _shared_state->build_exprs_size = _build_expr_ctxs.size();
 
     _should_build_hash_table = true;
+    profile()->add_info_string("BroadcastJoin", std::to_string(p._is_broadcast_join));
     if (p._is_broadcast_join) {
-        profile()->add_info_string("BroadcastJoin", "true");
         if (state->enable_share_hash_table_for_broadcast_join()) {
             _should_build_hash_table = info.task_idx == 0;
             if (_should_build_hash_table) {
-                profile()->add_info_string("ShareHashTableEnabled", "true");
                 p._shared_hashtable_controller->set_builder_and_consumers(
                         state->fragment_instance_id(), p.node_id());
             }
-        } else {
-            profile()->add_info_string("ShareHashTableEnabled", "false");
         }
     }
+    profile()->add_info_string("BuildShareHashTable", std::to_string(_should_build_hash_table));
+    profile()->add_info_string("ShareHashTableEnabled",
+                               std::to_string(state->enable_share_hash_table_for_broadcast_join()));
     if (!_should_build_hash_table) {
         _dependency->block();
         _finish_dependency->block();
@@ -72,6 +72,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                                                           _finish_dependency->shared_from_this());
     }
 
+    _runtime_filter_init_timer = ADD_TIMER(profile(), "RuntimeFilterInitTime");
     _build_blocks_memory_usage =
             ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageBuildBlocks", TUnit::BYTES, 1);
     _hash_table_memory_usage =
@@ -81,13 +82,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     // Build phase
     auto* record_profile = _should_build_hash_table ? profile() : faker_runtime_profile();
-    _build_table_timer = ADD_TIMER(profile(), "BuildTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(profile(), "BuildSideMergeBlockTime");
+    _build_table_timer = ADD_TIMER(profile(), "BuildHashTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(profile(), "MergeBuildBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
-    _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
-
-    _allocate_resource_timer = ADD_TIMER(profile(), "AllocateResourceTime");
 
     // Hash Table Init
     RETURN_IF_ERROR(_hash_table_init(state));
@@ -256,7 +254,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
     }
-    COUNTER_UPDATE(_build_rows_counter, rows);
     block.replace_if_overflow();
 
     vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());

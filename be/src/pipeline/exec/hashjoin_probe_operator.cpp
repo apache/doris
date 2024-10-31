@@ -57,13 +57,11 @@ Status HashJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) 
     _probe_arena_memory_usage =
             profile()->AddHighWaterMarkCounter("MemoryUsageProbeKeyArena", TUnit::BYTES, "", 1);
     // Probe phase
-    _probe_next_timer = ADD_TIMER(profile(), "ProbeFindNextTime");
     _probe_expr_call_timer = ADD_TIMER(profile(), "ProbeExprCallTime");
     _search_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenSearchHashTableTime");
     _build_side_output_timer = ADD_TIMER(profile(), "ProbeWhenBuildSideOutputTime");
     _probe_side_output_timer = ADD_TIMER(profile(), "ProbeWhenProbeSideOutputTime");
-    _probe_process_hashtable_timer = ADD_TIMER(profile(), "ProbeWhenProcessHashTableTime");
-    _process_other_join_conjunct_timer = ADD_TIMER(profile(), "OtherJoinConjunctTime");
+    _non_equal_join_conjuncts_timer = ADD_TIMER(profile(), "NonEqualJoinConjunctEvaluationTime");
     _init_probe_side_timer = ADD_TIMER(profile(), "InitProbeSideTime");
     return Status::OK();
 }
@@ -229,7 +227,6 @@ HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode
 Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
                                     bool* eos) const {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state._probe_timer);
     if (local_state._shared_state->short_circuit_for_probe) {
         // If we use a short-circuit strategy, should return empty block directly.
         *eos = true;
@@ -320,7 +317,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
                         if constexpr (!std::is_same_v<HashTableProbeType, std::monostate>) {
                             using HashTableCtxType = std::decay_t<decltype(arg)>;
                             if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
-                                st = process_hashtable_ctx.process_data_in_hashtable(
+                                st = process_hashtable_ctx.finish_probing(
                                         arg, mutable_join_block, &temp_block, eos, _is_mark_join);
                             } else {
                                 st = Status::InternalError("uninited hash table");
