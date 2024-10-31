@@ -314,12 +314,6 @@ public class DateLiteral extends Literal {
                 s = normalizeBasic(s);
                 // mysql reject "20200219 010101" "200219 010101", can't use ' ' spilt basic date time.
 
-                if (!simpleCheckDateTime(s)) {
-                    return Result.err(
-                            () -> new AnalysisException("date/datetime literal [" + originalString + "] is invalid")
-                    );
-                }
-
                 if (!s.contains("T")) {
                     dateTime = DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T.parse(s);
                 } else {
@@ -351,32 +345,6 @@ public class DateLiteral extends Literal {
         } catch (Exception ex) {
             return Result.err(() -> new AnalysisException("date/datetime literal [" + originalString + "] is invalid"));
         }
-    }
-
-    private static boolean simpleCheckDateTime(String s) {
-        String simpleFmt = "yyyymmddhhmmss";
-        if (s.length() < simpleFmt.length()) {
-            return false;
-        }
-
-        // check date
-        int i = 0;
-        for (; i < 8; i++) {
-            if (!Character.isDigit(s.charAt(i))) {
-                return false;
-            }
-        }
-        boolean hasTDelimiter = s.charAt(i) == 'T';
-        if (hasTDelimiter) {
-            i++;
-        }
-        // check time
-        for (int j = 0; j < 4; j++, i++) {
-            if (!Character.isDigit(s.charAt(i))) {
-                return false;
-            }
-        }
-        return true;
     }
 
     protected void init(String s) throws AnalysisException {
