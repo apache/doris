@@ -519,8 +519,9 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
         };
         RETURN_IF_ERROR(_probe_key_for_mow(std::move(key), segment_pos, have_input_seq_column,
                                            have_delete_sign, specified_rowsets, segment_caches,
-                                           has_default_or_nullable, use_default_or_null_flag,
-                                           update_read_plan, not_found_cb, stats));
+                                           cur_version_delete_bitmap, has_default_or_nullable,
+                                           use_default_or_null_flag, update_read_plan, not_found_cb,
+                                           stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), data.num_rows);
 
@@ -705,7 +706,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     RETURN_IF_ERROR(_generate_flexible_read_plan(
             read_plan, data, segment_start_pos, schema_has_sequence_col, seq_map_col_unique_id,
             skip_bitmaps, key_columns, seq_column, delete_sign_column_data, specified_rowsets,
-            segment_caches, has_default_or_nullable, use_default_or_null_flag, stats));
+            segment_caches, cur_version_delete_bitmap, has_default_or_nullable,
+            use_default_or_null_flag, stats));
     CHECK_EQ(use_default_or_null_flag.size(), data.num_rows);
 
     if (config::enable_merge_on_write_correctness_check) {

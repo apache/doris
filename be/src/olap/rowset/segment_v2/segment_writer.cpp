@@ -657,8 +657,9 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         };
         RETURN_IF_ERROR(probe_key_for_mow(std::move(key), segment_pos, have_input_seq_column,
                                           have_delete_sign, specified_rowsets, segment_caches,
-                                          has_default_or_nullable, use_default_or_null_flag,
-                                          update_read_plan, not_found_cb, stats));
+                                          cur_version_delete_bitmap, has_default_or_nullable,
+                                          use_default_or_null_flag, update_read_plan, not_found_cb,
+                                          stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
