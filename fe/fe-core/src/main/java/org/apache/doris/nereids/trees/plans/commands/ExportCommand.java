@@ -381,7 +381,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
                 .collect(Collectors.toList());
         Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
 
-        List<String> columnsSpecified = split.splitToList(columns.toLowerCase());
+        List<String> columnsSpecified = split.splitToList(columns);
         for (String columnName : columnsSpecified) {
             if (!tableColumns.contains(columnName)) {
                 throw new AnalysisException("unknown column [" + columnName + "] in table [" + tblName.getTbl() + "]");

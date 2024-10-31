@@ -241,7 +241,7 @@ public class ExportStmt extends StatementBase implements NotFallbackInParser {
 
         if (columns != null) {
             Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
-            exportJob.setExportColumns(split.splitToList(this.columns.toLowerCase()));
+            exportJob.setExportColumns(split.splitToList(this.columns));
         }
 
         // set broker desc

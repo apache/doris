@@ -66,7 +66,7 @@ suite("test_export_basic", "p0") {
     sql """
     CREATE TABLE IF NOT EXISTS ${table_export_name} (
         `id` int(11) NULL,
-        `name` string NULL,
+        `Name` string NULL,
         `age` int(11) NULL
         )
         PARTITION BY RANGE(id)
@@ -163,7 +163,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
@@ -175,7 +175,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name, age'
+            set 'columns', 'id, Name, age'
             set 'strict_mode', 'true'
 
             file "${file_path}"
@@ -229,7 +229,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
@@ -241,7 +241,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name, age'
+            set 'columns', 'id, Name, age'
             set 'strict_mode', 'true'
 
             file "${file_path}"
@@ -295,7 +295,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
@@ -307,7 +307,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name, age'
+            set 'columns', 'id, Name, age'
             set 'strict_mode', 'true'
 
             file "${file_path}"
@@ -361,7 +361,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL,
+            `Name` string NULL,
             `age` int(11) NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
@@ -373,7 +373,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name, age'
+            set 'columns', 'id, Name, age'
             set 'strict_mode', 'true'
 
             file "${file_path}"
@@ -460,7 +460,7 @@ suite("test_export_basic", "p0") {
                 "label" = "${label}",
                 "format" = "csv",
                 "column_separator"=",",
-                "columns" = "id, name",
+                "columns" = "id, Name",
                 "data_consistency" = "none"
             );
         """
@@ -474,7 +474,7 @@ suite("test_export_basic", "p0") {
         sql """
         CREATE TABLE IF NOT EXISTS ${table_load_name} (
             `id` int(11) NULL,
-            `name` string NULL
+            `Name` string NULL
             )
             DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
         """
@@ -485,7 +485,7 @@ suite("test_export_basic", "p0") {
             table "${table_load_name}"
 
             set 'column_separator', ','
-            set 'columns', 'id, name'
+            set 'columns', 'id, Name'
             set 'strict_mode', 'true'
 
             file "${file_path}"
