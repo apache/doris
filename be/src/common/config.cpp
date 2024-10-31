@@ -1379,6 +1379,9 @@ DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
 DEFINE_Int32(query_cache_size, "512");
 
+// Enable validation to check the correctness of table size.
+DEFINE_Bool(enable_table_size_correctness_check, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

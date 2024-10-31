@@ -213,13 +213,12 @@ Status IndexBuilder::update_inverted_index_info() {
             InvertedIndexStorageFormatPB::V1) {
             if (_is_drop_op) {
                 VLOG_DEBUG << "data_disk_size:" << input_rowset_meta->data_disk_size()
-                           << " total_disk_size:" << input_rowset_meta->data_disk_size()
+                           << " total_disk_size:" << input_rowset_meta->total_disk_size()
                            << " index_disk_size:" << input_rowset_meta->index_disk_size()
                            << " drop_index_size:" << drop_index_size;
                 rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() -
                                                  drop_index_size);
-                rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size() -
-                                                drop_index_size);
+                rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size());
                 rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size() -
                                                  drop_index_size);
             } else {
@@ -244,7 +243,7 @@ Status IndexBuilder::update_inverted_index_info() {
             }
             rowset_meta->set_total_disk_size(input_rowset_meta->total_disk_size() -
                                              total_index_size);
-            rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size() - total_index_size);
+            rowset_meta->set_data_disk_size(input_rowset_meta->data_disk_size());
             rowset_meta->set_index_disk_size(input_rowset_meta->index_disk_size() -
                                              total_index_size);
         }
@@ -329,8 +328,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 inverted_index_size += inverted_index_writer->get_index_file_total_size();
             }
             _inverted_index_file_writers.clear();
-            output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
-                                                   inverted_index_size);
+            output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size());
             output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
                                                     inverted_index_size);
             output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
@@ -501,8 +499,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
         }
         _inverted_index_builders.clear();
         _inverted_index_file_writers.clear();
-        output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size() +
-                                               inverted_index_size);
+        output_rowset_meta->set_data_disk_size(output_rowset_meta->data_disk_size());
         output_rowset_meta->set_total_disk_size(output_rowset_meta->total_disk_size() +
                                                 inverted_index_size);
         output_rowset_meta->set_index_disk_size(output_rowset_meta->index_disk_size() +
