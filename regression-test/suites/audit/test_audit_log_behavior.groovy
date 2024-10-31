@@ -102,6 +102,7 @@ suite("test_audit_log_behavior") {
             assertEquals(res[0][0].toString(), tuple2[1].toString())
         }
     }
+    // do not turn off
     sql "set global enable_audit_plugin = false"
     sql "set global audit_plugin_max_sql_length = 4096"
     sql "set global audit_plugin_max_batch_interval_sec = 60"
