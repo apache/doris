@@ -244,6 +244,12 @@ Status VFileScanner::open(RuntimeState* state) {
         // there's no scan range in split source. stop scanner directly.
         _scanner_eof = true;
     }
+    auto* local_state = static_cast<pipeline::FileScanLocalState*>(_local_state);
+    for (auto& ctx : local_state->_common_expr_ctxs_push_down) {
+        VExprContextSPtr context;
+        RETURN_IF_ERROR(ctx->clone(_state, context));
+        _common_expr_ctxs_push_down.emplace_back(context);
+    }
 
     return Status::OK();
 }

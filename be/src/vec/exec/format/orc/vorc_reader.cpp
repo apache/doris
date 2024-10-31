@@ -744,8 +744,7 @@ bool OrcReader::_init_search_argument(
     }
 }
 
-bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
-        const VExprContextSPtrs& common_expr_ctxs_push_down) {
+bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conjuncts) {
     if (!_enable_filter_by_min_max) {
         return false;
     }
@@ -974,7 +973,7 @@ bool OrcReader::_init_search_argument_by_common_expr_ctxs_push_down(
     };
 
     sargBuilder->startAnd();
-    for (const auto& expr_ctx : common_expr_ctxs_push_down) {
+    for (const auto& expr_ctx : conjuncts) {
         if (!convert_expr_to_sargs(expr_ctx->root())) {
             return false;
         }
@@ -1095,9 +1094,8 @@ Status OrcReader::set_fill_columns(
         _lazy_read_ctx.can_lazy_read = true;
     }
 
-    // when _common_expr_ctxs_push_down is not empty, we use this expr to build search argument not _colname_to_value_range
-    if ((_common_expr_ctxs_push_down.empty() ||
-         !_init_search_argument_by_common_expr_ctxs_push_down(_common_expr_ctxs_push_down)) &&
+    if ((_lazy_read_ctx.conjuncts.empty() ||
+         !_init_search_argument_by_conjuncts(_lazy_read_ctx.conjuncts)) &&
         (_colname_to_value_range == nullptr || !_init_search_argument(_colname_to_value_range))) {
         _lazy_read_ctx.can_lazy_read = false;
     }
