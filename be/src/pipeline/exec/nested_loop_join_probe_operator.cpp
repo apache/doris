@@ -43,6 +43,10 @@ Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _loop_join_timer = ADD_TIMER(profile(), "LoopGenerateJoin");
+    _output_temp_blocks_timer = ADD_TIMER(profile(), "OutputTempBlocksTime");
+    _update_visited_flags_timer = ADD_TIMER(profile(), "UpdateVisitedFlagsTime");
+    _join_conjuncts_evaluation_timer = ADD_TIMER(profile(), "JoinConjunctsEvaluationTime");
+    _filtered_by_join_conjuncts_timer = ADD_TIMER(profile(), "FilteredByJoinConjunctsTime");
     return Status::OK();
 }
 
@@ -168,23 +172,26 @@ Status NestedLoopJoinProbeLocalState::generate_join_block_data(RuntimeState* sta
             _process_left_child_block(_join_block, now_process_build_block);
         }
 
-        if constexpr (set_probe_side_flag) {
-            RETURN_IF_ERROR(
-                    (_do_filtering_and_update_visited_flags<set_build_side_flag,
-                                                            set_probe_side_flag, ignore_null>(
-                            &_join_block, !p._is_left_semi_anti)));
-            _update_additional_flags(&_join_block);
-            // If this join operation is left outer join or full outer join, when
-            // `_left_side_process_count`, means all rows from build
-            // side have been joined with _left_side_process_count, we should output current
-            // probe row with null from build side.
-            if (_left_side_process_count) {
-                _finalize_current_phase<false, JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
-                        _join_block, state->batch_size());
+        {
+            SCOPED_TIMER(_finish_probe_phase_timer);
+            if constexpr (set_probe_side_flag) {
+                RETURN_IF_ERROR(
+                        (_do_filtering_and_update_visited_flags<set_build_side_flag,
+                                                                set_probe_side_flag, ignore_null>(
+                                &_join_block, !p._is_left_semi_anti)));
+                _update_additional_flags(&_join_block);
+                // If this join operation is left outer join or full outer join, when
+                // `_left_side_process_count`, means all rows from build
+                // side have been joined with _left_side_process_count, we should output current
+                // probe row with null from build side.
+                if (_left_side_process_count) {
+                    _finalize_current_phase<false, JoinOpType::value == TJoinOp::LEFT_SEMI_JOIN>(
+                            _join_block, state->batch_size());
+                }
+            } else if (_left_side_process_count && p._is_mark_join &&
+                       _shared_state->build_blocks.empty()) {
+                _append_left_data_with_null(_join_block);
             }
-        } else if (_left_side_process_count && p._is_mark_join &&
-                   _shared_state->build_blocks.empty()) {
-            _append_left_data_with_null(_join_block);
         }
     }
 
@@ -377,6 +384,7 @@ void NestedLoopJoinProbeLocalState::_append_left_data_with_null(vectorized::Bloc
 
 void NestedLoopJoinProbeLocalState::_process_left_child_block(
         vectorized::Block& block, const vectorized::Block& now_process_build_block) const {
+    SCOPED_TIMER(_output_temp_blocks_timer);
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     auto dst_columns = block.mutate_columns();
     const size_t max_added_rows = now_process_build_block.rows();
@@ -485,6 +493,7 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
                                                         set_build_side_flag, set_probe_side_flag>(
                     state, join_op_variants);
         };
+        SCOPED_TIMER(local_state._loop_join_timer);
         RETURN_IF_ERROR(
                 std::visit(func, local_state._shared_state->join_op_variants,
                            vectorized::make_bool_variant(_match_all_build || _is_right_semi_anti),

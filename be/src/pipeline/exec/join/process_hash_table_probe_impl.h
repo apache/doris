@@ -56,7 +56,7 @@ ProcessHashTableProbe<JoinOpType>::ProcessHashTableProbe(HashJoinProbeLocalState
           _init_probe_side_timer(parent->_init_probe_side_timer),
           _build_side_output_timer(parent->_build_side_output_timer),
           _probe_side_output_timer(parent->_probe_side_output_timer),
-          _probe_process_hashtable_timer(parent->_probe_process_hashtable_timer),
+          _finish_probe_phase_timer(parent->_finish_probe_phase_timer),
           _right_col_idx((_is_right_semi_anti && !_have_other_join_conjunct)
                                  ? 0
                                  : _parent->left_table_data_types().size()),
@@ -502,7 +502,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
         return Status::OK();
     }
 
-    SCOPED_TIMER(_parent->_process_other_join_conjunct_timer);
+    SCOPED_TIMER(_parent->_non_equal_join_conjuncts_timer);
     size_t orig_columns = output_block->columns();
     vectorized::IColumn::Filter other_conjunct_filter(row_count, 1);
     {
@@ -617,10 +617,11 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Bl
 
 template <int JoinOpType>
 template <typename HashTableType>
-Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(
-        HashTableType& hash_table_ctx, vectorized::MutableBlock& mutable_block,
-        vectorized::Block* output_block, bool* eos, bool is_mark_join) {
-    SCOPED_TIMER(_probe_process_hashtable_timer);
+Status ProcessHashTableProbe<JoinOpType>::finish_probing(HashTableType& hash_table_ctx,
+                                                         vectorized::MutableBlock& mutable_block,
+                                                         vectorized::Block* output_block, bool* eos,
+                                                         bool is_mark_join) {
+    SCOPED_TIMER(_finish_probe_phase_timer);
     auto& mcol = mutable_block.mutable_columns();
     if (is_mark_join) {
         std::unique_ptr<vectorized::ColumnFilterHelper> mark_column =
@@ -709,8 +710,7 @@ struct ExtractType<T(U)> {
             ExtractType<void(T)>::Type & hash_table_ctx, vectorized::ConstNullMapPtr null_map,     \
             vectorized::MutableBlock & mutable_block, vectorized::Block * output_block,            \
             uint32_t probe_rows, bool is_mark_join, bool have_other_join_conjunct);                \
-    template Status                                                                                \
-    ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable<ExtractType<void(T)>::Type>(      \
+    template Status ProcessHashTableProbe<JoinOpType>::finish_probing<ExtractType<void(T)>::Type>( \
             ExtractType<void(T)>::Type & hash_table_ctx, vectorized::MutableBlock & mutable_block, \
             vectorized::Block * output_block, bool* eos, bool is_mark_join);
 
