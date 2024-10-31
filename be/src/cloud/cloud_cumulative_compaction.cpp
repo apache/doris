@@ -393,13 +393,7 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                 if (d->isEmpty()) {
                     continue;
                 }
-                int ret = new_delete_bitmap->set(end, *d);
-                DCHECK(ret == 1);
-                if (ret != 1) {
-                    return Status::InternalError("fail to set new_delete_bitmap key {}|{}|{}",
-                                                 std::get<0>(end).to_string(), std::get<1>(end),
-                                                 std::get<2>(end));
-                }
+                new_delete_bitmap->set(end, *d);
             }
         }
         if (!new_delete_bitmap->empty()) {
@@ -417,14 +411,7 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                             _input_rowsets.back()->end_version());
             for (auto it = new_delete_bitmap->delete_bitmap.begin();
                  it != new_delete_bitmap->delete_bitmap.end(); it++) {
-                int ret = _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
-                DCHECK(ret == 1);
-                if (ret != 1) {
-                    return Status::InternalError(
-                            "fail to set delete bitmap for tablet {} key {}|{}|{}",
-                            _tablet->tablet_id(), std::get<0>(it->first).to_string(),
-                            std::get<1>(it->first), std::get<2>(it->first));
-                }
+                _tablet->tablet_meta()->delete_bitmap().set(it->first, it->second);
             }
             _tablet->tablet_meta()->delete_bitmap().add_to_remove_queue(version.to_string(),
                                                                         to_remove_vec);
