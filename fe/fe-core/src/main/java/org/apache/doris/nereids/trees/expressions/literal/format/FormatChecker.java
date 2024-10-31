@@ -23,72 +23,132 @@ import java.util.function.Predicate;
 
 /** FormatChecker */
 public abstract class FormatChecker {
-    protected final StringInspect stringInspect;
-    protected int checkStartIndex;
-    protected int checkEndIndex;
+    public final String name;
 
-    public FormatChecker(StringInspect stringInspect) {
-        this.stringInspect = stringInspect;
+    public FormatChecker(String name) {
+        this.name = name;
     }
 
-    protected abstract boolean doCheck();
+    protected abstract boolean doCheck(StringInspect stringInspect);
 
     /** check */
-    public final boolean check() {
-        this.checkStartIndex = stringInspect.index();
-        boolean valid = doCheck();
-        this.checkEndIndex = stringInspect.index();
-        if (!valid) {
-            stepBack();
+    public final CheckResult check(StringInspect stringInspect) {
+        int checkStartIndex = stringInspect.index();
+        boolean matches = doCheck(stringInspect);
+        int checkEndIndex = stringInspect.index();
+        CheckResult checkResult = new CheckResult(this, stringInspect, matches, checkStartIndex, checkEndIndex);
+        if (!matches) {
+            checkResult.stepBack();
         }
-        return valid;
+        return checkResult;
     }
 
-    public void stepBack() {
-        this.stringInspect.setIndex(checkStartIndex);
+    protected <T extends FormatChecker> DebugChecker<T> debug(T childChecker, Predicate<T> debugPoint) {
+        return debug("DebugChecker", childChecker, debugPoint);
     }
 
-    public String getCheckContent() {
-        return stringInspect.str.substring(checkStartIndex, checkEndIndex);
+    protected <T extends FormatChecker> DebugChecker<T> debug(String name, T childChecker, Predicate<T> debugPoint) {
+        return new DebugChecker<>(name, childChecker, debugPoint);
     }
 
     protected OptionChecker option(FormatChecker checker) {
-        return new OptionChecker(stringInspect, checker);
+        return option("OptionChecker", checker);
+    }
+
+    protected OptionChecker option(String name, FormatChecker checker) {
+        return new OptionChecker(name, checker);
     }
 
     protected AndChecker and(FormatChecker... checkers) {
-        return new AndChecker(stringInspect, Utils.fastToImmutableList(checkers));
+        return and("AndChecker", checkers);
+    }
+
+    protected AndChecker and(String name, FormatChecker... checkers) {
+        return new AndChecker(name, Utils.fastToImmutableList(checkers));
     }
 
     protected OrChecker or(FormatChecker... checkers) {
-        return new OrChecker(stringInspect, Utils.fastToImmutableList(checkers));
+        return or("OrChecker", checkers);
+    }
+
+    protected OrChecker or(String name, FormatChecker... checkers) {
+        return new OrChecker(name, Utils.fastToImmutableList(checkers));
     }
 
     protected AtLeastChecker atLeast(int minCount, Predicate<Character> checker) {
-        return new AtLeastChecker(stringInspect, minCount, -1, checker);
+        return atLeast("AtLeastChecker", minCount, -1, checker);
+    }
+
+    protected AtLeastChecker atLeast(String name, int minCount, Predicate<Character> checker) {
+        return new AtLeastChecker(name, minCount, -1, checker);
     }
 
     protected AtLeastChecker atLeast(int minCount, int maxRead, Predicate<Character> checker) {
-        return new AtLeastChecker(stringInspect, minCount, maxRead, checker);
+        return atLeast("AtLeastChecker", minCount, maxRead, checker);
     }
 
-    protected NumberChecker number(int minCount) {
-        return new NumberChecker(stringInspect, minCount, -1);
+    protected AtLeastChecker atLeast(String name, int minCount, int maxRead, Predicate<Character> checker) {
+        return new AtLeastChecker(name, minCount, maxRead, checker);
     }
 
-    protected NumberChecker number(int minCount, int maxRead) {
-        return new NumberChecker(stringInspect, minCount, maxRead);
+    protected DigitChecker digit(int minCount) {
+        return digit("DigitChecker", minCount, -1);
+    }
+
+    protected DigitChecker digit(String name, int minCount) {
+        return new DigitChecker(name, minCount, -1);
+    }
+
+    protected DigitChecker digit(int minCount, int maxRead) {
+        return digit("DigitChecker", minCount, maxRead);
+    }
+
+    protected DigitChecker digit(String name, int minCount, int maxRead) {
+        return new DigitChecker(name, minCount, maxRead);
+    }
+
+    protected LetterChecker letter(int minCount) {
+        return letter("LetterChecker", minCount, -1);
+    }
+
+    protected LetterChecker letter(String name, int minCount) {
+        return new LetterChecker(name, minCount, -1);
+    }
+
+    protected LetterChecker letter(int minCount, int maxRead) {
+        return letter("LetterChecker", minCount, maxRead);
+    }
+
+    protected LetterChecker letter(String name, int minCount, int maxRead) {
+        return new LetterChecker(name, minCount, maxRead);
     }
 
     protected CharChecker ch(char c) {
-        return new CharChecker(stringInspect, c);
+        return ch("CharChecker", c);
+    }
+
+    protected CharChecker ch(String name, char c) {
+        return new CharChecker(name, c);
     }
 
     protected CustomCharChecker chars(Predicate<Character> checker) {
-        return new CustomCharChecker(stringInspect, checker);
+        return chars("CustomCharChecker", checker);
+    }
+
+    protected CustomCharChecker chars(String name, Predicate<Character> checker) {
+        return new CustomCharChecker(name, checker);
     }
 
     protected StringChecker string(String equalsTo) {
-        return new StringChecker(stringInspect, equalsTo);
+        return string("StringChecker", equalsTo);
+    }
+
+    protected StringChecker string(String name, String equalsTo) {
+        return new StringChecker(name, equalsTo);
+    }
+
+    @Override
+    public String toString() {
+        return name;
     }
 }

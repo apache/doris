@@ -21,14 +21,14 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 public class OptionChecker extends FormatChecker {
     private final FormatChecker checker;
 
-    public OptionChecker(StringInspect stringInspect, FormatChecker checker) {
-        super(stringInspect);
+    public OptionChecker(String name, FormatChecker checker) {
+        super(name);
         this.checker = checker;
     }
 
     @Override
-    protected boolean doCheck() {
-        checker.check();
+    protected boolean doCheck(StringInspect stringInspect) {
+        checker.check(stringInspect);
         return true;
     }
 }

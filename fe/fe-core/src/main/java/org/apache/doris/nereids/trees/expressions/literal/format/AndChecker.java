@@ -23,15 +23,15 @@ import java.util.List;
 public class AndChecker extends FormatChecker {
     private final List<FormatChecker> checkers;
 
-    public AndChecker(StringInspect stringInspect, List<FormatChecker> checkers) {
-        super(stringInspect);
+    public AndChecker(String name, List<FormatChecker> checkers) {
+        super(name);
         this.checkers = checkers;
     }
 
     @Override
-    protected boolean doCheck() {
+    protected boolean doCheck(StringInspect stringInspect) {
         for (FormatChecker checker : checkers) {
-            if (!checker.check()) {
+            if (!checker.check(stringInspect).matched) {
                 return false;
             }
         }

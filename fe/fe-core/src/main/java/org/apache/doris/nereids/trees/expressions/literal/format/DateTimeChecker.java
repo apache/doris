@@ -21,79 +21,117 @@ import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 
 /** DateTimeChecker */
 public class DateTimeChecker extends FormatChecker {
-    private DateTimeChecker(StringInspect stringInspect) {
-        super(stringInspect);
-    }
+    private static final DateTimeChecker INSTANCE = new DateTimeChecker();
 
-    public static boolean isValidDateTime(String str) {
-        str = str.trim();
-        return new DateTimeChecker(new StringInspect(str)).check();
-    }
+    private final FormatChecker checker;
 
-    @Override
-    protected boolean doCheck() {
-        FormatChecker dateFormatChecker = and(
+    private DateTimeChecker() {
+        super("DateTimeChecker");
+
+        this.checker =
                 or(
                     // date
-                    and(
+                    and("Date",
                         or(
                             // 20241012
-                            number(8, 8),
+                            digit(8, 8),
                             // 2024-10-12
                             and(
-                                number(4, 4), // year
+                                digit(1, 4), // year
                                 chars(DateLiteral.punctuations::contains),
-                                number(2, 2), // month
+                                digit(1, 2), // month
                                 chars(DateLiteral.punctuations::contains),
-                                number(2, 2) // day
+                                digit(1, 2) // day
                             )
                         ),
                         option(ch('Z'))
                     ),
                     // datetime
-                    and(
-                        or(
+                    and("DateTime",
+                        or("YearToSecond",
                             // 20241012010203
-                            number(14, 14),
+                            and("FullCompactDateTime",
+                                digit(8, 8),
+                                atLeast(0, c -> c == 'T'),
+                                digit(6, 6)
+                            ),
+
+                            // 241012010203 or 241012T010203
+                            and("ShortCompactDateTime",
+                                digit(6, 6),
+                                atLeast(0, c -> c == 'T'),
+                                digit(6, 6)
+                            ),
+
                             // 2024-01-01 01:02:03
-                            and(
-                                number(4, 4), // year
+                            and("NormalDateTime",
+                                digit(1, 4), // year
                                 chars(DateLiteral.punctuations::contains),
-                                number(2, 2), // month
+                                digit(1, 2), // month
                                 chars(DateLiteral.punctuations::contains),
-                                number(2, 2), // day
+                                digit(1, 2), // day
                                 atLeast(1, c -> c == 'T' || c == ' ' || DateLiteral.punctuations.contains(c)),
-                                number(2, 2), // hour
-                                chars(DateLiteral.punctuations::contains),
-                                number(2, 2), // minute
-                                chars(DateLiteral.punctuations::contains),
-                                number(2, 2) // second
+                                digit(1, 2), // hour
+                                option(
+                                    and(
+                                        chars(DateLiteral.punctuations::contains),
+                                        digit(1, 2), // minute
+                                        option(
+                                            and(
+                                                chars(DateLiteral.punctuations::contains),
+                                                digit(1, 2) // second
+                                            )
+                                        )
+                                    )
+                                )
                             )
                         ),
-                        option(nanoSecond()),
-                        option(timeZone())
+                        option("NanoSecond", nanoSecond()),
+                        option("TimeZone", timeZone())
                     )
-                )
-        );
-        return dateFormatChecker.check();
+               );
+    }
+
+    public static boolean isValidDateTime(String str) {
+        str = str.trim();
+        StringInspect stringInspect = new StringInspect(str.trim());
+        return INSTANCE.check(stringInspect).matched && stringInspect.eos();
+    }
+
+    @Override
+    protected boolean doCheck(StringInspect stringInspect) {
+        return checker.check(stringInspect).matched;
     }
 
     private FormatChecker nanoSecond() {
         return and(
             ch('.'),
-            number(1)
+            digit(1)
         );
     }
 
     private FormatChecker timeZone() {
-        // Z or +08:00 or -01:00
-        return or(
-            ch('Z'),
-            and(
-                chars(c -> c == '+' || c == '-'),
-                number(2, 2),
-                ch(':'),
-                number(2, 2)
+        // Z or +08:00 or UTC-01:00
+        return and(
+            // timezone: Europe/London, America/New_York
+            atLeast(0, c -> ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || c == '/' || c == '_'),
+            option(
+                and(
+                    chars(c -> c == '+' || c == '-'),
+                    digit(1, 2),
+                    option(
+                        and(
+                            ch(':'),
+                            digit(1, 2),
+                            option(
+                                and(
+                                    ch(':'),
+                                    digit(1, 2)
+                                )
+                            )
+                        )
+                    )
+                )
             )
         );
     }

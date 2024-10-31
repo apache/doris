@@ -17,32 +17,32 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
-import java.util.function.Predicate;
+public class CheckResult {
+    public final FormatChecker checker;
+    public final StringInspect stringInspect;
+    public final boolean matched;
+    public final int checkStartIndex;
+    public final int checkEndIndex;
 
-/** AtLeastChecker */
-public class AtLeastChecker extends FormatChecker {
-    private int minCount;
-    private int maxRead;
-    private Predicate<Character> checker;
-
-    public AtLeastChecker(String name, int minCount, int maxRead, Predicate<Character> checker) {
-        super(name);
-        this.minCount = minCount;
-        this.maxRead = maxRead;
+    public CheckResult(
+            FormatChecker checker, StringInspect stringInspect,
+            boolean matched, int checkStartIndex, int checkEndIndex) {
         this.checker = checker;
+        this.stringInspect = stringInspect;
+        this.matched = matched;
+        this.checkStartIndex = checkStartIndex;
+        this.checkEndIndex = checkEndIndex;
     }
 
-    @Override
-    protected boolean doCheck(StringInspect stringInspect) {
-        int count = 0;
-        boolean checkRead = maxRead >= 0;
-        while (!stringInspect.eos() && (!checkRead || count < maxRead)) {
-            if (!checker.test(stringInspect.lookAt())) {
-                break;
-            }
-            stringInspect.step();
-            count++;
-        }
-        return count >= minCount;
+    public int matchesLength() {
+        return checkEndIndex - checkStartIndex;
+    }
+
+    public String matchesContent() {
+        return stringInspect.str.substring(checkStartIndex, checkEndIndex);
+    }
+
+    public void stepBack() {
+        stringInspect.setIndex(checkStartIndex);
     }
 }

@@ -19,30 +19,18 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 
 import java.util.function.Predicate;
 
-/** AtLeastChecker */
-public class AtLeastChecker extends FormatChecker {
-    private int minCount;
-    private int maxRead;
-    private Predicate<Character> checker;
+public class DebugChecker<T extends FormatChecker> extends FormatChecker {
+    private final T childChecker;
+    private final Predicate<T> debugPoint;
 
-    public AtLeastChecker(String name, int minCount, int maxRead, Predicate<Character> checker) {
+    public DebugChecker(String name, T childChecker, Predicate<T> debugPoint) {
         super(name);
-        this.minCount = minCount;
-        this.maxRead = maxRead;
-        this.checker = checker;
+        this.childChecker = childChecker;
+        this.debugPoint = debugPoint;
     }
 
     @Override
     protected boolean doCheck(StringInspect stringInspect) {
-        int count = 0;
-        boolean checkRead = maxRead >= 0;
-        while (!stringInspect.eos() && (!checkRead || count < maxRead)) {
-            if (!checker.test(stringInspect.lookAt())) {
-                break;
-            }
-            stringInspect.step();
-            count++;
-        }
-        return count >= minCount;
+        return debugPoint.test(childChecker);
     }
 }

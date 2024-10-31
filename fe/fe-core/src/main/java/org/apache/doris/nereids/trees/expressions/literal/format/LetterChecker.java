@@ -17,32 +17,29 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
-import java.util.function.Predicate;
-
-/** AtLeastChecker */
-public class AtLeastChecker extends FormatChecker {
+/** NumberChecker */
+public class LetterChecker extends FormatChecker {
     private int minCount;
     private int maxRead;
-    private Predicate<Character> checker;
 
-    public AtLeastChecker(String name, int minCount, int maxRead, Predicate<Character> checker) {
+    public LetterChecker(String name, int minCount, int maxRead) {
         super(name);
         this.minCount = minCount;
         this.maxRead = maxRead;
-        this.checker = checker;
     }
 
     @Override
     protected boolean doCheck(StringInspect stringInspect) {
-        int count = 0;
+        int numberCount = 0;
         boolean checkRead = maxRead >= 0;
-        while (!stringInspect.eos() && (!checkRead || count < maxRead)) {
-            if (!checker.test(stringInspect.lookAt())) {
+        while (!stringInspect.eos() && (!checkRead || numberCount < maxRead)) {
+            char c = stringInspect.lookAt();
+            if (!(('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z'))) {
                 break;
             }
             stringInspect.step();
-            count++;
+            numberCount++;
         }
-        return count >= minCount;
+        return numberCount >= minCount;
     }
 }

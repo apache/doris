@@ -21,13 +21,13 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 public class StringChecker extends FormatChecker {
     private String str;
 
-    public StringChecker(StringInspect stringInspect, String str) {
-        super(stringInspect);
+    public StringChecker(String name, String str) {
+        super(name);
         this.str = str;
     }
 
     @Override
-    protected boolean doCheck() {
+    protected boolean doCheck(StringInspect stringInspect) {
         if (stringInspect.remain() < str.length()) {
             return false;
         }

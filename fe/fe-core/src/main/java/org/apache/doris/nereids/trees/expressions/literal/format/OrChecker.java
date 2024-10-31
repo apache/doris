@@ -23,20 +23,28 @@ import java.util.List;
 public class OrChecker extends FormatChecker {
     private final List<FormatChecker> checkers;
 
-    public OrChecker(StringInspect stringInspect, List<FormatChecker> checkers) {
-        super(stringInspect);
+    public OrChecker(String name, List<FormatChecker> checkers) {
+        super(name);
         this.checkers = checkers;
     }
 
     @Override
-    protected boolean doCheck() {
+    protected boolean doCheck(StringInspect stringInspect) {
+        int maxMatches = -1;
+        CheckResult maxMatchesResult = null;
         for (FormatChecker checker : checkers) {
-            if (!checker.check()) {
-                checker.stepBack();
-            } else {
-                return true;
+            CheckResult checkResult = checker.check(stringInspect);
+            if (checkResult.matched && checkResult.matchesLength() > maxMatches) {
+                maxMatches = checkResult.matchesLength();
+                maxMatchesResult = checkResult;
             }
+            checkResult.stepBack();
         }
-        return false;
+        if (maxMatches >= 0) {
+            stringInspect.setIndex(maxMatchesResult.checkEndIndex);
+            return true;
+        } else {
+            return false;
+        }
     }
 }

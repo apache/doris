@@ -17,19 +17,19 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
-/** NumberChecker */
-public class NumberChecker extends FormatChecker {
+/** DigitChecker */
+public class DigitChecker extends FormatChecker {
     private int minCount;
     private int maxRead;
 
-    public NumberChecker(StringInspect stringInspect, int minCount, int maxRead) {
-        super(stringInspect);
+    public DigitChecker(String name, int minCount, int maxRead) {
+        super(name);
         this.minCount = minCount;
         this.maxRead = maxRead;
     }
 
     @Override
-    protected boolean doCheck() {
+    protected boolean doCheck(StringInspect stringInspect) {
         int numberCount = 0;
         boolean checkRead = maxRead >= 0;
         while (!stringInspect.eos() && (!checkRead || numberCount < maxRead)) {
@@ -41,11 +41,5 @@ public class NumberChecker extends FormatChecker {
             numberCount++;
         }
         return numberCount >= minCount;
-    }
-
-    public static void main(String[] args) {
-        NumberChecker numberChecker = new NumberChecker(new StringInspect("123"), 1, 3);
-        System.out.println(numberChecker.check());
-        System.out.println(numberChecker.getCheckContent());
     }
 }

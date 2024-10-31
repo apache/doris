@@ -23,13 +23,13 @@ import java.util.function.Predicate;
 public class CustomCharChecker extends FormatChecker {
     private Predicate<Character> checker;
 
-    public CustomCharChecker(StringInspect stringInspect, Predicate<Character> checker) {
-        super(stringInspect);
+    public CustomCharChecker(String name, Predicate<Character> checker) {
+        super(name);
         this.checker = checker;
     }
 
     @Override
-    protected boolean doCheck() {
+    protected boolean doCheck(StringInspect stringInspect) {
         if (stringInspect.eos() || !checker.test(stringInspect.lookAndStep())) {
             return false;
         }

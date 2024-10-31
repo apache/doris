@@ -21,13 +21,13 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 public class CharChecker extends FormatChecker {
     public final char c;
 
-    public CharChecker(StringInspect stringInspect, char c) {
-        super(stringInspect);
+    public CharChecker(String name, char c) {
+        super(name);
         this.c = c;
     }
 
     @Override
-    protected boolean doCheck() {
+    protected boolean doCheck(StringInspect stringInspect) {
         if (stringInspect.eos() || stringInspect.lookAndStep() != c) {
             return false;
         }

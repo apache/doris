@@ -19,21 +19,25 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 
 /** IntegerChecker */
 public class IntegerChecker extends FormatChecker {
-    private IntegerChecker(StringInspect stringInspect) {
-        super(stringInspect);
+    private static final IntegerChecker INSTANCE = new IntegerChecker();
+
+    private final FormatChecker checker;
+
+    private IntegerChecker() {
+        super("IntegerChecker");
+        checker = and(
+            option(chars(c -> c == '+' || c == '-')),
+            digit(1)
+        );
     }
 
     public static boolean isValidInteger(String string) {
-        IntegerChecker integerChecker = new IntegerChecker(new StringInspect(string));
-        return integerChecker.check() && integerChecker.stringInspect.eos();
+        StringInspect stringInspect = new StringInspect(string);
+        return INSTANCE.check(stringInspect).matched && stringInspect.eos();
     }
 
     @Override
-    protected boolean doCheck() {
-        FormatChecker checker = and(
-                option(chars(c -> c == '+' || c == '-')),
-                number(1)
-        );
-        return checker.check();
+    protected boolean doCheck(StringInspect stringInspect) {
+        return checker.check(stringInspect).matched;
     }
 }
