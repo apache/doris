@@ -259,12 +259,17 @@ public class SystemHandler extends AlterHandler {
         Consumer<Map<Long, Map<Long, List<Long>>>> addDbLeakyTablets = tabletsOfDb -> {
             tabletsOfDb.values().forEach(addTableLeakyTablets);
         };
+
+        // Search backend's tablets, put 10 normal tablets into sampleTablets, put leaky tablets into leakyTablets.
+        // For the first time search, it will search all this backend's tablets.
+        // For later search, it only search at most 10 normal tablets, in order to reduce lock table.
         boolean searchedAllTablets = true;
         OUTER:
         for (Map.Entry<Long, Map<Long, Map<Long, List<Long>>>> dbEntry : tabletsMap.entrySet()) {
             long dbId = dbEntry.getKey();
             Database db = catalog.getDbNullable(dbId);
             if (db == null) {
+                // not found db, and it's not in recyle bin, then it should be leaky.
                 if (!recycleBin.isRecycleDatabase(dbId)) {
                     addDbLeakyTablets.accept(dbEntry.getValue());
                 }
@@ -300,6 +305,9 @@ public class SystemHandler extends AlterHandler {
                             if (sampleTablets.size() < sampleLimit) {
                                 sampleTablets.add(tabletId);
                             } else if (!searchedFirstTime) {
+                                // First time will search all tablets,
+                                // The later search will stop searching after found 10 normal tablets
+                                // in order to reduce table lock.
                                 searchedAllTablets = false;
                                 break OUTER;
                             }
@@ -312,6 +320,10 @@ public class SystemHandler extends AlterHandler {
         }
 
         if (!searchedAllTablets) {
+            // duce to not search all tablets, it may miss some leaky tablets.
+            // so we add the leaky tablets of the last time search.
+            // it can infer that leakyTablets will contains all leaky tablets of the first time search.
+            // And we know that the first time it searched all tablets.
             leakyTablets.putAll(lastLeakyTablets);
         }
         leakyTablets.keySet().stream().limit(sampleLimit).forEach(sampleLeakyTablets::add);
