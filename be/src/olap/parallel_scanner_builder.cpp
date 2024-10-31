@@ -113,7 +113,8 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
                         scanners.emplace_back(
                                 _build_scanner(tablet, version, _key_ranges,
                                                {std::move(partitial_read_source.rs_splits),
-                                                entire_read_source.delete_predicates}));
+                                                entire_read_source.delete_predicates},
+                                               sub_txn_ids));
 
                         partitial_read_source = {};
                         split = RowSetSplits(reader->clone());
@@ -156,7 +157,8 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<VScannerSPtr>&
 #endif
             scanners.emplace_back(_build_scanner(tablet, version, _key_ranges,
                                                  {std::move(partitial_read_source.rs_splits),
-                                                  entire_read_source.delete_predicates}));
+                                                  entire_read_source.delete_predicates},
+                                                 sub_txn_ids));
         }
     }
 
@@ -171,14 +173,11 @@ Status ParallelScannerBuilder::_load() {
     for (auto&& [tablet, version, sub_txn_ids] : _tablets) {
         const auto tablet_id = tablet->tablet_id();
         auto& read_source = _all_read_sources[tablet_id];
-        if (sub_txn_ids.empty()) {
+        if (sub_txn_ids.empty() || version > 0) {
             RETURN_IF_ERROR(
                     tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
-        } else {
-            if (version > 0) {
-                RETURN_IF_ERROR(
-                        tablet->capture_rs_readers({0, version}, &read_source.rs_splits, false));
-            }
+        }
+        if (!sub_txn_ids.empty()) {
             LOG(INFO) << "capture sub txn rs readers, size=" << sub_txn_ids.size()
                       << ", tablet_id=" << tablet_id << ", version=" << version;
             RETURN_IF_ERROR(tablet->capture_sub_txn_rs_readers(version, sub_txn_ids,
@@ -212,9 +211,11 @@ Status ParallelScannerBuilder::_load() {
 
 std::shared_ptr<NewOlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
-        TabletReader::ReadSource&& read_source) {
-    NewOlapScanner::Params params {_state,  _scanner_profile.get(), key_ranges, std::move(tablet),
-                                   version, std::move(read_source), _limit,     _is_preaggregation};
+        TabletReader::ReadSource&& read_source, const std::vector<int64_t>& sub_txn_ids) {
+    NewOlapScanner::Params params {
+            _state,     _scanner_profile.get(), key_ranges, std::move(tablet),
+            version,    std::move(read_source), _limit,     _is_preaggregation,
+            sub_txn_ids};
     return NewOlapScanner::create_shared(_parent, std::move(params));
 }
 

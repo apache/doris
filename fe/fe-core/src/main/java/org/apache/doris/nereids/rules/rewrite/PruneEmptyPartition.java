@@ -42,7 +42,8 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
             LogicalOlapScan scan = ctx.root;
             OlapTable table = scan.getTable();
             List<Long> ids = table.selectNonEmptyPartitionIds(scan.getSelectedPartitionIds());
-            addPartitionsForTxnLoad(scan.getSelectedPartitionIds(), ids, table, scan.getSelectedIndexId());
+            // In transaction load, need to add empty partitions which have invisible data of sub transactions
+            selectNonEmptyPartitionIdsForTxnLoad(scan.getSelectedPartitionIds(), ids, table, scan.getSelectedIndexId());
             if (ids.isEmpty()) {
                 return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
                         scan.getOutput());
@@ -51,7 +52,7 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
         }).toRule(RuleType.PRUNE_EMPTY_PARTITION);
     }
 
-    private void addPartitionsForTxnLoad(List<Long> selectedPartitions, List<Long> nonEmptyPartitions,
+    private void selectNonEmptyPartitionIdsForTxnLoad(List<Long> selectedPartitions, List<Long> nonEmptyPartitions,
             OlapTable table, long indexId) {
         if (!ConnectContext.get().isTxnModel()) {
             return;
