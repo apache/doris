@@ -324,7 +324,7 @@ public class SystemHandler extends AlterHandler {
         }
 
         if (!searchedAllTablets) {
-            // duce to not search all tablets, it may miss some leaky tablets.
+            // due to not search all tablets, it may miss some leaky tablets.
             // so we add the leaky tablets of the last time search.
             // it can infer that leakyTablets will contains all leaky tablets of the first time search.
             // And we know that the first time it searched all tablets.
@@ -332,7 +332,18 @@ public class SystemHandler extends AlterHandler {
         }
         leakyTablets.keySet().stream().limit(sampleLimit).forEach(sampleLeakyTablets::add);
 
+        // If a tablet can't be found in path 'db -> table -> partition', and it's not in recyle bin,
+        // we treat this tablet as leaky, but it maybe not real leaky.
+        // The onfight creating new partiton/table may let its tablets seem like leaky temporarily.
+        // For example, when creatting a new partition, firstly its tablets will add to TabletInvertedIndex.
+        // But at this moment, the partition hadn't add to table, so search the tablet with path
+        // 'db -> table -> partition' will failed. Only after finish creating, the partition will add to the table.
+        //
+        // So the onfight new tablet maynot be real leaky. Need to wait for a time to confirm they are real leaky.
         long skipLeakyTs = now - Config.decommission_skip_leaky_tablet_second * 1000L;
+
+        // if a backend no normal tablets (sampleTablets size = 0), and leaky tablets had been leaky for a long time,
+        // then can drop it now.
         return sampleTablets.isEmpty() && leakyTablets.values().stream().allMatch(ts -> ts < skipLeakyTs);
     }
 
