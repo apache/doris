@@ -229,7 +229,7 @@ public abstract class StorageVault {
         }
 
         int vaultIdIndex = IntStream.range(0, columns.size())
-                .filter(i -> columns.get(i).getName().equals("StorageVaultId"))
+                .filter(i -> columns.get(i).getName().equals("Id"))
                 .findFirst()
                 .orElse(-1);
 

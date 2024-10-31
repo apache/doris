@@ -121,7 +121,7 @@ public:
                 _tasks[j][i]->stop_if_finished();
             }
         }
-    };
+    }
 
 private:
     Status _build_pipelines(ObjectPool* pool, const doris::TPipelineFragmentParams& request,
@@ -140,7 +140,8 @@ private:
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorPtr& op,
                                                    PipelinePtr& cur_pipe, int parent_idx,
-                                                   int child_idx);
+                                                   int child_idx,
+                                                   const doris::TPipelineFragmentParams& request);
 
     Status _create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                              const std::vector<TExpr>& output_exprs,
@@ -152,22 +153,19 @@ private:
                                 const std::map<int, int>& shuffle_idx_to_instance_idx);
     Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
                                 const std::map<int, int>& bucket_seq_to_instance_idx,
-                                const std::map<int, int>& shuffle_idx_to_instance_idx,
-                                const bool ignore_data_distribution);
+                                const std::map<int, int>& shuffle_idx_to_instance_idx);
     void _inherit_pipeline_properties(const DataDistribution& data_distribution,
                                       PipelinePtr pipe_with_source, PipelinePtr pipe_with_sink);
     Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
                                PipelinePtr cur_pipe, DataDistribution data_distribution,
                                bool* do_local_exchange, int num_buckets,
                                const std::map<int, int>& bucket_seq_to_instance_idx,
-                               const std::map<int, int>& shuffle_idx_to_instance_idx,
-                               const bool ignore_data_distribution);
+                               const std::map<int, int>& shuffle_idx_to_instance_idx);
     Status _add_local_exchange_impl(int idx, ObjectPool* pool, PipelinePtr cur_pipe,
                                     PipelinePtr new_pip, DataDistribution data_distribution,
                                     bool* do_local_exchange, int num_buckets,
                                     const std::map<int, int>& bucket_seq_to_instance_idx,
-                                    const std::map<int, int>& shuffle_idx_to_instance_idx,
-                                    const bool ignore_data_hash_distribution);
+                                    const std::map<int, int>& shuffle_idx_to_instance_idx);
 
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
                                  ThreadPool* thread_pool);
@@ -224,6 +222,7 @@ private:
     int _num_instances = 1;
 
     int _timeout = -1;
+    bool _use_serial_source = false;
 
     OperatorPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.

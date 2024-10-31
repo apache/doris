@@ -101,6 +101,9 @@ public:
         return Status::OK();
     }
 
+    // Operators need to be executed serially. (e.g. finalized agg without key)
+    [[nodiscard]] virtual bool is_serial_operator() const { return _is_serial_operator; }
+
     [[nodiscard]] bool is_closed() const { return _is_closed; }
 
     virtual size_t revocable_mem_size(RuntimeState* state) const { return 0; }
@@ -115,13 +118,15 @@ public:
         _followed_by_shuffled_operator = followed_by_shuffled_operator;
     }
     [[nodiscard]] virtual bool is_shuffled_operator() const { return false; }
-    [[nodiscard]] virtual bool require_shuffled_data_distribution() const { return false; }
+    [[nodiscard]] virtual DataDistribution required_data_distribution() const;
+    [[nodiscard]] virtual bool require_shuffled_data_distribution() const;
 
 protected:
     OperatorPtr _child = nullptr;
 
     bool _is_closed;
     bool _followed_by_shuffled_operator = false;
+    bool _is_serial_operator = false;
 };
 
 class PipelineXLocalStateBase {
@@ -444,7 +449,7 @@ public:
 
     Status init(const TDataSink& tsink) override;
     [[nodiscard]] virtual Status init(ExchangeType type, const int num_buckets,
-                                      const bool is_shuffled_hash_join,
+                                      const bool use_global_hash_shuffle,
                                       const std::map<int, int>& shuffle_idx_to_instance_idx) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
@@ -479,7 +484,6 @@ public:
     }
 
     [[nodiscard]] virtual std::shared_ptr<BasicSharedState> create_shared_state() const = 0;
-    [[nodiscard]] virtual DataDistribution required_data_distribution() const;
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
@@ -491,8 +495,6 @@ public:
                                                    int indentation_level) const;
 
     [[nodiscard]] bool is_sink() const override { return true; }
-
-    [[nodiscard]] bool is_source() const override { return false; }
 
     static Status close(RuntimeState* state, Status exec_status) {
         auto result = state->get_sink_local_state_result();
@@ -648,19 +650,7 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
-    [[nodiscard]] virtual DataDistribution required_data_distribution() const {
-        return _child && _child->ignore_data_distribution() && !is_source()
-                       ? DataDistribution(ExchangeType::PASSTHROUGH)
-                       : DataDistribution(ExchangeType::NOOP);
-    }
-    [[nodiscard]] virtual bool ignore_data_distribution() const {
-        return _child ? _child->ignore_data_distribution() : _ignore_data_distribution;
-    }
-    [[nodiscard]] bool ignore_data_hash_distribution() const {
-        return _child ? _child->ignore_data_hash_distribution() : _ignore_data_distribution;
-    }
     [[nodiscard]] virtual bool need_more_input_data(RuntimeState* state) const { return true; }
-    void set_ignore_data_distribution() { _ignore_data_distribution = true; }
 
     Status open(RuntimeState* state) override;
 
@@ -731,8 +721,6 @@ public:
 
     bool has_output_row_desc() const { return _output_row_descriptor != nullptr; }
 
-    [[nodiscard]] bool is_source() const override { return false; }
-
     [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
                                                           vectorized::Block* block, bool* eos);
 
@@ -775,7 +763,6 @@ protected:
     uint32_t _debug_point_count = 0;
 
     std::string _op_name;
-    bool _ignore_data_distribution = false;
     int _parallel_tasks = 0;
 
     //_keep_origin is used to avoid copying during projection,

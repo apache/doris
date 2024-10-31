@@ -33,8 +33,9 @@ inline std::vector<vectorized::DataTypePtr> get_data_types(
 template <typename DataVariants>
 Status init_hash_method(DataVariants* data, const std::vector<vectorized::DataTypePtr>& data_types,
                         bool is_first_phase) {
-    auto type = get_hash_key_type_with_phase(get_hash_key_type(data_types), !is_first_phase);
+    auto type = HashKeyType::EMPTY;
     try {
+        type = get_hash_key_type_with_phase(get_hash_key_type(data_types), !is_first_phase);
         if (has_nullable_key(data_types)) {
             data->template init<true>(data_types, type);
         } else {
@@ -48,7 +49,7 @@ Status init_hash_method(DataVariants* data, const std::vector<vectorized::DataTy
 
     CHECK(!data->method_variant.valueless_by_exception());
 
-    if (type != HashKeyType::without_key &&
+    if (type != HashKeyType::without_key && type != HashKeyType::EMPTY &&
         data->method_variant.index() == 0) { // index is 0 means variant is monostate
         return Status::InternalError("method_variant init failed");
     }
