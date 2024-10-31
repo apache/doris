@@ -1122,7 +1122,7 @@ void commit_txn_immediately(
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
-                             << " code=" << code << "msg=" << msg;
+                             << " code=" << code << " msg=" << msg;
                 return;
             }
             last_pending_txn_id = 0;
@@ -1654,7 +1654,7 @@ void commit_txn_eventually(
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
-                             << " code=" << code << "msg=" << msg;
+                             << " code=" << code << " msg=" << msg;
                 return;
             }
 
