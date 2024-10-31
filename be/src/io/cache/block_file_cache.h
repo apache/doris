@@ -145,6 +145,9 @@ public:
 
     std::map<std::string, double> get_stats();
 
+    // for be UTs
+    std::map<std::string, double> get_stats_unsafe();
+
     class LRUQueue {
     public:
         LRUQueue() = default;
@@ -178,6 +181,10 @@ public:
         size_t get_capacity(T& /* cache_lock */) const {
             return cache_size;
         }
+
+        size_t get_capacity_unsafe() const { return cache_size; }
+
+        size_t get_elements_num_unsafe() const { return queue.size(); }
 
         size_t get_elements_num(std::lock_guard<std::mutex>& /* cache_lock */) const {
             return queue.size();

@@ -950,6 +950,7 @@ void BlockFileCache::find_evict_candidates(LRUQueue& queue, size_t size, size_t 
             DCHECK(file_block->_download_state == FileBlock::State::DOWNLOADED);
             to_evict.push_back(cell);
             removed_size += cell_size;
+            cur_removed_size += cell_size;
         }
     }
 }
@@ -1330,13 +1331,14 @@ bool BlockFileCache::try_reserve_from_other_queue_by_size(
 bool BlockFileCache::try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t size,
                                                   int64_t cur_time,
                                                   std::lock_guard<std::mutex>& cache_lock) {
+    // currently, TTL cache is not considered as a candidate
     auto other_cache_types = get_other_cache_type_without_ttl(cur_cache_type);
     bool reserve_success = try_reserve_from_other_queue_by_hot_interval(
             cur_cache_type, other_cache_types, size, cur_time, cache_lock);
     if (reserve_success || !config::file_cache_enable_evict_from_other_queue_by_size) {
         return reserve_success;
     }
-    // currently, TTL cache is not considered as a candidate
+
     other_cache_types = get_other_cache_type(cur_cache_type);
     auto& cur_queue = get_queue(cur_cache_type);
     size_t cur_queue_size = cur_queue.get_capacity(cache_lock);
@@ -1986,6 +1988,36 @@ std::map<std::string, double> BlockFileCache::get_stats() {
     stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
     stats["disposable_queue_curr_elements"] =
             (double)_cur_disposable_queue_element_count_metrics->get_value();
+
+    return stats;
+}
+
+// for be UTs
+std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
+    std::map<std::string, double> stats;
+    stats["hits_ratio"] = (double)_hit_ratio->get_value();
+    stats["hits_ratio_5m"] = (double)_hit_ratio_5m->get_value();
+    stats["hits_ratio_1h"] = (double)_hit_ratio_1h->get_value();
+
+    stats["index_queue_max_size"] = (double)_index_queue.get_max_size();
+    stats["index_queue_curr_size"] = (double)_index_queue.get_capacity_unsafe();
+    stats["index_queue_max_elements"] = (double)_index_queue.get_max_element_size();
+    stats["index_queue_curr_elements"] = (double)_index_queue.get_elements_num_unsafe();
+
+    stats["ttl_queue_max_size"] = (double)_ttl_queue.get_max_size();
+    stats["ttl_queue_curr_size"] = (double)_ttl_queue.get_capacity_unsafe();
+    stats["ttl_queue_max_elements"] = (double)_ttl_queue.get_max_element_size();
+    stats["ttl_queue_curr_elements"] = (double)_ttl_queue.get_elements_num_unsafe();
+
+    stats["normal_queue_max_size"] = (double)_normal_queue.get_max_size();
+    stats["normal_queue_curr_size"] = (double)_normal_queue.get_capacity_unsafe();
+    stats["normal_queue_max_elements"] = (double)_normal_queue.get_max_element_size();
+    stats["normal_queue_curr_elements"] = (double)_normal_queue.get_elements_num_unsafe();
+
+    stats["disposable_queue_max_size"] = (double)_disposable_queue.get_max_size();
+    stats["disposable_queue_curr_size"] = (double)_disposable_queue.get_capacity_unsafe();
+    stats["disposable_queue_max_elements"] = (double)_disposable_queue.get_max_element_size();
+    stats["disposable_queue_curr_elements"] = (double)_disposable_queue.get_elements_num_unsafe();
 
     return stats;
 }
