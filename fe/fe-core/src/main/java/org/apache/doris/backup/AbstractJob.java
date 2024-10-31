@@ -40,7 +40,7 @@ import java.util.Map;
 public abstract class AbstractJob implements Writable {
 
     public enum JobType {
-        BACKUP, RESTORE, RESTORE_COMPRESSED
+        BACKUP, RESTORE
     }
 
     protected JobType type;
@@ -160,8 +160,8 @@ public abstract class AbstractJob implements Writable {
         JobType type = JobType.valueOf(Text.readString(in));
         if (type == JobType.BACKUP) {
             job = new BackupJob();
-        } else if (type == JobType.RESTORE || type == JobType.RESTORE_COMPRESSED) {
-            job = new RestoreJob(type);
+        } else if (type == JobType.RESTORE) {
+            job = new RestoreJob();
         } else {
             throw new IOException("Unknown job type: " + type.name());
         }
