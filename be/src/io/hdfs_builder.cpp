@@ -27,7 +27,9 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#ifdef USE_HADOOP_HDFS
 #include "hadoop_hdfs/hdfs.h"
+#endif
 #include "io/fs/hdfs.h"
 #include "util/string_util.h"
 
