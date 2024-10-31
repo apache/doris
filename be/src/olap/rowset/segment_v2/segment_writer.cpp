@@ -486,7 +486,8 @@ Status SegmentWriter::probe_key_for_mow(
         std::string key, std::size_t segment_pos, bool have_input_seq_column, bool have_delete_sign,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-        bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
+        DeleteBitmapPtr cur_version_bitmap, bool& has_default_or_nullable,
+        std::vector<bool>& use_default_or_null_flag,
         const std::function<void(const RowLocation& loc)>& found_cb,
         const std::function<Status()>& not_found_cb, PartialUpdateStats& stats) {
     RowLocation loc;
@@ -494,7 +495,7 @@ Status SegmentWriter::probe_key_for_mow(
     RowsetSharedPtr rowset;
     auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
                                       specified_rowsets, &loc, _mow_context->max_version,
-                                      segment_caches, &rowset);
+                                      cur_version_bitmap, segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
         if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
             ++stats.num_rows_filtered;
@@ -614,6 +615,8 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    DeleteBitmapPtr cur_version_delete_bitmap =
+            std::make_shared<DeleteBitmap>(_tablet->tablet_id());
 
     FixedReadPlan read_plan;
 

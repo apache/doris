@@ -100,7 +100,7 @@ public:
                              bool have_delete_sign,
                              const std::vector<RowsetSharedPtr>& specified_rowsets,
                              std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                             bool& has_default_or_nullable,
+                             DeleteBitmapPtr cur_version_bitmap, bool& has_default_or_nullable,
                              std::vector<bool>& use_default_or_null_flag,
                              const std::function<void(const RowLocation& loc)>& found_cb,
                              const std::function<Status()>& not_found_cb,

@@ -170,7 +170,7 @@ private:
                               bool have_delete_sign,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
                               std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                              bool& has_default_or_nullable,
+                              DeleteBitmapPtr cur_version_bitmap, bool& has_default_or_nullable,
                               std::vector<bool>& use_default_or_null_flag,
                               const std::function<void(const RowLocation& loc)>& found_cb,
                               const std::function<Status()>& not_found_cb,
@@ -190,14 +190,15 @@ private:
             const signed char* delete_sign_column_data,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-            bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-            PartialUpdateStats& stats);
+            DeleteBitmapPtr cur_version_delete_bitmap, bool& has_default_or_nullable,
+            std::vector<bool>& use_default_or_null_flag, PartialUpdateStats& stats);
     Status _merge_rows_for_sequence_column(
             RowsInBlock& data, std::vector<BitmapValue>* skip_bitmaps,
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
             vectorized::IOlapColumnDataAccessor* seq_column,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
+            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+            DeleteBitmapPtr cur_version_delete_bitmap);
     Status _append_block_with_variant_subcolumns(RowsInBlock& data);
     Status _generate_key_index(
             RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,

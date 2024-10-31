@@ -359,7 +359,8 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
         std::string key, std::size_t segment_pos, bool have_input_seq_column, bool have_delete_sign,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-        bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
+        DeleteBitmapPtr cur_version_bitmap, bool& has_default_or_nullable,
+        std::vector<bool>& use_default_or_null_flag,
         const std::function<void(const RowLocation& loc)>& found_cb,
         const std::function<Status()>& not_found_cb, PartialUpdateStats& stats) {
     RowLocation loc;
@@ -367,7 +368,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     RowsetSharedPtr rowset;
     auto st = _tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
                                       specified_rowsets, &loc, _mow_context->max_version,
-                                      segment_caches, &rowset);
+                                      cur_version_bitmap, segment_caches, &rowset);
     if (st.is<KEY_NOT_FOUND>()) {
         if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
             ++stats.num_rows_filtered;
@@ -476,6 +477,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                     { sleep(60); })
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    DeleteBitmapPtr cur_version_delete_bitmap =
+            std::make_shared<DeleteBitmap>(_tablet->tablet_id());
 
     FixedReadPlan read_plan;
 
@@ -614,6 +617,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
                     { sleep(60); })
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    DeleteBitmapPtr cur_version_delete_bitmap =
+            std::make_shared<DeleteBitmap>(_tablet->tablet_id());
 
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns {};
     vectorized::IOlapColumnDataAccessor* seq_column {nullptr};
@@ -670,7 +675,8 @@ Status VerticalSegmentWriter::_append_block_with_flexible_partial_content(
     if (schema_has_sequence_col) {
         std::size_t origin_rows = data.num_rows;
         RETURN_IF_ERROR(_merge_rows_for_sequence_column(data, skip_bitmaps, key_columns, seq_column,
-                                                        specified_rowsets, segment_caches));
+                                                        specified_rowsets, segment_caches,
+                                                        cur_version_delete_bitmap));
         if (origin_rows != data.num_rows) {
             // data in block has changed, should re-encode key columns, sequence column and re-get skip_bitmaps
             _olap_data_convertor->clear_source_content();
@@ -799,8 +805,8 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
         vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_sign_column_data,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-        bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-        PartialUpdateStats& stats) {
+        DeleteBitmapPtr cur_version_delete_bitmap, bool& has_default_or_nullable,
+        std::vector<bool>& use_default_or_null_flag, PartialUpdateStats& stats) {
     int32_t delete_sign_col_unique_id =
             _tablet_schema->column(_tablet_schema->delete_sign_idx()).unique_id();
     int32_t seq_col_unique_id =
@@ -842,8 +848,9 @@ Status VerticalSegmentWriter::_generate_flexible_read_plan(
 
         RETURN_IF_ERROR(_probe_key_for_mow(std::move(key), segment_pos, row_has_sequence_col,
                                            have_delete_sign, specified_rowsets, segment_caches,
-                                           has_default_or_nullable, use_default_or_null_flag,
-                                           update_read_plan, not_found_cb, stats));
+                                           cur_version_delete_bitmap, has_default_or_nullable,
+                                           use_default_or_null_flag, update_read_plan, not_found_cb,
+                                           stats));
     }
     return Status::OK();
 }
@@ -853,7 +860,8 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
         vectorized::IOlapColumnDataAccessor* seq_column,
         const std::vector<RowsetSharedPtr>& specified_rowsets,
-        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches) {
+        std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
+        DeleteBitmapPtr cur_version_delete_bitmap) {
     VLOG_DEBUG << fmt::format(
             "VerticalSegmentWriter::_merge_rows_for_sequence_column enter: data.block:{}\n",
             data.block->dump_data());
@@ -891,7 +899,8 @@ Status VerticalSegmentWriter::_merge_rows_for_sequence_column(
             }
             std::string previous_encoded_seq_value {};
             st = _tablet->lookup_row_key(key, _tablet_schema.get(), false, specified_rowsets, &loc,
-                                         _mow_context->max_version, segment_caches, &rowset, true,
+                                         _mow_context->max_version, cur_version_delete_bitmap,
+                                         segment_caches, &rowset, true,
                                          &previous_encoded_seq_value);
             DCHECK(st.is<KEY_NOT_FOUND>() || st.ok());
 

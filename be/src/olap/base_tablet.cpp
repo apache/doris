@@ -483,9 +483,12 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             segment_caches[i] = std::make_unique<SegmentCacheHandle>();
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                     std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true));
-            for (const auto& seg : segment_caches[i]->get_segments()) {
-                DeleteBitmap::BitmapKey bmk(rs->rowset_id(), seg->id(), version);
-                cur_version_delete_bitmap->set(bmk, *(_tablet_meta->delete_bitmap().get_agg(bmk)));
+            if (cur_version_delete_bitmap != nullptr) {
+                for (const auto& seg : segment_caches[i]->get_segments()) {
+                    DeleteBitmap::BitmapKey bmk(rs->rowset_id(), seg->id(), version);
+                    cur_version_delete_bitmap->set(bmk,
+                                                   *(_tablet_meta->delete_bitmap().get_agg(bmk)));
+                }
             }
         }
         auto& segments = segment_caches[i]->get_segments();
@@ -500,10 +503,15 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
             if (!s.ok() && !s.is<KEY_ALREADY_EXISTS>()) {
                 return s;
             }
-            DCHECK(cur_version_delete_bitmap->get({loc.rowset_id, loc.segment_id, version}) !=
-                   nullptr);
-            if (s.ok() && cur_version_delete_bitmap->contains(
-                                  {loc.rowset_id, loc.segment_id, version}, loc.row_id)) {
+            DCHECK(cur_version_delete_bitmap == nullptr ||
+                   cur_version_delete_bitmap->get({loc.rowset_id, loc.segment_id, version}) !=
+                           nullptr);
+            if (s.ok() &&
+                (cur_version_delete_bitmap != nullptr
+                         ? cur_version_delete_bitmap->contains(
+                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id)
+                         : tablet_meta()->delete_bitmap().contains_agg_without_cache(
+                                   {loc.rowset_id, loc.segment_id, version}, loc.row_id))) {
                 // if has sequence col, we continue to compare the sequence_id of
                 // all rowsets, util we find an existing key.
                 if (schema->has_sequence_col()) {
@@ -620,6 +628,7 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     // will update the lru cache, and there will be obvious lock competition in multithreading
     // scenarios, so using a segment_caches to cache SegmentCacheHandle.
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
+    DeleteBitmapPtr cur_version_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     while (remaining > 0) {
         std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter));
@@ -678,7 +687,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
             RowsetSharedPtr rowset_find;
             auto st = lookup_row_key(key, rowset_schema.get(), true, specified_rowsets, &loc,
-                                     dummy_version.first - 1, segment_caches, &rowset_find);
+                                     dummy_version.first - 1, cur_version_delete_bitmap,
+                                     segment_caches, &rowset_find);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
             // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
             // while stress test
