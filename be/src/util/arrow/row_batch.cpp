@@ -158,7 +158,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
 }
 
 Status get_arrow_schema(const vectorized::Block& block, std::shared_ptr<arrow::Schema>* result,
-                        const std::string& timezone) const {
+                        const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
