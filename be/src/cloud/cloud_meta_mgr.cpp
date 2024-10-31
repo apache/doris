@@ -1050,7 +1050,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
 
 Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet,
                                                        DeleteBitmap* delete_bitmap) {
-    VLOG_DEBUG << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id();
+    LOG(INFO) << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
+              << ",delete_bitmap size:" << delete_bitmap->delete_bitmap.size();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
