@@ -86,6 +86,7 @@ public:
     void reset_block() { _mutable_block.reset(); }
 
     void set_is_local(bool is_local) { _is_local = is_local; }
+    bool is_local() const { return _is_local; }
 
 private:
     pipeline::ExchangeSinkLocalState* _parent;
