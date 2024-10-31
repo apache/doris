@@ -159,6 +159,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.stmtId).append("\t");
         logBuffer.append(event.stmtType).append("\t");
         logBuffer.append(event.isQuery ? 1 : 0).append("\t");
+        logBuffer.append(event.isNereids ? 1 : 0).append("\t");
         logBuffer.append(event.feIp).append("\t");
         logBuffer.append(event.cpuTimeMs).append("\t");
         logBuffer.append(event.sqlHash).append("\t");
@@ -244,3 +245,4 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         }
     }
 }
+

@@ -187,6 +187,7 @@ public class AuditLogHelper {
         String cluster = Config.isCloudMode() ? cloudCluster : "";
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
+        auditEventBuilder.reset();
         auditEventBuilder
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
