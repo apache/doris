@@ -76,8 +76,8 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         }
-        return _child->ignore_data_distribution() ? DataDistribution(ExchangeType::BROADCAST)
-                                                  : DataDistribution(ExchangeType::NOOP);
+        return _child->is_serial_operator() ? DataDistribution(ExchangeType::BROADCAST)
+                                            : DataDistribution(ExchangeType::NOOP);
     }
 
 private:

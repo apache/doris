@@ -24,7 +24,6 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 
-import com.google.common.base.Preconditions;
 import org.apache.avro.LogicalType;
 import org.apache.avro.LogicalTypes;
 import org.apache.avro.Schema;
@@ -40,145 +39,6 @@ import java.util.stream.Collectors;
 
 public class HudiUtils {
     private static final SimpleDateFormat defaultDateFormat = new SimpleDateFormat("yyyy-MM-dd");
-
-    public static String fromAvroHudiTypeToHiveTypeString(Schema avroSchema) {
-        Schema.Type columnType = avroSchema.getType();
-        LogicalType logicalType = avroSchema.getLogicalType();
-        switch (columnType) {
-            case BOOLEAN:
-                return "boolean";
-            case INT:
-                if (logicalType instanceof LogicalTypes.Date) {
-                    return "date";
-                } else if (logicalType instanceof LogicalTypes.TimeMillis) {
-                    break;
-                } else {
-                    return "int";
-                }
-            case LONG:
-                if (logicalType instanceof LogicalTypes.TimeMicros) {
-                    break;
-                } else if (logicalType instanceof LogicalTypes.TimestampMillis) {
-                    return "timestamp(3)";
-                } else if (logicalType instanceof LogicalTypes.TimestampMicros) {
-                    return "timestamp(6)";
-                } else {
-                    return "bigint";
-                }
-            case FLOAT:
-                return "float";
-            case DOUBLE:
-                return "double";
-            case STRING:
-                return "string";
-            case FIXED:
-            case BYTES:
-                if (logicalType instanceof LogicalTypes.Decimal) {
-                    int precision = ((LogicalTypes.Decimal) logicalType).getPrecision();
-                    int scale = ((LogicalTypes.Decimal) logicalType).getScale();
-                    return String.format("decimal(%s,%s)", precision, scale);
-                } else {
-                    if (columnType == Schema.Type.BYTES) {
-                        return "binary";
-                    }
-                    return "string";
-                }
-            case ARRAY:
-                String elementType = fromAvroHudiTypeToHiveTypeString(avroSchema.getElementType());
-                return String.format("array<%s>", elementType);
-            case RECORD:
-                List<Field> fields = avroSchema.getFields();
-                Preconditions.checkArgument(fields.size() > 0);
-                String nameToType = fields.stream()
-                        .map(f -> String.format("%s:%s", f.name(),
-                                fromAvroHudiTypeToHiveTypeString(f.schema())))
-                        .collect(Collectors.joining(","));
-                return String.format("struct<%s>", nameToType);
-            case MAP:
-                Schema value = avroSchema.getValueType();
-                String valueType = fromAvroHudiTypeToHiveTypeString(value);
-                return String.format("map<%s,%s>", "string", valueType);
-            case UNION:
-                List<Schema> nonNullMembers = avroSchema.getTypes().stream()
-                        .filter(schema -> !Schema.Type.NULL.equals(schema.getType()))
-                        .collect(Collectors.toList());
-                // The nullable column in hudi is the union type with schemas [null, real column type]
-                if (nonNullMembers.size() == 1) {
-                    return fromAvroHudiTypeToHiveTypeString(nonNullMembers.get(0));
-                }
-                break;
-            default:
-                break;
-        }
-        String errorMsg = String.format("Unsupported hudi %s type of column %s", avroSchema.getType().getName(),
-                avroSchema.getName());
-        throw new IllegalArgumentException(errorMsg);
-    }
-
-    public static Type fromAvroHudiTypeToDorisType(Schema avroSchema) {
-        Schema.Type columnType = avroSchema.getType();
-        LogicalType logicalType = avroSchema.getLogicalType();
-        switch (columnType) {
-            case BOOLEAN:
-                return Type.BOOLEAN;
-            case INT:
-                if (logicalType instanceof LogicalTypes.Date) {
-                    return ScalarType.createDateV2Type();
-                } else if (logicalType instanceof LogicalTypes.TimeMillis) {
-                    return ScalarType.createTimeV2Type(3);
-                } else {
-                    return Type.INT;
-                }
-            case LONG:
-                if (logicalType instanceof LogicalTypes.TimeMicros) {
-                    return ScalarType.createTimeV2Type(6);
-                } else if (logicalType instanceof LogicalTypes.TimestampMillis) {
-                    return ScalarType.createDatetimeV2Type(3);
-                } else if (logicalType instanceof LogicalTypes.TimestampMicros) {
-                    return ScalarType.createDatetimeV2Type(6);
-                } else {
-                    return Type.BIGINT;
-                }
-            case FLOAT:
-                return Type.FLOAT;
-            case DOUBLE:
-                return Type.DOUBLE;
-            case STRING:
-                return Type.STRING;
-            case FIXED:
-            case BYTES:
-                if (logicalType instanceof LogicalTypes.Decimal) {
-                    int precision = ((LogicalTypes.Decimal) logicalType).getPrecision();
-                    int scale = ((LogicalTypes.Decimal) logicalType).getScale();
-                    return ScalarType.createDecimalV3Type(precision, scale);
-                } else {
-                    return Type.STRING;
-                }
-            case ARRAY:
-                Type innerType = fromAvroHudiTypeToDorisType(avroSchema.getElementType());
-                return ArrayType.create(innerType, true);
-            case RECORD:
-                ArrayList<StructField> fields = new ArrayList<>();
-                avroSchema.getFields().forEach(
-                        f -> fields.add(new StructField(f.name(), fromAvroHudiTypeToDorisType(f.schema()))));
-                return new StructType(fields);
-            case MAP:
-                // Hudi map's key must be string
-                return new MapType(Type.STRING, fromAvroHudiTypeToDorisType(avroSchema.getValueType()));
-            case UNION:
-                List<Schema> nonNullMembers = avroSchema.getTypes().stream()
-                        .filter(schema -> !Schema.Type.NULL.equals(schema.getType()))
-                        .collect(Collectors.toList());
-                // The nullable column in hudi is the union type with schemas [null, real column type]
-                if (nonNullMembers.size() == 1) {
-                    return fromAvroHudiTypeToDorisType(nonNullMembers.get(0));
-                }
-                break;
-            default:
-                break;
-        }
-        return Type.UNSUPPORTED;
-    }
 
     /**
      * Convert different query instant time format to the commit time format.
@@ -206,5 +66,169 @@ public class HudiUtils {
                     + ", Supported time format are: 'yyyy-MM-dd HH:mm:ss[.SSS]' "
                     + "or 'yyyy-MM-dd' or 'yyyyMMddHHmmss[SSS]'");
         }
+    }
+
+    public static String convertAvroToHiveType(Schema schema) {
+        Schema.Type type = schema.getType();
+        LogicalType logicalType = schema.getLogicalType();
+
+        switch (type) {
+            case BOOLEAN:
+                return "boolean";
+            case INT:
+                if (logicalType instanceof LogicalTypes.Date) {
+                    return "date";
+                }
+                if (logicalType instanceof LogicalTypes.TimeMillis) {
+                    return handleUnsupportedType(schema);
+                }
+                return "int";
+            case LONG:
+                if (logicalType instanceof LogicalTypes.TimestampMillis
+                        || logicalType instanceof LogicalTypes.TimestampMicros) {
+                    return logicalType.getName();
+                }
+                if (logicalType instanceof LogicalTypes.TimeMicros) {
+                    return handleUnsupportedType(schema);
+                }
+                return "bigint";
+            case FLOAT:
+                return "float";
+            case DOUBLE:
+                return "double";
+            case STRING:
+                return "string";
+            case FIXED:
+            case BYTES:
+                if (logicalType instanceof LogicalTypes.Decimal) {
+                    LogicalTypes.Decimal decimalType = (LogicalTypes.Decimal) logicalType;
+                    return String.format("decimal(%d,%d)", decimalType.getPrecision(), decimalType.getScale());
+                }
+                return "string";
+            case ARRAY:
+                String arrayElementType = convertAvroToHiveType(schema.getElementType());
+                return String.format("array<%s>", arrayElementType);
+            case RECORD:
+                List<Field> recordFields = schema.getFields();
+                if (recordFields.isEmpty()) {
+                    throw new IllegalArgumentException("Record must have fields");
+                }
+                String structFields = recordFields.stream()
+                        .map(field -> String.format("%s:%s", field.name(), convertAvroToHiveType(field.schema())))
+                        .collect(Collectors.joining(","));
+                return String.format("struct<%s>", structFields);
+            case MAP:
+                Schema mapValueType = schema.getValueType();
+                String mapValueTypeString = convertAvroToHiveType(mapValueType);
+                return String.format("map<string,%s>", mapValueTypeString);
+            case UNION:
+                List<Schema> unionTypes = schema.getTypes().stream()
+                        .filter(s -> s.getType() != Schema.Type.NULL)
+                        .collect(Collectors.toList());
+                if (unionTypes.size() == 1) {
+                    return convertAvroToHiveType(unionTypes.get(0));
+                }
+                break;
+            default:
+                break;
+        }
+
+        throw new IllegalArgumentException(
+                String.format("Unsupported type: %s for column: %s", type.getName(), schema.getName()));
+    }
+
+    private static String handleUnsupportedType(Schema schema) {
+        throw new IllegalArgumentException(String.format("Unsupported logical type: %s", schema.getLogicalType()));
+    }
+
+    public static Type fromAvroHudiTypeToDorisType(Schema avroSchema) {
+        Schema.Type columnType = avroSchema.getType();
+        LogicalType logicalType = avroSchema.getLogicalType();
+
+        switch (columnType) {
+            case BOOLEAN:
+                return Type.BOOLEAN;
+            case INT:
+                return handleIntType(logicalType);
+            case LONG:
+                return handleLongType(logicalType);
+            case FLOAT:
+                return Type.FLOAT;
+            case DOUBLE:
+                return Type.DOUBLE;
+            case STRING:
+                return Type.STRING;
+            case FIXED:
+            case BYTES:
+                return handleFixedOrBytesType(logicalType);
+            case ARRAY:
+                return handleArrayType(avroSchema);
+            case RECORD:
+                return handleRecordType(avroSchema);
+            case MAP:
+                return handleMapType(avroSchema);
+            case UNION:
+                return handleUnionType(avroSchema);
+            default:
+                return Type.UNSUPPORTED;
+        }
+    }
+
+    private static Type handleIntType(LogicalType logicalType) {
+        if (logicalType instanceof LogicalTypes.Date) {
+            return ScalarType.createDateV2Type();
+        }
+        if (logicalType instanceof LogicalTypes.TimeMillis) {
+            return ScalarType.createTimeV2Type(3);
+        }
+        return Type.INT;
+    }
+
+    private static Type handleLongType(LogicalType logicalType) {
+        if (logicalType instanceof LogicalTypes.TimeMicros) {
+            return ScalarType.createTimeV2Type(6);
+        }
+        if (logicalType instanceof LogicalTypes.TimestampMillis) {
+            return ScalarType.createDatetimeV2Type(3);
+        }
+        if (logicalType instanceof LogicalTypes.TimestampMicros) {
+            return ScalarType.createDatetimeV2Type(6);
+        }
+        return Type.BIGINT;
+    }
+
+    private static Type handleFixedOrBytesType(LogicalType logicalType) {
+        if (logicalType instanceof LogicalTypes.Decimal) {
+            int precision = ((LogicalTypes.Decimal) logicalType).getPrecision();
+            int scale = ((LogicalTypes.Decimal) logicalType).getScale();
+            return ScalarType.createDecimalV3Type(precision, scale);
+        }
+        return Type.STRING;
+    }
+
+    private static Type handleArrayType(Schema avroSchema) {
+        Type innerType = fromAvroHudiTypeToDorisType(avroSchema.getElementType());
+        return ArrayType.create(innerType, true);
+    }
+
+    private static Type handleRecordType(Schema avroSchema) {
+        ArrayList<StructField> fields = new ArrayList<>();
+        avroSchema.getFields().forEach(
+                f -> fields.add(new StructField(f.name(), fromAvroHudiTypeToDorisType(f.schema()))));
+        return new StructType(fields);
+    }
+
+    private static Type handleMapType(Schema avroSchema) {
+        return new MapType(Type.STRING, fromAvroHudiTypeToDorisType(avroSchema.getValueType()));
+    }
+
+    private static Type handleUnionType(Schema avroSchema) {
+        List<Schema> nonNullMembers = avroSchema.getTypes().stream()
+                .filter(schema -> !Schema.Type.NULL.equals(schema.getType()))
+                .collect(Collectors.toList());
+        if (nonNullMembers.size() == 1) {
+            return fromAvroHudiTypeToDorisType(nonNullMembers.get(0));
+        }
+        return Type.UNSUPPORTED;
     }
 }

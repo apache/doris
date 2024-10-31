@@ -53,12 +53,12 @@ statementBase
     | supportedJobStatement              #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
+    | supportedSetStatement             #supportedSetStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
 unsupportedStatement
-    : unsupportedSetStatement
-    | unsupoortedUnsetStatement
+    : unsupoortedUnsetStatement
     | unsupportedUseStatement
     | unsupportedDmlStatement
     | unsupportedKillStatement
@@ -798,7 +798,7 @@ functionArgument
     | dataType
     ;
 
-unsupportedSetStatement
+supportedSetStatement
     : SET (optionWithType | optionWithoutType)
         (COMMA (optionWithType | optionWithoutType))*                   #setOptions
     | SET identifier AS DEFAULT STORAGE VAULT                           #setDefaultStorageVault
@@ -811,7 +811,7 @@ unsupportedSetStatement
     ;
 
 optionWithType
-    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)
+    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)   #setVariableWithType
     ;
 
 optionWithoutType
@@ -820,7 +820,7 @@ optionWithoutType
     | NAMES (charsetName=identifierOrText | DEFAULT)
         (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
     | PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL
-        | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))             #setPassword
+        | (isPlain=PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))             #setPassword
     | LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL
     | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))                 #setLdapAdminPassword
     | variable                                                          #setVariableWithoutType

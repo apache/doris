@@ -55,7 +55,7 @@ struct ProcessHashTableProbe {
                                   int last_probe_index, bool all_match_one,
                                   bool have_other_join_conjunct);
 
-    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
+    template <bool need_judge_null, typename HashTableType>
     Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                    vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
                    uint32_t probe_rows, bool is_mark_join, bool have_other_join_conjunct);
@@ -64,8 +64,8 @@ struct ProcessHashTableProbe {
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
     // TODO: opt the visited here to reduce the size of hash table
-    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType,
-              bool with_other_conjuncts, bool is_mark_join>
+    template <bool need_judge_null, typename HashTableType, bool with_other_conjuncts,
+              bool is_mark_join>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                       vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
                       uint32_t probe_rows);

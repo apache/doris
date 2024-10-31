@@ -433,7 +433,7 @@ public:
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         const auto& sources =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =

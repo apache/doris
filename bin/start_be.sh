@@ -407,7 +407,7 @@ export LIBHDFS_OPTS="${final_java_opt}"
 # log "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
-    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:false,lg_prof_interval:-1"
+    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:true,prof_active:false,lg_prof_interval:-1"
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then

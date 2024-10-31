@@ -292,10 +292,20 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                                 _tablet->tablet_path(), output_rowset_meta->rowset_id().to_string(),
                                 seg_ptr->id()))};
 
+                std::string index_path =
+                        InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+                io::FileWriterPtr file_writer;
+                Status st = fs->create_file(index_path, &file_writer);
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to create writable file. path=" << index_path
+                                 << ", err: " << st;
+                    return st;
+                }
                 auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                         fs, std::move(index_path_prefix),
                         output_rowset_meta->rowset_id().to_string(), seg_ptr->id(),
-                        output_rowset_schema->get_inverted_index_storage_format());
+                        output_rowset_schema->get_inverted_index_storage_format(),
+                        std::move(file_writer));
                 RETURN_IF_ERROR(inverted_index_file_writer->initialize(dirs));
                 // create inverted index writer
                 for (auto& index_meta : _dropped_inverted_indexes) {
@@ -346,10 +356,20 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                                << seg_ptr->id() << " cannot be found";
                     continue;
                 }
+                std::string index_path =
+                        InvertedIndexDescriptor::get_index_file_path_v2(index_path_prefix);
+                io::FileWriterPtr file_writer;
+                Status st = fs->create_file(index_path, &file_writer);
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to create writable file. path=" << index_path
+                                 << ", err: " << st;
+                    return st;
+                }
                 auto dirs = DORIS_TRY(idx_file_reader_iter->second->get_all_directories());
                 inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
-                        seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format());
+                        seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format(),
+                        std::move(file_writer));
                 RETURN_IF_ERROR(inverted_index_file_writer->initialize(dirs));
             } else {
                 inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
@@ -554,6 +574,13 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         } catch (const std::exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occured: {}", e.what());
+        }
+        // we should refresh nullmap for array
+        for (int row_id = 0; row_id < num_rows; row_id++) {
+            if (null_map && null_map[row_id] == 1) {
+                RETURN_IF_ERROR(
+                        _inverted_index_builders[index_writer_sign]->add_array_nulls(row_id));
+            }
         }
         return Status::OK();
     }

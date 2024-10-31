@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "olap/hll.h"
 #include "util/hash_util.hpp"
@@ -47,6 +48,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct HLLCardinality {
     static constexpr auto name = "hll_cardinality";
@@ -167,8 +169,8 @@ public:
         res.reserve(input_rows_count);
 
         std::string decode_buff;
-        int last_decode_buff_len = 0;
-        int curr_decode_buff_len = 0;
+        int64_t last_decode_buff_len = 0;
+        int64_t curr_decode_buff_len = 0;
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* src_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int64_t src_size = offsets[i] - offsets[i - 1];
@@ -302,7 +304,7 @@ struct HllToBase64 {
             DCHECK(outlen > 0);
 
             encoded_offset += outlen;
-            offsets[i] = encoded_offset;
+            offsets[i] = cast_set<uint32_t>(encoded_offset);
         }
         return Status::OK();
     }

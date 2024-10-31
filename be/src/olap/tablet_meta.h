@@ -119,6 +119,11 @@ public:
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
 
+// UT
+#ifdef BE_TEST
+    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {}
+#endif
+
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
     Status create_from_file(const std::string& file_path);
