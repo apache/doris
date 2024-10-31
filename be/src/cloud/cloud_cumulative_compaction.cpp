@@ -410,13 +410,6 @@ Status CloudCumulativeCompaction::process_old_version_delete_bitmap() {
                                         "test fail to update delete bitmap for tablet_id {}",
                                         cloud_tablet()->tablet_id());
                             });
-            std::vector<std::tuple<std::string, uint64_t, uint64_t>> to_delete;
-            for (auto it = new_delete_bitmap->delete_bitmap.begin();
-                 it != new_delete_bitmap->delete_bitmap.end(); it++) {
-                to_delete.emplace_back(std::make_tuple(std::get<0>(it->first).to_string(),
-                                                       std::get<2>(it->first),
-                                                       std::get<2>(it->first)));
-            }
             RETURN_IF_ERROR(_engine.meta_mgr().cloud_update_delete_bitmap_without_lock(
                     *cloud_tablet(), new_delete_bitmap.get()));
 
