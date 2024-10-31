@@ -42,7 +42,6 @@ import org.apache.doris.datasource.hive.HiveProperties;
 import org.apache.doris.datasource.hive.HiveTransaction;
 import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
-import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
@@ -126,46 +125,16 @@ public class HiveScanNode extends FileQueryScanNode {
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
         List<HivePartition> resPartitions = Lists.newArrayList();
-        long start = System.currentTimeMillis();
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
         List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
         if (!partitionColumnTypes.isEmpty()) {
             // partitioned table
-            boolean isPartitionPruned = selectedPartitions != null && selectedPartitions.isPruned;
             Collection<PartitionItem> partitionItems;
-            if (!isPartitionPruned) {
-                // partitionItems is null means that the partition is not pruned by Nereids,
-                // so need to prune partitions here by legacy ListPartitionPrunerV2.
-                HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
-                        hmsTable.getDbName(), hmsTable.getName(), partitionColumnTypes);
-                Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
-                this.totalPartitionNum = idToPartitionItem.size();
-                if (!conjuncts.isEmpty()) {
-                    ListPartitionPrunerV2 pruner = new ListPartitionPrunerV2(idToPartitionItem,
-                            hmsTable.getPartitionColumns(), columnNameToRange,
-                            hivePartitionValues.getUidToPartitionRange(),
-                            hivePartitionValues.getRangeToId(),
-                            hivePartitionValues.getSingleColumnRangeMap(),
-                            true);
-                    Collection<Long> filteredPartitionIds = pruner.prune();
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
-                                hmsTable.getDbName(), hmsTable.getName(), (System.currentTimeMillis() - start));
-                    }
-                    partitionItems = Lists.newArrayListWithCapacity(filteredPartitionIds.size());
-                    for (Long id : filteredPartitionIds) {
-                        partitionItems.add(idToPartitionItem.get(id));
-                    }
-                } else {
-                    partitionItems = idToPartitionItem.values();
-                }
-            } else {
-                // partitions has benn pruned by Nereids, in PruneFileScanPartition,
-                // so just use the selected partitions.
-                this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-                partitionItems = selectedPartitions.selectedPartitions.values();
-            }
+            // partitions has benn pruned by Nereids, in PruneFileScanPartition,
+            // so just use the selected partitions.
+            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+            partitionItems = selectedPartitions.selectedPartitions.values();
             Preconditions.checkNotNull(partitionItems);
             this.selectedPartitionNum = partitionItems.size();
 
