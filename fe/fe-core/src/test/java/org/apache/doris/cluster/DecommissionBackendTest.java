@@ -372,12 +372,6 @@ public class DecommissionBackendTest extends TestWithFeService {
         Backend srcBackend = Env.getCurrentSystemInfo().getBackend(tablet.getReplicas().get(0).getBackendId());
         Assertions.assertNotNull(srcBackend);
 
-        String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
-        AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
-        Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
-
-        Assertions.assertTrue(srcBackend.isDecommissioned());
-
         TabletInvertedIndex invertIndex = Env.getCurrentInvertedIndex();
         long fakeTabletId =  123123123L;
         TabletMeta fakeTabletMeta = new TabletMeta(1234567L, 1234568L, 1234569L, 1234570L, 0, TStorageMedium.HDD);
@@ -397,8 +391,16 @@ public class DecommissionBackendTest extends TestWithFeService {
         try {
             Config.decommission_skip_leaky_tablet_second = 3600;
 
+            // add leaky tablet
             invertIndex.addTablet(fakeTabletId, fakeTabletMeta);
             invertIndex.addReplica(fakeTabletId, fakeReplica);
+
+            String decommissionStmtStr = "alter system decommission backend \"" + srcBackend.getAddress() + "\"";
+            AlterSystemStmt decommissionStmt = (AlterSystemStmt) parseAndAnalyzeStmt(decommissionStmtStr);
+            Env.getCurrentEnv().getAlterInstance().processAlterSystem(decommissionStmt);
+
+            Assertions.assertTrue(srcBackend.isDecommissioned());
+
             long startTimestamp = System.currentTimeMillis();
 
             List<Long> expectTabletIds = Lists.newArrayList(fakeTabletId);
