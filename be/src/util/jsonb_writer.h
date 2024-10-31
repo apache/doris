@@ -315,7 +315,9 @@ public:
         return false;
     }
 
-    uint32_t writeString(const char* str, uint32_t len) {
+    // TODO: here changed length to uint64_t, as some api also need changed, But the thirdparty api is uint_32t
+    // need consider a better way to handle case.
+    uint64_t writeString(const char* str, uint64_t len) {
         if (kvState_ == WS_String) {
             os_->write(str, len);
             return len;
@@ -324,9 +326,7 @@ public:
         return 0;
     }
 
-    uint32_t writeString(const std::string& str) {
-        return writeString(str.c_str(), (uint32_t)str.size());
-    }
+    uint32_t writeString(const std::string& str) { return writeString(str.c_str(), str.size()); }
     uint32_t writeString(char ch) {
         if (kvState_ == WS_String) {
             os_->put(ch);
@@ -344,8 +344,8 @@ public:
             str_pos_ = os_->tellp();
 
             // fill the size bytes with 0 for now
-            uint64_t size = 0;
-            os_->write((char*)&size, sizeof(uint64_t));
+            uint32_t size = 0;
+            os_->write((char*)&size, sizeof(uint32_t));
 
             kvState_ = WS_Binary;
             return true;
@@ -358,11 +358,11 @@ public:
     bool writeEndBinary() {
         if (kvState_ == WS_Binary) {
             std::streampos cur_pos = os_->tellp();
-            auto size = (cur_pos - str_pos_ - sizeof(uint64_t));
+            int32_t size = (int32_t)(cur_pos - str_pos_ - sizeof(uint32_t));
             assert(size >= 0);
 
             os_->seekp(str_pos_);
-            os_->write((char*)&size, sizeof(uint64_t));
+            os_->write((char*)&size, sizeof(uint32_t));
             os_->seekp(cur_pos);
 
             kvState_ = WS_Value;
@@ -372,7 +372,7 @@ public:
         return false;
     }
 
-    uint32_t writeBinary(const char* bin, uint64_t len) {
+    uint64_t writeBinary(const char* bin, uint64_t len) {
         if (kvState_ == WS_Binary) {
             os_->write(bin, len);
             return len;
@@ -483,8 +483,7 @@ public:
     }
 
     JsonbValue* getValue() {
-        return JsonbDocument::createValue(getOutput()->getBuffer(),
-                                          (uint32_t)getOutput()->getSize());
+        return JsonbDocument::createValue(getOutput()->getBuffer(), getOutput()->getSize());
     }
 
     bool writeEnd() {

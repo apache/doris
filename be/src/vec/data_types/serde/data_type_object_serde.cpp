@@ -105,7 +105,7 @@ void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     if (!succ) {
         // not a valid json insert raw text
         result.writeStartString();
-        result.writeString(value_str.data(), cast_set<uint32_t>(value_str.size()));
+        result.writeString(value_str.data(), value_str.size());
         result.writeEndString();
     } else {
         // write a json binary
