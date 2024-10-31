@@ -137,7 +137,9 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender = nullptr;
     std::shared_ptr<ResultWriter> _writer = nullptr;
-    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+
+    RuntimeProfile::Counter* _fetch_row_id_timer = nullptr;
+    RuntimeProfile::Counter* _write_data_timer = nullptr;
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
