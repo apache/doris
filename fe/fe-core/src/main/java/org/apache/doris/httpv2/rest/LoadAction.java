@@ -79,6 +79,7 @@ public class LoadAction extends RestBaseController {
 
     public static final String REDIRECT_POLICY_PUBLIC_PRIVATE = "public-private";
     public static final String REDIRECT_POLICY_RANDOM_BE = "random-be";
+    public static final String REDIRECT_POLICY_DIRECT = "direct";
     public static final String REDIRECT_POLICY_PUBLIC = "public";
     public static final String REDIRECT_POLICY_PRIVATE = "private";
 
@@ -467,7 +468,7 @@ public class LoadAction extends RestBaseController {
     /**
      * Selects the endpoint address based on the redirect policy specified in the request header.
      * The available redirect policies are:
-     * - RANDOM_BE: Redirects to the host of the backend.
+     * - DIRECT: Redirects to the backend's host.
      * - PUBLIC: Redirects to the public endpoint of the backend.
      * - PRIVATE: Redirects to the private endpoint of the backend.
      * - PUBLIC_PRIVATE: Redirects based on the host IP or domain. If the  host is a site-local
@@ -524,7 +525,8 @@ public class LoadAction extends RestBaseController {
         }
 
         // User specified redirect policy
-        if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_RANDOM_BE)) {
+        if (redirectPolicy != null && (redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_DIRECT)
+                || redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_RANDOM_BE))) {
             return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
         } else if (redirectPolicy != null && redirectPolicy.equalsIgnoreCase(REDIRECT_POLICY_PUBLIC)) {
             if (publicHostPort != null) {

@@ -116,7 +116,16 @@ public class Tag implements Writable {
         if (!type.matches(TAG_TYPE_REGEX)) {
             throw new AnalysisException("Invalid tag type format: " + type);
         }
-        if (!value.matches(TAG_VALUE_REGEX) && !value.matches(ENDPOINT_REGEX)) {
+
+        // if type is an endpoint type, value must be a valid endpoint
+        if ((type.equalsIgnoreCase(PUBLIC_ENDPOINT) || type.equalsIgnoreCase(PRIVATE_ENDPOINT)
+                || type.equalsIgnoreCase(COMPUTE_GROUP_PUBLIC_ENDPOINT)
+                || type.equalsIgnoreCase(COMPUTE_GROUP_PRIVATE_ENDPOINT))
+                && !value.matches(ENDPOINT_REGEX)) {
+            throw new AnalysisException("Invalid " + type + " value format: " + value);
+        }
+
+        if (!value.matches(TAG_VALUE_REGEX)) {
             throw new AnalysisException("Invalid tag value format: " + value);
         }
         return new Tag(type, value);

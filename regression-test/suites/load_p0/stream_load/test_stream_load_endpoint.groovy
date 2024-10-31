@@ -68,8 +68,8 @@ suite('test_stream_load_endpoint', 'docker') {
         log.info("private location: ${location}")
         assertTrue(location.contains("1.2.3.5:8012"))
 
-        location = getRedirectLocation(feIp, fePort, "random-be")
-        log.info("random-be location: ${location}")
+        location = getRedirectLocation(feIp, fePort, "direct")
+        log.info("direct location: ${location}")
         assertTrue(location.contains("${beIp}:${beHttpPort}"))
 
         location = getRedirectLocation(feIp, fePort, "")
@@ -95,8 +95,8 @@ suite('test_stream_load_endpoint', 'docker') {
         log.info("private location: ${location}")
         assertTrue(location.contains("10.10.10.9:8020"))
 
-        location = getRedirectLocation(feIp, fePort, "random-be")
-        log.info("random-be location: ${location}")
+        location = getRedirectLocation(feIp, fePort, "direct")
+        log.info("direct location: ${location}")
         assertTrue(location.contains("${beIp}:${beHttpPort}"))
 
         location = getRedirectLocation(feIp, fePort, "")
@@ -133,8 +133,8 @@ suite('test_stream_load_endpoint', 'docker') {
         log.info("private location: ${location}")
         assertTrue(location.contains("1.2.3.5:8012"))
 
-        location = getRedirectLocation(feIp, fePort, "random-be")
-        log.info("random-be location: ${location}")
+        location = getRedirectLocation(feIp, fePort, "direct")
+        log.info("direct location: ${location}")
         assertTrue(location.contains("${beIp}:${beHttpPort}"))
 
         location = getRedirectLocation(feIp, fePort, "")
@@ -168,8 +168,8 @@ suite('test_stream_load_endpoint', 'docker') {
         log.info("private location: ${location}")
         assertTrue(location.contains("1.2.3.5:8012"))
 
-        location = getRedirectLocation(feIp, fePort, "random-be")
-        log.info("random-be location: ${location}")
+        location = getRedirectLocation(feIp, fePort, "direct")
+        log.info("direct location: ${location}")
         assertTrue(location.contains("${beIp}:${beHttpPort}"))
 
         location = getRedirectLocation(feIp, fePort, "")
