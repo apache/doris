@@ -17,6 +17,9 @@
 
 package org.pentaho.di.trans.steps.dorisstreamloader;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.pentaho.di.core.CheckResult;
 import org.pentaho.di.core.CheckResultInterface;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.core.annotations.Step;
@@ -43,7 +46,13 @@ import org.pentaho.di.trans.step.StepMetaInterface;
 import org.pentaho.metastore.api.IMetaStore;
 import org.w3c.dom.Node;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 
 /**
@@ -235,10 +244,101 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
     // Default: nothing changes to rowMeta
   }
 
+@Override
   public void check( List<CheckResultInterface> remarks, TransMeta transMeta, StepMeta stepMeta, RowMetaInterface prev,
       String[] input, String[] output, RowMetaInterface info, VariableSpace space, Repository repository,
       IMetaStore metaStore ) {
     //todo: check parameters
+
+    //check fenodes  user password
+    if (null == fenodes || fenodes.trim().isEmpty()){
+        remarks.add(new CheckResult(CheckResult.TYPE_RESULT_NONE, BaseMessages.getString( PKG,
+            "DorisStreamLoaderMeta.CheckResult.FenodesIsNUll" ), stepMeta));
+    }else {
+        if (checkLogin()){
+            remarks.add(new CheckResult(CheckResult.TYPE_RESULT_OK, BaseMessages.getString( PKG,
+                "DorisStreamLoaderMeta.CheckResult.LoginIsOK" ), stepMeta));
+        }else {
+            remarks.add(new CheckResult(CheckResult.TYPE_RESULT_ERROR, BaseMessages.getString( PKG,
+                "DorisStreamLoaderMeta.CheckResult.LoginIsNO" ), stepMeta));
+        }
+    }
+
+    //check database
+    if (checkLogin()) {
+        if (null == database || database.trim().isEmpty()) {
+            remarks.add(new CheckResult(CheckResult.TYPE_RESULT_NONE, BaseMessages.getString(PKG,
+                "DorisStreamLoaderMeta.CheckResult.DatabaseIsNUll"), stepMeta));
+        } else {
+            JSONArray allDatabases = getAllDatabases();
+            boolean containsSearch = false;
+            for (int i = 0; i < allDatabases.length(); i++) {
+                JSONArray innerArray = allDatabases.getJSONArray(i);
+                for (int j = 0; j < innerArray.length(); j++) {
+                    String value = innerArray.getString(j);
+                    if (value.equals(database)) {
+                        containsSearch = true;
+                        break;
+                    }
+                }
+                if (containsSearch) {
+                    break;
+                }
+            }
+
+            if (containsSearch) {
+                remarks.add(new CheckResult(CheckResult.TYPE_RESULT_OK, BaseMessages.getString(PKG,
+                    "DorisStreamLoaderMeta.CheckResult.DatabaseIsOK"), stepMeta));
+            } else {
+                remarks.add(new CheckResult(CheckResult.TYPE_RESULT_ERROR, BaseMessages.getString(PKG,
+                    "DorisStreamLoaderMeta.CheckResult.DatabaseIsNO"), stepMeta));
+            }
+        }
+
+        //check table
+        if (null == table || table.trim().isEmpty()) {
+            remarks.add(new CheckResult(CheckResult.TYPE_RESULT_NONE, BaseMessages.getString(PKG,
+                "DorisStreamLoaderMeta.CheckResult.TableIsNUll"), stepMeta));
+        } else {
+            JSONArray allTables = getAllTables();
+            boolean containsSearch = false;
+            for (int i = 0; i < allTables.length(); i++) {
+                JSONArray innerArray = allTables.getJSONArray(i);
+                for (int j = 0; j < innerArray.length(); j++) {
+                    String value = innerArray.getString(j);
+                    if (value.equals(table)) {
+                        containsSearch = true;
+                        break;
+                    }
+                }
+                if (containsSearch) {
+                    break;
+                }
+            }
+
+            if (containsSearch) {
+                remarks.add(new CheckResult(CheckResult.TYPE_RESULT_OK, BaseMessages.getString(PKG,
+                    "DorisStreamLoaderMeta.CheckResult.TableIsOK"), stepMeta));
+            } else {
+                remarks.add(new CheckResult(CheckResult.TYPE_RESULT_ERROR, BaseMessages.getString(PKG,
+                    "DorisStreamLoaderMeta.CheckResult.TableIsNO"), stepMeta));
+            }
+        }
+    }
+
+    //check streamLoadProp
+    if (null ==streamLoadProp || streamLoadProp.trim().isEmpty()){
+        remarks.add(new CheckResult(CheckResult.TYPE_RESULT_NONE, BaseMessages.getString( PKG,
+            "DorisStreamLoaderMeta.CheckResult.StreamLoadPropIsNUll" ), stepMeta));
+    }else {
+        if (checkStreamLoadProp()){
+            remarks.add(new CheckResult(CheckResult.TYPE_RESULT_OK, BaseMessages.getString( PKG,
+                "DorisStreamLoaderMeta.CheckResult.StreamLoadPropIsOK" ), stepMeta));
+        }else {
+            remarks.add(new CheckResult(CheckResult.TYPE_RESULT_ERROR, BaseMessages.getString( PKG,
+                "DorisStreamLoaderMeta.CheckResult.StreamLoadPropIsNO" ), stepMeta));
+        }
+    }
   }
 
 
@@ -348,6 +448,93 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
     fieldTable = new String[nrvalues];
     fieldStream = new String[nrvalues];
   }
+
+    public  String sendPostRequest(String url, String jsonInputString, String username, String password) throws Exception {
+        URL obj = new URL(url);
+        HttpURLConnection connection = (HttpURLConnection) obj.openConnection();
+        connection.setRequestMethod("POST");
+
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setRequestProperty("Accept", "application/json");
+
+        String auth = username + ":" + password;
+        String encodedAuth = Base64.getEncoder().encodeToString(auth.getBytes("UTF-8"));
+        connection.setRequestProperty("Authorization", "Basic " + encodedAuth);
+
+        connection.setDoOutput(true);
+
+        try (OutputStream os = connection.getOutputStream()) {
+            byte[] input = jsonInputString.getBytes("utf-8");
+            os.write(input, 0, input.length);
+        }
+
+        int responseCode = connection.getResponseCode();
+
+        StringBuilder response = new StringBuilder();
+        if (responseCode == HttpURLConnection.HTTP_OK) { // 200 OK
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                String inputLine;
+                while ((inputLine = in.readLine()) != null) {
+                    response.append(inputLine);
+                }
+            }
+        } else {
+            throw new Exception("POST request failed, response code: " + responseCode);
+        }
+        return response.toString();
+    }
+
+    private boolean checkLogin(){
+        try {
+            String url = "http://"+getFenodes()+"/rest/v1/login";
+            String jsonInputString = "";
+            String response = sendPostRequest(url, jsonInputString, username, password);
+            JSONObject jsonObject = new JSONObject(response);
+            int code = jsonObject.getInt("code");
+            if (200 == code){
+                return true;
+            }else {
+                return false;
+            }
+        }catch (Exception e){
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private JSONArray getPOSTResults(String sql){
+        try {
+            String url = "http://"+getFenodes()+"/api/query/internal/information_schema";
+            String jsonInputString = "{\"stmt\" : \""+sql+"\"}";
+            String response = sendPostRequest(url, jsonInputString, username, password);
+            JSONObject jsonObject = new JSONObject(response);
+            JSONArray dataArray = jsonObject.getJSONObject("data").getJSONArray("data");
+            return dataArray;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    private JSONArray getAllDatabases(){
+        String sql = "show databases";
+        return getPOSTResults(sql);
+    }
+
+    private JSONArray getAllTables(){
+        String sql =  "select TABLE_NAME from information_schema.TABLES where TABLE_SCHEMA = '"+getDatabase()+"'";
+        return getPOSTResults(sql);
+    }
+
+    private JSONArray getFields(){
+        String sql = "select `COLUMN_NAME` from `information_schema`.`COLUMNS` where `TABLE_SCHEMA`='"+getDatabase()+"' and `TABLE_NAME`='"+getTable()+"';";
+        return getPOSTResults(sql);
+    }
+
+    private boolean checkStreamLoadProp(){
+        String pattern = "^([a-zA-Z0-9_]+:[a-zA-Z0-9_]+)(;[a-zA-Z0-9_]+:[a-zA-Z0-9_]+)*$";
+        return streamLoadProp.matches(pattern);
+    }
 
   @Override
   public String toString() {
