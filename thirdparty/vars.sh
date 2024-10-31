@@ -73,10 +73,11 @@ THRIFT_SOURCE=thrift-0.16.0
 THRIFT_MD5SUM="44cf1b54b4ec1890576c85804acfa637"
 
 # protobuf
-PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.15.0.tar.gz"
-PROTOBUF_NAME=protobuf-3.15.0.tar.gz
-PROTOBUF_SOURCE=protobuf-3.15.0
-PROTOBUF_MD5SUM="3fb6c41f7b3c621424543f43d54baa42"
+# brpc is not yet compatible with protobuf >= 22
+PROTOBUF_DOWNLOAD="https://github.com/protocolbuffers/protobuf/releases/download/v21.11/protobuf-all-21.11.tar.gz"
+PROTOBUF_NAME="protobuf-all-21.11.tar.gz"
+PROTOBUF_SOURCE=protobuf-21.11
+PROTOBUF_MD5SUM="b3b104f0374802e1add5d5d7a5a845ac"
 
 # gflags
 GFLAGS_DOWNLOAD="https://github.com/gflags/gflags/archive/v2.2.2.tar.gz"
