@@ -296,6 +296,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_TABLE: {
                     TableInfo info = (TableInfo) journal.getData();
                     env.replayRenameTable(info);
+                    env.getBinlogManager().addTableRename(info, logId);
                     break;
                 }
                 case OperationType.OP_MODIFY_VIEW_DEF: {
@@ -1435,7 +1436,9 @@ public class EditLog {
     }
 
     public void logTableRename(TableInfo tableInfo) {
-        logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
+        long logId = logEdit(OperationType.OP_RENAME_TABLE, tableInfo);
+        LOG.info("log table rename, logId : {}, infos: {}", logId, tableInfo);
+        Env.getCurrentEnv().getBinlogManager().addTableRename(tableInfo, logId);
     }
 
     public void logModifyViewDef(AlterViewInfo alterViewInfo) {
