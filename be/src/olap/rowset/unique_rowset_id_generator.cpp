@@ -17,7 +17,16 @@
 
 #include "olap/rowset/unique_rowset_id_generator.h"
 
+#include <atomic>
+
+#include "olap/storage_engine.h"
+#include "runtime/exec_env.h"
+
 namespace doris {
+
+int64_t unique_rowset_id_next_high() {
+    return ExecEnv::GetInstance()->storage_engine().next_rowset_id_high();
+}
 
 UniqueRowsetIdGenerator::UniqueRowsetIdGenerator(const UniqueId& backend_uid)
         : _backend_uid(backend_uid), _inc_id(1) {}
@@ -29,6 +38,10 @@ RowsetId UniqueRowsetIdGenerator::next_id() {
     rowset_id.init(_version, _inc_id.fetch_add(1, std::memory_order_relaxed), _backend_uid.hi,
                    _backend_uid.lo);
     return rowset_id;
+}
+
+int64_t UniqueRowsetIdGenerator::next_high() {
+    return _inc_id.fetch_add(1, std::memory_order_relaxed);
 }
 
 } // namespace doris

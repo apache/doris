@@ -30,6 +30,7 @@ public:
     ~UniqueRowsetIdGenerator() override;
 
     RowsetId next_id() override;
+    int64_t next_high() override;
 
 private:
     const UniqueId _backend_uid;

@@ -31,6 +31,7 @@ public:
 
     // generate and return the next global unique rowset id
     virtual RowsetId next_id() = 0;
+    virtual int64_t next_high() = 0;
 }; // RowsetIdGenerator
 
 } // namespace doris

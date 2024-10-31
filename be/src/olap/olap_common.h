@@ -395,6 +395,7 @@ using ColumnId = uint32_t;
 using UniqueIdSet = std::set<uint32_t>;
 // Column unique Id -> column id map
 using UniqueIdToColumnIdMap = std::map<ColumnId, ColumnId>;
+int64_t unique_rowset_id_next_high();
 
 // 8 bit rowset id version
 // 56 bit, inc number from 1
@@ -414,10 +415,7 @@ struct RowsetId {
                                            rowset_id_str.data() + rowset_id_str.length(), high);
             if (ec != std::errc {}) [[unlikely]] {
                 LOG(WARNING) << "failed to init rowset id: " << rowset_id_str;
-                high = []() {
-                    std::mt19937_64 rg(std::random_device {}());
-                    return std::uniform_int_distribution<int64_t>()(rg);
-                }();
+                high = unique_rowset_id_next_high();
             }
             init(1, high, 0, 0);
         } else {
