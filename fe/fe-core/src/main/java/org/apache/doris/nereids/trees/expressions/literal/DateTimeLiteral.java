@@ -23,6 +23,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
 
@@ -187,9 +188,10 @@ public class DateTimeLiteral extends DateLiteral {
         }
 
         if (isV2) {
-            return Result.ok(new DateTimeV2Literal(year, month, day, hour, minute, second, microSecond));
+            DateTimeV2Type type = DateTimeV2Type.forTypeFromString(s);
+            return Result.ok(new DateTimeV2Literal(type, year, month, day, hour, minute, second, microSecond));
         } else {
-            return Result.ok(new DateTimeLiteral(year, month, day, hour, minute, second));
+            return Result.ok(new DateTimeLiteral(DateTimeType.INSTANCE, year, month, day, hour, minute, second));
         }
     }
 
