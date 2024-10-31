@@ -129,6 +129,7 @@ void convert_tmp_rowsets(
             LOG(INFO) << "txn_id=" << txn_id << " key=" << hex(ver_key)
                       << " version_pb:" << version_pb.ShortDebugString();
             partition_versions.emplace(tmp_rowset_pb.partition_id(), version_pb);
+            DCHECK_EQ(partition_versions.size(), 1) << partition_versions.size();
         }
 
         const VersionPB& version_pb = partition_versions[tmp_rowset_pb.partition_id()];
@@ -178,8 +179,6 @@ void convert_tmp_rowsets(
         ++stats.num_rowsets;
         stats.num_segs += tmp_rowset_pb.num_segments();
     }
-
-    DCHECK(partition_versions.size() == 1);
 
     for (auto& [tablet_id, stats] : tablet_stats) {
         DCHECK(tablet_ids.count(tablet_id));
