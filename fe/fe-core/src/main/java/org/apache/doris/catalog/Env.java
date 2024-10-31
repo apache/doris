@@ -79,6 +79,7 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
@@ -289,6 +290,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
+import org.apache.doris.transaction.GlobalExternalTransactionInfoMgr;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
@@ -424,7 +426,7 @@ public class Env {
     // node name is used for bdbje NodeName.
     protected String nodeName;
     protected FrontendNodeType role;
-    private FrontendNodeType feType;
+    protected FrontendNodeType feType;
     // replica and observer use this value to decide provide read service or not
     private long synchronizedTimeMs;
     private MasterInfo masterInfo;
@@ -566,6 +568,8 @@ public class Env {
     private final NereidsSqlCacheManager sqlCacheManager;
 
     private final SplitSourceManager splitSourceManager;
+
+    private final GlobalExternalTransactionInfoMgr globalExternalTransactionInfoMgr;
 
     private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
 
@@ -815,6 +819,7 @@ public class Env {
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.splitSourceManager = new SplitSourceManager();
+        this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -1143,6 +1148,24 @@ public class Env {
         this.httpReady.set(httpReady);
     }
 
+    protected boolean isStartFromEmpty() {
+        File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
+        File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+
+        return !roleFile.exists() && !versionFile.exists();
+    }
+
+    private void getClusterIdFromStorage(Storage storage) throws IOException {
+        clusterId = storage.getClusterID();
+        if (Config.cluster_id != -1 && Config.cluster_id != this.clusterId) {
+            LOG.warn("Configured cluster_id {} does not match stored cluster_id {}. "
+                     + "This may indicate a configuration error.",
+                     Config.cluster_id, this.clusterId);
+            throw new IOException("Configured cluster_id does not match stored cluster_id. "
+                                + "Please check your configuration.");
+        }
+    }
+
     protected void getClusterIdAndRole() throws IOException {
         File roleFile = new File(this.imageDir, Storage.ROLE_FILE);
         File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
@@ -1224,7 +1247,7 @@ public class Env {
                 frontends.put(nodeName, self);
                 LOG.info("add self frontend: {}", self);
             } else {
-                clusterId = storage.getClusterID();
+                getClusterIdFromStorage(storage);
                 if (storage.getToken() == null) {
                     token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
                     LOG.info("refresh new token");
@@ -1279,7 +1302,7 @@ public class Env {
                 // NOTE: cluster_id will be init when Storage object is constructed,
                 //       so we new one.
                 storage = new Storage(this.imageDir);
-                clusterId = storage.getClusterID();
+                getClusterIdFromStorage(storage);
                 token = storage.getToken();
                 if (Strings.isNullOrEmpty(token)) {
                     token = Config.auth_token;
@@ -1287,7 +1310,7 @@ public class Env {
             } else {
                 // If the version file exist, read the cluster id and check the
                 // id with helper node to make sure they are identical
-                clusterId = storage.getClusterID();
+                getClusterIdFromStorage(storage);
                 token = storage.getToken();
                 try {
                     String url = "http://" + NetUtils
@@ -2053,7 +2076,7 @@ public class Env {
 
     public void loadImage(String imageDir) throws IOException, DdlException {
         Storage storage = new Storage(imageDir);
-        clusterId = storage.getClusterID();
+        getClusterIdFromStorage(storage);
         File curFile = storage.getCurrentImageFile();
         if (!curFile.exists()) {
             // image.0 may not exist
@@ -2965,8 +2988,8 @@ public class Env {
             }
         }
         long cost = System.currentTimeMillis() - startTime;
-        if (cost >= 1000) {
-            LOG.warn("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
+        if (LOG.isDebugEnabled() && cost >= 1000) {
+            LOG.debug("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
         }
 
         return hasLog;
@@ -2983,21 +3006,30 @@ public class Env {
         };
     }
 
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort) throws DdlException {
+        addFrontend(role, host, editLogPort, "");
+    }
+
     public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName) throws DdlException {
+        addFrontend(role, host, editLogPort, nodeName, "");
+    }
+
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName, String cloudUniqueId)
+            throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
         try {
+            if (Strings.isNullOrEmpty(nodeName)) {
+                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
+            }
+
             Frontend fe = checkFeExist(host, editLogPort);
             if (fe != null) {
                 throw new DdlException("frontend already exists " + fe);
             }
             if (Config.enable_fqdn_mode && StringUtils.isEmpty(host)) {
                 throw new DdlException("frontend's hostName should not be empty while enable_fqdn_mode is true");
-            }
-
-            if (Strings.isNullOrEmpty(nodeName)) {
-                nodeName = genFeNodeName(host, editLogPort, false /* new name style */);
             }
 
             if (removedFrontends.contains(nodeName)) {
@@ -3014,6 +3046,7 @@ public class Env {
 
             // Only add frontend after removing the conflict nodes, to ensure the exception safety.
             fe = new Frontend(role, nodeName, host, editLogPort);
+            fe.setCloudUniqueId(cloudUniqueId);
             frontends.put(nodeName, fe);
 
             LOG.info("add frontend: {}", fe);
@@ -3032,7 +3065,7 @@ public class Env {
         modifyFrontendHost(fe.getNodeName(), destHost);
     }
 
-    public void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
+    private void modifyFrontendHost(String nodeName, String destHost) throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
@@ -3060,6 +3093,10 @@ public class Env {
     }
 
     public void dropFrontend(FrontendNodeType role, String host, int port) throws DdlException {
+        dropFrontendFromBDBJE(role, host, port);
+    }
+
+    public void dropFrontendFromBDBJE(FrontendNodeType role, String host, int port) throws DdlException {
         if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
                 && selfNode.getHost().equals(host)) {
             throw new DdlException("can not drop current master node.");
@@ -3522,6 +3559,13 @@ public class Env {
             sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
         }
 
+        // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
+                && olapTable.getEnableUniqueKeySkipBitmap()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN).append("\" = \"");
+            sb.append(olapTable.getEnableUniqueKeySkipBitmap()).append("\"");
+        }
+
         // show lightSchemaChange only when it is set true
         if (olapTable.getEnableLightSchemaChange()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
@@ -3664,6 +3708,10 @@ public class Env {
                     .append(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)
                     .append("\" = \"");
             sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
+        }
+
+        if (olapTable.isInAtomicRestore()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
         }
     }
 
@@ -4309,8 +4357,8 @@ public class Env {
         return cooldownConfHandler;
     }
 
-    public SystemHandler getClusterHandler() {
-        return (SystemHandler) this.alter.getClusterHandler();
+    public SystemHandler getSystemHandler() {
+        return (SystemHandler) this.alter.getSystemHandler();
     }
 
     public BackupHandler getBackupHandler() {
@@ -4690,6 +4738,9 @@ public class Env {
                 // check if name is already used
                 if (db.getTable(newTableName).isPresent()) {
                     throw new DdlException("Table name[" + newTableName + "] is already used");
+                }
+                if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(newTableName)).isPresent()) {
+                    throw new DdlException("Table name[" + newTableName + "] is already used (in restoring)");
                 }
 
                 if (table.isManagedTable()) {
@@ -5115,11 +5166,7 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
-            try {
-                Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
-            } catch (Exception e) {
-                LOG.info("Failed to drop stats after rename column. Reason: {}", e.getMessage());
-            }
+            Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
         }
     }
 
@@ -5466,15 +5513,15 @@ public class Env {
     }
 
     /*
-     * used for handling AlterClusterStmt
-     * (for client is the ALTER CLUSTER command).
+     * used for handling AlterSystemStmt
+     * (for client is the ALTER SYSTEM command).
      */
-    public void alterCluster(AlterSystemStmt stmt) throws DdlException, UserException {
-        this.alter.processAlterCluster(stmt);
+    public void alterSystem(AlterSystemStmt stmt) throws DdlException, UserException {
+        this.alter.processAlterSystem(stmt);
     }
 
-    public void cancelAlterCluster(CancelAlterSystemStmt stmt) throws DdlException {
-        this.alter.getClusterHandler().cancel(stmt);
+    public void cancelAlterSystem(CancelAlterSystemStmt stmt) throws DdlException {
+        this.alter.getSystemHandler().cancel(stmt);
     }
 
     // Switch catalog of this session
@@ -5530,33 +5577,49 @@ public class Env {
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
 
         // check if table exists in db
+        boolean replace = false;
         if (db.getTable(tableName).isPresent()) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create view[{}] which already exists", tableName);
                 return;
+            } else if (stmt.isSetOrReplace()) {
+                replace = true;
+                LOG.info("view[{}] already exists, need to replace it", tableName);
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
         }
 
-        List<Column> columns = stmt.getColumns();
+        if (replace) {
+            AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(),
+                    stmt.getViewDefStmt());
+            alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
+            try {
+                alterView(alterViewStmt);
+            } catch (UserException e) {
+                throw new DdlException("failed to replace view[" + tableName + "], reason=" + e.getMessage());
+            }
+            LOG.info("successfully replace view[{}]", tableName);
+        } else {
+            List<Column> columns = stmt.getColumns();
 
-        long tableId = Env.getCurrentEnv().getNextId();
-        View newView = new View(tableId, tableName, columns);
-        newView.setComment(stmt.getComment());
-        newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
-                ConnectContext.get().getSessionVariable().getSqlMode());
-        // init here in case the stmt string from view.toSql() has some syntax error.
-        try {
-            newView.init();
-        } catch (UserException e) {
-            throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-        }
+            long tableId = Env.getCurrentEnv().getNextId();
+            View newView = new View(tableId, tableName, columns);
+            newView.setComment(stmt.getComment());
+            newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
+                    ConnectContext.get().getSessionVariable().getSqlMode());
+            // init here in case the stmt string from view.toSql() has some syntax error.
+            try {
+                newView.init();
+            } catch (UserException e) {
+                throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
+            }
 
-        if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
-            throw new DdlException("Failed to create view[" + tableName + "].");
+            if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
+                throw new DdlException("Failed to create view[" + tableName + "].");
+            }
+            LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
         }
-        LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
     }
 
     public FunctionRegistry getFunctionRegistry() {
@@ -5777,8 +5840,9 @@ public class Env {
         ConfigBase.setMutableConfig(key, value);
         if (configtoThreads.get(key) != null) {
             try {
+                // not atomic. maybe delay to aware. but acceptable.
                 configtoThreads.get(key).get().setInterval(Config.getField(key).getLong(null) * 1000L);
-                configtoThreads.get(key).get().interrupt();
+                // shouldn't interrupt to keep possible bdbje writing safe.
                 LOG.info("set config " + key + " to " + value);
             } catch (IllegalAccessException e) {
                 LOG.warn("set config " + key + " failed: " + e.getMessage());
@@ -6384,7 +6448,7 @@ public class Env {
                         for (Replica replica : tablet.getReplicas()) {
                             TGetMetaReplicaMeta replicaMeta = new TGetMetaReplicaMeta();
                             replicaMeta.setId(replica.getId());
-                            replicaMeta.setBackendId(replica.getBackendId());
+                            replicaMeta.setBackendId(replica.getBackendIdWithoutException());
                             replicaMeta.setVersion(replica.getVersion());
                             tabletMeta.addToReplicas(replicaMeta);
                         }
@@ -6429,6 +6493,7 @@ public class Env {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
             dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
             dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
+            dbMeta.setDroppedIndexes(binlogManager.getDroppedIndexes(db.getId()));
         }
 
         result.setDbMeta(dbMeta);
@@ -6458,8 +6523,8 @@ public class Env {
                 for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            CompactionTask compactionTask = new CompactionTask(replica.getBackendId(), db.getId(),
-                                    olapTable.getId(), partition.getId(), idx.getId(), tablet.getId(),
+                            CompactionTask compactionTask = new CompactionTask(replica.getBackendIdWithoutException(),
+                                    db.getId(), olapTable.getId(), partition.getId(), idx.getId(), tablet.getId(),
                                     olapTable.getSchemaHashByIndexId(idx.getId()), type);
                             batchTask.addTask(compactionTask);
                         }
@@ -6537,6 +6602,10 @@ public class Env {
 
     public SplitSourceManager getSplitSourceManager() {
         return splitSourceManager;
+    }
+
+    public GlobalExternalTransactionInfoMgr getGlobalExternalTransactionInfoMgr() {
+        return globalExternalTransactionInfoMgr;
     }
 
     public StatisticsJobAppender getStatisticsJobAppender() {

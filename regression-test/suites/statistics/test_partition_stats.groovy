@@ -14,6 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_partition_stats") {
 
@@ -36,33 +38,29 @@ suite("test_partition_stats") {
             sql """use ${db}"""
             result = sql """show frontends;"""
             logger.info("show frontends result master: " + result)
-            for (int i = 0; i < 120; i++) {
-                Thread.sleep(5000)
+            // in 300 sec its not matching, then timeout raised by awaited.
+            Awaitility.await().atMost(300, SECONDS).pollInterval(5, SECONDS).until{
                 result = sql """SHOW DATA FROM ${table};"""
                 logger.info("result " + result)
                 if (result[row][column] == expected) {
-                    return;
+                    return true;
                 }
+                return false;
             }
-            throw new Exception("Row count report timeout.")
         }
 
     }
 
     def wait_mv_finish = { db, table ->
-        for (int loop = 0; loop < 300; loop++) {
-            Thread.sleep(1000)
-            boolean finished = true;
+        // in 300 sec its not matching, then timeout raised by awaited.
+        Awaitility.await().atMost(300, SECONDS).pollInterval(1, SECONDS).until{
             def result = sql """SHOW ALTER TABLE MATERIALIZED VIEW FROM ${db} WHERE tableName="${table}";"""
             for (int i = 0; i < result.size(); i++) {
                 if (result[i][8] != 'FINISHED') {
-                    finished = false;
-                    break;
+                    return false;
                 }
             }
-            if (finished) {
-                return;
-            }
+            return true;
         }
         throw new Exception("Wait mv finish timeout.")
     }
@@ -116,15 +114,17 @@ suite("test_partition_stats") {
 
     // Test show cached partition stats.
     sql """analyze table part with sync;"""
-    for (int i = 0; i < 20; i++) {
+    // in 20 sec its not matching, then timeout raised by awaited.
+    Awaitility.await().atMost(20, SECONDS).pollInterval(1, SECONDS).until{
         result = sql """show column cached stats part partition(*)"""
         if (result.size() == 27) {
             logger.info("cache is ready.")
-            break;
+            return true;
         }
         logger.info("cache is not ready yet.")
-        Thread.sleep(1000)
+        return false;
     }
+
     result = sql """show column cached stats part(id) partition(p1)"""
     assertEquals("id", result[0][0])
     assertEquals("p1", result[0][1])
@@ -479,13 +479,12 @@ suite("test_partition_stats") {
         result = sql """show auto analyze part4"""
         assertTrue(result.size() > 0)
         def index = result.size() - 1;
-        def finished = false;
-        for (int i = 0; i < 20; i++) {
+        // in 30 sec its not matching, then timeout raised by awaited.
+        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until{
             if (result[index][9].equals("FINISHED")) {
-                finished = true;
-                break;
+                return true;
             }
-            Thread.sleep(1000)
+            return false;
         }
         if (finished) {
             result = sql """show column stats part4"""
@@ -667,13 +666,12 @@ suite("test_partition_stats") {
     sql """analyze table part7 properties("use.auto.analyzer"="true")"""
     result = sql """show auto analyze part7"""
     assertEquals(1, result.size())
-    def finished = false;
-    for (int i = 0; i < 20; i++) {
+    // in 20 sec its not matching, then timeout raised by awaited.
+    Awaitility.await().atMost(20, SECONDS).pollInterval(1, SECONDS).until{
         if (result[0][9].equals("FINISHED")) {
-            finished = true;
-            break;
+            return true;
         }
-        Thread.sleep(1000)
+        return false;
     }
     if (finished) {
         result = sql """show column stats part7"""

@@ -72,6 +72,7 @@ public class AnalyzeCTE extends OneAnalysisRuleFactory {
             CascadesContext outerCascadesCtx = CascadesContext.newContextWithCteContext(
                     ctx.cascadesContext, logicalCTE.child(), result.first);
             outerCascadesCtx.newAnalyzer().analyze();
+            ctx.cascadesContext.setLeadingDisableJoinReorder(outerCascadesCtx.isLeadingDisableJoinReorder());
             Plan root = outerCascadesCtx.getRewritePlan();
             // should construct anchor from back to front, because the cte behind depends on the front
             for (int i = result.second.size() - 1; i >= 0; i--) {

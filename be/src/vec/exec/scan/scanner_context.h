@@ -57,11 +57,13 @@ class ScanTask {
 public:
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
         _query_thread_context.init_unlocked();
+        DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
 
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
         cached_blocks.clear();
+        DorisMetrics::instance()->scanner_task_cnt->increment(-1);
     }
 
 private:
@@ -116,6 +118,7 @@ public:
             // do nothing
         }
         block.reset();
+        DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     }
     Status init();
 
@@ -154,14 +157,11 @@ public:
 
     RuntimeState* state() { return _state; }
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
-
     std::string parent_name();
 
     bool empty_in_queue(int id);
 
-    SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
-
-    SimplifiedScanScheduler* get_remote_scan_scheduler() { return _remote_scan_task_scheduler; }
+    SimplifiedScanScheduler* get_scan_scheduler() { return _scanner_scheduler; }
 
     void stop_scanners(RuntimeState* state);
 
@@ -210,9 +210,8 @@ protected:
 
     int32_t _max_thread_num = 0;
     int64_t _max_bytes_in_queue = 0;
-    doris::vectorized::ScannerScheduler* _scanner_scheduler;
-    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
-    SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
+    doris::vectorized::ScannerScheduler* _scanner_scheduler_global = nullptr;
+    SimplifiedScanScheduler* _scanner_scheduler = nullptr;
     moodycamel::ConcurrentQueue<std::weak_ptr<ScannerDelegate>> _scanners;
     int32_t _num_scheduled_scanners = 0;
     int32_t _num_finished_scanners = 0;
@@ -221,6 +220,8 @@ protected:
     std::vector<std::weak_ptr<ScannerDelegate>> _all_scanners;
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
+    // This counter refers to scan operator's local state
+    RuntimeProfile::Counter* _scanner_memory_used_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
@@ -231,7 +232,7 @@ protected:
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;
-    std::atomic_long _block_memory_usage = 0;
+    std::atomic<int64_t> _block_memory_usage = 0;
     int64_t _last_scale_up_time = 0;
     int64_t _last_fetch_time = 0;
     int64_t _total_wait_block_time = 0;

@@ -167,8 +167,8 @@ TEST_F(ThreadMemTrackerMgrTest, MultiMemTracker) {
     std::unique_ptr<ThreadContext> thread_context = std::make_unique<ThreadContext>();
     std::shared_ptr<MemTrackerLimiter> t1 =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER, "UT-MultiMemTracker1");
-    std::shared_ptr<MemTracker> t2 = std::make_shared<MemTracker>("UT-MultiMemTracker2", t1.get());
-    std::shared_ptr<MemTracker> t3 = std::make_shared<MemTracker>("UT-MultiMemTracker3", t1.get());
+    std::shared_ptr<MemTracker> t2 = std::make_shared<MemTracker>("UT-MultiMemTracker2");
+    std::shared_ptr<MemTracker> t3 = std::make_shared<MemTracker>("UT-MultiMemTracker3");
 
     int64_t size1 = 4 * 1024;
     int64_t size2 = 4 * 1024 * 1024;
@@ -325,7 +325,7 @@ TEST_F(ThreadMemTrackerMgrTest, NestedReserveMemory) {
             MemTrackerLimiter::Type::OTHER, "UT-NestedReserveMemory");
 
     int64_t size2 = 4 * 1024 * 1024;
-    int64_t size3 = size2 * 1024;
+    int64_t size3 = size2 * 2;
 
     thread_context->attach_task(TUniqueId(), t, workload_group);
     auto st = thread_context->try_reserve_memory(size3);

@@ -289,6 +289,15 @@ public class SystemInfoService {
         MetricRepo.generateBackendsTabletMetrics();
     }
 
+    public void decommissionBackend(Backend backend) throws UserException {
+        // set backend's state as 'decommissioned'
+        // for decommission operation, here is no decommission job. the system handler will check
+        // all backend in decommission state
+        backend.setDecommissioned(true);
+        Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
+        LOG.info("set backend {} to decommission", backend.getId());
+    }
+
     // only for test
     public void dropAllBackend() {
         // update idToBackend
@@ -534,13 +543,25 @@ public class SystemInfoService {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
                         + "replication tag and storage medium and avail capacity of backends "
-                        + "or maybe all be on same host.\n"
+                        + "or maybe all be on same host." + getDetailsForCreateReplica(replicaAlloc) + "\n"
                         + "Create failed replications:\n" + failedMsg);
             }
         }
 
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
         return Pair.of(chosenBackendIds, storageMedium);
+    }
+
+    public String getDetailsForCreateReplica(ReplicaAllocation replicaAlloc) {
+        StringBuilder sb = new StringBuilder(" Backends details: ");
+        for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
+            sb.append("backends with tag ").append(tag).append(" is ");
+            sb.append(idToBackendRef.values().stream().filter(be -> be.getLocationTag() == tag)
+                    .map(Backend::getDetailsForCreateReplica)
+                    .collect(Collectors.toList()));
+            sb.append(", ");
+        }
+        return sb.toString();
     }
 
     /**
@@ -1021,4 +1042,10 @@ public class SystemInfoService {
         }
         return minPipelineExecutorSize;
     }
+
+    // CloudSystemInfoService override
+    public int getTabletNumByBackendId(long beId) {
+        return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);
+    }
+
 }

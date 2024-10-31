@@ -96,6 +96,7 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
         auto missed_versions = get_missed_versions(spec_version.second);
         if (missed_versions.empty()) {
             st.set_code(VERSION_ALREADY_MERGED); // Reset error code
+            st.append(" versions are already compacted, ");
         }
         st.append(" tablet_id=" + std::to_string(tablet_id()));
         // clang-format off
@@ -363,6 +364,7 @@ int CloudTablet::delete_expired_stale_rowsets() {
     std::vector<RowsetSharedPtr> expired_rowsets;
     int64_t expired_stale_sweep_endtime =
             ::time(nullptr) - config::tablet_rowset_stale_sweep_time_sec;
+    std::vector<std::string> version_to_delete;
     {
         std::unique_lock wlock(_meta_lock);
 
@@ -375,6 +377,8 @@ int CloudTablet::delete_expired_stale_rowsets() {
         }
 
         for (int64_t path_id : path_ids) {
+            int start_version = -1;
+            int end_version = -1;
             // delete stale versions in version graph
             auto version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(path_id);
             for (auto& v_ts : version_path->timestamped_versions()) {
@@ -389,12 +393,18 @@ int CloudTablet::delete_expired_stale_rowsets() {
                     DCHECK(false) << [this, &wlock]() { wlock.unlock(); std::string json; get_compaction_status(&json); return json; }();
                     // clang-format on
                 }
+                if (start_version < 0) {
+                    start_version = v_ts->version().first;
+                }
+                end_version = v_ts->version().second;
                 _tablet_meta->delete_stale_rs_meta_by_version(v_ts->version());
-                VLOG_DEBUG << "delete stale rowset " << v_ts->version();
             }
+            Version version(start_version, end_version);
+            version_to_delete.emplace_back(version.to_string());
         }
         _reconstruct_version_tracker_if_necessary();
     }
+    _tablet_meta->delete_bitmap().remove_stale_delete_bitmap_from_queue(version_to_delete);
     recycle_cached_data(expired_rowsets);
     return expired_rowsets.size();
 }
@@ -423,7 +433,7 @@ void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowset
                 // TODO: Segment::file_cache_key
                 auto file_key = Segment::file_cache_key(rs->rowset_id().to_string(), seg_id);
                 auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-                file_cache->remove_if_cached(file_key);
+                file_cache->remove_if_cached_async(file_key);
             }
         }
     }
@@ -658,10 +668,10 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
     // update delete bitmap info, in order to avoid recalculation when trying again
-    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(
-            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE);
+    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE));
 
-    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update &&
+    if (txn_info->partial_update_info && txn_info->partial_update_info->is_partial_update() &&
         rowset_writer->num_rows() > 0) {
         const auto& rowset_meta = rowset->rowset_meta();
         RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta));
@@ -684,9 +694,9 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
     // delete bitmap correctness check. If we store the new_delete_bitmap, the delete bitmap correctness check will fail
-    _engine.txn_delete_bitmap_cache().update_tablet_txn_info(txn_id, tablet_id(), delete_bitmap,
-                                                             cur_rowset_ids, PublishStatus::SUCCEED,
-                                                             txn_info->publish_info);
+    RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+            txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::SUCCEED,
+            txn_info->publish_info));
 
     return Status::OK();
 }
@@ -724,7 +734,7 @@ Versions CloudTablet::calc_missed_versions(int64_t spec_version, Versions existi
 Status CloudTablet::calc_delete_bitmap_for_compaction(
         const std::vector<RowsetSharedPtr>& input_rowsets, const RowsetSharedPtr& output_rowset,
         const RowIdConversion& rowid_conversion, ReaderType compaction_type, int64_t merged_rows,
-        int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap,
+        int64_t filtered_rows, int64_t initiator, DeleteBitmapPtr& output_rowset_delete_bitmap,
         bool allow_delete_in_cumu_compaction) {
     output_rowset_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     std::set<RowLocation> missed_rows;
@@ -740,11 +750,12 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     if (!allow_delete_in_cumu_compaction) {
         if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION &&
             tablet_state() == TABLET_RUNNING) {
-            if (merged_rows >= 0 && merged_rows != missed_rows_size) {
+            if (merged_rows + filtered_rows >= 0 &&
+                merged_rows + filtered_rows != missed_rows_size) {
                 std::string err_msg = fmt::format(
-                        "cumulative compaction: the merged rows({}) is not equal to missed "
-                        "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
-                        merged_rows, missed_rows_size, tablet_id(), table_id());
+                        "cumulative compaction: the merged rows({}), the filtered rows({}) is not "
+                        "equal to missed rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                        merged_rows, filtered_rows, missed_rows_size, tablet_id(), table_id());
                 if (config::enable_mow_compaction_correctness_check_core) {
                     CHECK(false) << err_msg;
                 } else {

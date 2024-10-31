@@ -226,4 +226,7 @@ suite("test_encryption_function") {
     qt_sql54 """ select aes_decrypt(aes_encrypt(k,k1,k2, "AES_256_CFB"),k1,k2, "AES_256_CFB") from quantile_table2; """
     qt_sql55 """ select aes_decrypt(aes_encrypt("zhang",k1,k2, "AES_256_CFB"),k1,k2, "AES_256_CFB") from quantile_table2; """
     qt_sql56 """ select aes_decrypt(aes_encrypt("zhang",k1,k2, "AES_256_CFB"),k1,k2, "AES_256_CFB") from quantile_table2; """
+
+    //four arg (column/const) with wrong mode
+    qt_sql57 """ select sm4_decrypt(sm4_encrypt(k,"doris","abcdefghij", "SM4_128_CBC"),"doris","abcdefghij","SM4_555_CBC") from quantile_table2; """
 }

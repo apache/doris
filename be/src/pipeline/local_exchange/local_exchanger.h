@@ -21,6 +21,7 @@
 #include "pipeline/exec/operator.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
@@ -217,24 +218,21 @@ public:
 
 protected:
     ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
-                     bool ignore_source_data_distribution, int free_block_limit)
+                     int free_block_limit)
             : Exchanger<PartitionedBlock>(running_sink_operators, num_sources, num_partitions,
-                                          free_block_limit),
-              _ignore_source_data_distribution(ignore_source_data_distribution) {
+                                          free_block_limit) {
         _data_queue.resize(num_partitions);
     }
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
-
-    const bool _ignore_source_data_distribution = false;
 };
 
 class BucketShuffleExchanger final : public ShuffleExchanger {
     ENABLE_FACTORY_CREATOR(BucketShuffleExchanger);
     BucketShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
-                           bool ignore_source_data_distribution, int free_block_limit)
+                           int free_block_limit)
             : ShuffleExchanger(running_sink_operators, num_sources, num_partitions,
-                               ignore_source_data_distribution, free_block_limit) {}
+                               free_block_limit) {}
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };
@@ -351,5 +349,5 @@ private:
     std::atomic_bool _is_pass_through = false;
     std::atomic_int32_t _total_block = 0;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

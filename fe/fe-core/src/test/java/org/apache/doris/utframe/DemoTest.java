@@ -108,7 +108,7 @@ public class DemoTest extends TestWithFeService {
 
         // 7. query
         // TODO: we can not process real query for now. So it has to be a explain query
-        String queryStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ * from db1.tbl1";
+        String queryStr = "explain select /*+ SET_VAR(disable_nereids_rules=PRUNE_EMPTY_PARTITION) */ * from db1.tbl1";
         StmtExecutor stmtExecutor = new StmtExecutor(connectContext, queryStr);
         stmtExecutor.execute();
         Planner planner = stmtExecutor.planner();

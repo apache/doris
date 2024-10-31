@@ -689,6 +689,36 @@
 10	11,11
 11	12,12
 
+-- !select_linear_histogram --
+\N	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
+0	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+2	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+3	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+4	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+5	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+6	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+8	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+9	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":2,"acc_count":2}]}
+10	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":2,"acc_count":2}]}
+11	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":2,"acc_count":2}]}
+
+-- !select_linear_histogram_mv --
+\N	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":1,"acc_count":1}]}
+0	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+1	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+2	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+3	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+4	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+5	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+6	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+7	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+8	{"num_buckets":1,"buckets":[{"lower":0.0,"upper":10.0,"count":2,"acc_count":2}]}
+9	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":2,"acc_count":2}]}
+10	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":2,"acc_count":2}]}
+11	{"num_buckets":1,"buckets":[{"lower":10.0,"upper":20.0,"count":2,"acc_count":2}]}
+
 -- !select_multi_distinct_group_concat --
 \N	1
 0	1
@@ -1468,6 +1498,66 @@
 9	0
 10	0
 11	0
+
+-- !select_map_agg --
+\N	{1:"string1"}
+0	{1:"string1"}
+1	{2:"string2"}
+2	{3:"string3"}
+3	{4:"string1"}
+4	{5:"string2"}
+5	{6:"string3"}
+6	{7:"string1"}
+7	{8:"string2"}
+8	{9:"string3"}
+9	{10:"string1"}
+10	{11:"string2"}
+11	{12:"string3"}
+
+-- !select_map_agg_mv --
+\N	{1:"string1"}
+0	{1:"string1"}
+1	{2:"string2"}
+2	{3:"string3"}
+3	{4:"string1"}
+4	{5:"string2"}
+5	{6:"string3"}
+6	{7:"string1"}
+7	{8:"string2"}
+8	{9:"string3"}
+9	{10:"string1"}
+10	{11:"string2"}
+11	{12:"string3"}
+
+-- !select_array_agg --
+\N	["null", "null", "string1"]
+0	["string1", "string1"]
+1	["string2", "string2"]
+2	["string3", "string3"]
+3	["string1", "string1"]
+4	["string2", "string2"]
+5	["string3", "string3"]
+6	["string1", "string1"]
+7	["string2", "string2"]
+8	["string3", "string3"]
+9	["string1", "string1"]
+10	["string2", "string2"]
+11	["string3", "string3"]
+
+-- !select_array_agg_mv --
+\N	["null", "null", "string1"]
+0	["string1", "string1"]
+1	["string2", "string2"]
+2	["string3", "string3"]
+3	["string1", "string1"]
+4	["string2", "string2"]
+5	["string3", "string3"]
+6	["string1", "string1"]
+7	["string2", "string2"]
+8	["string3", "string3"]
+9	["string1", "string1"]
+10	["string2", "string2"]
+11	["string3", "string3"]
 
 -- !select_retention --
 \N	[0, 0]

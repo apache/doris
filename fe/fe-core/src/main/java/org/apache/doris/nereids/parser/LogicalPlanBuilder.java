@@ -20,6 +20,8 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.PassVar;
+import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableScanParams;
@@ -173,7 +175,19 @@ import org.apache.doris.nereids.DorisParser.SampleContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
+import org.apache.doris.nereids.DorisParser.SetCharsetContext;
+import org.apache.doris.nereids.DorisParser.SetCollateContext;
+import org.apache.doris.nereids.DorisParser.SetDefaultStorageVaultContext;
+import org.apache.doris.nereids.DorisParser.SetLdapAdminPasswordContext;
+import org.apache.doris.nereids.DorisParser.SetNamesContext;
 import org.apache.doris.nereids.DorisParser.SetOperationContext;
+import org.apache.doris.nereids.DorisParser.SetOptionsContext;
+import org.apache.doris.nereids.DorisParser.SetPasswordContext;
+import org.apache.doris.nereids.DorisParser.SetSystemVariableContext;
+import org.apache.doris.nereids.DorisParser.SetTransactionContext;
+import org.apache.doris.nereids.DorisParser.SetUserPropertiesContext;
+import org.apache.doris.nereids.DorisParser.SetUserVariableContext;
+import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
@@ -365,6 +379,7 @@ import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
@@ -375,6 +390,7 @@ import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
+import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
@@ -394,7 +410,12 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
@@ -412,6 +433,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
@@ -429,10 +451,19 @@ import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.MTMVPartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
+import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
+import org.apache.doris.nereids.trees.plans.commands.info.SetCharsetAndCollateVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetLdapPassVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetNamesVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetSessionVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetUserDefinedVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
+import org.apache.doris.nereids.trees.plans.commands.info.SetVarOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ShowCreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
@@ -563,6 +594,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitCreateScheduledJob(DorisParser.CreateScheduledJobContext ctx) {
+        Optional<String> label = ctx.label == null ? Optional.empty() : Optional.of(ctx.label.getText());
+        Optional<String> atTime = ctx.atTime == null ? Optional.empty() : Optional.of(ctx.atTime.getText());
+        Optional<Boolean> immediateStartOptional = ctx.CURRENT_TIMESTAMP() == null ? Optional.of(false) :
+                Optional.of(true);
+        Optional<String> startTime = ctx.startTime == null ? Optional.empty() : Optional.of(ctx.startTime.getText());
+        Optional<String> endsTime = ctx.endsTime == null ? Optional.empty() : Optional.of(ctx.endsTime.getText());
+        Optional<Long> interval = ctx.timeInterval == null ? Optional.empty() :
+                Optional.of(Long.valueOf(ctx.timeInterval.getText()));
+        Optional<String> intervalUnit = ctx.timeUnit == null ? Optional.empty() : Optional.of(ctx.timeUnit.getText());
+        String comment =
+                visitCommentSpec(ctx.commentSpec());
+        String executeSql = getOriginSql(ctx.supportedDmlStatement());
+        CreateJobInfo createJobInfo = new CreateJobInfo(label, atTime, interval, intervalUnit, startTime,
+                endsTime, immediateStartOptional, comment, executeSql);
+        return new CreateJobCommand(createJobInfo);
+    }
+
+    @Override
+    public String visitCommentSpec(DorisParser.CommentSpecContext ctx) {
+        String commentSpec = ctx == null ? "''" : ctx.STRING_LITERAL().getText();
+        return
+                LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
+    }
+
+    @Override
     public LogicalPlan visitInsertTable(InsertTableContext ctx) {
         boolean isOverwrite = ctx.INTO() == null;
         ImmutableList.Builder<String> tableName = ImmutableList.builder();
@@ -584,6 +641,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan plan = visitQuery(ctx.query());
         // partitionSpec may be NULL. means auto detect partition. only available when IOT
         Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
+        // partitionSpec.second :
+        // null - auto detect
+        // zero - whole table
+        // others - specific partitions
         boolean isAutoDetect = partitionSpec.second == null;
         LogicalSink<?> sink = UnboundTableSinkCreator.createUnboundTableSinkMaybeOverwrite(
                 tableName.build(),
@@ -747,6 +808,19 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new MTMVRefreshTriggerInfo(RefreshTrigger.SCHEDULE, visitRefreshSchedule(ctx.refreshSchedule()));
         }
         return new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL);
+    }
+
+    @Override
+    public ReplayCommand visitReplay(DorisParser.ReplayContext ctx) {
+        if (ctx.replayCommand().replayType().DUMP() != null) {
+            LogicalPlan plan = plan(ctx.replayCommand().replayType().query());
+            return new ReplayCommand(PlanType.REPLAY_COMMAND, null, plan, ReplayCommand.ReplayType.DUMP);
+        } else if (ctx.replayCommand().replayType().PLAY() != null) {
+            String tmpPath = ctx.replayCommand().replayType().filePath.getText();
+            String path = LogicalPlanBuilderAssistant.escapeBackSlash(tmpPath.substring(1, tmpPath.length() - 1));
+            return new ReplayCommand(PlanType.REPLAY_COMMAND, path, null, ReplayCommand.ReplayType.PLAY);
+        }
+        return null;
     }
 
     @Override
@@ -1104,9 +1178,30 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         ImmutableList.Builder<BulkLoadDataDesc> dataDescriptions = new ImmutableList.Builder<>();
+        List<String> labelParts = visitMultipartIdentifier(ctx.lableName);
+        String labelName = null;
+        String labelDbName = null;
+        if (ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
+            throw new AnalysisException("Current database is not set.");
+        } else if (labelParts.size() == 1) {
+            labelName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            labelDbName = labelParts.get(0);
+            labelName = labelParts.get(1);
+        } else if (labelParts.size() == 3) {
+            labelDbName = labelParts.get(1);
+            labelName = labelParts.get(2);
+        } else {
+            throw new AnalysisException("labelParts in load should be [ctl.][db.]label");
+        }
+
         for (DorisParser.DataDescContext ddc : ctx.dataDescs) {
-            List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(),
-                    visitMultipartIdentifier(ddc.tableName));
+            List<String> nameParts = Lists.newArrayList();
+            if (labelDbName != null) {
+                nameParts.add(labelDbName);
+            }
+            nameParts.add(ddc.targetTableName.getText());
+            List<String> tableName = RelationUtil.getQualifierName(ConnectContext.get(), nameParts);
             List<String> colNames = (ddc.columns == null ? ImmutableList.of() : visitIdentifierList(ddc.columns));
             List<String> columnsFromPath = (ddc.columnsFromPath == null ? ImmutableList.of()
                         : visitIdentifierList(ddc.columnsFromPath.identifierList()));
@@ -1154,7 +1249,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     ddc.sequenceColumn == null ? Optional.empty()
                             : Optional.of(ddc.sequenceColumn.identifier().getText()), dataProperties));
         }
-        String labelName = ctx.lableName.getText();
         Map<String, String> properties = Collections.emptyMap();
         if (ctx.propertyClause() != null) {
             properties = visitPropertyItemList(ctx.propertyClause().propertyItemList());
@@ -1407,7 +1501,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     @Override
     public LogicalPlan visitTableName(TableNameContext ctx) {
-        List<String> tableId = visitMultipartIdentifier(ctx.multipartIdentifier());
+        List<String> nameParts = visitMultipartIdentifier(ctx.multipartIdentifier());
         List<String> partitionNames = new ArrayList<>();
         boolean isTempPart = false;
         if (ctx.specifiedPartition() != null) {
@@ -1455,8 +1549,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         TableSample tableSample = ctx.sample() == null ? null : (TableSample) visit(ctx.sample());
         UnboundRelation relation = new UnboundRelation(StatementScopeIdGenerator.newRelationId(),
-                        tableId, partitionNames, isTempPart, tabletIdLists, relationHints,
-                        Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
+                nameParts, partitionNames, isTempPart, tabletIdLists, relationHints,
+                Optional.ofNullable(tableSample), indexName, scanParams, Optional.ofNullable(tableSnapshot));
+
         LogicalPlan checkedRelation = LogicalPlanBuilderAssistant.withCheckPolicy(relation);
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
@@ -2612,7 +2707,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
                 ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1));
         String querySql = getOriginSql(ctx.query());
-        CreateViewInfo info = new CreateViewInfo(ctx.EXISTS() != null, new TableNameInfo(nameParts),
+        if (ctx.REPLACE() != null && ctx.EXISTS() != null) {
+            throw new AnalysisException("[OR REPLACE] and [IF NOT EXISTS] cannot used at the same time");
+        }
+        CreateViewInfo info = new CreateViewInfo(ctx.EXISTS() != null, ctx.REPLACE() != null,
+                new TableNameInfo(nameParts),
                 comment, querySql,
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols));
         return new CreateViewCommand(info);
@@ -2789,6 +2888,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 defaultValue = Optional.of(DefaultValue.PI_DEFAULT_VALUE);
             } else if (ctx.E() != null) {
                 defaultValue = Optional.of(DefaultValue.E_NUM_DEFAULT_VALUE);
+            } else if (ctx.BITMAP_EMPTY() != null) {
+                defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
             }
         }
         if (ctx.UPDATE() != null) {
@@ -3196,7 +3297,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                 parameters.put(parameterName, value);
                             }
                         }
-                        hints.add(new SelectHintSetVar(hintName, parameters));
+                        SelectHintSetVar setVar = new SelectHintSetVar(hintName, parameters);
+                        setVar.setVarOnceInSql(ConnectContext.get().getStatementContext());
+                        hints.add(setVar);
                         break;
                     case "leading":
                         List<String> leadingParameters = new ArrayList<>();
@@ -3755,5 +3858,112 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             command.setBackendId(backendId);
         }
         return command;
+    }
+
+    @Override
+    public SetOptionsCommand visitSetOptions(SetOptionsContext ctx) {
+        List<SetVarOp> setVarOpList = new ArrayList<>(1);
+        for (Object child : ctx.children) {
+            if (child instanceof RuleNode) {
+                setVarOpList.add(typedVisit((RuleNode) child));
+            }
+        }
+        return new SetOptionsCommand(setVarOpList);
+    }
+
+    @Override
+    public SetVarOp visitSetSystemVariable(SetSystemVariableContext ctx) {
+        SetType type = SetType.DEFAULT;
+        if (ctx.GLOBAL() != null) {
+            type = SetType.GLOBAL;
+        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
+            type = SetType.SESSION;
+        }
+        String name = stripQuotes(ctx.identifier().getText());
+        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
+        return new SetSessionVarOp(type, name, expression);
+    }
+
+    @Override
+    public SetVarOp visitSetVariableWithType(SetVariableWithTypeContext ctx) {
+        SetType type = SetType.DEFAULT;
+        if (ctx.GLOBAL() != null) {
+            type = SetType.GLOBAL;
+        } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
+            type = SetType.SESSION;
+        }
+        String name = stripQuotes(ctx.identifier().getText());
+        Expression expression = ctx.expression() != null ? typedVisit(ctx.expression()) : null;
+        return new SetSessionVarOp(type, name, expression);
+    }
+
+    @Override
+    public SetVarOp visitSetPassword(SetPasswordContext ctx) {
+        String user;
+        String host;
+        boolean isDomain;
+        String passwordText;
+        UserIdentity userIdentity = null;
+        if (ctx.userIdentify() != null) {
+            user = stripQuotes(ctx.userIdentify().user.getText());
+            host = ctx.userIdentify().host != null ? stripQuotes(ctx.userIdentify().host.getText()) : "%";
+            isDomain = ctx.userIdentify().ATSIGN() != null;
+            userIdentity = new UserIdentity(user, host, isDomain);
+        }
+        passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
+        return new SetPassVarOp(userIdentity, new PassVar(passwordText, ctx.isPlain != null));
+    }
+
+    @Override
+    public SetVarOp visitSetNames(SetNamesContext ctx) {
+        return new SetNamesVarOp();
+    }
+
+    @Override
+    public SetVarOp visitSetCharset(SetCharsetContext ctx) {
+        String charset = ctx.charsetName != null ? stripQuotes(ctx.charsetName.getText()) : null;
+        return new SetCharsetAndCollateVarOp(charset);
+    }
+
+    @Override
+    public SetVarOp visitSetCollate(SetCollateContext ctx) {
+        String charset = ctx.charsetName != null ? stripQuotes(ctx.charsetName.getText()) : null;
+        String collate = ctx.collateName != null ? stripQuotes(ctx.collateName.getText()) : null;
+        return new SetCharsetAndCollateVarOp(charset, collate);
+    }
+
+    @Override
+    public SetVarOp visitSetLdapAdminPassword(SetLdapAdminPasswordContext ctx) {
+        String passwordText = stripQuotes(ctx.STRING_LITERAL().getText());
+        boolean isPlain = ctx.PASSWORD() != null;
+        return new SetLdapPassVarOp(new PassVar(passwordText, isPlain));
+    }
+
+    @Override
+    public SetVarOp visitSetUserVariable(SetUserVariableContext ctx) {
+        String name = stripQuotes(ctx.identifier().getText());
+        Expression expression = typedVisit(ctx.expression());
+        return new SetUserDefinedVarOp(name, expression);
+    }
+
+    @Override
+    public SetTransactionCommand visitSetTransaction(SetTransactionContext ctx) {
+        return new SetTransactionCommand();
+    }
+
+    @Override
+    public SetUserPropertiesCommand visitSetUserProperties(SetUserPropertiesContext ctx) {
+        String user = ctx.user != null ? stripQuotes(ctx.user.getText()) : null;
+        Map<String, String> userPropertiesMap = visitPropertyItemList(ctx.propertyItemList());
+        List<SetUserPropertyVarOp> setUserPropertyVarOpList = new ArrayList<>(userPropertiesMap.size());
+        for (Map.Entry<String, String> entry : userPropertiesMap.entrySet()) {
+            setUserPropertyVarOpList.add(new SetUserPropertyVarOp(user, entry.getKey(), entry.getValue()));
+        }
+        return new SetUserPropertiesCommand(user, setUserPropertyVarOpList);
+    }
+
+    @Override
+    public SetDefaultStorageVaultCommand visitSetDefaultStorageVault(SetDefaultStorageVaultContext ctx) {
+        return new SetDefaultStorageVaultCommand(stripQuotes(ctx.identifier().getText()));
     }
 }

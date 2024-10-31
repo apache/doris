@@ -38,6 +38,7 @@
 #include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 constexpr uint64_t emtpy_value = 0xe28dbde7fe22e41c;
 
 template <typename ReturnType>

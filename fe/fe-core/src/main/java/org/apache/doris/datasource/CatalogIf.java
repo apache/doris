@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DropDbStmt;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TableValuedFunctionRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -30,7 +31,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -197,4 +200,24 @@ public interface CatalogIf<T extends DatabaseIf> {
     void dropTable(DropTableStmt stmt) throws DdlException;
 
     void truncateTable(TruncateTableStmt truncateTableStmt) throws DdlException;
+
+    /**
+     * Try to parse meta table name from table name.
+     * Some catalog allow querying meta table like "table_name$partitions".
+     * Catalog can override this method to parse meta table name from table name.
+     *
+     * @param tableName table name like "table_name" or "table_name$partitions"
+     * @return pair of source table name and meta table name
+     */
+    default Pair<String, String> getSourceTableNameWithMetaTableName(String tableName) {
+        return Pair.of(tableName, "");
+    }
+
+    default Optional<TableValuedFunction> getMetaTableFunction(String dbName, String sourceNameWithMetaName) {
+        return Optional.empty();
+    }
+
+    default Optional<TableValuedFunctionRef> getMetaTableFunctionRef(String dbName, String sourceNameWithMetaName) {
+        return Optional.empty();
+    }
 }

@@ -22,7 +22,7 @@
 #include "operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class HashJoinBuildSinkOperatorX;
 
 class HashJoinBuildSinkLocalState final
@@ -55,7 +55,7 @@ public:
     Status close(RuntimeState* state, Status exec_status) override;
 
 protected:
-    void _hash_table_init(RuntimeState* state);
+    Status _hash_table_init(RuntimeState* state);
     void _set_build_ignore_flag(vectorized::Block& block, const std::vector<int>& res_col_ids);
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
@@ -74,8 +74,6 @@ protected:
     std::vector<vectorized::ColumnPtr> _key_columns_holder;
 
     bool _should_build_hash_table = true;
-    int64_t _build_side_mem_used = 0;
-    int64_t _build_side_last_mem_used = 0;
 
     size_t _build_side_rows = 0;
 
@@ -91,7 +89,7 @@ protected:
      */
     bool _build_side_ignore_null = false;
     std::vector<int> _build_col_ids;
-    std::shared_ptr<Dependency> _finish_dependency;
+    std::shared_ptr<CountedFinishDependency> _finish_dependency;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
@@ -103,7 +101,7 @@ protected:
 
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX final
@@ -132,8 +130,8 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child->ignore_data_distribution() ? DataDistribution(ExchangeType::PASS_TO_ONE)
-                                                      : DataDistribution(ExchangeType::NOOP);
+            return _child->is_serial_operator() ? DataDistribution(ExchangeType::PASS_TO_ONE)
+                                                : DataDistribution(ExchangeType::NOOP);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
@@ -141,10 +139,7 @@ public:
                        : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
-    bool require_shuffled_data_distribution() const override {
-        return _join_op != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN && !_is_broadcast_join;
-    }
-    bool is_shuffled_hash_join() const override {
+    bool is_shuffled_operator() const override {
         return _join_distribution == TJoinDistributionType::PARTITIONED;
     }
     bool require_data_distribution() const override {
@@ -173,11 +168,15 @@ private:
     const std::vector<TExpr> _partition_exprs;
 
     const bool _need_local_merge;
+
+    std::vector<SlotId> _hash_output_slot_ids;
+    std::vector<bool> _should_keep_column_flags;
+    bool _should_keep_hash_key_column = false;
 };
 
 template <class HashTableContext>
 struct ProcessHashTableBuild {
-    ProcessHashTableBuild(int rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
+    ProcessHashTableBuild(size_t rows, vectorized::ColumnRawPtrs& build_raw_ptrs,
                           HashJoinBuildSinkLocalState* parent, int batch_size, RuntimeState* state)
             : _rows(rows),
               _build_raw_ptrs(build_raw_ptrs),
@@ -191,6 +190,7 @@ struct ProcessHashTableBuild {
                bool* has_null_key) {
         if (short_circuit_for_null || ignore_null) {
             // first row is mocked and is null
+            // TODO: Need to test the for loop. break may better
             for (uint32_t i = 1; i < _rows; i++) {
                 if ((*null_map)[i]) {
                     *has_null_key = true;
@@ -221,7 +221,7 @@ struct ProcessHashTableBuild {
     }
 
 private:
-    const uint32_t _rows;
+    const size_t _rows;
     vectorized::ColumnRawPtrs& _build_raw_ptrs;
     HashJoinBuildSinkLocalState* _parent = nullptr;
     int _batch_size;
@@ -229,3 +229,4 @@ private:
 };
 
 } // namespace doris::pipeline
+#include "common/compile_check_end.h"

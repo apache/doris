@@ -195,7 +195,7 @@ public class CloudGlobalTransactionMgrTest {
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
-                transactionId, null);
+                transactionId, null, null);
     }
 
     @Test
@@ -220,7 +220,7 @@ public class CloudGlobalTransactionMgrTest {
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
-                transactionId, null);
+                transactionId, null, null);
     }
 
     @Test
@@ -247,7 +247,7 @@ public class CloudGlobalTransactionMgrTest {
                         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
                         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
-                                transactionId, null);
+                                transactionId, null, null);
             });
     }
 
@@ -279,7 +279,7 @@ public class CloudGlobalTransactionMgrTest {
         Table testTable1 = masterEnv.getInternalCatalog().getDbOrMetaException(CatalogTestUtil.testDbId1)
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransaction(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
-                transactionId, null);
+                transactionId, null, null);
     }
 
     @Test

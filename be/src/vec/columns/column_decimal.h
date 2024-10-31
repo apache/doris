@@ -158,6 +158,8 @@ public:
         memset(data.data() + old_size, 0, length * sizeof(data[0]));
     }
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     void pop_back(size_t n) override { data.resize_assume_reserved(data.size() - n); }
 
     StringRef serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const override;

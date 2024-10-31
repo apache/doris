@@ -110,6 +110,10 @@ public abstract class AgentTask {
         ++this.failedTimes;
     }
 
+    public void failedWithMsg(String errMsg) {
+        failed();
+    }
+
     public int getFailedTimes() {
         return this.failedTimes;
     }

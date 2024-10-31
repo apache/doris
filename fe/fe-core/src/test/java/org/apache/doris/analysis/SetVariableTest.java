@@ -58,7 +58,7 @@ public class SetVariableTest {
         stmtExecutor.execute();
         Expr expr = stmtExecutor.getParsedStmt().getResultExprs().get(0);
         Assert.assertTrue(expr instanceof SlotRef);
-        Assert.assertSame(expr.getType(), Type.VARCHAR);
+        Assert.assertSame(Type.STRING, expr.getType());
     }
 
     @Test

@@ -48,6 +48,7 @@ import com.google.common.collect.Maps;
 import org.apache.commons.lang3.tuple.Pair;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -65,6 +66,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
     // Members for materialized index.
     ///////////////////////////////////////////////////////////////////////////
 
+    /**
     /**
      * The select materialized index id to read data from.
      */
@@ -501,7 +503,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();
-            if (cache == null) {
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
+            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
             Plan originalPlan = cache.getOriginalPlan();
@@ -527,7 +530,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();
-            if (cache == null) {
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
+            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
             Plan originalPlan = cache.getOriginalPlan();
@@ -538,13 +542,11 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     @Override
     public void computeEqualSet(DataTrait.Builder builder) {
-        if (getTable() instanceof MTMV && getTable().getName().equals("mv1")) {
-            System.out.println();
-        }
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();
-            if (cache == null) {
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
+            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
             Plan originalPlan = cache.getOriginalPlan();
@@ -558,7 +560,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
         if (getTable() instanceof MTMV) {
             MTMV mtmv = (MTMV) getTable();
             MTMVCache cache = mtmv.getCache();
-            if (cache == null) {
+            // Maybe query specified index, should not calc, such as select count(*) from t1 index col_index
+            if (cache == null || this.getSelectedIndexId() != this.getTable().getBaseIndexId()) {
                 return;
             }
             Plan originalPlan = cache.getOriginalPlan();
@@ -569,9 +572,23 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan 
 
     Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
         Map<Slot, Slot> replaceMap = new HashMap<>();
-        List<Slot> originOutputs = mtmv.getCache().getOriginalPlan().getOutput();
-        for (int i = 0; i < getOutput().size(); i++) {
-            replaceMap.put(originOutputs.get(i), getOutput().get(i));
+        // Need remove invisible column, and then mapping them
+        List<Slot> originOutputs = new ArrayList<>();
+        for (Slot originSlot : mtmv.getCache().getOriginalPlan().getOutput()) {
+            if (!(originSlot instanceof SlotReference) || (((SlotReference) originSlot).isVisible())) {
+                originOutputs.add(originSlot);
+            }
+        }
+        List<Slot> targetOutputs = new ArrayList<>();
+        for (Slot targeSlot : getOutput()) {
+            if (!(targeSlot instanceof SlotReference) || (((SlotReference) targeSlot).isVisible())) {
+                targetOutputs.add(targeSlot);
+            }
+        }
+        Preconditions.checkArgument(originOutputs.size() == targetOutputs.size(),
+                "constructReplaceMap, the size of originOutputs and targetOutputs should be same");
+        for (int i = 0; i < targetOutputs.size(); i++) {
+            replaceMap.put(originOutputs.get(i), targetOutputs.get(i));
         }
         return replaceMap;
     }

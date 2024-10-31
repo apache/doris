@@ -39,6 +39,7 @@ public class JdbcClientConfig implements Cloneable {
     private int connectionPoolMaxWaitTime;
     private int connectionPoolMaxLifeTime;
     private boolean connectionPoolKeepAlive;
+    private boolean enableConnectionPool;
 
     private Map<String, Boolean> includeDatabaseMap;
     private Map<String, Boolean> excludeDatabaseMap;
@@ -58,6 +59,8 @@ public class JdbcClientConfig implements Cloneable {
                 JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MAX_LIFE_TIME));
         this.connectionPoolKeepAlive = Boolean.parseBoolean(
                 JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_KEEP_ALIVE));
+        this.enableConnectionPool = Boolean.parseBoolean(
+                JdbcResource.getDefaultPropertyValue(JdbcResource.ENABLE_CONNECTION_POOL));
         this.includeDatabaseMap = Maps.newHashMap();
         this.excludeDatabaseMap = Maps.newHashMap();
         this.customizedProperties = Maps.newHashMap();
@@ -73,6 +76,7 @@ public class JdbcClientConfig implements Cloneable {
             cloned.connectionPoolMaxLifeTime = connectionPoolMaxLifeTime;
             cloned.connectionPoolMaxWaitTime = connectionPoolMaxWaitTime;
             cloned.connectionPoolKeepAlive = connectionPoolKeepAlive;
+            cloned.enableConnectionPool = enableConnectionPool;
             cloned.includeDatabaseMap = Maps.newHashMap(includeDatabaseMap);
             cloned.excludeDatabaseMap = Maps.newHashMap(excludeDatabaseMap);
             cloned.customizedProperties = Maps.newHashMap(customizedProperties);
@@ -205,6 +209,15 @@ public class JdbcClientConfig implements Cloneable {
 
     public JdbcClientConfig setConnectionPoolKeepAlive(boolean connectionPoolKeepAlive) {
         this.connectionPoolKeepAlive = connectionPoolKeepAlive;
+        return this;
+    }
+
+    public boolean isEnableConnectionPool() {
+        return enableConnectionPool;
+    }
+
+    public JdbcClientConfig setEnableConnectionPool(boolean enableConnectionPool) {
+        this.enableConnectionPool = enableConnectionPool;
         return this;
     }
 

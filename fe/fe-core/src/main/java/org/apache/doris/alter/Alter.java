@@ -103,18 +103,18 @@ public class Alter {
 
     private AlterHandler schemaChangeHandler;
     private AlterHandler materializedViewHandler;
-    private SystemHandler clusterHandler;
+    private SystemHandler systemHandler;
 
     public Alter() {
         schemaChangeHandler = Config.isCloudMode() ? new CloudSchemaChangeHandler() : new SchemaChangeHandler();
         materializedViewHandler = new MaterializedViewHandler();
-        clusterHandler = new SystemHandler();
+        systemHandler = new SystemHandler();
     }
 
     public void start() {
         schemaChangeHandler.start();
         materializedViewHandler.start();
-        clusterHandler.start();
+        systemHandler.start();
     }
 
     public void processCreateMaterializedView(CreateMaterializedViewStmt stmt)
@@ -729,12 +729,11 @@ public class Alter {
         try {
             String viewName = view.getName();
             view.setInlineViewDefWithSqlMode(inlineViewDef, alterViewInfo.getSqlMode());
-            try {
-                view.init();
-            } catch (UserException e) {
-                throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-            }
             view.setNewFullSchema(newFullSchema);
+
+            // We do not need to init view here.
+            // During the `init` phase, some `Alter-View` statements will access the remote file system,
+            // but they should not access it during the metadata replay phase.
 
             db.unregisterTable(viewName);
             db.registerTable(view);
@@ -746,8 +745,8 @@ public class Alter {
         }
     }
 
-    public void processAlterCluster(AlterSystemStmt stmt) throws UserException {
-        clusterHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
+    public void processAlterSystem(AlterSystemStmt stmt) throws UserException {
+        systemHandler.process(Collections.singletonList(stmt.getAlterClause()), null, null);
     }
 
     private void processRename(Database db, OlapTable table, List<AlterClause> alterClauses) throws DdlException {
@@ -994,8 +993,8 @@ public class Alter {
         return materializedViewHandler;
     }
 
-    public AlterHandler getClusterHandler() {
-        return clusterHandler;
+    public AlterHandler getSystemHandler() {
+        return systemHandler;
     }
 
     public void processAlterMTMV(AlterMTMV alterMTMV, boolean isReplay) {
@@ -1004,8 +1003,6 @@ public class Alter {
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             mtmv = (MTMV) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
-
-            mtmv.writeMvLock();
             switch (alterMTMV.getOpType()) {
                 case ALTER_REFRESH_INFO:
                     mtmv.alterRefreshInfo(alterMTMV.getRefreshInfo());
@@ -1018,8 +1015,6 @@ public class Alter {
                     break;
                 case ADD_TASK:
                     mtmv.addTaskResult(alterMTMV.getTask(), alterMTMV.getRelation(), alterMTMV.getPartitionSnapshots());
-                    Env.getCurrentEnv().getMtmvService()
-                            .refreshComplete(mtmv, alterMTMV.getRelation(), alterMTMV.getTask());
                     break;
                 default:
                     throw new RuntimeException("Unknown type value: " + alterMTMV.getOpType());
@@ -1032,10 +1027,6 @@ public class Alter {
         } catch (UserException e) {
             // if MTMV has been dropped, ignore this exception
             LOG.warn(e);
-        } finally {
-            if (mtmv != null) {
-                mtmv.writeMvUnlock();
-            }
         }
     }
 }

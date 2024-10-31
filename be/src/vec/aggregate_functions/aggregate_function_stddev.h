@@ -172,30 +172,6 @@ struct StddevSampName : Data {
 };
 
 template <typename T, typename Data>
-struct SampData_OLDER : Data {
-    using ColVecResult =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
-    void insert_result_into(IColumn& to) const {
-        ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 1 || this->count == 0) {
-            nullable_column.insert_default();
-        } else {
-            auto& col = assert_cast<ColVecResult&>(nullable_column.get_nested_column());
-            if constexpr (IsDecimalNumber<T>) {
-                col.get_data().push_back(this->get_samp_result().value());
-            } else {
-                col.get_data().push_back(this->get_samp_result());
-            }
-            nullable_column.get_null_map_data().push_back(0);
-        }
-    }
-
-    static DataTypePtr get_return_type() {
-        return make_nullable(std::make_shared<DataTypeNumber<Float64>>());
-    }
-};
-
-template <typename T, typename Data>
 struct SampData : Data {
     using ColVecResult =
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
@@ -264,16 +240,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
-};
-
-//samp function it's always nullables, it's need to handle nullable column
-//so return type and add function should processing null values
-template <typename Data, bool is_nullable>
-class AggregateFunctionSamp_OLDER final
-        : public AggregateFunctionSampVariance<false, Data, is_nullable> {
-public:
-    AggregateFunctionSamp_OLDER(const DataTypes& argument_types_)
-            : AggregateFunctionSampVariance<false, Data, is_nullable>(argument_types_) {}
 };
 
 template <typename Data, bool is_nullable>

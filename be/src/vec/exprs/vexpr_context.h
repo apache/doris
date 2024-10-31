@@ -194,10 +194,10 @@ public:
     bool all_expr_inverted_index_evaluated();
 
     [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
-                                             int column_to_keep);
+                                             size_t column_to_keep);
 
     [[nodiscard]] static Status filter_block(const VExprContextSPtrs& expr_contexts, Block* block,
-                                             int column_to_keep);
+                                             size_t column_to_keep);
 
     [[nodiscard]] static Status execute_conjuncts(const VExprContextSPtrs& ctxs,
                                                   const std::vector<IColumn::Filter*>* filters,

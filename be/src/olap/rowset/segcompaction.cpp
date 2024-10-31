@@ -69,6 +69,19 @@ using namespace ErrorCode;
 
 SegcompactionWorker::SegcompactionWorker(BetaRowsetWriter* writer) : _writer(writer) {}
 
+void SegcompactionWorker::init_mem_tracker(const RowsetWriterContext& rowset_writer_context) {
+    _seg_compact_mem_tracker = MemTrackerLimiter::create_shared(
+            MemTrackerLimiter::Type::COMPACTION,
+            fmt::format("segcompaction-txnID_{}-loadID_{}-tabletID_{}-indexID_{}-"
+                        "partitionID_{}-version_{}",
+                        std::to_string(rowset_writer_context.txn_id),
+                        print_id(rowset_writer_context.load_id),
+                        std::to_string(rowset_writer_context.tablet_id),
+                        std::to_string(rowset_writer_context.index_id),
+                        std::to_string(rowset_writer_context.partition_id),
+                        rowset_writer_context.version.to_string()));
+}
+
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
@@ -223,7 +236,8 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->segcompaction_mem_tracker());
+    DCHECK(_seg_compact_mem_tracker != nullptr);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_seg_compact_mem_tracker);
     /* throttle segcompaction task if memory depleted */
     if (GlobalMemoryArbitrator::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         return Status::Error<FETCH_MEMORY_EXCEEDED>("skip segcompaction due to memory shortage");
@@ -248,7 +262,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     }
 
     std::vector<std::vector<uint32_t>> column_groups;
-    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups);
+    std::vector<uint32_t> key_group_cluster_key_idxes;
+    Merger::vertical_split_columns(*ctx.tablet_schema, &column_groups,
+                                   &key_group_cluster_key_idxes);
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
                                                  ReaderType::READER_SEGMENT_COMPACTION);
 

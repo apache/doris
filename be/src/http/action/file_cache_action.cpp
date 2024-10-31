@@ -22,11 +22,14 @@
 #include <sstream>
 #include <string>
 
+#include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
 #include "http/http_status.h"
+#include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
+#include "io/cache/file_cache_common.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
 #include "util/easy_json.h"
@@ -39,10 +42,12 @@ constexpr static std::string_view SYNC = "sync";
 constexpr static std::string_view PATH = "path";
 constexpr static std::string_view CLEAR = "clear";
 constexpr static std::string_view RESET = "reset";
+constexpr static std::string_view HASH = "hash";
 constexpr static std::string_view CAPACITY = "capacity";
 constexpr static std::string_view RELEASE = "release";
 constexpr static std::string_view BASE_PATH = "base_path";
 constexpr static std::string_view RELEASED_ELEMENTS = "released_elements";
+constexpr static std::string_view VALUE = "value";
 
 Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metrics) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
@@ -81,6 +86,16 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
             auto ret = io::FileCacheFactory::instance()->reset_capacity(path, new_capacity);
             LOG(INFO) << ret;
         }
+    } else if (operation == HASH) {
+        const std::string& segment_path = req->param(VALUE.data());
+        if (segment_path.empty()) {
+            st = Status::InvalidArgument("missing parameter: {} is required", VALUE.data());
+        } else {
+            io::UInt128Wrapper ret = io::BlockFileCache::hash(segment_path);
+            EasyJson json;
+            json[HASH.data()] = ret.to_string();
+            *json_metrics = json.ToString();
+        }
     } else {
         st = Status::InternalError("invalid operation: {}", operation);
     }
@@ -92,7 +107,8 @@ void FileCacheAction::handle(HttpRequest* req) {
     Status status = _handle_header(req, &json_metrics);
     std::string status_result = status.to_json();
     if (status.ok()) {
-        HttpChannel::send_reply(req, HttpStatus::OK, json_metrics);
+        HttpChannel::send_reply(req, HttpStatus::OK,
+                                json_metrics.empty() ? status.to_json() : json_metrics);
     } else {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, status_result);
     }

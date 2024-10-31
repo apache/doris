@@ -61,6 +61,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
@@ -1065,7 +1066,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TUniqueId queryId = params.getQueryId();
             ConnectContext ctx = proxyQueryIdToConnCtx.get(queryId);
             if (ctx != null) {
-                ctx.cancelQuery();
+                ctx.cancelQuery(new Status(TStatusCode.CANCELLED, "cancel query by forward request."));
             }
             final TMasterOpResult result = new TMasterOpResult();
             result.setStatusCode(0);
@@ -1783,13 +1784,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = new ArrayList<>();
-        List<String> tables = new ArrayList<>();
         // if table was dropped, transaction must be aborted
-        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        for (Table table : tableList) {
-            tables.add(table.getName());
-        }
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
@@ -1797,6 +1793,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
+            List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -1991,12 +1988,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = new ArrayList<>();
-        List<String> tables = new ArrayList<>();
-        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        for (Table table : tableList) {
-            tables.add(table.getName());
-        }
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
@@ -2004,6 +1996,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
+            List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -2103,7 +2096,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             try {
                 RoutineLoadJob routineLoadJob = Env.getCurrentEnv().getRoutineLoadManager()
                         .getRoutineLoadJobByMultiLoadTaskTxnId(request.getTxnId());
-                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.CANNOT_RESUME_ERR,
+                routineLoadJob.updateState(JobState.PAUSED, new ErrorReason(InternalErrorCode.INTERNAL_ERR,
                             "failed to get stream load plan, " + exception.getMessage()), false);
             } catch (Throwable e) {
                 LOG.warn("catch update routine load job error.", e);
@@ -2239,7 +2232,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TFrontendPingFrontendResult ping(TFrontendPingFrontendRequest request) throws TException {
         boolean isReady = Env.getCurrentEnv().isReady();
         TFrontendPingFrontendResult result = new TFrontendPingFrontendResult();
+        // The following fields are required in thrift.
+        // So must give them a default value to avoid "Required field xx was not present" error.
         result.setStatus(TFrontendPingFrontendStatusCode.OK);
+        result.setMsg("");
+        result.setQueryPort(0);
+        result.setRpcPort(0);
+        result.setReplayedJournalId(0);
+        result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
         if (isReady) {
             if (request.getClusterId() != Env.getCurrentEnv().getClusterId()) {
                 result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
@@ -2674,7 +2674,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
+                Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendIdWithoutException());
                 if (backend != null) {
                     TReplicaInfo replicaInfo = new TReplicaInfo();
                     replicaInfo.setHost(backend.getHost());
@@ -3314,17 +3314,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
-        if (tableStats == null) {
-            return new TStatus(TStatusCode.OK);
-        }
         PartitionNames partitionNames = null;
         if (target.partitions != null) {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));
         }
         if (target.isTruncate) {
-            if (partitionNames == null || partitionNames.isStar() || partitionNames.getPartitionNames() == null) {
-                tableStats.clearIndexesRowCount();
-            }
             analysisManager.submitAsyncDropStatsTask(target.catalogId, target.dbId,
                     target.tableId, tableStats, partitionNames);
         } else {

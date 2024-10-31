@@ -259,7 +259,6 @@ public:
 
     std::unique_ptr<RuntimeState> _runtime_state;
 
-    bool _eos = false;
     std::shared_ptr<Dependency> _finish_dependency;
 
     // temp structures during spilling
@@ -309,9 +308,6 @@ public:
 
     bool require_data_distribution() const override {
         return _agg_sink_operator->require_data_distribution();
-    }
-    bool require_shuffled_data_distribution() const override {
-        return _agg_sink_operator->require_shuffled_data_distribution();
     }
 
     Status set_child(OperatorPtr child) override {

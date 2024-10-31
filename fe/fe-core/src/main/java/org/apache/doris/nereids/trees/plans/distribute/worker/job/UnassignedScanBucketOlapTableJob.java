@@ -301,7 +301,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         List<Replica> replicas = tablet.getReplicas();
         List<DistributedPlanWorker> workers = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
-            DistributedPlanWorker worker = workerManager.getWorker(replica.getBackendId());
+            DistributedPlanWorker worker = workerManager.getWorker(replica.getBackendIdWithoutException());
             if (worker.available()) {
                 workers.add(worker);
             }

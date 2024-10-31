@@ -28,4 +28,16 @@ suite("test_select", "arrow_flight_sql") {
     sql """INSERT INTO ${tableName} VALUES(111, "plsql333")"""
     
     qt_arrow_flight_sql "select sum(id) as a, count(1) as b from ${tableName}"
+
+    tableName = "test_select_datetime"
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+        create table ${tableName} (id int, name varchar(20), f_datetime_p datetime(6), f_datetime datetime) DUPLICATE key(`id`) distributed by hash (`id`) buckets 4
+        properties ("replication_num"="1");
+        """
+    sql """INSERT INTO ${tableName} VALUES(111, "plsql111","2024-07-19 12:00:00.123456","2024-07-19 12:00:00")"""
+    sql """INSERT INTO ${tableName} VALUES(222, "plsql222","2024-07-20 12:00:00.123456","2024-07-20 12:00:00")"""
+    sql """INSERT INTO ${tableName} VALUES(333, "plsql333","2024-07-21 12:00:00.123456","2024-07-21 12:00:00")"""
+
+    qt_arrow_flight_sql_datetime "select * from ${tableName} order by id desc"
 }

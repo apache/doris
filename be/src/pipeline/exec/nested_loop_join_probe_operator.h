@@ -19,6 +19,9 @@
 
 #include <stdint.h>
 
+#include <cstdint>
+
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/join_probe_operator.h"
@@ -28,7 +31,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 class NestedLoopJoinProbeOperatorX;
 class NestedLoopJoinProbeLocalState final
         : public JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState> {
@@ -54,15 +57,17 @@ private:
     void _update_additional_flags(vectorized::Block* block);
     template <bool BuildSide, bool IsSemi>
     void _finalize_current_phase(vectorized::Block& block, size_t batch_size);
-    void _resize_fill_tuple_is_null_column(size_t new_size, int left_flag, int right_flag);
+    void _resize_fill_tuple_is_null_column(size_t new_size, uint8_t left_flag, uint8_t right_flag);
     void _reset_with_next_probe_row();
     void _append_left_data_with_null(vectorized::Block& block) const;
     void _process_left_child_block(vectorized::Block& block,
                                    const vectorized::Block& now_process_build_block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
-    void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block, int column_to_keep,
-                                                     int build_block_idx, int processed_blocks_num,
-                                                     bool materialize, Filter& filter) {
+    void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block,
+                                                     uint32_t column_to_keep,
+                                                     size_t build_block_idx,
+                                                     size_t processed_blocks_num, bool materialize,
+                                                     Filter& filter) {
         if constexpr (SetBuildSideFlag) {
             for (size_t i = 0; i < processed_blocks_num; i++) {
                 auto& build_side_flag =
@@ -81,11 +86,11 @@ private:
             }
         }
         if constexpr (SetProbeSideFlag) {
-            int end = filter.size();
+            int64_t end = filter.size();
             for (int i = _left_block_pos == _child_block->rows() ? _left_block_pos - 1
                                                                  : _left_block_pos;
                  i >= _left_block_start_pos; i--) {
-                int offset = 0;
+                int64_t offset = 0;
                 if (!_probe_offset_stack.empty()) {
                     offset = _probe_offset_stack.top();
                     _probe_offset_stack.pop();
@@ -108,7 +113,8 @@ private:
     // need exception safety
     template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
     Status _do_filtering_and_update_visited_flags(vectorized::Block* block, bool materialize) {
-        auto column_to_keep = block->columns();
+        // The number of columns will not exceed the range of u32.
+        uint32_t column_to_keep = cast_set<uint32_t>(block->columns());
         // If we need to set visited flags for build side,
         // 1. Execute conjuncts and get a column with bool type to do filtering.
         // 2. Use bool column to update build-side visited flags.
@@ -197,7 +203,9 @@ public:
     }
 
     DataDistribution required_data_distribution() const override {
-        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+            _join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::RIGHT_ANTI_JOIN ||
+            _join_op == TJoinOp::RIGHT_SEMI_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             return {ExchangeType::NOOP};
         }
         return {ExchangeType::ADAPTIVE_PASSTHROUGH};
@@ -222,3 +230,4 @@ private:
 
 } // namespace pipeline
 } // namespace doris
+#include "common/compile_check_end.h"

@@ -11,3 +11,69 @@
 -- !select4 --
 18446744073709551615
 
+-- !select5 --
+1100100	100
+\N	\N
+11001000	200
+\N	\N
+
+-- !select6 --
+1	1.464868
+\N	\N
+10	2.789
+11	3.14159
+
+-- !check_fe --
+\N
+
+-- !check_be --
+\N
+
+-- !check_no_fold --
+\N
+
+-- !check_fe --
+1111
+
+-- !check_be --
+1111
+
+-- !check_no_fold --
+1111
+
+-- !check_fe --
+\N
+
+-- !check_be --
+\N
+
+-- !check_no_fold --
+\N
+
+-- !check_fe --
+\N
+
+-- !check_be --
+\N
+
+-- !check_no_fold --
+\N
+
+-- !check_fe --
+\N
+
+-- !check_be --
+\N
+
+-- !check_no_fold --
+\N
+
+-- !check_fe --
+1111011
+
+-- !check_be --
+1111011
+
+-- !check_no_fold --
+1111011
+

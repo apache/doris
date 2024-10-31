@@ -64,6 +64,10 @@ Status IndexPageBuilder::get_first_key(Slice* key) const {
 
 ///////////////////////////////////////////////////////////////////////////////
 
+int64_t IndexPageReader::get_metadata_size() const {
+    return sizeof(IndexPageReader) + _vl_field_mem_size;
+}
+
 Status IndexPageReader::parse(const Slice& body, const IndexPageFooterPB& footer) {
     _footer = footer;
     size_t num_entries = _footer.num_entries();
@@ -80,8 +84,13 @@ Status IndexPageReader::parse(const Slice& body, const IndexPageFooterPB& footer
         }
         _keys.push_back(key);
         _values.push_back(value);
+        _vl_field_mem_size += sizeof(char) * key.size;
     }
+    _vl_field_mem_size +=
+            _keys.capacity() * sizeof(Slice) + _values.capacity() * sizeof(PagePointer);
+    _vl_field_mem_size += _footer.ByteSizeLong();
 
+    update_metadata_size();
     _parsed = true;
     return Status::OK();
 }

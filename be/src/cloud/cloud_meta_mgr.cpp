@@ -290,6 +290,8 @@ static std::string debug_info(const Request& req) {
         return "";
     } else if constexpr (is_any_v<Request, CreateRowsetRequest>) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
+    } else if constexpr (is_any_v<Request, RemoveDeleteBitmapRequest>) {
+        return fmt::format(" tablet_id={}", req.tablet_id());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -878,6 +880,7 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     AbortTxnRequest req;
     AbortTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_reason(std::string(ctx.status.msg().substr(0, 1024)));
     if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
         req.set_label(ctx.label);
@@ -943,7 +946,7 @@ Status CloudMetaMgr::get_storage_vault_info(StorageVaultInfos* vault_infos, bool
         j->mutable_obj_info()->set_sk(j->obj_info().sk().substr(0, 2) + "xxx");
     }
 
-    LOG(INFO) << "get storage vault, enable_storage_vault=" << is_vault_mode
+    LOG(INFO) << "get storage vault, enable_storage_vault=" << *is_vault_mode
               << " response=" << resp.ShortDebugString();
     return Status::OK();
 }
@@ -1046,16 +1049,43 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     return st;
 }
 
+Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                       DeleteBitmap* delete_bitmap) {
+    VLOG_DEBUG << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id();
+    UpdateDeleteBitmapRequest req;
+    UpdateDeleteBitmapResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_table_id(tablet.table_id());
+    req.set_partition_id(tablet.partition_id());
+    req.set_tablet_id(tablet.tablet_id());
+    // use a fake lock id to resolve compatibility issues
+    req.set_lock_id(-3);
+    req.set_unlock(true);
+    for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
+        req.add_rowset_ids(std::get<0>(key).to_string());
+        req.add_segment_ids(std::get<1>(key));
+        req.add_versions(std::get<2>(key));
+        // To save space, convert array and bitmap containers to run containers
+        bitmap.runOptimize();
+        std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+        bitmap.write(bitmap_data.data());
+        *(req.add_segment_delete_bitmaps()) = std::move(bitmap_data);
+    }
+    return retry_rpc("update delete bitmap", req, &res, &MetaService_Stub::update_delete_bitmap);
+}
+
 Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                                    int64_t initiator) {
-    VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id();
+    VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
+               << ",lock_id:" << lock_id;
     GetDeleteBitmapUpdateLockRequest req;
     GetDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_table_id(tablet.table_id());
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
-    req.set_expiration(10); // 10s expiration time for compaction and schema_change
+    // set expiration time for compaction and schema_change
+    req.set_expiration(config::delete_bitmap_lock_expiration_seconds);
     int retry_times = 0;
     Status st;
     std::default_random_engine rng = make_random_engine();
@@ -1073,6 +1103,24 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
     } while (++retry_times <= 100);
+    return st;
+}
+
+Status CloudMetaMgr::remove_old_version_delete_bitmap(
+        int64_t tablet_id,
+        const std::vector<std::tuple<std::string, uint64_t, uint64_t>>& to_delete) {
+    LOG(INFO) << "remove_old_version_delete_bitmap , tablet_id: " << tablet_id;
+    RemoveDeleteBitmapRequest req;
+    RemoveDeleteBitmapResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet_id);
+    for (auto& value : to_delete) {
+        req.add_rowset_ids(std::get<0>(value));
+        req.add_begin_versions(std::get<1>(value));
+        req.add_end_versions(std::get<2>(value));
+    }
+    auto st = retry_rpc("remove old delete bitmap", req, &res,
+                        &MetaService_Stub::remove_delete_bitmap);
     return st;
 }
 

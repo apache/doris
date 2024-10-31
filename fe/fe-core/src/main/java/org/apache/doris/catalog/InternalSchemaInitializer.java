@@ -30,7 +30,6 @@ import org.apache.doris.analysis.ModifyPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
 import org.apache.doris.analysis.TableName;
-import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -55,8 +54,6 @@ import java.util.Optional;
 
 public class InternalSchemaInitializer extends Thread {
 
-    public static final int TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS = 5;
-
     private static final Logger LOG = LogManager.getLogger(InternalSchemaInitializer.class);
 
     public InternalSchemaInitializer() {
@@ -72,17 +69,17 @@ public class InternalSchemaInitializer extends Thread {
                 FrontendNodeType feType = Env.getCurrentEnv().getFeType();
                 if (feType.equals(FrontendNodeType.INIT) || feType.equals(FrontendNodeType.UNKNOWN)) {
                     LOG.warn("FE is not ready");
-                    Thread.sleep(5000);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                     continue;
                 }
                 Thread.currentThread()
-                        .join(TABLE_CREATION_RETRY_INTERVAL_IN_SECONDS * 1000L);
+                        .join(Config.resource_not_ready_sleep_seconds * 1000L);
                 createDb();
                 createTbl();
             } catch (Throwable e) {
                 LOG.warn("Statistics storage initiated failed, will try again later", e);
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(Config.resource_not_ready_sleep_seconds * 1000);
                 } catch (InterruptedException ex) {
                     LOG.info("Sleep interrupted. {}", ex.getMessage());
                 }
@@ -154,7 +151,7 @@ public class InternalSchemaInitializer extends Thread {
                 }
             }
             try {
-                Thread.sleep(5000);
+                Thread.sleep(Config.resource_not_ready_sleep_seconds *  1000);
             } catch (InterruptedException t) {
                 // IGNORE
             }
@@ -197,12 +194,9 @@ public class InternalSchemaInitializer extends Thread {
             {
                 put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM, String.valueOf(
                         Math.max(1, Config.min_replication_num_per_tablet)));
+                put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN, "false");
             }
         };
-
-        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
-            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
-        }
 
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
@@ -237,10 +231,6 @@ public class InternalSchemaInitializer extends Thread {
                         Config.min_replication_num_per_tablet)));
             }
         };
-
-        if (Config.isCloudMode() && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
-            properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME, FeConstants.BUILT_IN_STORAGE_VAULT_NAME);
-        }
 
         PropertyAnalyzer.getInstance().rewriteForceProperties(properties);
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,

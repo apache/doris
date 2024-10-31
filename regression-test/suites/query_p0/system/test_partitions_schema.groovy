@@ -20,7 +20,12 @@ import static java.util.concurrent.TimeUnit.SECONDS
 
 suite("test_partitions_schema") {
     def dbName = "test_partitions_schema_db"
-    def listOfColum = "TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PARTITION_NAME,SUBPARTITION_NAME,PARTITION_ORDINAL_POSITION,SUBPARTITION_ORDINAL_POSITION,PARTITION_METHOD,SUBPARTITION_METHOD,PARTITION_EXPRESSION,SUBPARTITION_EXPRESSION,PARTITION_DESCRIPTION,TABLE_ROWS,AVG_ROW_LENGTH,DATA_LENGTH,MAX_DATA_LENGTH,INDEX_LENGTH,DATA_FREE,CHECKSUM,PARTITION_COMMENT,NODEGROUP,TABLESPACE_NAME";
+    // row count skipped in common validation
+    // if table report not done for the all tablet 
+    // row count will be -1 if done can get actual data.
+    // so we added one check waiting for rowcount and all other case we skipped row count
+    // checkpoint.
+    def listOfColum = "TABLE_CATALOG,TABLE_SCHEMA,TABLE_NAME,PARTITION_NAME,SUBPARTITION_NAME,PARTITION_ORDINAL_POSITION,SUBPARTITION_ORDINAL_POSITION,PARTITION_METHOD,SUBPARTITION_METHOD,PARTITION_EXPRESSION,SUBPARTITION_EXPRESSION,PARTITION_DESCRIPTION";
     sql "drop database if exists ${dbName}"
     sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
     sql "use ${dbName}"
@@ -156,11 +161,12 @@ suite("test_partitions_schema") {
             "row_store_page_size" = "8190"
         );
     """
-    qt_select_check_1 """select  $listOfColum from information_schema.partitions where table_schema=\"${dbName}\" order by $listOfColum"""
+    
+    order_qt_select_check_1 """select $listOfColum from information_schema.partitions where table_schema=\"${dbName}\""""
     sql """
         drop table test_row_column_page_size2;
     """    
-    qt_select_check_2 """select  $listOfColum from information_schema.partitions where table_schema=\"${dbName}\" order by $listOfColum"""
+    order_qt_select_check_2 """select $listOfColum from information_schema.partitions where table_schema=\"${dbName}\""""
 
     def user = "partitions_user"
     sql "DROP USER IF EXISTS ${user}"
@@ -179,7 +185,7 @@ suite("test_partitions_schema") {
     def url=tokens[0] + "//" + tokens[2] + "/" + "information_schema" + "?"
 
     connect(user=user, password='123abc!@#', url=url) {
-           qt_select_check_3 """select  $listOfColum from information_schema.partitions where table_schema=\"${dbName}\" order by $listOfColum"""
+        order_qt_select_check_3 """select $listOfColum from information_schema.partitions where table_schema=\"${dbName}\""""
     }
 
     sql "GRANT SELECT_PRIV ON ${dbName}.duplicate_table  TO ${user}"

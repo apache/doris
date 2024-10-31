@@ -169,6 +169,9 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
     for (int idx = 0, start = 0; idx <= slice.size; idx++) {
         char c = (idx == slice.size) ? collection_delimiter : slice[idx];
         if (c == collection_delimiter) {
+            if (options.escape_char != 0 && idx > 0 && slice[idx - 1] == options.escape_char) {
+                continue;
+            }
             slices.emplace_back(slice.data + start, idx - start);
             start = idx + 1;
         }

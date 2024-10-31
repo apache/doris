@@ -270,8 +270,8 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
     auto status = _init_impl(opts);
-    if (!status.ok() && !config::disable_segment_cache) {
-        _segment->remove_from_segment_cache();
+    if (!status.ok()) {
+        _segment->update_healthy_status(status);
     }
     return status;
 }
@@ -505,7 +505,8 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     RETURN_IF_ERROR(_apply_bitmap_index());
     {
         if (_opts.runtime_state &&
-            _opts.runtime_state->query_options().enable_inverted_index_query) {
+            _opts.runtime_state->query_options().enable_inverted_index_query &&
+            has_inverted_index_in_iterators()) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
             RETURN_IF_ERROR(_apply_inverted_index());
@@ -915,9 +916,9 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     // If any of the above conditions are met, log a debug message indicating that there's no need to read data for the indexed column.
     // Then, return false.
     int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
-    if ((_need_read_data_indices.count(cid) > 0 && !_need_read_data_indices[cid] &&
-         _output_columns.count(unique_id) < 1) ||
-        (_need_read_data_indices.count(cid) > 0 && !_need_read_data_indices[cid] &&
+    if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
+         !_output_columns.contains(unique_id)) ||
+        (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
          _output_columns.count(unique_id) == 1 &&
          _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX)) {
         VLOG_DEBUG << "SegmentIterator no need read data for column: "
@@ -1428,8 +1429,6 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
             pred_id_set.insert(_short_cir_pred_column_ids.begin(),
                                _short_cir_pred_column_ids.end());
             pred_id_set.insert(_vec_pred_column_ids.begin(), _vec_pred_column_ids.end());
-            std::set<ColumnId> non_pred_set(_non_predicate_columns.begin(),
-                                            _non_predicate_columns.end());
 
             DCHECK(_second_read_column_ids.empty());
             // _second_read_column_ids must be empty. Otherwise _lazy_materialization_read must not false.
@@ -1762,14 +1761,14 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
     bool all_pred_always_true = true;
     for (const auto& pred : _pre_eval_block_predicate) {
-        if (!pred->always_true(false)) {
+        if (!pred->always_true()) {
             all_pred_always_true = false;
             break;
         }
     }
     if (all_pred_always_true) {
         for (const auto& pred : _pre_eval_block_predicate) {
-            pred->always_true(true);
+            pred->always_true();
         }
     }
 
@@ -1786,7 +1785,7 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     DCHECK(!_pre_eval_block_predicate.empty());
     bool is_first = true;
     for (auto& pred : _pre_eval_block_predicate) {
-        if (pred->always_true(true)) {
+        if (pred->always_true()) {
             continue;
         }
         auto column_id = pred->column_id();
@@ -1928,7 +1927,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
     // if rows read by batch is 0, will return end of file, we should not remove segment cache in this situation.
     if (!status.ok() && !status.is<END_OF_FILE>()) {
-        _segment->remove_from_segment_cache();
+        _segment->update_healthy_status(status);
     }
     return status;
 }
@@ -1990,6 +1989,9 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (UNLIKELY(!_lazy_inited)) {
         RETURN_IF_ERROR(_lazy_init());
         _lazy_inited = true;
+        // If the row bitmap size is smaller than block_row_max, there's no need to reserve that many column rows.
+        auto nrows_reserve_limit =
+                std::min(_row_bitmap.cardinality(), uint64_t(_opts.block_row_max));
         if (_lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval) {
             _block_rowids.resize(_opts.block_row_max);
         }
@@ -2014,7 +2016,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                                 storage_column_type->is_nullable(), _opts.io_ctx.reader_type));
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
+                _current_return_columns[cid]->reserve(nrows_reserve_limit);
             } else if (i >= block->columns()) {
                 // if i >= block->columns means the column and not the pred_column means `column i` is
                 // a delete condition column. but the column is not effective in the segment. so we just
@@ -2025,7 +2027,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 // TODO: skip read the not effective delete column to speed up segment read.
                 _current_return_columns[cid] =
                         Schema::get_data_type_ptr(*column_desc)->create_column();
-                _current_return_columns[cid]->reserve(_opts.block_row_max);
+                _current_return_columns[cid]->reserve(nrows_reserve_limit);
             }
         }
 
@@ -2050,7 +2052,8 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (_can_opt_topn_reads()) {
         nrows_read_limit = std::min(static_cast<uint32_t>(_opts.topn_limit), nrows_read_limit);
     }
-
+    // If the row bitmap size is smaller than nrows_read_limit, there's no need to reserve that many column rows.
+    nrows_read_limit = std::min(_row_bitmap.cardinality(), uint64_t(nrows_read_limit));
     DBUG_EXECUTE_IF("segment_iterator.topn_opt_1", {
         if (nrows_read_limit != 1) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("topn opt 1 execute failed: {}",

@@ -22,6 +22,7 @@ suite('test_schema_change_concurrent_with_txn', 'docker') {
     def options = new ClusterOptions()
     options.enableDebugPoints()
     options.feConfigs.add('publish_wait_time_second=-1')
+    options.feConfigs.add('enable_abort_txn_by_checking_conflict_txn=false')
     docker(options) {
         sql 'SET GLOBAL insert_visible_timeout_ms = 2000'
 

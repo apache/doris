@@ -72,5 +72,9 @@ suite("test_delete_with_sync_mv") {
             from test_delete_with_sync_mv;
     """)
 
+    explain {
+        sql """delete from test_delete_with_sync_mv where l_orderkey = 2"""
+        contains "IS_PARTIAL_UPDATE: false" 
+    }
     sql """delete from test_delete_with_sync_mv where l_orderkey = 2"""
 }

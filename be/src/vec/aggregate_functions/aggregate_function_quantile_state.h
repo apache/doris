@@ -152,8 +152,8 @@ public:
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 };
 
-AggregateFunctionPtr create_aggregate_function_quantile_state_union(const std::string& name,
-                                                                    const DataTypes& argument_types,
-                                                                    const bool result_is_nullable);
+AggregateFunctionPtr create_aggregate_function_quantile_state_union(
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable,
+        const AggregateFunctionAttr& attr);
 
 } // namespace doris::vectorized
