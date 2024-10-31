@@ -289,15 +289,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
 
         if (properties.containsKey(WRITE_BUFFER_RATIO)) {
-            String memoryLimit = properties.get(WRITE_BUFFER_RATIO);
-            if (!memoryLimit.endsWith("%")) {
-                throw new DdlException(WRITE_BUFFER_RATIO + " " + memoryLimit
-                        + " requires a percentage and ends with a '%'");
-            }
-            String memLimitErr = WRITE_BUFFER_RATIO + " " + memoryLimit
+            String writeBufSizeStr = properties.get(WRITE_BUFFER_RATIO);
+            String memLimitErr = WRITE_BUFFER_RATIO + " " + writeBufSizeStr
                     + " requires a positive int number.";
+            if (writeBufSizeStr.endsWith("%")) {
+                writeBufSizeStr = writeBufSizeStr.substring(0, writeBufSizeStr.length() - 1);
+            }
             try {
-                if (Integer.parseInt(memoryLimit.substring(0, memoryLimit.length() - 1)) < 0) {
+                if (Integer.parseInt(writeBufSizeStr) < 0) {
                     throw new DdlException(memLimitErr);
                 }
             } catch (NumberFormatException e) {
@@ -550,6 +549,13 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 }
             } else if (ENABLE_MEMORY_OVERCOMMIT.equals(key) && !properties.containsKey(key)) {
                 row.add("true");
+            }  else if (SLOT_MEMORY_POLICY.equals(key)) {
+                String val = properties.get(key);
+                if (StringUtils.isEmpty(val)) {
+                    row.add(SLOT_MEMORY_POLICY_DEFAULT_VALUE);
+                } else {
+                    row.add(val);
+                }
             } else if (SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
                 row.add("-1");
             } else if (MAX_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
