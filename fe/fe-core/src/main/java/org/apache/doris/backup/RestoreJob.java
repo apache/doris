@@ -945,11 +945,23 @@ public class RestoreJob extends AbstractJob {
             }
 
             // estimate timeout
-            long timeout = DbUtil.getCreateReplicasTimeoutMs(numBatchTasks);
+            long timeout = DbUtil.getCreateReplicasTimeoutMs(numBatchTasks) / 1000;
             try {
-                LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}",
+                LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}s",
                         numBatchTasks, timeout);
-                ok = latch.await(timeout, TimeUnit.MILLISECONDS);
+                for (long elapsed = 0; elapsed <= timeout; elapsed++) {
+                    if (latch.await(1, TimeUnit.SECONDS)) {
+                        ok = true;
+                        break;
+                    }
+                    if (state != RestoreJobState.PENDING) {  // user cancelled
+                        return;
+                    }
+                    if (elapsed % 5 == 0) {
+                        LOG.info("waiting {} create replica tasks for restore to finish, total {} tasks, elapsed {}s",
+                                latch.getCount(), numBatchTasks, elapsed);
+                    }
+                }
             } catch (InterruptedException e) {
                 LOG.warn("InterruptedException: ", e);
                 ok = false;
