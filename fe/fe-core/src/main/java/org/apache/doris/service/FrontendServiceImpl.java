@@ -3026,7 +3026,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         RestoreStmt restoreStmt = new RestoreStmt(label, repoName, restoreTableRefClause, properties, request.getMeta(),
                 request.getJobInfo());
         restoreStmt.setIsBeingSynced();
-        LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
+        LOG.debug("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setQualifiedUser(request.getUser());
@@ -3037,13 +3037,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             restoreStmt.analyze(analyzer);
             DdlExecutor.execute(Env.getCurrentEnv(), restoreStmt);
         } catch (UserException e) {
-            LOG.warn("failed to restore: {}", e.getMessage(), e);
+            LOG.warn("failed to restore: {}, stmt: {}", e.getMessage(), restoreStmt, e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
+            status.addToErrorMsgs(e.getMessage() + ", stmt: " + restoreStmt.toString());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.warn("catch unknown result. stmt: {}", restoreStmt, e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()) + ", stmt: " + restoreStmt.toString());
         } finally {
             ConnectContext.remove();
         }
