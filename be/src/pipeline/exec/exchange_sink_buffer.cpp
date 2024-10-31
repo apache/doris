@@ -235,7 +235,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto send_callback = request.channel->get_send_callback(id, request.eos);
 
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
-        if (config::exchange_sink_ignore_eovercrowded) {
+        if (config::execution_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
         }
         send_callback->addFailedHandler([&, weak_task_ctx = weak_task_exec_ctx()](
@@ -313,7 +313,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         }
         auto send_callback = request.channel->get_send_callback(id, request.eos);
         send_callback->cntl_->set_timeout_ms(request.channel->_brpc_timeout_ms);
-        if (config::exchange_sink_ignore_eovercrowded) {
+        if (config::execution_ignore_eovercrowded) {
             send_callback->cntl_->ignore_eovercrowded();
         }
         send_callback->addFailedHandler([&, weak_task_ctx = weak_task_exec_ctx()](
