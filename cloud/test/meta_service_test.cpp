@@ -4808,7 +4808,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
         ASSERT_EQ(get_delete_bitmap_res.rowset_ids(0), "456");
         ASSERT_EQ(get_delete_bitmap_res.segment_ids(0), 0);
         ASSERT_EQ(get_delete_bitmap_res.versions(0), 2);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(i), large_value);
+        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), large_value);
 
     }
 
@@ -4853,7 +4853,7 @@ TEST(MetaServiceTest, UpdateDeleteBitmap) {
         ASSERT_EQ(get_delete_bitmap_res.rowset_ids(0), "456");
         ASSERT_EQ(get_delete_bitmap_res.segment_ids(0), 0);
         ASSERT_EQ(get_delete_bitmap_res.versions(0), 2);
-        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(i), large_value);
+        ASSERT_EQ(get_delete_bitmap_res.segment_delete_bitmaps(0), large_value);
     }
 }
 
