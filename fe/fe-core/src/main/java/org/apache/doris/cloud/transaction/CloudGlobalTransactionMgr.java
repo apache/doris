@@ -880,15 +880,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     LOG.debug("remove delete bitmap lock, transactionId={}, Request: {}, Response: {}",
                             transactionId, request, response);
                 }
+                Preconditions.checkNotNull(response);
+                Preconditions.checkNotNull(response.getStatus());
+                if (response.getStatus().getCode() != MetaServiceCode.OK) {
+                    LOG.warn("remove delete bitmap lock failed, transactionId={}, response:{}",
+                            transactionId, response);
+                }
             } catch (Exception e) {
                 LOG.warn("ignore get delete bitmap lock exception, transactionId={}, exception={}",
                         transactionId, e);
-            }
-            Preconditions.checkNotNull(response);
-            Preconditions.checkNotNull(response.getStatus());
-            if (response.getStatus().getCode() != MetaServiceCode.OK) {
-                LOG.warn("remove delete bitmap lock failed, transactionId={}, response:{}",
-                        transactionId, response);
             }
         }
     }
