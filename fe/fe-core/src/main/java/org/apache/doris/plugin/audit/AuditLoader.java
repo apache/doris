@@ -85,7 +85,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             // GlobalVariable.audit_plugin_max_batch_bytes.
             this.auditEventQueue = Queues.newLinkedBlockingDeque(100000);
             this.streamLoader = new AuditStreamLoader();
-            this.loadThread = new Thread(new LoadWorker(this.streamLoader), "audit loader thread");
+            this.loadThread = new Thread(new LoadWorker(), "audit loader thread");
             this.loadThread.start();
 
             isInit = true;

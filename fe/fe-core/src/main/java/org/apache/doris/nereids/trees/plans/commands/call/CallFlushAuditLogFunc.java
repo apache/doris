@@ -34,15 +34,15 @@ public class CallFlushAuditLogFunc extends CallFunc {
 
     private UserIdentity user;
 
+    private CallFlushAuditLogFunc(UserIdentity user) {
+        this.user = user;
+    }
+
     public static CallFunc create(UserIdentity user, List<Expression> args) {
         if (!args.isEmpty()) {
             throw new AnalysisException("FLUSH_AUDIT_LOG function requires no parameter");
         }
         return new CallFlushAuditLogFunc(user);
-    }
-
-    private CallFlushAuditLogFunc(UserIdentity user) {
-        this.user = user;
     }
 
     @Override
