@@ -52,7 +52,6 @@ JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink
     jdbc_param.connection_pool_max_wait_time = t_jdbc_sink.jdbc_table.connection_pool_max_wait_time;
     jdbc_param.connection_pool_max_life_time = t_jdbc_sink.jdbc_table.connection_pool_max_life_time;
     jdbc_param.connection_pool_keep_alive = t_jdbc_sink.jdbc_table.connection_pool_keep_alive;
-    jdbc_param.enable_connection_pool = t_jdbc_sink.jdbc_table.enable_connection_pool;
 
     return jdbc_param;
 }

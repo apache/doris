@@ -352,7 +352,6 @@ struct TJdbcTable {
   12: optional i32 connection_pool_max_life_time
   13: optional bool connection_pool_keep_alive
   14: optional i64 catalog_id
-  15: optional bool enable_connection_pool
 }
 
 struct TMCTable {
