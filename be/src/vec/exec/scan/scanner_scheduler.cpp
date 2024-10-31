@@ -123,7 +123,6 @@ Status ScannerScheduler::init(ExecEnv* env) {
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                                 std::shared_ptr<ScanTask> scan_task) {
-    scan_task->last_submit_time = GetCurrentTimeNanos();
     if (ctx->done()) {
         return Status::OK();
     }
@@ -154,7 +153,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
             if (!status.ok()) {
                 scanner_ref->set_status(status);
-                ctx->append_block_to_queue(scanner_ref);
+                ctx->push_back_scan_task(scanner_ref);
             }
         });
         if (!s.ok()) {
@@ -184,7 +183,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
                 if (!status.ok()) {
                     scanner_ref->set_status(status);
-                    ctx->append_block_to_queue(scanner_ref);
+                    ctx->push_back_scan_task(scanner_ref);
                 }
             };
             SimplifiedScanTask simple_scan_task = {work_func, ctx};
@@ -212,8 +211,6 @@ std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
-    // record the time from scanner submission to actual execution in nanoseconds
-    ctx->incr_ctx_scheduling_time(GetCurrentTimeNanos() - scan_task->last_submit_time);
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         return;
@@ -343,7 +340,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scanner->mark_to_need_to_close();
     }
     scan_task->set_eos(eos);
-    ctx->append_block_to_queue(scan_task);
+    ctx->push_back_scan_task(scan_task);
 }
 
 void ScannerScheduler::_register_metrics() {
