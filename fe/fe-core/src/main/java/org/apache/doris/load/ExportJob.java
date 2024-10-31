@@ -98,7 +98,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Data
@@ -207,9 +206,7 @@ public class ExportJob implements Writable {
     // backend_address => snapshot path
     private List<Pair<TNetworkAddress, String>> snapshotPaths = Lists.newArrayList();
 
-    private List<ExportTaskExecutor> jobExecutorList;
-
-    private ConcurrentHashMap<Long, TransientTaskExecutor> taskIdToExecutor = new ConcurrentHashMap<>();
+    private List<ExportTaskExecutor> jobExecutorList = Lists.newArrayList();
 
     private Integer finishedTaskCount = 0;
     private List<List<OutfileInfo>> allOutfileInfo = Lists.newArrayList();
@@ -690,11 +687,11 @@ public class ExportJob implements Writable {
         }
 
         // we need cancel all task
-        taskIdToExecutor.keySet().forEach(id -> {
+        jobExecutorList.forEach(executor -> {
             try {
-                Env.getCurrentEnv().getTransientTaskManager().cancelMemoryTask(id);
+                Env.getCurrentEnv().getTransientTaskManager().cancelMemoryTask(executor.getId());
             } catch (JobException e) {
-                LOG.warn("cancel export task {} exception: {}", id, e);
+                LOG.warn("cancel export task {} exception: {}", executor.getId(), e);
             }
         });
 
@@ -705,6 +702,7 @@ public class ExportJob implements Writable {
         setExportJobState(ExportJobState.CANCELLED);
         finishTimeMs = System.currentTimeMillis();
         failMsg = new ExportFailMsg(type, msg);
+        jobExecutorList.clear();
         if (FeConstants.runningUnitTest) {
             return;
         }
@@ -749,6 +747,8 @@ public class ExportJob implements Writable {
         setExportJobState(ExportJobState.FINISHED);
         finishTimeMs = System.currentTimeMillis();
         outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
+        // Clear the jobExecutorList to release memory.
+        jobExecutorList.clear();
         Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.FINISHED);
     }
 
