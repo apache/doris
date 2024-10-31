@@ -894,7 +894,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 AgentBatchTask batchTask = batchTaskPerTable.get(localTbl.getId());
                 if (batchTask == null) {
-                    batchTask = new AgentBatchTask();
+                    batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
                     batchTaskPerTable.put(localTbl.getId(), batchTask);
                 }
                 createReplicas(db, batchTask, localTbl, restorePart);
@@ -910,7 +910,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     for (Partition restorePart : restoreOlapTable.getPartitions()) {
                         AgentBatchTask batchTask = batchTaskPerTable.get(restoreTbl.getId());
                         if (batchTask == null) {
-                            batchTask = new AgentBatchTask();
+                            batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
                             batchTaskPerTable.put(restoreTbl.getId(), batchTask);
                         }
                         createReplicas(db, batchTask, restoreOlapTable, restorePart, tabletBases);
@@ -1167,7 +1167,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         taskProgress.clear();
         taskErrMsg.clear();
         Multimap<Long, Long> bePathsMap = HashMultimap.create();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         db.readLock();
         try {
             for (Map.Entry<IdChain, IdChain> entry : fileMapping.getMapping().entrySet()) {
@@ -1652,7 +1652,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
@@ -1812,7 +1812,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
@@ -1992,7 +1992,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         // tablet id->(be id -> download info)
         for (Cell<Long, Long, SnapshotInfo> cell : snapshotInfos.cellSet()) {
             SnapshotInfo info = cell.getValue();
@@ -2182,7 +2182,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         // we do not care about the release snapshot tasks' success or failure,
         // the GC thread on BE will sweep the snapshot, finally.
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
                     info.getTabletId(), info.getPath());
