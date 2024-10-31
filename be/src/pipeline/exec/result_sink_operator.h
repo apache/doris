@@ -128,7 +128,6 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
 
 private:
     friend class ResultSinkOperatorX;
