@@ -178,8 +178,6 @@ private:
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
     bool _probe_ignore_null = false;
 
-    std::vector<bool> _should_convert_to_nullable;
-
     vectorized::DataTypes _right_table_data_types;
     vectorized::DataTypes _left_table_data_types;
     std::vector<SlotId> _hash_output_slot_ids;
