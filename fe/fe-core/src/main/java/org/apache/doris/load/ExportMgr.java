@@ -114,8 +114,7 @@ public class ExportMgr {
                         job.getBrokerDesc());
             }
             job.getTaskExecutors().forEach(executor -> {
-                Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
-                job.getTaskIdToExecutor().put(taskId, executor);
+                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
             });
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
         } finally {
