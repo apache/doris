@@ -130,9 +130,9 @@ Status TransactionalHiveReader::init_row_filters(const TFileRangeDesc& range,
         OrcReader delete_reader(_profile, _state, _params, delete_range, _MIN_BATCH_SIZE,
                                 _state->timezone(), _io_ctx, false);
 
-        RETURN_IF_ERROR(delete_reader.init_reader(
-                &TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE, nullptr, {}, {}, false,
-                nullptr, nullptr, nullptr, nullptr));
+        RETURN_IF_ERROR(
+                delete_reader.init_reader(&TransactionalHive::DELETE_ROW_COLUMN_NAMES_LOWER_CASE,
+                                          nullptr, {}, false, nullptr, nullptr, nullptr, nullptr));
 
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
