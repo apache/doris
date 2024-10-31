@@ -106,8 +106,8 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         GetDebugPoint().clearDebugPointsForAllBEs()
 
         // block the flexible partial update in publish phase
-        enable_publish_spin_wait()
-        enable_block_in_publish()
+        enable_publish_spin_wait("t1")
+        enable_block_in_publish("-1")
 
         // load 1
         def t1 = Thread.start {
@@ -172,7 +172,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
         def t3 = Thread.start {
             sql "set insert_visible_timeout_ms=60000;"
             sql "sync;"
-            sql "insert into ${tableName} values(1,10,1,1,1),(2,20,2,2,2);"
+            sql "insert into ${tableName} values(1,10,1,1,1),(2,20,2,2,2),(3,30,3,3,3),(4,40,4,4,4);"
         }
         Thread.sleep(700)
         def t4 = Thread.start {
@@ -180,7 +180,7 @@ suite("test_flexible_partial_update_publish_conflict_seq", "nonConcurrent") {
             sql "set insert_visible_timeout_ms=60000;"
             sql "set enable_insert_strict=false;"
             sql "sync;"
-            sql "insert into ${tableName}(k,v1,v2,v3) values(1,99,99,99);"
+            sql "insert into ${tableName}(k,v1,v2,v3) values(1,99,99,99),(3,88,88,88);"
         }
         Thread.sleep(700)
         enable_publish_spin_wait("token2")
