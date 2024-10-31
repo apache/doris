@@ -61,6 +61,7 @@
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -307,7 +308,7 @@ struct TimeDiffImpl {
                 return (double)diff_m;
             }
         } else {
-            return (double)((1000 * 1000) * ts0.second_diff(ts1));
+            return TimeValue::from_second(ts0.second_diff(ts1));
         }
     }
     static DataTypes get_variadic_argument_types() {
@@ -993,9 +994,8 @@ struct CurrentTimeImpl {
         VecDateTimeValue dtv;
         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                           context->state()->timezone_obj());
-        double time = dtv.hour() * 3600l + dtv.minute() * 60l + dtv.second();
-        time *= (1000 * 1000);
-        col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&time)), 0);
+        auto time = TimeValue::make_time(dtv.hour(), dtv.minute(), dtv.second());
+        col_to->insert_value(time);
         block.get_by_position(result).column =
                 ColumnConst::create(std::move(col_to), input_rows_count);
         return Status::OK();
@@ -1014,8 +1014,8 @@ struct TimeToSecImpl {
 
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] =
-                    cast_set<int>(static_cast<int64_t>(column_data.get_element(i)) / (1000 * 1000));
+            res_data[i] = cast_set<int>(static_cast<int64_t>(column_data.get_element(i)) /
+                                        (TimeValue::ONE_SECOND_MICROSECONDS));
         }
         block.replace_by_position(result, std::move(res_col));
 
@@ -1034,7 +1034,7 @@ struct SecToTimeImpl {
         auto res_col = ColumnFloat64::create(input_rows_count);
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = (1000 * 1000) * static_cast<double>(column_data.get_element(i));
+            res_data[i] = TimeValue::from_second(column_data.get_element(i));
         }
 
         block.replace_by_position(result, std::move(res_col));
