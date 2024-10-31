@@ -424,7 +424,7 @@ suite('test_manager_interface_3',"p0") {
                 x ++
             }
         }
-        assertTrue(x == 21)
+        assertTrue(x == 20)
 
         connect(user=user, password="${pwd}", url=url) { 
             result = sql """ show resources """
@@ -435,7 +435,7 @@ suite('test_manager_interface_3',"p0") {
                     x ++
                 }
             }
-            assertTrue(x == 21)
+            assertTrue(x == 20)
         }
 
 
@@ -469,7 +469,7 @@ suite('test_manager_interface_3',"p0") {
         }
 
         sql """grant  USAGE_PRIV on RESOURCE  ${resource_name} TO '${user}' """
-        connect(user=user, password="${pwd}", url=url) {
+        connect(user=user, password="${pwd}", url=url) { 
             result = sql """ show resources """
             x = 0
             for(int i = 0;i<result.size();i++) {
@@ -478,7 +478,7 @@ suite('test_manager_interface_3',"p0") {
                     x ++
                 }
             }
-            assertTrue(x == 21)
+            assertTrue(x == 20)
         }
         sql """ drop RESOURCE if exists  ${resource_name} """ 
         sql """drop user if exists ${user}"""

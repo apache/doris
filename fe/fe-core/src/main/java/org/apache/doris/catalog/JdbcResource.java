@@ -108,7 +108,6 @@ public class JdbcResource extends Resource {
     public static final String CHECK_SUM = "checksum";
     public static final String CREATE_TIME = "create_time";
     public static final String TEST_CONNECTION = "test_connection";
-    public static final String ENABLE_CONNECTION_POOL = "enable_connection_pool";
 
     private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,
@@ -129,8 +128,7 @@ public class JdbcResource extends Resource {
             CONNECTION_POOL_MAX_WAIT_TIME,
             CONNECTION_POOL_KEEP_ALIVE,
             TEST_CONNECTION,
-            ExternalCatalog.USE_META_CACHE,
-            ENABLE_CONNECTION_POOL
+            ExternalCatalog.USE_META_CACHE
     ).build();
 
     // The default value of optional properties
@@ -151,7 +149,6 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(TEST_CONNECTION, "true");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ExternalCatalog.USE_META_CACHE,
                 String.valueOf(ExternalCatalog.DEFAULT_USE_META_CACHE));
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ENABLE_CONNECTION_POOL, "false");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.
