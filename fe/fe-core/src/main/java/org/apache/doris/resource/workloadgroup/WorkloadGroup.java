@@ -552,9 +552,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }  else if (SLOT_MEMORY_POLICY.equals(key)) {
                 String val = properties.get(key);
                 if (StringUtils.isEmpty(val)) {
-                    row.add(SLOT_MEMORY_POLICY_DEFAULT_VALUE + "%");
+                    row.add(SLOT_MEMORY_POLICY_DEFAULT_VALUE);
                 } else {
-                    row.add(val + "%");
+                    row.add(val);
                 }
             } else if (SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
                 row.add("-1");
