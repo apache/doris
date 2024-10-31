@@ -158,7 +158,7 @@ public:
 
 protected:
     void _discard_conjuncts() {
-        for (auto& conjunct : _conjuncts) {
+        for (auto& conjunct : _common_expr_ctxs_push_down) {
             _stale_expr_ctxs.emplace_back(conjunct);
         }
         _conjuncts.clear();

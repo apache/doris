@@ -213,11 +213,11 @@ Status VFileScanner::_process_conjuncts_for_dict_filter() {
 }
 
 Status VFileScanner::_process_late_arrival_conjuncts() {
-    if (_push_down_conjuncts.size() < _conjuncts.size()) {
+    if (_push_down_conjuncts.size() < _common_expr_ctxs_push_down.size()) {
         _push_down_conjuncts.clear();
-        _push_down_conjuncts.resize(_conjuncts.size());
-        for (size_t i = 0; i != _conjuncts.size(); ++i) {
-            RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
+        _push_down_conjuncts.resize(_common_expr_ctxs_push_down.size());
+        for (size_t i = 0; i != _common_expr_ctxs_push_down.size(); ++i) {
+            RETURN_IF_ERROR(_common_expr_ctxs_push_down[i]->clone(_state, _push_down_conjuncts[i]));
         }
         RETURN_IF_ERROR(_process_conjuncts_for_dict_filter());
         _discard_conjuncts();
