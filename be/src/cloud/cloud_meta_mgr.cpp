@@ -1215,12 +1215,8 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
     }
     if (rs_meta.tablet_schema()->get_inverted_index_storage_format() ==
         InvertedIndexStorageFormatPB::V1) {
-        auto indices = rs_meta.tablet_schema()->indexes();
+        const auto& indices = rs_meta.tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
-            // only get file_size for inverted index
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
-            }
             for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
                 std::string segment_path = StorageResource().remote_segment_path(
                         rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
@@ -1229,7 +1225,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
                 std::string inverted_index_file_path =
                         InvertedIndexDescriptor::get_index_file_path_v1(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(segment_path),
-                                index.index_id(), index.get_index_suffix());
+                                index->index_id(), index->get_index_suffix());
                 auto st = fs->file_size(inverted_index_file_path, &file_size);
                 if (!st.ok()) {
                     file_size = 0;
