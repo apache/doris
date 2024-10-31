@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
+/** CheckResult */
 public class CheckResult {
     public final FormatChecker checker;
     public final StringInspect stringInspect;

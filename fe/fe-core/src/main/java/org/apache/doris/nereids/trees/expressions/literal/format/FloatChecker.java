@@ -44,8 +44,6 @@ public class FloatChecker extends FormatChecker {
     }
 
     public static boolean isValidFloat(String str) {
-
-
         StringInspect stringInspect = new StringInspect(str.trim());
         return INSTANCE.check(stringInspect).matched && stringInspect.eos();
     }

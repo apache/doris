@@ -418,28 +418,28 @@ class DateTimeLiteralTest {
     @Test
     void testDateTimeV2Scale() {
         Assertions.assertEquals(
-                check( "2016-07-02 00:00:00.123", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)),
-                check( "2016-07-02 00:00:00.123", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)));
+                check("2016-07-02 00:00:00.123", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)),
+                check("2016-07-02 00:00:00.123", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)));
 
         Assertions.assertEquals(
-                check( "2016-07-02 00:00:00.123456", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)),
-                check( "2016-07-02 00:00:00.123", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)));
+                check("2016-07-02 00:00:00.123456", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)),
+                check("2016-07-02 00:00:00.123", s -> new DateTimeV2Literal(DateTimeV2Type.of(3), s)));
 
         Assertions.assertEquals(
-                check( "2016-07-02 00:00:00.12345", s -> new DateTimeV2Literal(DateTimeV2Type.of(4), s)),
-                check( "2016-07-02 00:00:00.1235", s -> new DateTimeV2Literal(DateTimeV2Type.of(4), s)));
+                check("2016-07-02 00:00:00.12345", s -> new DateTimeV2Literal(DateTimeV2Type.of(4), s)),
+                check("2016-07-02 00:00:00.1235", s -> new DateTimeV2Literal(DateTimeV2Type.of(4), s)));
 
         Assertions.assertEquals(
-                check( "2016-07-02 00:00:00.12345", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)),
-                check( "2016-07-02 00:00:00", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)));
+                check("2016-07-02 00:00:00.12345", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)),
+                check("2016-07-02 00:00:00", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)));
 
         Assertions.assertEquals(
-                check( "2016-07-02 00:00:00.5123", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)),
-                check( "2016-07-02 00:00:01", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)));
+                check("2016-07-02 00:00:00.5123", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)),
+                check("2016-07-02 00:00:01", s -> new DateTimeV2Literal(DateTimeV2Type.of(0), s)));
 
         Assertions.assertEquals(
-                check( "2016-07-02 00:00:00.999999", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)),
-                check( "2016-07-02 00:00:01.00000", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)));
+                check("2016-07-02 00:00:00.999999", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)),
+                check("2016-07-02 00:00:01.00000", s -> new DateTimeV2Literal(DateTimeV2Type.of(5), s)));
 
         // test overflow
         Assertions.assertEquals(

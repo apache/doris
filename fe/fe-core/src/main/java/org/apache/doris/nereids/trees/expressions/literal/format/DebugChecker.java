@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 
 import java.util.function.Predicate;
 
+/** DebugChecker */
 public class DebugChecker<T extends FormatChecker> extends FormatChecker {
     private final T childChecker;
     private final Predicate<T> debugPoint;

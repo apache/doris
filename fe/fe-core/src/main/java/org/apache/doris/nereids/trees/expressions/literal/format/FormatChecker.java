@@ -21,7 +21,22 @@ import org.apache.doris.nereids.util.Utils;
 
 import java.util.function.Predicate;
 
-/** FormatChecker */
+/**
+ * FormatChecker
+ *
+ * This class is used to check whether the string satisfy the underscore format(like DSL), without throw Exception.
+ * For example, to check whether the string can be converted to integer, you can use below format, it can
+ * check "1", "-123", and "-143". More complex example is DateTimeChecker
+ *
+ * <pre>
+ *     FormatChecker checker = and(
+ *       option(chars(c -> c == '+' || c == '-')),
+ *       digit(1)
+ *     );
+ *
+ *     checker.check(new StringInspector("+12345"))
+ * </pre>
+ */
 public abstract class FormatChecker {
     public final String name;
 
