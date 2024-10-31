@@ -59,6 +59,9 @@ public:
     std::vector<std::shared_ptr<Dependency>> deps;
 
     std::vector<RuntimeProfile::Counter*> metrics;
+    RuntimeProfile::Counter* get_data_from_recvr_timer = nullptr;
+    RuntimeProfile::Counter* filter_timer = nullptr;
+    RuntimeProfile::Counter* create_merger_timer = nullptr;
 };
 
 class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
