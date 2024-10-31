@@ -153,9 +153,11 @@ public class AgentBatchTask implements Runnable {
             BackendService.Client client = null;
             TNetworkAddress address = null;
             boolean ok = false;
+            String errMsg = "";
             try {
                 Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (backend == null || !backend.isAlive()) {
+                    errMsg = String.format("backend %d is not alive", backendId);
                     continue;
                 }
                 List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
@@ -165,12 +167,7 @@ public class AgentBatchTask implements Runnable {
                 client = ClientPool.backendPool.borrowObject(address);
                 List<TAgentTaskRequest> agentTaskRequests = new LinkedList<TAgentTaskRequest>();
                 for (AgentTask task : tasks) {
-                    try {
-                        agentTaskRequests.add(toAgentTaskRequest(task));
-                    } catch (Exception e) {
-                        task.failed();
-                        throw e;
-                    }
+                    agentTaskRequests.add(toAgentTaskRequest(task));
                 }
                 client.submitTasks(agentTaskRequests);
                 if (LOG.isDebugEnabled()) {
@@ -182,11 +179,16 @@ public class AgentBatchTask implements Runnable {
                 ok = true;
             } catch (Exception e) {
                 LOG.warn("task exec error. backend[{}]", backendId, e);
+                errMsg = String.format("task exec error: %s. backend[%d]", e.getMessage(), backendId);
             } finally {
                 if (ok) {
                     ClientPool.backendPool.returnObject(address, client);
                 } else {
                     ClientPool.backendPool.invalidateObject(address, client);
+                    List<AgentTask> tasks = this.backendIdToTasks.get(backendId);
+                    for (AgentTask task : tasks) {
+                        task.failedWithMsg(errMsg);
+                    }
                 }
             }
         } // end for backend
