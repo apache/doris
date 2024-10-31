@@ -1694,6 +1694,19 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     }
 }
 
+void Tablet::report_error(const Status& st) {
+    if (st.is<ErrorCode::IO_ERROR>()) {
+        ++_io_error_times;
+    } else if (st.is<ErrorCode::CORRUPTION>()) {
+        _io_error_times = config::max_tablet_io_errors + 1;
+    } else if (st.is<ErrorCode::NOT_FOUND>()) {
+        check_tablet_path_exists();
+        if (!_is_tablet_path_exists.load(std::memory_order_relaxed)) {
+            _io_error_times = config::max_tablet_io_errors + 1;
+        }
+    }
+}
+
 Status Tablet::prepare_compaction_and_calculate_permits(
         CompactionType compaction_type, const TabletSharedPtr& tablet,
         std::shared_ptr<CompactionMixin>& compaction, int64_t& permits) {
