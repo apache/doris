@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
-/** StringInspect */
+/**
+ * StringInspect, a simple lexer can save and move the index
+ */
 public class StringInspect {
     public final String str;
     private int index;

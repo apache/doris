@@ -43,8 +43,7 @@ public class DateTimeChecker extends FormatChecker {
                                 chars(DateLiteral.punctuations::contains),
                                 digit(1, 2) // day
                             )
-                        ),
-                        option(ch('Z'))
+                        )
                     ),
                     // datetime
                     and("DateTime",
