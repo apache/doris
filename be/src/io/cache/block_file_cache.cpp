@@ -852,7 +852,6 @@ size_t BlockFileCache::try_release() {
         std::lock_guard lc(cell->file_block->_mutex);
         remove_size += file_block->range().size();
         remove(file_block, cache_lock, lc);
-
     }
     *_evict_by_try_release << remove_size;
     LOG(INFO) << "Released " << trash.size() << " blocks in file cache " << _cache_base_path;
