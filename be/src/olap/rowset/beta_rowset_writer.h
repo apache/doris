@@ -223,7 +223,6 @@ protected:
         RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.close(),
                                        "failed to close index file when build new rowset");
         this->_total_index_size += _idx_files.get_total_index_size();
-        this->_total_data_size += _idx_files.get_total_index_size();
         return Status::OK();
     }
 

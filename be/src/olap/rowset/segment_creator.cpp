@@ -225,9 +225,9 @@ Status SegmentFlusher::_flush_segment_writer(
     if (row_num == 0) {
         return Status::OK();
     }
-    uint64_t segment_size;
-    uint64_t index_size;
-    Status s = writer->finalize(&segment_size, &index_size);
+    uint64_t segment_file_size;
+    uint64_t common_index_size;
+    Status s = writer->finalize(&segment_file_size, &common_index_size);
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
@@ -249,16 +249,20 @@ Status SegmentFlusher::_flush_segment_writer(
     uint32_t segment_id = writer->segment_id();
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + inverted_index_file_size;
-    segstat.index_size = index_size + inverted_index_file_size;
+    segstat.data_size = segment_file_size;
+    segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
+    LOG(INFO) << "tablet_id:" << _context.tablet_id
+              << ", flushing rowset_dir: " << _context.tablet_path
+              << ", rowset_id:" << _context.rowset_id << ", data size:" << segstat.data_size
+              << ", index size:" << segstat.index_size;
 
     writer.reset();
 
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
 
     if (flush_size) {
-        *flush_size = segment_size + inverted_index_file_size;
+        *flush_size = segment_file_size;
     }
     return Status::OK();
 }
@@ -274,9 +278,9 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     if (row_num == 0) {
         return Status::OK();
     }
-    uint64_t segment_size;
-    uint64_t index_size;
-    Status s = writer->finalize(&segment_size, &index_size);
+    uint64_t segment_file_size;
+    uint64_t common_index_size;
+    Status s = writer->finalize(&segment_file_size, &common_index_size);
     if (!s.ok()) {
         return Status::Error(s.code(), "failed to finalize segment: {}", s.to_string());
     }
@@ -298,16 +302,20 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     uint32_t segment_id = writer->get_segment_id();
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + inverted_index_file_size;
-    segstat.index_size = index_size + inverted_index_file_size;
+    segstat.data_size = segment_file_size;
+    segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
+    LOG(INFO) << "tablet_id:" << _context.tablet_id
+              << ", flushing rowset_dir: " << _context.tablet_path
+              << ", rowset_id:" << _context.rowset_id << ", data size:" << segstat.data_size
+              << ", index size:" << segstat.index_size;
 
     writer.reset();
 
     RETURN_IF_ERROR(_context.segment_collector->add(segment_id, segstat, flush_schema));
 
     if (flush_size) {
-        *flush_size = segment_size + inverted_index_file_size;
+        *flush_size = segment_file_size;
     }
     return Status::OK();
 }

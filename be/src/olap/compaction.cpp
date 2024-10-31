@@ -257,10 +257,10 @@ int64_t Compaction::get_avg_segment_rows() {
     if (meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         int64_t compaction_goal_size_mbytes = meta->time_series_compaction_goal_size_mbytes();
         return (compaction_goal_size_mbytes * 1024 * 1024 * 2) /
-               (_input_rowsets_size / (_input_row_num + 1) + 1);
+               (_input_rowsets_data_size / (_input_row_num + 1) + 1);
     }
     return config::vertical_compaction_max_segment_size /
-           (_input_rowsets_size / (_input_row_num + 1) + 1);
+           (_input_rowsets_data_size / (_input_row_num + 1) + 1);
 }
 
 CompactionMixin::CompactionMixin(StorageEngine& engine, TabletSharedPtr tablet,
@@ -305,9 +305,9 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     // build output rowset
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
     rowset_meta->set_num_rows(_input_row_num);
-    rowset_meta->set_total_disk_size(_input_rowsets_size);
-    rowset_meta->set_data_disk_size(_input_rowsets_size);
-    rowset_meta->set_index_disk_size(_input_index_size);
+    rowset_meta->set_total_disk_size(_input_rowsets_data_size + _input_rowsets_index_size);
+    rowset_meta->set_data_disk_size(_input_rowsets_data_size);
+    rowset_meta->set_index_disk_size(_input_rowsets_index_size);
     rowset_meta->set_empty(_input_row_num == 0);
     rowset_meta->set_num_segments(_input_num_segments);
     rowset_meta->set_segments_overlap(NONOVERLAPPING);
@@ -320,12 +320,13 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
 
 void CompactionMixin::build_basic_info() {
     for (auto& rowset : _input_rowsets) {
-        _input_rowsets_size += rowset->data_disk_size();
-        _input_index_size += rowset->index_disk_size();
+        _input_rowsets_data_size += rowset->data_disk_size();
+        _input_rowsets_index_size += rowset->index_disk_size();
+        _input_rowsets_total_size += rowset->total_disk_size();
         _input_row_num += rowset->num_rows();
         _input_num_segments += rowset->num_segments();
     }
-    COUNTER_UPDATE(_input_rowsets_data_size_counter, _input_rowsets_size);
+    COUNTER_UPDATE(_input_rowsets_data_size_counter, _input_rowsets_data_size);
     COUNTER_UPDATE(_input_row_num_counter, _input_row_num);
     COUNTER_UPDATE(_input_segments_num_counter, _input_num_segments);
 
@@ -444,8 +445,12 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
                   << ", disk=" << tablet()->data_dir()->path()
                   << ", segments=" << _input_num_segments << ", input_row_num=" << _input_row_num
                   << ", output_row_num=" << _output_rowset->num_rows()
-                  << ", input_rowset_size=" << _input_rowsets_size
-                  << ", output_rowset_size=" << _output_rowset->data_disk_size()
+                  << ", input_rowsets_data_size=" << _input_rowsets_data_size
+                  << ", input_rowsets_index_size=" << _input_rowsets_index_size
+                  << ", input_rowsets_total_size=" << _input_rowsets_total_size
+                  << ", output_rowset_data_size=" << _output_rowset->data_disk_size()
+                  << ", output_rowset_index_size=" << _output_rowset->index_disk_size()
+                  << ", output_rowset_total_size=" << _output_rowset->total_disk_size()
                   << ". elapsed time=" << watch.get_elapse_second() << "s.";
         _state = CompactionState::SUCCESS;
         return Status::OK();
@@ -467,8 +472,8 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << tablet()->max_version().second
               << ", disk=" << tablet()->data_dir()->path() << ", segments=" << _input_num_segments
-              << ", input_rowset_size=" << _input_rowsets_size
-              << ", output_rowset_size=" << _output_rowset->data_disk_size()
+              << ", input_data_size=" << _input_rowsets_data_size
+              << ", output_rowset_size=" << _output_rowset->total_disk_size()
               << ", input_row_num=" << _input_row_num
               << ", output_row_num=" << _output_rowset->num_rows()
               << ", filtered_row_num=" << _stats.filtered_rows
