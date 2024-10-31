@@ -520,9 +520,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         Expression defaultResult = null;
         if (caseWhen.getDefaultValue().isPresent()) {
             defaultResult = caseWhen.getDefaultValue().get();
-            if (deepRewrite) {
-                defaultResult = rewrite(defaultResult, context);
-            }
         }
         if (foundNewDefault) {
             defaultResult = newDefault;
