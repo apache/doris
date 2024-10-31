@@ -163,7 +163,7 @@ Status convert_to_arrow_field(SlotDescriptor* desc, std::shared_ptr<arrow::Field
     return Status::OK();
 }
 
-Status convert_block_arrow_schema(const vectorized::Block& block,
+Status get_arrow_schema(const vectorized::Block& block,
                                   std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
