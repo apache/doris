@@ -62,9 +62,13 @@ Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
     DBUG_EXECUTE_IF("LocalFileSystem.create_file_impl.open_file_failed", {
         // spare '.testfile' to make bad disk checker happy
-        if (file.filename().compare(kTestFilePath)) {
+        auto sub_path = dp->param<std::string>("sub_path", "");
+        if ((sub_path.empty() && file.filename().compare(kTestFilePath)) ||
+            (!sub_path.empty() && file.native().find(sub_path) != std::string::npos)) {
             ::close(fd);
             fd = -1;
+            errno = EIO;
+            LOG(WARNING) << Status::IOError("debug open io error: {}", file.native());
         }
     });
     if (-1 == fd) {
@@ -85,6 +89,17 @@ Status LocalFileSystem::open_file_impl(const Path& file, FileReaderSPtr* reader,
     }
     int fd = -1;
     RETRY_ON_EINTR(fd, open(file.c_str(), O_RDONLY));
+    DBUG_EXECUTE_IF("LocalFileSystem.create_file_impl.open_file_failed", {
+        // spare '.testfile' to make bad disk checker happy
+        auto sub_path = dp->param<std::string>("sub_path", "");
+        if ((sub_path.empty() && file.filename().compare(kTestFilePath)) ||
+            (!sub_path.empty() && file.native().find(sub_path) != std::string::npos)) {
+            ::close(fd);
+            fd = -1;
+            errno = EIO;
+            LOG(WARNING) << Status::IOError("debug open io error: {}", file.native());
+        }
+    });
     if (fd < 0) {
         return localfs_error(errno, fmt::format("failed to open {}", file.native()));
     }

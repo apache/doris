@@ -626,6 +626,7 @@ public class StatisticsUtil {
             long rows = Long.parseLong(parameters.get(NUM_ROWS));
             // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
             if (rows != 0) {
+                LOG.info("Get row count {} for hive table {} in table parameters.", rows, table.getName());
                 return rows;
             }
         }
@@ -639,9 +640,13 @@ public class StatisticsUtil {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
+            LOG.warn("Hive table {} estimated row size is invalid {}", table.getName(), estimatedRowSize);
             return -1;
         }
-        return totalSize / estimatedRowSize;
+        long rows = totalSize / estimatedRowSize;
+        LOG.info("Get row count {} for hive table {} by total size {} and row size {}",
+                rows, table.getName(), totalSize, estimatedRowSize);
+        return rows;
     }
 
     /**

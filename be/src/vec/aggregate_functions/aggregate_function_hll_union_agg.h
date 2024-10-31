@@ -122,7 +122,7 @@ public:
     }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         this->data(place).add(columns[0], row_num);
     }
 
