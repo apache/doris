@@ -628,7 +628,7 @@ public class Coordinator implements CoordInterface {
         List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
         Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
                 relatedBackendIds);
-        Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
+        Env.getCurrentEnv().getProgressManager().setTotalScanNums(String.valueOf(jobId), scanRangeNum);
         LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
 
         Map<TNetworkAddress, TPipelineFragmentParams> tExecPlanFragmentParams
@@ -777,7 +777,7 @@ public class Coordinator implements CoordInterface {
             List<Long> relatedBackendIds = Lists.newArrayList(addressToBackendID.values());
             Env.getCurrentEnv().getLoadManager().initJobProgress(jobId, queryId, instanceIds,
                     relatedBackendIds);
-            Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
+            Env.getCurrentEnv().getProgressManager().setTotalScanNums(String.valueOf(jobId), scanRangeNum);
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
 
