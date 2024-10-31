@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
-/** NumberChecker */
+/** LetterChecker */
 public class LetterChecker extends FormatChecker {
     private int minCount;
     private int maxRead;
