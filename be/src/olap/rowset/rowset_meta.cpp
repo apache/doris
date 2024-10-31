@@ -273,18 +273,12 @@ InvertedIndexFileInfo RowsetMeta::inverted_index_file_info(int seg_id) {
 }
 
 void RowsetMeta::add_inverted_index_files_info(
-        const std::vector<InvertedIndexFileInfo>& idx_file_info) {
+        const std::vector<const InvertedIndexFileInfo*>& idx_file_info) {
     _rowset_meta_pb.set_enable_inverted_index_file_info(true);
     for (auto finfo : idx_file_info) {
         auto* new_file_info = _rowset_meta_pb.add_inverted_index_file_info();
-        *new_file_info = finfo;
+        *new_file_info = *finfo;
     }
-}
-
-void RowsetMeta::update_inverted_index_files_info(
-        const std::vector<InvertedIndexFileInfo>& idx_file_info) {
-    _rowset_meta_pb.clear_inverted_index_file_info();
-    add_inverted_index_files_info(idx_file_info);
 }
 
 bool operator==(const RowsetMeta& a, const RowsetMeta& b) {

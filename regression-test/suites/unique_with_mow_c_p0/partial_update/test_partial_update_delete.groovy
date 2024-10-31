@@ -54,6 +54,9 @@ suite('test_partial_update_delete') {
                     "disable_auto_compaction" = "true",
                     "replication_num" = "1",
                     "store_row_column" = "${use_row_store}"); """
+            
+            def res = sql """ show create table ${tableName2}"""
+            logger.info("show: " + res)
 
             sql "insert into ${tableName1} values(1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3),(4,4,4,4,4),(5,5,5,5,5);"
             qt_sql "select * from ${tableName1} order by k1;"

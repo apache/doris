@@ -195,6 +195,10 @@ Status CloudFullCompaction::modify_rowsets() {
     compaction_job->set_num_output_rows(_output_rowset->num_rows());
     compaction_job->set_size_input_rowsets(_input_rowsets_size);
     compaction_job->set_size_output_rowsets(_output_rowset->data_disk_size());
+    DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.wrong_compaction_data_size", {
+        compaction_job->set_size_input_rowsets(1);
+        compaction_job->set_size_output_rowsets(10000001);
+    })
     compaction_job->set_num_input_segments(_input_segments);
     compaction_job->set_num_output_segments(_output_rowset->num_segments());
     compaction_job->set_num_input_rowsets(_input_rowsets.size());

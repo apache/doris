@@ -25,6 +25,7 @@
 #include "vec/data_types/data_type_time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /// TODO:  Due to the "Time type is not supported for OLAP table" issue, a lot of basic content is missing.It will be supplemented later.
 class TimeValue {
@@ -58,7 +59,9 @@ public:
     static std::string to_string(TimeType time, int scale) {
         return timev2_to_buffer_from_double(time, scale);
     }
-    static int32_t hour(TimeType time) { return check_over_max_time(time) / ONE_HOUR_MICROSECONDS; }
+    static int32_t hour(TimeType time) {
+        return static_cast<int32_t>(check_over_max_time(time) / ONE_HOUR_MICROSECONDS);
+    }
 
     static int32_t minute(TimeType time) {
         return (check_over_max_time(time) % ONE_HOUR_MICROSECONDS) / ONE_MINUTE_MICROSECONDS;
@@ -70,3 +73,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

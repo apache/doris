@@ -266,6 +266,7 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
                 }
                 // clang-format on
             }
+            response->set_txn_status(cur_txn_info.status());
             code = MetaServiceCode::TXN_LABEL_ALREADY_USED;
             ss << "Label [" << label << "] has already been used, relate to txn ["
                << cur_txn_info.txn_id() << "], status=[" << TxnStatusPB_Name(cur_txn_info.status())
@@ -1122,7 +1123,7 @@ void commit_txn_immediately(
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
-                             << " code=" << code << "msg=" << msg;
+                             << " code=" << code << " msg=" << msg;
                 return;
             }
             last_pending_txn_id = 0;
@@ -1654,7 +1655,7 @@ void commit_txn_eventually(
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
-                             << " code=" << code << "msg=" << msg;
+                             << " code=" << code << " msg=" << msg;
                 return;
             }
 
@@ -1893,7 +1894,7 @@ void commit_txn_eventually(
         std::pair<MetaServiceCode, std::string> ret = task->wait();
         if (ret.first != MetaServiceCode::OK) {
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
-                         << "msg=" << ret.second;
+                         << " msg=" << ret.second;
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats

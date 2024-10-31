@@ -122,6 +122,8 @@ int64_t InvertedIndexFileWriter::headerLength() {
 }
 
 Status InvertedIndexFileWriter::close() {
+    DCHECK(!_closed) << debug_string();
+    _closed = true;
     if (_indices_dirs.empty()) {
         return Status::OK();
     }
@@ -370,14 +372,10 @@ int64_t InvertedIndexFileWriter::write_v2() {
     out_dir->set_file_writer_opts(_opts);
 
     std::unique_ptr<lucene::store::IndexOutput> compound_file_output;
-    // idx v2 writer != nullptr means memtable on sink node now
-    if (_idx_v2_writer != nullptr) {
-        compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-                out_dir->createOutputV2(_idx_v2_writer.get()));
-    } else {
-        compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-                out_dir->createOutput(index_path.filename().c_str()));
-    }
+
+    DCHECK(_idx_v2_writer != nullptr) << "inverted index file writer v2 is nullptr";
+    compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
+            out_dir->createOutputV2(_idx_v2_writer.get()));
 
     // Write the version number
     compound_file_output->writeInt(InvertedIndexStorageFormatPB::V2);

@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <cstring>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "runtime/primitive_type.h"
@@ -36,6 +37,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 static const unsigned char bom[] = {0xEF, 0xBB, 0xBF};
 
@@ -70,7 +72,7 @@ VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* fil
             _options.escape_char = hive_serde_properties->escape_char[0];
         }
         _options.null_format = hive_serde_properties->null_format.data();
-        _options.null_len = hive_serde_properties->null_format.length();
+        _options.null_len = cast_set<int>(hive_serde_properties->null_format.length());
         // The list of separators + escapeChar are the bytes required to be escaped.
         if (_options.escape_char != 0) {
             _options.need_escape[_options.escape_char & 0xff] = true;
@@ -111,7 +113,7 @@ Status VCSVTransformer::write(const Block& block) {
     auto ser_col = ColumnString::create();
     ser_col->reserve(block.columns());
     VectorBufferWriter buffer_writer(*ser_col.get());
-    for (size_t i = 0; i < block.rows(); i++) {
+    for (int i = 0; i < block.rows(); i++) {
         for (size_t col_id = 0; col_id < block.columns(); col_id++) {
             if (col_id != 0) {
                 buffer_writer.write(_column_separator.data(), _column_separator.size());
@@ -158,7 +160,7 @@ Status VCSVTransformer::_flush_plain_text_outstream(ColumnString& ser_col) {
 
 std::string VCSVTransformer::_gen_csv_header_types() {
     std::string types;
-    int num_columns = _output_vexpr_ctxs.size();
+    int num_columns = (int)_output_vexpr_ctxs.size();
     for (int i = 0; i < num_columns; ++i) {
         types += type_to_string(_output_vexpr_ctxs[i]->root()->type().type);
         if (i < num_columns - 1) {

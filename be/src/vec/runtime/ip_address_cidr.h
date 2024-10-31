@@ -22,7 +22,9 @@
 
 #include "util/sse_util.hpp"
 #include "vec/common/format_ip.h"
+#include "vec/common/ipv6_to_binary.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 static inline std::pair<UInt32, UInt32> apply_cidr_mask(UInt32 src, UInt8 bits_to_keep) {
@@ -46,7 +48,7 @@ static inline void apply_cidr_mask(const char* __restrict src, char* __restrict 
 
     for (int8_t i = IPV6_BINARY_LENGTH - 1; i >= 0; --i) {
         dst_lower[i] = src[i] & mask[i];
-        dst_upper[i] = dst_lower[i] | ~mask[i];
+        dst_upper[i] = char(dst_lower[i] | ~mask[i]);
     }
 }
 } // namespace vectorized
@@ -96,14 +98,14 @@ struct IPAddressCIDR {
 };
 
 bool match_ipv4_subnet(uint32_t addr, uint32_t cidr_addr, uint8_t prefix) {
-    uint32_t mask = (prefix >= 32) ? 0xffffffffu : ~(0xffffffffu >> prefix);
+    uint32_t mask = (prefix >= 32) ? 0xffffffffU : ~(0xffffffffU >> prefix);
     return (addr & mask) == (cidr_addr & mask);
 }
 
 #if defined(__SSE2__) || defined(__aarch64__)
 
 bool match_ipv6_subnet(const uint8_t* addr, const uint8_t* cidr_addr, uint8_t prefix) {
-    uint16_t mask = _mm_movemask_epi8(
+    uint16_t mask = (uint16_t)_mm_movemask_epi8(
             _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(addr)),
                            _mm_loadu_si128(reinterpret_cast<const __m128i*>(cidr_addr))));
     mask = ~mask;
@@ -192,3 +194,4 @@ inline bool is_address_in_range(const IPAddressVariant& address, const IPAddress
 }
 
 } // namespace doris
+#include "common/compile_check_end.h"

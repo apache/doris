@@ -342,6 +342,10 @@ if (ENABLE_INJECTION_POINT)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
 endif()
 
+if (ENABLE_CACHE_LOCK_DEBUG)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_CACHE_LOCK_DEBUG")
+endif()
+
 # Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
 # and compaction,and observe the memory of BE through be_ip:http_port/MemTracker.
 # Adding the option `USE_MEM_TRACKER=OFF sh build.sh` when compiling can turn off the memory tracker,
@@ -782,6 +786,7 @@ install(DIRECTORY DESTINATION ${OUTPUT_DIR}/conf)
 install(FILES
     ${BASE_DIR}/../bin/start_be.sh
     ${BASE_DIR}/../bin/stop_be.sh
+    ${BASE_DIR}/../tools/jeprof
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE
