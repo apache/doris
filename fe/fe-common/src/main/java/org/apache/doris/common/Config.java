@@ -3050,6 +3050,9 @@ public class Config extends ConfigBase {
     public static int history_cloud_warm_up_job_keep_max_second = 7 * 24 * 3600;
 
     @ConfField(mutable = true, masterOnly = true)
+    public static int max_active_cloud_warm_up_job = 10;
+
+    @ConfField(mutable = true, masterOnly = true)
     public static int cloud_warm_up_timeout_second = 86400 * 30; // 30 days
 
     @ConfField(mutable = true, masterOnly = true)

@@ -21,6 +21,7 @@
 #include "io/cache/block_file_cache.h"
 
 #include "common/status.h"
+#include "cpp/sync_point.h"
 
 #if defined(__APPLE__)
 #include <sys/mount.h>
@@ -243,15 +244,12 @@ void BlockFileCache::use_cell(const FileBlockCell& cell, FileBlocks* result, boo
         result->push_back(cell.file_block);
     }
 
-    if (cell.file_block->cache_type() != FileCacheType::TTL ||
-        config::enable_ttl_cache_evict_using_lru) {
-        auto& queue = get_queue(cell.file_block->cache_type());
-        DCHECK(cell.queue_iterator) << "impossible";
-        /// Move to the end of the queue. The iterator remains valid.
-        if (move_iter_flag) {
-            queue.move_to_end(*cell.queue_iterator, cache_lock);
-        }
+    auto& queue = get_queue(cell.file_block->cache_type());
+    /// Move to the end of the queue. The iterator remains valid.
+    if (cell.queue_iterator && move_iter_flag) {
+        queue.move_to_end(*cell.queue_iterator, cache_lock);
     }
+
     cell.update_atime();
     cell.is_deleted = false;
 }
@@ -357,7 +355,7 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
                 auto st = cell.file_block->change_cache_type_between_ttl_and_others(
                         FileCacheType::NORMAL);
                 if (st.ok()) {
-                    if (config::enable_ttl_cache_evict_using_lru) {
+                    if (cell.queue_iterator) {
                         auto& ttl_queue = get_queue(FileCacheType::TTL);
                         ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
                     }
@@ -872,6 +870,9 @@ bool BlockFileCache::try_reserve_for_ttl_without_lru(size_t size,
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
     auto limit = config::max_ttl_cache_ratio * _capacity;
+
+    TEST_INJECTION_POINT_CALLBACK("BlockFileCache::change_limit1", &limit);
+
     if ((_cur_ttl_size + size) * 100 > limit) {
         return false;
     }
@@ -1052,7 +1053,7 @@ bool BlockFileCache::remove_if_ttl_file_unlock(const UInt128Wrapper& file_key, b
                 auto st = cell.file_block->change_cache_type_between_ttl_and_others(
                         FileCacheType::NORMAL);
                 if (st.ok()) {
-                    if (config::enable_ttl_cache_evict_using_lru) {
+                    if (cell.queue_iterator) {
                         ttl_queue.remove(cell.queue_iterator.value(), cache_lock);
                     }
                     auto& queue = get_queue(FileCacheType::NORMAL);
@@ -1129,7 +1130,7 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
            _files.find(hash)->second.find(offset) != _files.find(hash)->second.end());
     FileBlockCell* cell = get_cell(hash, offset, cache_lock);
     DCHECK(cell != nullptr);
-    if (cell->file_block->cache_type() != FileCacheType::TTL) {
+    if (cell->queue_iterator) {
         auto& queue = get_queue(cell->file_block->cache_type());
         DCHECK(queue.contains(hash, offset, cache_lock));
         auto iter = queue.get(hash, offset, cache_lock);
@@ -1805,10 +1806,8 @@ std::string BlockFileCache::clear_file_cache_directly() {
        << " time_elapsed=" << duration_cast<milliseconds>(steady_clock::now() - start).count()
        << " num_files=" << num_files << " cache_size=" << cache_size
        << " index_queue_size=" << index_queue_size << " normal_queue_size=" << normal_queue_size
-       << " disposible_queue_size=" << disposible_queue_size;
-    if (config::enable_ttl_cache_evict_using_lru) {
-        ss << "ttl_queue_size=" << ttl_queue_size;
-    }
+       << " disposible_queue_size=" << disposible_queue_size << "ttl_queue_size=" << ttl_queue_size;
+
     auto msg = ss.str();
     LOG(INFO) << msg;
     return msg;
