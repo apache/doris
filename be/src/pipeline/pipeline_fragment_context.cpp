@@ -241,7 +241,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     SCOPED_TIMER(_prepare_timer);
     _build_pipelines_timer = ADD_TIMER(_runtime_profile, "BuildPipelinesTime");
     _init_context_timer = ADD_TIMER(_runtime_profile, "InitContextTime");
-    _plan_local_exchanger_timer = ADD_TIMER(_fragment_level_profile, "PlanLocalLocalExchangerTime");
+    _plan_local_exchanger_timer = ADD_TIMER(_runtime_profile, "PlanLocalLocalExchangerTime");
     _build_tasks_timer = ADD_TIMER(_runtime_profile, "BuildTasksTime");
     _prepare_all_pipelines_timer = ADD_TIMER(_runtime_profile, "PrepareAllPipelinesTime");
     {
