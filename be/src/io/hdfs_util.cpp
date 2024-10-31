@@ -18,6 +18,7 @@
 #include "io/hdfs_util.h"
 
 #include <bthread/bthread.h>
+#include <bthread/butex.h>
 #include <bvar/latency_recorder.h>
 #include <gen_cpp/cloud.pb.h>
 
@@ -47,23 +48,32 @@ Status _create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_nam
 // According to the brpc doc, JNI code checks stack layout and cannot be run in
 // bthreads so create a pthread for creating hdfs connection if necessary.
 Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name, hdfsFS* fs) {
-    if (bthread_self() != 0) { // running in bthread
-        Status st;
-        auto btx = butex_create();
-        std::atomic_bool done = false;
-        std::thread t([&] {
-            st = _create_hdfs_fs(hdfs_params, fs_name, fs);
-            done = true;
-            butex_wake(btx);
-        });
-        if (!done) butex_wait(btx);
-        butex_destroy(btx);
-        if (t.joinable()) {
-            t.join();
-        }
-        return st;
+    bool is_pthread = bthread_self() == 0;
+    LOG(INFO) << "create hfdfs fs, is_pthread=" << is_pthread << " fs_name=" << fs_name;
+    if (is_pthread) { // running in pthread
+        return _create_hdfs_fs(hdfs_params, fs_name, fs);
     }
-    return _create_hdfs_fs(hdfs_params, fs_name, fs);
+
+    // running in bthread, switch to a pthread and wait
+    Status st;
+    auto btx = bthread::butex_create();
+    *(int*)btx = 0;
+    std::thread t([&] {
+        st = _create_hdfs_fs(hdfs_params, fs_name, fs);
+        *(int*)btx = 1;
+        bthread::butex_wake_all(btx);
+    });
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&t, &btx](...) {
+        if (t.joinable()) t.join();
+        bthread::butex_destroy(btx);
+    });
+    timespec tmout {.tv_sec = std::chrono::system_clock::now().time_since_epoch().count() + 60};
+    if (int ret = bthread::butex_wait(btx, 1, &tmout); ret != 0) {
+        std::string msg = "failed to wait _create_hdfs_fs fs_name=" + fs_name;
+        LOG(WARNING) << msg << " error=" << std::strerror(errno);
+        st = Status::Error<ErrorCode::INTERNAL_ERROR, false>(msg);
+    }
+    return st;
 }
 
 uint64_t hdfs_hash_code(const THdfsParams& hdfs_params, const std::string& fs_name) {
