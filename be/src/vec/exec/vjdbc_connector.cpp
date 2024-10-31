@@ -193,6 +193,9 @@ Status JdbcConnector::test_connection() {
 }
 
 Status JdbcConnector::clean_datasource() {
+    if (!_is_open) {
+        return Status::OK();
+    }
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_clean_datasource_id);
