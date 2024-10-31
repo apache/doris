@@ -75,7 +75,7 @@ struct TabletTxnInfo {
     RowsetSharedPtr rowset;
     PendingRowsetGuard pending_rs_guard;
     bool unique_key_merge_on_write {false};
-    DeleteBitmapPtr delete_bitmap;
+    DeleteBitmapPtr delete_bitmap = nullptr;
     // records rowsets calc in commit txn
     RowsetIdUnorderedSet rowset_ids;
     int64_t creation_time;
@@ -208,8 +208,9 @@ public:
 
     void get_all_related_tablets(std::set<TabletInfo>* tablet_infos);
 
-    RowsetSharedPtr get_tablet_rowset(TTabletId tablet_id, TabletUid tablet_uid,
-                                      int64_t partition_id, TTransactionId transaction_id);
+    std::shared_ptr<TabletTxnInfo> get_tablet_rowset(TTabletId tablet_id, TabletUid tablet_uid,
+                                                     int64_t partition_id,
+                                                     TTransactionId transaction_id);
 
     // Get all expired txns and save them in expire_txn_map.
     // This is currently called before reporting all tablet info, to avoid iterating txn map for every tablets.

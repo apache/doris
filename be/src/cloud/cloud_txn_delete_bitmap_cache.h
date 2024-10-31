@@ -39,6 +39,10 @@ public:
     Status init();
 
     Status get_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
+                               RowsetIdUnorderedSet* rowset_ids,
+                               std::shared_ptr<TabletTxnInfo>& tablet_txn_info);
+
+    Status get_tablet_txn_info(TTransactionId transaction_id, int64_t tablet_id,
                                RowsetSharedPtr* rowset, DeleteBitmapPtr* delete_bitmap,
                                RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
                                std::shared_ptr<PartialUpdateInfo>* partial_update_info,

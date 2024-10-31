@@ -53,6 +53,39 @@ Status CloudTxnDeleteBitmapCache::init() {
 }
 
 Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
+        TTransactionId transaction_id, int64_t tablet_id, RowsetIdUnorderedSet* rowset_ids,
+        std::shared_ptr<TabletTxnInfo>& tablet_txn_info) {
+    {
+        std::shared_lock<std::shared_mutex> rlock(_rwlock);
+        TxnKey key(transaction_id, tablet_id);
+        auto iter = _txn_map.find(key);
+        if (iter == _txn_map.end()) {
+            return Status::Error<ErrorCode::NOT_FOUND, false>(
+                    "not found txn info, tablet_id={}, transaction_id={}", tablet_id,
+                    transaction_id);
+        }
+        tablet_txn_info = std::make_shared<TabletTxnInfo>();
+        tablet_txn_info->rowset = iter->second.rowset;
+        if (rowset_ids) {
+            tablet_txn_info->rowset_ids = *rowset_ids;
+        }
+        tablet_txn_info->partial_update_info = iter->second.partial_update_info;
+        tablet_txn_info->publish_status = iter->second.publish_status;
+        tablet_txn_info->publish_info = iter->second.publish_info;
+    }
+
+    auto st = get_delete_bitmap(transaction_id, tablet_id, &tablet_txn_info->delete_bitmap,
+                                rowset_ids, nullptr);
+    if (st.is<ErrorCode::NOT_FOUND>()) {
+        // Because of the rowset_ids become empty, all delete bitmap
+        // will be recalculate in CalcDeleteBitmapTask
+        tablet_txn_info->delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id);
+        return Status::OK();
+    }
+    return st;
+}
+
+Status CloudTxnDeleteBitmapCache::get_tablet_txn_info(
         TTransactionId transaction_id, int64_t tablet_id, RowsetSharedPtr* rowset,
         DeleteBitmapPtr* delete_bitmap, RowsetIdUnorderedSet* rowset_ids, int64_t* txn_expiration,
         std::shared_ptr<PartialUpdateInfo>* partial_update_info,

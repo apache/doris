@@ -66,6 +66,7 @@ public:
         int64_t limit;
         bool aggregation;
         std::vector<int64_t> sub_txn_ids;
+        DeleteBitmapPtr tablet_delete_bitmap = nullptr;
     };
 
     NewOlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);

@@ -16,9 +16,6 @@
 // under the License.
 
 suite("sub_txn_mow") {
-    logger.info("mow tables with sub txn visible is not supported")
-    return
-
     sql """ set enable_query_in_transaction_load = true """
     // case 1
     def table_txn = "sub_txn_mow"
@@ -91,7 +88,7 @@ suite("sub_txn_mow") {
             )
             DISTRIBUTED BY HASH(`id`) BUCKETS 2
             PROPERTIES (
-                "enable_unique_key_merge_on_write" = "false",
+                "enable_unique_key_merge_on_write" = "true",
                 "replication_num" = "1"
             );
             """

@@ -93,6 +93,7 @@ private:
     std::vector<TabletWithVersion> _tablets;
     std::vector<OlapScanRange*> _key_ranges;
     std::unordered_map<int64_t, TabletReader::ReadSource> _all_read_sources;
+    DeleteBitmapPtr tablet_delete_bitmap = nullptr;
 };
 
 } // namespace doris

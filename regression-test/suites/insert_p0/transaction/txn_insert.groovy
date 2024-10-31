@@ -547,7 +547,7 @@ suite("txn_insert") {
                     PROPERTIES (
                 """ + (i == 2 ? "\"function_column.sequence_col\"='score', " : "") +
                         """
-                        "enable_unique_key_merge_on_write" = "false",
+                        "enable_unique_key_merge_on_write" = "true",
                         "replication_num" = "1"
                     );
                 """
@@ -708,6 +708,7 @@ suite("txn_insert") {
             def unique_table = "txn_insert_cu"
             for (def i in 0..3) {
                 sql """ drop table if exists ${unique_table}_${i} """
+                // TODO enable mow
                 sql """
                     CREATE TABLE ${unique_table}_${i} (
                         `id` int(11) NOT NULL,

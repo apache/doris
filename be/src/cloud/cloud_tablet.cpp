@@ -108,10 +108,29 @@ Status CloudTablet::capture_rs_readers(const Version& spec_version,
     return capture_rs_readers_unlocked(version_path, rs_splits);
 }
 
-Status CloudTablet::capture_sub_txn_rowsets(const std::vector<int64_t>& sub_txn_ids,
-                                            std::vector<RowsetSharedPtr>* rowsets) {
-    return _engine.meta_mgr().get_tmp_rowset(tablet_schema(), index_id(), tablet_id(), sub_txn_ids,
-                                             *rowsets);
+Status CloudTablet::capture_sub_txn_rowsets(
+        const std::vector<int64_t>& sub_txn_ids,
+        std::vector<std::shared_ptr<TabletTxnInfo>>* tablet_txn_infos) {
+    if (enable_unique_key_merge_on_write()) {
+        for (int i = 0; i < sub_txn_ids.size(); ++i) {
+            auto sub_txn_id = sub_txn_ids[i];
+            std::shared_ptr<TabletTxnInfo> tablet_txn_info = nullptr;
+            RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().get_tablet_txn_info(
+                    sub_txn_id, tablet_id(), nullptr, tablet_txn_info));
+            DCHECK(tablet_txn_info != nullptr);
+            tablet_txn_infos->push_back(tablet_txn_info);
+        }
+    } else {
+        std::vector<RowsetSharedPtr> rowsets;
+        RETURN_IF_ERROR(_engine.meta_mgr().get_tmp_rowset(tablet_schema(), index_id(), tablet_id(),
+                                                          sub_txn_ids, rowsets));
+        for (const auto& rowset : rowsets) {
+            std::shared_ptr<TabletTxnInfo> tablet_txn_info = std::make_shared<TabletTxnInfo>();
+            tablet_txn_info->rowset = rowset;
+            tablet_txn_infos->push_back(tablet_txn_info);
+        }
+    }
+    return Status::OK();
 }
 
 // There are only two tablet_states RUNNING and NOT_READY in cloud mode

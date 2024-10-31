@@ -951,16 +951,20 @@ Status Tablet::capture_rs_readers(const Version& spec_version, std::vector<RowSe
     return Status::OK();
 }
 
-Status Tablet::capture_sub_txn_rowsets(const std::vector<int64_t>& sub_txn_ids,
-                                       std::vector<RowsetSharedPtr>* rowsets) {
+Status Tablet::capture_sub_txn_rowsets(
+        const std::vector<int64_t>& sub_txn_ids,
+        std::vector<std::shared_ptr<TabletTxnInfo>>* tablet_txn_infos) {
     for (int i = 0; i < sub_txn_ids.size(); ++i) {
         auto sub_txn_id = sub_txn_ids[i];
-        auto rowset = _engine.txn_manager()->get_tablet_rowset(tablet_id(), tablet_uid(),
-                                                               partition_id(), sub_txn_id);
-        DCHECK(rowset != nullptr) << " rowset is nullptr for sub_txn_id=" << sub_txn_ids[i]
-                                  << ", partition_id=" << partition_id()
-                                  << ", tablet=" << tablet_id();
-        rowsets->push_back(rowset);
+        auto tablet_txn_info = _engine.txn_manager()->get_tablet_rowset(tablet_id(), tablet_uid(),
+                                                                        partition_id(), sub_txn_id);
+        if (tablet_txn_info == nullptr) {
+            return Status::InternalError("can not find tablet_txn_info for sub_txn_id=" +
+                                         std::to_string(sub_txn_ids[i]) +
+                                         ", partition_id=" + std::to_string(partition_id()) +
+                                         ", tablet=" + std::to_string(tablet_id()));
+        }
+        tablet_txn_infos->push_back(tablet_txn_info);
     }
     return Status::OK();
 }
