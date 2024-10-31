@@ -470,14 +470,20 @@ struct MethodKeysFixed : public MethodBase<TData> {
         ColumnRawPtrs null_maps;
         actual_columns.reserve(key_columns.size());
         null_maps.reserve(key_columns.size());
+        bool has_nullable_key = false;
+
         for (const auto& col : key_columns) {
             if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col)) {
                 actual_columns.push_back(&nullable_col->get_nested_column());
                 null_maps.push_back(&nullable_col->get_null_map_column());
+                has_nullable_key = true;
             } else {
                 actual_columns.push_back(col);
                 null_maps.push_back(nullptr);
             }
+        }
+        if (!has_nullable_key) {
+            null_maps.clear();
         }
 
         if (is_build) {
