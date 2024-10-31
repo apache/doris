@@ -17,12 +17,15 @@
 
 #include "rate_limiter.h"
 
+#include <bthread/mutex.h>
 #include <butil/strings/string_split.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <ranges>
 #include <shared_mutex>
 
 #include "common/bvars.h"
@@ -64,7 +67,7 @@ void for_each_rpc_name(google::protobuf::Service* service, Callable cb) {
 
 void RateLimiter::init(google::protobuf::Service* service) {
     auto rpc_name_to_specific_limit = parse_specific_qps_limit(config::specific_max_qps_limit);
-    std::unique_lock write_lock(shared_mtx_);
+    std::unique_lock write_lock(mutex_);
     for_each_rpc_name(service, [&](const std::string& rpc_name) {
         auto it = rpc_name_to_specific_limit.find(rpc_name);
         int64_t max_qps_limit = config::default_max_qps_limit;
@@ -79,7 +82,6 @@ void RateLimiter::init(google::protobuf::Service* service) {
 }
 
 std::shared_ptr<RpcRateLimiter> RateLimiter::get_rpc_rate_limiter(const std::string& rpc_name) {
-    std::shared_lock read_lock(shared_mtx_);
     auto it = limiters_.find(rpc_name);
     if (it == limiters_.end()) {
         return nullptr;
@@ -87,43 +89,40 @@ std::shared_ptr<RpcRateLimiter> RateLimiter::get_rpc_rate_limiter(const std::str
     return it->second;
 }
 
-void RateLimiter::reset_rate_limit(google::protobuf::Service* service, int64_t default_qps_limit,
-                                   const std::string& specific_max_qps_limit) {
-    // TODO: merge specific_max_qps_limit
-    auto specific_limits = parse_specific_qps_limit(specific_max_qps_limit);
+bool RateLimiter::set_rate_limit(int64_t qps_limit) {
+    std::lock_guard lock(mutex_);
+    auto filter = [this](const auto& kv) { return !rpc_with_specific_limit_.contains(kv.first); };
+    for (const auto& [_, v] : limiters_ | std::views::filter(std::move(filter))) {
+        v->set_max_qps_limit(qps_limit);
+    }
+    return true;
+}
 
-    auto reset_specific_limit = [&](const std::string& rpc_name) -> bool {
-        if (auto it = specific_limits.find(rpc_name); it != specific_limits.end()) {
-            limiters_[rpc_name]->reset_max_qps_limit(it->second);
-            return true;
-        }
+bool RateLimiter::set_rate_limit(int64_t qps_limit, const std::string& rpc_name) {
+    if (!limiters_.contains(rpc_name)) {
         return false;
-    };
-    auto reset_default_limit = [&](const std::string& rpc_name) {
-        if (rpc_with_specific_limit_.contains(rpc_name)) {
-            return;
-        }
-        limiters_[rpc_name]->reset_max_qps_limit(default_qps_limit);
-    };
+    }
+    auto limiter = limiters_.at(rpc_name);
+    std::lock_guard lock(mutex_);
+    limiter->set_max_qps_limit(qps_limit);
+    rpc_with_specific_limit_.insert(rpc_name);
+    return true;
+}
 
-    std::unique_lock write_lock(shared_mtx_);
-    for (const auto& [k, _] : specific_limits) {
-        rpc_with_specific_limit_.insert(k);
+bool RateLimiter::set_rate_limit(int64_t qps_limit, const std::string& rpc_name,
+                                 const std::string& instance_id) {
+    if (!limiters_.contains(rpc_name)) {
+        return false;
     }
-    if (default_qps_limit < 0) {
-        for_each_rpc_name(service, std::move(reset_specific_limit));
-        return;
-    }
-    if (specific_limits.empty()) {
-        for_each_rpc_name(service, std::move(reset_default_limit));
-        return;
-    }
-    for_each_rpc_name(service, [&](const std::string& rpc_name) {
-        if (reset_specific_limit(rpc_name)) {
-            return;
-        }
-        reset_default_limit(rpc_name);
+    auto limiter = limiters_.at(rpc_name);
+    return limiter->set_max_qps_limit(qps_limit, instance_id);
+}
+
+bool RateLimiter::set_instance_rate_limit(int64_t qps_limit, const std::string& instance_id) {
+    return std::ranges::all_of(limiters_, [&](const auto& kv) {
+        return kv.second->set_max_qps_limit(qps_limit, instance_id);
     });
+    return true;
 }
 
 void RateLimiter::for_each_rpc_limiter(
@@ -155,11 +154,32 @@ bool RpcRateLimiter::get_qps_token(const std::string& instance_id,
     return qps_token->get_token(get_bvar_qps);
 }
 
-void RpcRateLimiter::reset_max_qps_limit(int64_t max_qps_limit) {
+void RpcRateLimiter::set_max_qps_limit(int64_t max_qps_limit) {
     std::lock_guard<bthread::Mutex> l(mutex_);
     max_qps_limit_ = max_qps_limit;
-    for (auto& [_, v] : qps_limiter_) {
-        v->reset_max_qps_limit(max_qps_limit);
+    auto filter = [this](const auto& kv) {
+        return !instance_with_specific_limit_.contains(kv.first);
+    };
+    for (auto& [k, v] : qps_limiter_ | std::views::filter(std::move(filter))) {
+        v->set_max_qps_limit(max_qps_limit);
+    }
+}
+
+bool RpcRateLimiter::set_max_qps_limit(int64_t max_qps_limit, const std::string& instance_id) {
+    std::lock_guard<bthread::Mutex> l(mutex_);
+    if (!qps_limiter_.contains(instance_id)) {
+        qps_limiter_[instance_id] = std::make_shared<QpsToken>(max_qps_limit);
+    } else {
+        qps_limiter_.at(instance_id)->set_max_qps_limit(max_qps_limit);
+    }
+    instance_with_specific_limit_.insert(instance_id);
+    return true;
+}
+
+void RpcRateLimiter::for_each_qps_token(
+        std::function<void(std::string_view, std::shared_ptr<QpsToken>)> cb) {
+    for (const auto& [instance_id, qps_token] : qps_limiter_) {
+        cb(instance_id, qps_token);
     }
 }
 
@@ -180,7 +200,7 @@ bool RpcRateLimiter::QpsToken::get_token(std::function<int()>& get_bvar_qps) {
     return current_qps_ < max_qps_limit_;
 }
 
-void RpcRateLimiter::QpsToken::reset_max_qps_limit(int64_t max_qps_limit) {
+void RpcRateLimiter::QpsToken::set_max_qps_limit(int64_t max_qps_limit) {
     std::lock_guard<bthread::Mutex> l(mutex_);
     max_qps_limit_ = max_qps_limit;
 }

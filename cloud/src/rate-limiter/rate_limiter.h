@@ -43,17 +43,27 @@ public:
 
     std::shared_ptr<RpcRateLimiter> get_rpc_rate_limiter(const std::string& rpc_name);
 
-    void reset_rate_limit(google::protobuf::Service* service, int64_t default_qps_limit,
-                          const std::string& specific_max_qps_limit);
-
     void for_each_rpc_limiter(
             std::function<void(std::string_view, std::shared_ptr<RpcRateLimiter>)> cb);
+
+    // set global default rate limit, will not infulence rpc and instance specific qps limit setting
+    bool set_rate_limit(int64_t qps_limit);
+
+    // set rpc level rate limit, will not infulence instance specific qps limit setting
+    bool set_rate_limit(int64_t qps_limit, const std::string& rpc_name);
+
+    // set instance level rate limit for specific rpc
+    bool set_rate_limit(int64_t qps_limit, const std::string& rpc_name,
+                        const std::string& instance_id);
+
+    // set instance level rate limit globally, will influence settings for the same instance of specific rpc
+    bool set_instance_rate_limit(int64_t qps_limit, const std::string& instance_id);
 
 private:
     // rpc_name -> RpcRateLimiter
     std::unordered_map<std::string, std::shared_ptr<RpcRateLimiter>> limiters_;
     std::unordered_set<std::string> rpc_with_specific_limit_;
-    std::shared_mutex shared_mtx_;
+    bthread::Mutex mutex_;
 };
 
 class RpcRateLimiter {
@@ -75,18 +85,19 @@ public:
 
     int64_t max_qps_limit() const { return max_qps_limit_; }
 
-    void reset_max_qps_limit(int64_t max_qps_limit);
+    void set_max_qps_limit(int64_t max_qps_limit);
 
-    // Todo: Recycle outdated instance_id
+    bool set_max_qps_limit(int64_t max_qps_limit, const std::string& instance);
 
-private:
     class QpsToken {
     public:
         QpsToken(const int64_t max_qps_limit) : max_qps_limit_(max_qps_limit) {}
 
         bool get_token(std::function<int()>& get_bvar_qps);
 
-        void reset_max_qps_limit(int64_t max_qps_limit);
+        void set_max_qps_limit(int64_t max_qps_limit);
+
+        int64_t max_qps_limit() const { return max_qps_limit_; }
 
     private:
         bthread::Mutex mutex_;
@@ -96,9 +107,15 @@ private:
         int64_t max_qps_limit_;
     };
 
+    void for_each_qps_token(std::function<void(std::string_view, std::shared_ptr<QpsToken>)> cb);
+
+    // Todo: Recycle outdated instance_id
+
+private:
     bthread::Mutex mutex_;
     // instance_id -> QpsToken
     std::unordered_map<std::string, std::shared_ptr<QpsToken>> qps_limiter_;
+    std::unordered_set<std::string> instance_with_specific_limit_;
     std::string rpc_name_;
     int64_t max_qps_limit_;
 };

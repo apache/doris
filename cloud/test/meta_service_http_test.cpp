@@ -1538,63 +1538,81 @@ TEST(MetaServiceHttpTest, get_obj_store_info_response_sk) {
 TEST(MetaServiceHttpTest, AdjustRateLimit) {
     HttpContext ctx;
     {
-        auto [status_code, content] = ctx.query<std::string>(
-                "adjust_rate_limit",
-                "default_qps_limit=10000&specific_max_qps_limit=get_cluster:10000");
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=10000");
         ASSERT_EQ(status_code, 200);
     }
     {
         auto [status_code, content] =
-                ctx.query<std::string>("adjust_rate_limit", "default_qps_limit=10000");
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=10000&rpc_name=get_cluster");
         ASSERT_EQ(status_code, 200);
     }
     {
         auto [status_code, content] = ctx.query<std::string>(
-                "adjust_rate_limit", "specific_max_qps_limit=get_cluster:10000");
+                "adjust_rate_limit",
+                "qps_limit=10000&rpc_name=get_cluster&instance_id=test_instance");
         ASSERT_EQ(status_code, 200);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "adjust_rate_limit", "qps_limit=10000&instance_id=test_instance");
+        ASSERT_EQ(status_code, 200);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=invalid");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "param `qps_limit` is not a legal int64 type:";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>("adjust_rate_limit", "qps_limit=-1");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "qps_limit` should not be less than 0";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "rpc_name=get_cluster");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "invalid argument:";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "instance_id=test_instance");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "invalid argument:";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "adjust_rate_limit", "rpc_name=get_cluster&instance_id=test_instance");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "invalid argument:";
+        ASSERT_NE(content.find(msg), std::string::npos);
     }
     {
         auto [status_code, content] = ctx.query<std::string>("adjust_rate_limit", "");
         ASSERT_EQ(status_code, 400);
-        std::string msg =
-                "default_qps_limit(int64) or specific_max_qps_limit(list of[rpcname:qps(int64);]) "
-                "is required as query param";
-        ASSERT_TRUE(content.find(msg) != std::string::npos);
-    }
-    {
-        auto [status_code, content] = ctx.query<std::string>("adjust_rate_limit", "key=abc");
-        ASSERT_EQ(status_code, 400);
-        std::string msg =
-                "default_qps_limit(int64) or specific_max_qps_limit(list of[rpcname:qps(int64);]) "
-                "is required as query param";
-        ASSERT_TRUE(content.find(msg) != std::string::npos);
+        std::string msg = "invalid argument:";
+        ASSERT_NE(content.find(msg), std::string::npos);
     }
     {
         auto [status_code, content] =
-                ctx.query<std::string>("adjust_rate_limit", "default_qps_limit=invalid");
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=1000&rpc_name=invalid");
         ASSERT_EQ(status_code, 400);
-        std::string msg = "param `qps_limit` is not a legal int64 type:";
-        ASSERT_TRUE(content.find(msg) != std::string::npos);
+        std::string msg = "failed to adjust rate limit for qps_limit";
+        ASSERT_NE(content.find(msg), std::string::npos);
     }
     {
-        auto [status_code, content] = ctx.query<std::string>(
-                "adjust_rate_limit",
-                "specific_max_qps_limit=get_cluster:10000&default_qps_limit=invalid");
-        ASSERT_EQ(status_code, 400);
-        std::string msg = "param `qps_limit` is not a legal int64 type:";
-        ASSERT_TRUE(content.find(msg) != std::string::npos);
-    }
-    {
-        auto [status_code, content] = ctx.query<std::string>(
-                "adjust_rate_limit",
-                "specific_max_qps_limit=get_cluster:invalid&default_qps_limit=10000");
-        // note: invalid so will not take effect, but return ok, by design
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=1000&instance_id=invalid");
         ASSERT_EQ(status_code, 200);
     }
     {
         auto [status_code, content] = ctx.query<std::string>(
-                "adjust_rate_limit", "specific_max_qps_limit=xxx:10000&default_qps_limit=10000");
-        // note: invalid so will not take effect, but return ok, by design
+                "adjust_rate_limit", "qps_limit=1000&rpc_name=get_cluster&instance_id=invalid");
         ASSERT_EQ(status_code, 200);
     }
 }
@@ -1602,19 +1620,8 @@ TEST(MetaServiceHttpTest, AdjustRateLimit) {
 TEST(MetaServiceHttpTest, QueryRateLimit) {
     HttpContext ctx;
     {
-        auto [status_code, content] = ctx.query<std::string>("query_rate_limit", "");
+        auto [status_code, content] = ctx.query<std::string>("list_rate_limit", "");
         ASSERT_EQ(status_code, 200);
-    }
-    {
-        auto [status_code, content] =
-                ctx.query<std::string>("query_rate_limit", "rpc_name=get_cluster");
-        ASSERT_EQ(status_code, 200);
-    }
-    {
-        auto [status_code, content] = ctx.query<std::string>("query_rate_limit", "rpc_name=xxx");
-        ASSERT_EQ(status_code, 400);
-        std::string msg = "rpc_name=xxx is not exists";
-        ASSERT_TRUE(content.find(msg) != std::string::npos);
     }
 }
 
