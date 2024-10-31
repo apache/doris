@@ -1281,6 +1281,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     if (*eos) {
         // reach limit, stop the scanners.
         local_state._scanner_ctx->stop_scanners(state);
+        local_state._scanner_profile->add_info_string("EOS", "True");
     }
 
     return Status::OK();
