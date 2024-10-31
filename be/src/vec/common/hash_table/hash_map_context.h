@@ -505,6 +505,12 @@ struct MethodKeysFixed : public MethodBase<TData> {
                                   MutableColumns& key_columns, const size_t num_rows) override {
         // In any hash key value, column values to be read start just after the bitmap, if it exists.
         size_t pos = 0;
+        for (size_t i = 0; i < key_columns.size(); ++i) {
+            if (key_columns[i]->is_nullable()) {
+                pos = get_bitmap_size(key_columns.size());
+                break;
+            }
+        }
 
         for (size_t i = 0; i < key_columns.size(); ++i) {
             size_t size = key_sizes[i];
@@ -512,7 +518,6 @@ struct MethodKeysFixed : public MethodBase<TData> {
             key_columns[i]->resize(num_rows);
             // If we have a nullable column, get its nested column and its null map.
             if (is_column_nullable(*key_columns[i])) {
-                pos = get_bitmap_size(key_columns.size());
                 auto& nullable_col = assert_cast<ColumnNullable&>(*key_columns[i]);
 
                 data = const_cast<char*>(nullable_col.get_nested_column().get_raw_data().data);
