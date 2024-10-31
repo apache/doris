@@ -157,4 +157,5 @@ change_to_host_user() {
     fi
     adduser --disabled-password --gecos "" --uid ${HOST_UID} ${HOST_USER}
     su ${HOST_USER}
+    health_log "create user ${HOST_USER}, i'm `whoami`"
 }
