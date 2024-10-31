@@ -345,7 +345,11 @@ class Node(object):
             1 if self.cluster.is_cloud else 0,
             "SQL_MODE_NODE_MGR":
             1 if hasattr(self.cluster, 'sql_mode_node_mgr')
-            and self.cluster.sql_mode_node_mgr else 0
+            and self.cluster.sql_mode_node_mgr else 0,
+            "HOST_USER":
+            getpass.getuser(),
+            "HOST_UID":
+            os.getuid(),
         }
 
         if self.cluster.is_cloud:

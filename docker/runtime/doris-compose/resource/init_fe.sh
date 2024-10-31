@@ -213,6 +213,8 @@ start_local_fe() {
 }
 
 main() {
+    change_to_host_user
+
     trap stop_frontend SIGTERM
 
     if [ "$IS_CLOUD" == "1" ]; then

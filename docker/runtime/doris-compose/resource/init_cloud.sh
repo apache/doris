@@ -108,6 +108,8 @@ wait_process() {
 }
 
 main() {
+    change_to_host_user
+
     trap stop_cloud SIGTERM
 
     cd $DORIS_HOME
