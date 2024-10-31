@@ -18,9 +18,9 @@
 #pragma once
 
 #include <cctz/time_zone.h>
+#include <stddef.h>
+#include <stdint.h>
 
-#include <cstddef>
-#include <cstdint>
 #include <list>
 #include <memory>
 #include <orc/OrcFile.hh>
@@ -143,9 +143,8 @@ public:
     Status init_reader(
             const std::vector<std::string>* column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
-            const VExprContextSPtrs& common_expr_ctxs_push_down, const VExprContextSPtrs& conjuncts,
-            bool is_acid, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
+            const VExprContextSPtrs& conjuncts, bool is_acid,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
             const VExprContextSPtrs* not_single_slot_filter_conjuncts,
             const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
             const bool hive_use_column_names = true);
@@ -602,7 +601,6 @@ private:
     size_t _decimal_scale_params_index;
 
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
-    VExprContextSPtrs _common_expr_ctxs_push_down;
     bool _is_acid = false;
     std::unique_ptr<IColumn::Filter> _filter;
     LazyReadContext _lazy_read_ctx;

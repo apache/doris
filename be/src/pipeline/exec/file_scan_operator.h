@@ -17,8 +17,11 @@
 
 #pragma once
 
+#include <stdint.h>
+
 #include <string>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/scan_operator.h"
@@ -53,7 +56,6 @@ public:
     std::string name_suffix() const override;
 
 private:
-    friend class vectorized::VFileScanner;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source = nullptr;
     int _max_scanners;
     // A in memory cache to save some common components
