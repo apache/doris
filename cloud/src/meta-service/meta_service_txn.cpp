@@ -1167,7 +1167,7 @@ void commit_txn_immediately(
 
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
-            stats.data_size += i.data_disk_size();
+            stats.data_size += i.total_disk_size();
             stats.num_rows += i.num_rows();
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
