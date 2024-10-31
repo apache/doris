@@ -304,7 +304,7 @@ public:
     static std::string deterministic_string_serialize(const TabletSchemaPB& schema_pb);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
-    void append_index(TabletIndex index);
+    void append_index(TabletIndex&& index);
     void update_index(const TabletColumn& column, TabletIndex index);
     void remove_index(int64_t index_id);
     void clear_index();
@@ -376,7 +376,15 @@ public:
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
 
-    const std::vector<TabletIndex>& indexes() const { return _indexes; }
+    const std::vector<const TabletIndex*> inverted_indexes() const {
+        std::vector<const TabletIndex*> inverted_indexes;
+        for (const auto& index : _indexes) {
+            if (index.index_type() == IndexType::INVERTED) {
+                inverted_indexes.emplace_back(&index);
+            }
+        }
+        return inverted_indexes;
+    }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             if (index.index_type() == IndexType::INVERTED) {
@@ -385,17 +393,15 @@ public:
         }
         return false;
     }
-    std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
-    bool has_inverted_index(const TabletColumn& col) const;
-    bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
-    const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
-                                                        const std::string& suffix_name) const;
-    // check_valid: check if this column supports inverted index
+    bool has_inverted_index_with_index_id(int64_t index_id) const;
+    // Check whether this column supports inverted index
     // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
-    // If returned, the index file will not be found.
-    const TabletIndex* get_inverted_index(const TabletColumn& col, bool check_valid = true) const;
-    const TabletIndex* get_inverted_index(int32_t col_unique_id,
-                                          const std::string& suffix_path) const;
+    const TabletIndex* inverted_index(const TabletColumn& col) const;
+
+    // Regardless of whether this column supports inverted index
+    // TabletIndex information will be returned as long as it exists.
+    const TabletIndex* inverted_index(int32_t col_unique_id,
+                                      const std::string& suffix_path = "") const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);

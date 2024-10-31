@@ -644,7 +644,7 @@ Status Compaction::do_inverted_index_compaction() {
     Status status = Status::OK();
     for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
-        const auto* index_meta = _cur_tablet_schema->get_inverted_index(col);
+        const auto* index_meta = _cur_tablet_schema->inverted_index(col);
 
         std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
         try {
@@ -682,15 +682,11 @@ Status Compaction::do_inverted_index_compaction() {
 }
 
 void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
-    for (const auto& index : _cur_tablet_schema->indexes()) {
-        if (index.index_type() != IndexType::INVERTED) {
-            continue;
-        }
-
-        auto col_unique_ids = index.col_unique_ids();
+    for (const auto& index : _cur_tablet_schema->inverted_indexes()) {
+        auto col_unique_ids = index->col_unique_ids();
         // check if column unique ids is empty to avoid crash
         if (col_unique_ids.empty()) {
-            LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index[" << index.index_id()
+            LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index[" << index->index_id()
                          << "] has no column unique id, will skip index compaction."
                          << " tablet_schema=" << _cur_tablet_schema->dump_full_schema();
             continue;
@@ -705,10 +701,9 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
         bool is_continue = false;
         std::optional<std::map<std::string, std::string>> first_properties;
         for (const auto& rowset : _input_rowsets) {
-            const auto* tablet_index =
-                    rowset->tablet_schema()->get_inverted_index(col_unique_id, "");
+            const auto* tablet_index = rowset->tablet_schema()->inverted_index(col_unique_id);
             // no inverted index or index id is different from current index id
-            if (tablet_index == nullptr || tablet_index->index_id() != index.index_id()) {
+            if (tablet_index == nullptr || tablet_index->index_id() != index->index_id()) {
                 is_continue = true;
                 break;
             }
@@ -741,7 +736,7 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                 return false;
             }
 
-            const auto* index_meta = rowset->tablet_schema()->get_inverted_index(col_unique_id, "");
+            const auto* index_meta = rowset->tablet_schema()->inverted_index(col_unique_id);
             if (index_meta == nullptr) {
                 LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
                              << col_unique_id << "] index meta is null, will skip index compaction";
