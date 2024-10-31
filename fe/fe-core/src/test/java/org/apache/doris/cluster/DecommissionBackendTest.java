@@ -202,7 +202,7 @@ public class DecommissionBackendTest extends TestWithFeService {
         int tabletNum = Env.getCurrentInvertedIndex().getTabletMetaMap().size();
         Assertions.assertTrue(tabletNum > 0);
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db2");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("db3");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException("tbl1");
         Assertions.assertNotNull(tbl);
         long backendId = tbl.getPartitions().iterator().next()
