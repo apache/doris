@@ -184,7 +184,7 @@ Status Channel<Parent>::open(RuntimeState* state) {
     _brpc_request->set_sender_id(_parent->sender_id());
     _brpc_request->set_be_number(_be_number);
 
-    _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
+    _brpc_timeout_ms = get_execution_rpc_timeout_ms(state->execution_timeout());
 
     _serializer.set_is_local(_is_local);
 
