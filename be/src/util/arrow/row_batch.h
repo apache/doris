@@ -45,7 +45,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
                              const std::string& timezone);
 
 // Convert Doris RowDescriptor to Arrow Schema.
-Status get_arrow_schema(const RowDescriptor& row_desc, std::shared_ptr<arrow::Schema>* result,
+Status get_arrow_schema(const vectorized::Block& block, std::shared_ptr<arrow::Schema>* result,
                         const std::string& timezone);
 
 Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
