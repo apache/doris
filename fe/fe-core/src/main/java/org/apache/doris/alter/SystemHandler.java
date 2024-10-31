@@ -109,6 +109,7 @@ public class SystemHandler extends AlterHandler {
             AtomicInteger totalTabletNum = new AtomicInteger(0);
             List<Long> sampleTablets = Lists.newArrayList();
             List<Long> sampleLeakyTablets = Lists.newArrayList();
+            // check backend had migrated all its tablets, otherwise sample some tablets for log
             boolean migratedTablets = checkMigrateTablets(beId, 10, sampleTablets, sampleLeakyTablets, totalTabletNum);
             long walNum = Env.getCurrentEnv().getGroupCommitManager().getAllWalQueueSize(backend);
             if (Config.drop_backend_after_decommission && migratedTablets && walNum == 0) {
@@ -209,8 +210,11 @@ public class SystemHandler extends AlterHandler {
     /*
      * check if the specified backends can be dropped
      * 1. backend does not have any tablet.
-     * 2. all tablets in backend have been recycled or leaky.
+     * 2. or all tablets in backend have been recycled or been leaky for a long time.
      *
+     * and return some sample tablets for log.
+     *
+     * sampleLimit: the max sample tablet num
      * sampleTablets: sample normal tablets
      * sampleLeakyTablets: sample leaky tablets
      *
