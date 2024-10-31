@@ -28,6 +28,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils.TableQueryOperatorChecker;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.ObjectId;
@@ -323,6 +325,10 @@ public class StructInfo {
                 cascadesContext);
         valid = valid
                 && hyperGraph.getNodes().stream().allMatch(n -> ((StructInfoNode) n).getExpressions() != null);
+        // if relationList has any relation which contains table operator,
+        // such as query with sample, index, table, is invalid
+        valid = relationList.stream().noneMatch(relation ->
+                ((AbstractPlan) relation).accept(TableQueryOperatorChecker.INSTANCE, null));
         // collect predicate from top plan which not in hyper graph
         Set<Expression> topPlanPredicates = new LinkedHashSet<>();
         topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
