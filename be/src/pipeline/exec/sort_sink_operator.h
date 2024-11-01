@@ -46,6 +46,8 @@ private:
 
     // topn top value
     vectorized::Field old_top {vectorized::Field::Types::Null};
+    RuntimeProfile::Counter* _append_blocks_timer = nullptr;
+    RuntimeProfile::Counter* _update_runtime_predicate_timer = nullptr;
 };
 
 class SortSinkOperatorX final : public DataSinkOperatorX<SortSinkLocalState> {
