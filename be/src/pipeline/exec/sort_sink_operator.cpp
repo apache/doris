@@ -32,6 +32,8 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     SCOPED_TIMER(_init_timer);
     _sort_blocks_memory_usage =
             ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageSortBlocks", TUnit::BYTES, 1);
+    _append_blocks_timer = ADD_TIMER(profile(), "AppendBlockTime");
+    _update_runtime_predicate_timer = ADD_TIMER(profile(), "UpdateRuntimePredicateTime");
     return Status::OK();
 }
 
@@ -119,7 +121,10 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state._shared_state->sorter->append_block(in_block));
+        {
+            SCOPED_TIMER(local_state._append_blocks_timer);
+            RETURN_IF_ERROR(local_state._shared_state->sorter->append_block(in_block));
+        }
         int64_t data_size = local_state._shared_state->sorter->data_size();
         COUNTER_SET(local_state._sort_blocks_memory_usage, data_size);
         COUNTER_SET(local_state._memory_used_counter, data_size);
@@ -128,6 +133,7 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
         RETURN_IF_CANCELLED(state);
 
         if (state->get_query_ctx()->has_runtime_predicate(_node_id)) {
+            SCOPED_TIMER(local_state._update_runtime_predicate_timer);
             auto& predicate = state->get_query_ctx()->get_runtime_predicate(_node_id);
             if (predicate.enable()) {
                 vectorized::Field new_top = local_state._shared_state->sorter->get_top_value();

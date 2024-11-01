@@ -218,6 +218,7 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -324,9 +325,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .collect(Collectors.toList());
             keys.addAll(validOutputIds);
             validOutputIds = keys;
-        } else if (child instanceof PhysicalLimit && ((PhysicalLimit<?>) child).getPhase().isGlobal()) {
-            // because sort already contains Offset, we don't need to handle PhysicalTopN
-            exchangeNode.setOffset(((PhysicalLimit<?>) child).getOffset());
         }
         if (inputFragment instanceof MultiCastPlanFragment) {
             // TODO: remove this logic when we split to multi-window in logical window to physical window conversion
@@ -423,24 +421,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 partialUpdateCols.add(col.getName());
             }
         }
-        TupleDescriptor olapTuple = context.generateTupleDesc();
-        List<Column> targetTableColumns = olapTableSink.getTargetTable().getFullSchema();
-        for (Column column : targetTableColumns) {
-            if (isPartialUpdate && !partialUpdateCols.contains(column.getName())) {
-                continue;
-            }
-            SlotDescriptor slotDesc = context.addSlotDesc(olapTuple);
-            slotDesc.setIsMaterialized(true);
-            slotDesc.setType(column.getType());
-            slotDesc.setColumn(column);
-            slotDesc.setIsNullable(column.isAllowNull());
-            slotDesc.setAutoInc(column.isAutoInc());
+        TupleDescriptor olapTuple = generateTupleDesc(olapTableSink.getTargetTableSlots(),
+                olapTableSink.getTargetTable(), context);
+        List<Expr> partitionExprs = olapTableSink.getPartitionExprList().stream()
+                .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+        Map<Long, Expr> syncMvWhereClauses = new HashMap<>();
+        for (Map.Entry<Long, Expression> entry : olapTableSink.getSyncMvWhereClauses().entrySet()) {
+            syncMvWhereClauses.put(entry.getKey(), ExpressionTranslator.translate(entry.getValue(), context));
         }
         OlapTableSink sink;
         // This statement is only used in the group_commit mode
         if (context.getConnectContext().isGroupCommit()) {
             sink = new GroupCommitBlockSink(olapTableSink.getTargetTable(), olapTuple,
                     olapTableSink.getTargetTable().getPartitionIds(), olapTableSink.isSingleReplicaLoad(),
+                    partitionExprs, syncMvWhereClauses,
                     context.getSessionVariable().getGroupCommit(),
                     ConnectContext.get().getSessionVariable().getEnableInsertStrict() ? 0 : 1);
         } else {
@@ -448,7 +442,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 olapTableSink.getTargetTable(),
                 olapTuple,
                 olapTableSink.getPartitionIds().isEmpty() ? null : olapTableSink.getPartitionIds(),
-                olapTableSink.isSingleReplicaLoad()
+                olapTableSink.isSingleReplicaLoad(), partitionExprs, syncMvWhereClauses
             );
         }
         sink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateCols);

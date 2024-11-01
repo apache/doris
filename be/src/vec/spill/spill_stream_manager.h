@@ -28,6 +28,7 @@
 #include "util/threadpool.h"
 #include "vec/spill/spill_stream.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 
 namespace vectorized {
@@ -77,7 +78,7 @@ private:
     double _get_disk_usage(int64_t incoming_data_size) const {
         return _disk_capacity_bytes == 0
                        ? 0
-                       : (_disk_capacity_bytes - _available_bytes + incoming_data_size) /
+                       : (double)(_disk_capacity_bytes - _available_bytes + incoming_data_size) /
                                  (double)_disk_capacity_bytes;
     }
 
@@ -147,3 +148,4 @@ private:
 };
 } // namespace vectorized
 } // namespace doris
+#include "common/compile_check_end.h"

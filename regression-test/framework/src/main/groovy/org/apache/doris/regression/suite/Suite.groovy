@@ -17,16 +17,20 @@
 
 package org.apache.doris.regression.suite
 
-import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
-import groovy.json.JsonOutput
+
+import com.google.common.base.Strings
+import com.google.common.collect.ImmutableList
 import com.google.common.collect.Maps
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.google.gson.Gson
+import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
-import com.google.common.collect.ImmutableList
+import groovy.util.logging.Slf4j
+
+import org.awaitility.Awaitility
 import org.apache.commons.lang3.ObjectUtils
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.RegressionTest
@@ -53,7 +57,6 @@ import org.jetbrains.annotations.NotNull
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import groovy.util.logging.Slf4j
 
 import java.sql.Connection
 import java.io.File
@@ -968,6 +971,31 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
+    String cmd(String cmd, int timeoutSecond = 0) {
+        var processBuilder = new ProcessBuilder()
+        processBuilder.command("/bin/bash", "-c", cmd)
+        var process = processBuilder.start()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        process.consumeProcessOutput(outBuf, errBuf)
+        var reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line)
+        }
+        // wait until cmd finish
+        if (timeoutSecond > 0) {
+            process.waitForOrKill(timeoutSecond * 1000)
+        } else {
+            process.waitFor()
+        }
+        if (process.exitValue() != 0) {
+            println outBuf
+            throw new RuntimeException(errBuf.toString())
+        }
+        return outBuf.toString()
+    }
+
     void sshExec(String username, String host, String cmd, boolean alert=true) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
@@ -1376,6 +1404,28 @@ class Suite implements GroovyInterceptable {
         sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
     }
 
+    void waitingMVTaskFinishedByMvName(String dbName, String tableName) {
+        Thread.sleep(2000)
+        String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW from ${dbName} where TableName='${tableName}' ORDER BY CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(8)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED'))
+        if (status != "FINISHED") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("FINISHED", status)
+    }
+
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
         Thread.sleep(2000);
         String showPartitions = "show partitions from ${tableName}"
@@ -1512,12 +1562,13 @@ class Suite implements GroovyInterceptable {
     }
 
     boolean enableStoragevault() {
-        boolean ret = false;
-        if (context.config.metaServiceHttpAddress == null || context.config.metaServiceHttpAddress.isEmpty() ||
-                context.config.instanceId == null || context.config.instanceId.isEmpty() ||
-                context.config.metaServiceToken == null || context.config.metaServiceToken.isEmpty()) {
-            return ret;
+        if (Strings.isNullOrEmpty(context.config.metaServiceHttpAddress)
+                || Strings.isNullOrEmpty(context.config.instanceId)
+                || Strings.isNullOrEmpty(context.config.metaServiceToken)) {
+            return false;
         }
+
+        boolean ret = false;
         def getInstanceInfo = { check_func ->
             httpTest {
                 endpoint context.config.metaServiceHttpAddress
@@ -2384,6 +2435,27 @@ class Suite implements GroovyInterceptable {
                 log.info("rename cluster resp: ${body} ${respCode}".toString())
                 def json = parseJson(body)
                 assertTrue(json.code.equalsIgnoreCase("OK"))
+        }
+    }
+
+    def fix_tablet_stats = { table_id ->
+        def jsonOutput = new JsonOutput()
+        def map = []
+        def js = jsonOutput.toJson(map)
+        log.info("fix tablet stat req: /MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${instance_id}&table_id=${table_id} ".toString())
+
+        def fix_tablet_stats_api = { request_body, check_func ->
+            httpTest {
+                endpoint context.config.metaServiceHttpAddress
+                uri "/MetaService/http/fix_tablet_stats?token=${token}&cloud_unique_id=${instance_id}&table_id=${table_id}"
+                body request_body
+                check check_func
+            }
+        }
+
+        fix_tablet_stats_api.call(js) {
+            respCode, body ->
+                log.info("fix tablet stats resp: ${body} ${respCode}".toString())
         }
     }
 

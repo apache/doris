@@ -153,22 +153,19 @@ private:
                                 const std::map<int, int>& shuffle_idx_to_instance_idx);
     Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
                                 const std::map<int, int>& bucket_seq_to_instance_idx,
-                                const std::map<int, int>& shuffle_idx_to_instance_idx,
-                                const bool ignore_data_distribution);
+                                const std::map<int, int>& shuffle_idx_to_instance_idx);
     void _inherit_pipeline_properties(const DataDistribution& data_distribution,
                                       PipelinePtr pipe_with_source, PipelinePtr pipe_with_sink);
     Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
                                PipelinePtr cur_pipe, DataDistribution data_distribution,
                                bool* do_local_exchange, int num_buckets,
                                const std::map<int, int>& bucket_seq_to_instance_idx,
-                               const std::map<int, int>& shuffle_idx_to_instance_idx,
-                               const bool ignore_data_distribution);
+                               const std::map<int, int>& shuffle_idx_to_instance_idx);
     Status _add_local_exchange_impl(int idx, ObjectPool* pool, PipelinePtr cur_pipe,
                                     PipelinePtr new_pip, DataDistribution data_distribution,
                                     bool* do_local_exchange, int num_buckets,
                                     const std::map<int, int>& bucket_seq_to_instance_idx,
-                                    const std::map<int, int>& shuffle_idx_to_instance_idx,
-                                    const bool ignore_data_hash_distribution);
+                                    const std::map<int, int>& shuffle_idx_to_instance_idx);
 
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
                                  ThreadPool* thread_pool);

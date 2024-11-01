@@ -19,6 +19,7 @@
 
 #include <bvar/bvar.h>
 
+#include <boost/lockfree/spsc_queue.hpp>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -27,14 +28,50 @@
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/cache/file_cache_storage.h"
+#include "util/threadpool.h"
 
 namespace doris::io {
+
+// Note: the cache_lock is scoped, so do not add do...while(0) here.
+#ifdef ENABLE_CACHE_LOCK_DEBUG
+#define SCOPED_CACHE_LOCK(MUTEX)                                                                  \
+    std::chrono::time_point<std::chrono::steady_clock> start_time =                               \
+            std::chrono::steady_clock::now();                                                     \
+    std::lock_guard cache_lock(MUTEX);                                                            \
+    std::chrono::time_point<std::chrono::steady_clock> acq_time =                                 \
+            std::chrono::steady_clock::now();                                                     \
+    auto duration =                                                                               \
+            std::chrono::duration_cast<std::chrono::milliseconds>(acq_time - start_time).count(); \
+    if (duration > config::cache_lock_long_tail_threshold)                                        \
+        LOG(WARNING) << "Lock wait time " << std::to_string(duration) << "ms. "                   \
+                     << get_stack_trace_by_boost() << std::endl;                                  \
+    LockScopedTimer cache_lock_timer;
+#else
+#define SCOPED_CACHE_LOCK(MUTEX) std::lock_guard cache_lock(MUTEX);
+#endif
 
 template <class Lock>
 concept IsXLock = std::same_as<Lock, std::lock_guard<std::mutex>> ||
                   std::same_as<Lock, std::unique_lock<std::mutex>>;
 
 class FSFileCacheStorage;
+
+class LockScopedTimer {
+public:
+    LockScopedTimer() : start_(std::chrono::steady_clock::now()) {}
+
+    ~LockScopedTimer() {
+        auto end = std::chrono::steady_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start_).count();
+        if (duration > 500) {
+            LOG(WARNING) << "Lock held time " << std::to_string(duration) << "ms. "
+                         << get_stack_trace_by_boost();
+        }
+    }
+
+private:
+    std::chrono::time_point<std::chrono::steady_clock> start_;
+};
 
 // The BlockFileCache is responsible for the management of the blocks
 // The current strategies are lru and ttl.
@@ -119,6 +156,7 @@ public:
 
     // remove all blocks that belong to the key
     void remove_if_cached(const UInt128Wrapper& key);
+    void remove_if_cached_async(const UInt128Wrapper& key);
 
     // modify the expiration time about the key
     void modify_expiration_time(const UInt128Wrapper& key, uint64_t new_expiration_time);
@@ -320,7 +358,7 @@ private:
 
     template <class T, class U>
         requires IsXLock<T> && IsXLock<U>
-    void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock);
+    void remove(FileBlockSPtr file_block, T& cache_lock, U& segment_lock, bool sync = true);
 
     FileBlocks get_impl(const UInt128Wrapper& hash, const CacheContext& context,
                         const FileBlock::Range& range, std::lock_guard<std::mutex>& cache_lock);
@@ -402,12 +440,17 @@ private:
 
     void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
 
+    void remove_file_blocks_async(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
+
     void remove_file_blocks_and_clean_time_maps(std::vector<FileBlockCell*>&,
                                                 std::lock_guard<std::mutex>&);
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
                                std::lock_guard<std::mutex>& cache_lock, bool is_ttl);
+
+    void recycle_stale_rowset_async_bottom_half();
+
     // info
     std::string _cache_base_path;
     size_t _capacity = 0;
@@ -446,7 +489,11 @@ private:
     LRUQueue _disposable_queue;
     LRUQueue _ttl_queue;
 
+    // keys for async remove
+    std::shared_ptr<boost::lockfree::spsc_queue<FileCacheKey>> _recycle_keys;
+
     // metrics
+    std::shared_ptr<bvar::Status<size_t>> _cache_capacity_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_size_metrics;
     std::shared_ptr<bvar::Status<size_t>> _cur_ttl_cache_lru_queue_cache_size_metrics;

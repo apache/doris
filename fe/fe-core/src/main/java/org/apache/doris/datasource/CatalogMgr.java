@@ -695,7 +695,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public void unregisterExternalDatabase(String dbName, String catalogName, boolean ignoreIfNotExists)
+    public void unregisterExternalDatabase(String dbName, String catalogName)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -704,17 +704,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog databases");
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
-        if (db == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-            }
-            return;
-        }
         ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
-    public void registerExternalDatabaseFromEvent(String dbName, String catalogName, boolean ignoreIfExists)
+    public void registerExternalDatabaseFromEvent(String dbName, String catalogName)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {

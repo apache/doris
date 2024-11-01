@@ -587,7 +587,6 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
-DECLARE_mBool(exchange_sink_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -958,6 +957,8 @@ DECLARE_mInt64(big_column_size_buffer);
 DECLARE_mInt64(small_column_size_buffer);
 
 DECLARE_mInt32(runtime_filter_sampling_frequency);
+DECLARE_mInt32(execution_max_rpc_timeout_sec);
+DECLARE_mBool(execution_ignore_eovercrowded);
 
 // cooldown task configs
 DECLARE_Int32(cooldown_thread_num);
@@ -984,6 +985,9 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
+DECLARE_mInt64(block_cache_wait_timeout_ms);
+DECLARE_mInt64(cache_lock_long_tail_threshold);
+DECLARE_Int64(file_cache_recycle_keys_size);
 
 DECLARE_Bool(enable_brpc_builtin_services);
 
@@ -1090,11 +1094,7 @@ DECLARE_Int32(max_depth_in_bkd_tree);
 // index compaction
 DECLARE_mBool(inverted_index_compaction_enable);
 // Only for debug, do not use in production
-// Debug switch for collecting intermediate data in inverted index compaction
 DECLARE_mBool(debug_inverted_index_compaction);
-// Only for debug, do not use in production
-// Debug switch for writing inverted index both in compaction process and index compaction process
-DECLARE_mBool(dual_write_inverted_index_enable);
 // index by RAM directory
 DECLARE_mBool(inverted_index_ram_dir_enable);
 // use num_broadcast_buffer blocks as buffer to do broadcast
@@ -1441,6 +1441,10 @@ DECLARE_mInt32(check_score_rounds_num);
 
 // MB
 DECLARE_Int32(query_cache_size);
+
+DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
+// Enable validation to check the correctness of table size.
+DECLARE_Bool(enable_table_size_correctness_check);
 
 #ifdef BE_TEST
 // test s3

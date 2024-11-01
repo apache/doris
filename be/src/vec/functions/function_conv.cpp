@@ -49,6 +49,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
