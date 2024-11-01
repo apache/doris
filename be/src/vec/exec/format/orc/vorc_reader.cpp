@@ -841,7 +841,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+            sargBuilder->lessThan(slot_ref->column_id(), predicate_type, orc_literal);
             sargBuilder->end();
             break;
         }
@@ -856,7 +856,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+            sargBuilder->lessThanEquals(slot_ref->column_id(), predicate_type, orc_literal);
             sargBuilder->end();
             break;
         }
@@ -870,7 +870,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+            sargBuilder->lessThanEquals(slot_ref->column_id(), predicate_type, orc_literal);
             break;
         }
         case TExprOpcode::LT: {
@@ -883,7 +883,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+            sargBuilder->lessThan(slot_ref->column_id(), predicate_type, orc_literal);
             break;
         }
         case TExprOpcode::EQ: {
@@ -896,7 +896,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+            sargBuilder->equals(slot_ref->column_id(), predicate_type, orc_literal);
             break;
         }
         case TExprOpcode::NE: {
@@ -910,7 +910,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+            sargBuilder->equals(slot_ref->column_id(), predicate_type, orc_literal);
             sargBuilder->end();
             break;
         }
@@ -921,7 +921,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
             const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
             const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
-            sargBuilder->isNull(slot_ref->expr_name(), predicate_type);
+            sargBuilder->isNull(slot_ref->column_id(), predicate_type);
             break;
         }
         case TExprOpcode::FILTER_IN: {
@@ -940,7 +940,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
                 predicate_type = type;
             }
             if (!literals.empty()) {
-                sargBuilder->in(slot_ref->expr_name(), predicate_type, literals);
+                sargBuilder->in(slot_ref->column_id(), predicate_type, literals);
             }
             break;
         }
@@ -961,7 +961,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             }
             if (!literals.empty()) {
                 sargBuilder->startNot();
-                sargBuilder->in(slot_ref->expr_name(), predicate_type, literals);
+                sargBuilder->in(slot_ref->column_id(), predicate_type, literals);
                 sargBuilder->end();
             }
             break;
