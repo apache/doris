@@ -29,6 +29,7 @@
 #include <string>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "gutil/integral_types.h"
@@ -70,6 +71,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 
 template <bool is_binary_format>
@@ -143,7 +145,7 @@ Status VMysqlResultWriter<is_binary_format>::_set_options(
 template <bool is_binary_format>
 Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* state, Block& block) {
     Status status = Status::OK();
-    auto num_rows = block.rows();
+    int num_rows = cast_set<int>(block.rows());
     // convert one batch
     auto result = std::make_unique<TFetchDataResult>();
     result->result_batch.rows.resize(num_rows);
@@ -200,7 +202,7 @@ Status VMysqlResultWriter<is_binary_format>::_write_one_block(RuntimeState* stat
             }
         }
 
-        for (size_t row_idx = 0; row_idx < num_rows; ++row_idx) {
+        for (int row_idx = 0; row_idx < num_rows; ++row_idx) {
             for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                 RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
                         *(arguments[col_idx].column), row_buffer, row_idx,
