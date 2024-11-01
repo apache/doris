@@ -270,7 +270,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             Map<String, Expression> constMap, ConnectContext context) {
         Map<String, Expression> resultMap = new HashMap<>();
         try {
-            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+            List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
             if (backendIds.isEmpty()) {
                 throw new UserException("No alive backends");
             }
