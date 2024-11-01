@@ -65,7 +65,8 @@ suite("test_dynamic_partition_with_update", "nonConcurrent") {
     assertEquals("true",result.get(0).Enable)
 
     // check and update
-
+    // ATTN: due to dynamic_partition_check_interval_seconds default 600s, if DynamicPartitionScheduler in sleep
+    // set config dynamic_partition_check_interval_seconds = 1 not work, so at most wait > 600
     Awaitility.await().atMost(1200, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until(
         {
             result = sql "show partitions from test_dynamic_partition_with_update"
