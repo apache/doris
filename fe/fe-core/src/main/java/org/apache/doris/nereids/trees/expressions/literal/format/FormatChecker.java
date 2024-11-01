@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 
 import org.apache.doris.nereids.util.Utils;
 
+import java.util.Objects;
 import java.util.function.Predicate;
 
 /**
@@ -41,7 +42,7 @@ public abstract class FormatChecker {
     public final String name;
 
     public FormatChecker(String name) {
-        this.name = name;
+        this.name = Objects.requireNonNull(name, "name can not be null");
     }
 
     protected abstract boolean doCheck(StringInspect stringInspect);

@@ -17,13 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
+import java.util.Objects;
+
 /** StringChecker */
 public class StringChecker extends FormatChecker {
-    private String str;
+    private final String str;
 
     public StringChecker(String name, String str) {
         super(name);
-        this.str = str;
+        this.str = Objects.requireNonNull(str, "str can not be null");;
     }
 
     @Override

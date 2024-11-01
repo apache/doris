@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
+import java.util.Objects;
 import java.util.function.Predicate;
 
 /** DebugChecker */
@@ -26,8 +27,8 @@ public class DebugChecker<T extends FormatChecker> extends FormatChecker {
 
     public DebugChecker(String name, T childChecker, Predicate<T> debugPoint) {
         super(name);
-        this.childChecker = childChecker;
-        this.debugPoint = debugPoint;
+        this.childChecker = Objects.requireNonNull(childChecker, "childChecker can not be null");;
+        this.debugPoint = Objects.requireNonNull(debugPoint, "debugPoint can not be null");;
     }
 
     @Override

@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.expressions.literal.format;
 
 /** DigitChecker */
 public class DigitChecker extends FormatChecker {
-    private int minCount;
-    private int maxRead;
+    private final int minCount;
+    private final int maxRead;
 
     public DigitChecker(String name, int minCount, int maxRead) {
         super(name);

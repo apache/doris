@@ -17,19 +17,20 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
+import java.util.Objects;
 import java.util.function.Predicate;
 
 /** AtLeastChecker */
 public class AtLeastChecker extends FormatChecker {
-    private int minCount;
-    private int maxRead;
-    private Predicate<Character> checker;
+    private final int minCount;
+    private final int maxRead;
+    private final Predicate<Character> checker;
 
     public AtLeastChecker(String name, int minCount, int maxRead, Predicate<Character> checker) {
         super(name);
         this.minCount = minCount;
         this.maxRead = maxRead;
-        this.checker = checker;
+        this.checker = Objects.requireNonNull(checker, "checker can not be null");
     }
 
     @Override

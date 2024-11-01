@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
+import java.util.Objects;
+
 /**
  * StringInspect, a simple lexer can save and move the index
  */
@@ -25,7 +27,7 @@ public class StringInspect {
     private int index;
 
     public StringInspect(String str) {
-        this.str = str;
+        this.str = Objects.requireNonNull(str, "str cannot be null");
     }
 
     public boolean eos() {

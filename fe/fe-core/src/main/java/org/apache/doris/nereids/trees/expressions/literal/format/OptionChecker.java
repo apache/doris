@@ -17,13 +17,15 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
+import java.util.Objects;
+
 /** OptionChecker */
 public class OptionChecker extends FormatChecker {
     private final FormatChecker checker;
 
     public OptionChecker(String name, FormatChecker checker) {
         super(name);
-        this.checker = checker;
+        this.checker = Objects.requireNonNull(checker, "checker can not be null");
     }
 
     @Override

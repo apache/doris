@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
+import org.apache.doris.nereids.util.Utils;
+
 import java.util.List;
+import java.util.Objects;
 
 /** AndChecker */
 public class AndChecker extends FormatChecker {
@@ -25,7 +28,9 @@ public class AndChecker extends FormatChecker {
 
     public AndChecker(String name, List<FormatChecker> checkers) {
         super(name);
-        this.checkers = checkers;
+        this.checkers = Utils.fastToImmutableList(
+                Objects.requireNonNull(checkers, "checkers can not be null")
+        );
     }
 
     @Override

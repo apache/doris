@@ -17,15 +17,16 @@
 
 package org.apache.doris.nereids.trees.expressions.literal.format;
 
+import java.util.Objects;
 import java.util.function.Predicate;
 
 /** CustomCharChecker */
 public class CustomCharChecker extends FormatChecker {
-    private Predicate<Character> checker;
+    private final Predicate<Character> checker;
 
     public CustomCharChecker(String name, Predicate<Character> checker) {
         super(name);
-        this.checker = checker;
+        this.checker = Objects.requireNonNull(checker, "checker can not be null");;
     }
 
     @Override
