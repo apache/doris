@@ -23,10 +23,13 @@
 #include <ostream>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/cast_set.h"
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
+#include "vec/core/types.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
                                            int be_exec_version) const {
@@ -62,7 +65,7 @@ char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
         return buf;
     } else {
         // row num
-        const auto row_num = column.size();
+        const UInt32 row_num = cast_set<UInt32>(column.size());
         *reinterpret_cast<uint32_t*>(buf) = row_num;
         buf += sizeof(uint32_t);
         // column data

@@ -28,6 +28,7 @@
 #include <boost/core/noncopyable.hpp>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "common/exception.h"
@@ -58,8 +59,11 @@ class Field;
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
 constexpr auto SERIALIZED_MEM_SIZE_LIMIT = 256;
-inline size_t upper_int32(size_t size) {
-    return size_t((3 + size) / 4.0);
+
+template <typename T>
+inline T upper_int32(T size) {
+    static_assert(std::is_unsigned_v<T>);
+    return T((3 + size) / 4.0);
 }
 
 /** Properties of data type.
