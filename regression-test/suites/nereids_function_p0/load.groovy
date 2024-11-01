@@ -37,6 +37,18 @@ suite("load") {
     sql """ CREATE TABLE IF NOT EXISTS fn_test_ip_not_nullable (id int, ip4 ipv4 not null, ip6 ipv6 not null, ip4_str string, ip6_str string) engine=olap
                                                                                          DISTRIBUTED BY HASH(`id`) BUCKETS 4
                                                                                          properties("replication_num" = "1") """
+
+    // test ip with rowstore
+    sql """ drop table if exists fn_test_ip_nullable_rowstore """
+    sql """ CREATE TABLE IF NOT EXISTS fn_test_ip_nullable_rowstore (id int, ip4 ipv4, ip6 ipv6, ip4_str string, ip6_str string) engine=olap
+                                                                                            UNIQUE KEY(`id`)
+                                                                                         DISTRIBUTED BY HASH(`id`) BUCKETS 4
+                                                                                         properties("replication_num" = "1", "store_row_column" = "true") """
+    sql """ drop table if exists fn_test_ip_not_nullable_rowstore """
+    sql """ CREATE TABLE IF NOT EXISTS fn_test_ip_not_nullable_rowstore (id int, ip4 ipv4 not null, ip6 ipv6 not null, ip4_str string, ip6_str string) engine=olap
+                                                                                            UNIQUE KEY(`id`)
+                                                                                         DISTRIBUTED BY HASH(`id`) BUCKETS 4
+                                                                                         properties("replication_num" = "1", "store_row_column" = "true") """
     // make some special ip address
     /***
      回环地址
@@ -100,7 +112,7 @@ suite("load") {
     streamLoad {
         table "fn_test_ip_nullable"
         db "regression_test_nereids_function_p0"
-        file "fn_test_ip_special1.csv"
+        file "fn_test_ip_special.csv"
         set 'column_separator', ';'
         time 60000
 
@@ -116,9 +128,52 @@ suite("load") {
     }
 
     streamLoad {
+        table "fn_test_ip_nullable_rowstore"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_ip_special.csv"
+        set 'column_separator', ';'
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(28, json.NumberTotalRows)
+            assertEquals(28, json.NumberLoadedRows)
+        }
+    }
+
+    // rowstore table to checkout with not rowstore table
+    def sql_res = sql "select * from fn_test_ip_nullable order by id;"
+    def sql_res_rowstore = sql "select * from fn_test_ip_nullable_rowstore order by id;"
+    assertEquals(sql_res.size(), sql_res_rowstore.size())
+    for (int i = 0; i < sql_res.size(); i++) {
+        for (int j = 0; j < sql_res[i].size(); j++) {
+            assertEquals(sql_res[i][j], sql_res_rowstore[i][j])
+        }
+    }
+
+    // test fn_test_ip_nullable_rowstore table with update action
+    sql "update fn_test_ip_nullable_rowstore set ip4 = '' where id = 1;"
+    sql_res = sql "select * from fn_test_ip_nullable_rowstore where id = 1;"
+    log.info("sql_res: ${sql_res[0]}".toString())
+    assertEquals(sql_res[0].toString(), '[1, null, ::1, "127.0.0.1", "::1"]')
+    sql "update fn_test_ip_nullable_rowstore set ip6 = '' where id = 1;"
+    sql_res = sql "select * from fn_test_ip_nullable_rowstore where id = 1;"
+    assertEquals(sql_res[0].toString(), '[1, null, null, "127.0.0.1", "::1"]')
+    sql "update fn_test_ip_nullable_rowstore set ip4 = '127.0.0.1' where id = 1;"
+    sql_res = sql "select * from fn_test_ip_nullable_rowstore where id = 1;"
+    assertEquals(sql_res[0].toString(), '[1, 127.0.0.1, null, "127.0.0.1", "::1"]')
+    sql "update fn_test_ip_nullable_rowstore set ip6 = '::1' where id = 1;"
+    sql_res = sql "select * from fn_test_ip_nullable_rowstore where id = 1;"
+    assertEquals(sql_res[0].toString(), '[1, 127.0.0.1, ::1, "127.0.0.1", "::1"]')
+
+    streamLoad {
         table "fn_test_ip_not_nullable"
         db "regression_test_nereids_function_p0"
-        file "fn_test_ip_special_no_null1.csv"
+        file "fn_test_ip_special_no_null.csv"
         set 'column_separator', ';'
         set "max_filter_ratio", "0.1"
         time 60000
@@ -134,12 +189,80 @@ suite("load") {
         }
     }
 
+    streamLoad {
+        table "fn_test_ip_not_nullable_rowstore"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_ip_special_no_null.csv"
+        set 'column_separator', ';'
+        set "max_filter_ratio", "0.1"
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(28, json.NumberTotalRows)
+            assertEquals(27, json.NumberLoadedRows)
+        }
+    }
+
+    // rowstore table to checkout with not rowstore table
+    def sql_res_not_null = sql "select * from fn_test_ip_not_nullable_rowstore order by id;"
+    def sql_res_not_null_rowstore = sql "select * from fn_test_ip_not_nullable_rowstore order by id;"
+    assertEquals(sql_res_not_null.size(), sql_res_not_null_rowstore.size())
+    for (int i = 0; i < sql_res_not_null.size(); i++) {
+        for (int j = 0; j < sql_res_not_null[i].size(); j++) {
+            assertEquals(sql_res_not_null[i][j], sql_res_not_null_rowstore[i][j])
+        }
+    }
+
+    // test fn_test_ip_not_nullable_rowstore table with update action
+    // not null will throw exception if we has data in table
+    test {
+        sql "update fn_test_ip_not_nullable_rowstore set ip4 = '' where id = 1;"
+        exception("Insert has filtered data in strict mode")
+    }
+
+    test {
+        sql "update fn_test_ip_not_nullable_rowstore set ip6 = '' where id = 1;"
+        exception("Insert has filtered data in strict mode")
+    }
+
+    sql "update fn_test_ip_not_nullable_rowstore set ip4 = '192.10.10.1' where id = 1;"
+    def sql_res1 = sql "select * from fn_test_ip_not_nullable_rowstore where id = 1;"
+    log.info("sql_res: ${sql_res1[0]}".toString())
+    assertEquals(sql_res1[0].toString(), '[1, 192.10.10.1, ::1, "127.0.0.1", "::1"]')
+    sql "update fn_test_ip_not_nullable_rowstore set ip6 = '::2' where id = 1;"
+    sql_res1 = sql "select * from fn_test_ip_not_nullable_rowstore where id = 1;"
+    assertEquals(sql_res1[0].toString(), '[1, 192.10.10.1, ::2, "127.0.0.1", "::1"]')
+
+
     // make some normal ipv4/ipv6 data for sql function , which is increased one by one
     // 29-50 A 类地址 ; 51-68 B 类地址 ; 69-87 C 类地址 ; 88-100 D 类地址
     streamLoad {
         table "fn_test_ip_nullable"
         db "regression_test_nereids_function_p0"
-        file "fn_test_ip_normal1.csv"
+        file "fn_test_ip_normal.csv"
+        set 'column_separator', ';'
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(72, json.NumberTotalRows)
+            assertEquals(72, json.NumberLoadedRows)
+        }
+    }
+
+    streamLoad {
+        table "fn_test_ip_nullable_rowstore"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_ip_normal.csv"
         set 'column_separator', ';'
         time 60000
 
@@ -157,7 +280,25 @@ suite("load") {
     streamLoad {
         table "fn_test_ip_not_nullable"
         db "regression_test_nereids_function_p0"
-        file "fn_test_ip_normal1.csv"
+        file "fn_test_ip_normal.csv"
+        set 'column_separator', ';'
+        time 60000
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals(72, json.NumberTotalRows)
+            assertEquals(72, json.NumberLoadedRows)
+        }
+    }
+
+    streamLoad {
+        table "fn_test_ip_not_nullable_rowstore"
+        db "regression_test_nereids_function_p0"
+        file "fn_test_ip_normal.csv"
         set 'column_separator', ';'
         time 60000
 
