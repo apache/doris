@@ -17,20 +17,10 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
-
-import java.util.List;
-
 /**
- * nullable is true if any children is nullable, most functions are PropagateNullable.
+ * If input has NullLiteral, then output would be NullLiteral when folding constant
  *
- * e.g. `substring(null, 1)` is nullable, `substring('abc', 1)` is not nullable.
+ * e.g. Acos(NULL) ==> NULL.
  */
-public interface PropagateNullable extends ComputeNullable, PropagateNullLiteral {
-    @Override
-    default boolean nullable() {
-        return children().stream().anyMatch(Expression::nullable);
-    }
-
-    List<Expression> children();
+public interface PropagateNullLiteral {
 }
