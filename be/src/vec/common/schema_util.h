@@ -109,6 +109,8 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 // inherit attributes like index/agg info from it's parent column
 void inherit_column_attributes(TabletSchemaSPtr& schema);
 
+// source: variant column
+// target: extracted column from variant column
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema);
 

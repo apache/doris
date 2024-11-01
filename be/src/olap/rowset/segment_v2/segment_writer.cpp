@@ -186,8 +186,9 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
 
     // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
     // except for columns whose type don't support zone map.
-    opts.need_zone_map = column.is_key() || schema->keys_type() != KeysType::AGG_KEYS;
-    opts.need_bloom_filter = column.is_bf_column();
+    opts.need_zone_map = (column.is_key() || schema->keys_type() != KeysType::AGG_KEYS) &&
+                         !column.is_variant_type();
+    opts.need_bloom_filter = column.is_bf_column() && !column.is_variant_type();
     auto* tablet_index = schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
         opts.need_bloom_filter = true;
@@ -206,12 +207,6 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     // skip write inverted index on load if skip_write_index_on_load is true
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
-    }
-
-    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
-        opts.need_zone_map = false;
-        opts.need_bloom_filter = false;
-        opts.need_bitmap_index = false;
     }
 
     // indexes for this column
