@@ -510,10 +510,11 @@ public:
         if (!remove_nullable(function_result_type)
                      ->equals(*remove_nullable(result_type_with_nullable))) {
             return Status::InternalError(
-                    "Result type is not matched, planner expect {}, but get {}, wihout group by: "
+                    "Result type of {} is not matched, planner expect {}, but get {}, with group "
+                    "by: "
                     "{}",
-                    result_type_with_nullable->get_name(), function_result_type->get_name(),
-                    without_key);
+                    get_name(), result_type_with_nullable->get_name(),
+                    function_result_type->get_name(), !without_key);
         }
 
         if (without_key == true) {
@@ -529,9 +530,10 @@ public:
 
         // Executed with group by key, result type must be exactly same with the return type from Planner.
         return Status::InternalError(
-                "Result type is not matched, planner expect {}, but get {}, wihout group by: {}",
-                result_type_with_nullable->get_name(), function_result_type->get_name(),
-                without_key);
+                "Result type of {} is not matched, planner expect {}, but get {}, with group by: "
+                "{}",
+                get_name(), result_type_with_nullable->get_name(), function_result_type->get_name(),
+                !without_key);
     }
 };
 

@@ -44,6 +44,8 @@
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
 
+static constexpr int64_t BE_VERSION_THAT_SUPPORT_NULLABLE_CHECK = 8;
+
 namespace doris {
 class RowDescriptor;
 namespace vectorized {
@@ -215,8 +217,13 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                                    _sort_description, state);
     }
 
-    RETURN_IF_ERROR(_function->verify_result_type(_without_key, argument_types, _data_type));
-
+    LOG_INFO("Backend exec version from fe {}", state->be_exec_version());
+    if (!AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
+        if (state->be_exec_version() >= BE_VERSION_THAT_SUPPORT_NULLABLE_CHECK) {
+            RETURN_IF_ERROR(
+                    _function->verify_result_type(_without_key, argument_types, _data_type));
+        }
+    }
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
     return Status::OK();
 }
