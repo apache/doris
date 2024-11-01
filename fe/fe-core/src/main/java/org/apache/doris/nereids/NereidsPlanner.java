@@ -268,7 +268,8 @@ public class NereidsPlanner extends Planner {
         if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest && cascadesContext.isLeadingJoin()) {
             List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
                     .collectToList(LogicalOlapScan.class::isInstance);
-            StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
+            Optional<String> reason = StatsCalculator.disableJoinReorderIfStatsInvalid(scans, cascadesContext);
+            reason.ifPresent(LOG::info);
         }
 
         optimize();
