@@ -40,6 +40,7 @@
 #include "cloud/cloud_tablet.h"
 #include "cloud/config.h"
 #include "cloud/pb_convert.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
@@ -415,6 +416,10 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
             req.set_cumulative_point(tablet->cumulative_layer_point());
         }
         req.set_end_version(-1);
+        // backend side use schema dict
+        if (config::variant_use_cloud_schema_dict) {
+            req.set_schema_op(GetRowsetRequest::RETURN_DICT);
+        }
         VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
 
         stub->get_rowset(&cntl, &req, &resp, nullptr);
@@ -529,7 +534,8 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                     existed_rowset->rowset_id().to_string() == cloud_rs_meta_pb.rowset_id_v2()) {
                     continue; // Same rowset, skip it
                 }
-                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(cloud_rs_meta_pb);
+                RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(
+                        cloud_rs_meta_pb, resp.has_schema_dict() ? &resp.schema_dict() : nullptr);
                 auto rs_meta = std::make_shared<RowsetMeta>();
                 rs_meta->init_from_pb(meta_pb);
                 RowsetSharedPtr rowset;

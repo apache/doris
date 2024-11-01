@@ -1182,6 +1182,7 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
+DECLARE_mBool(variant_use_cloud_schema_dict);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);

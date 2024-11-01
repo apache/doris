@@ -17,6 +17,7 @@
 
 #include "cloud/pb_convert.h"
 
+#include <common/logging.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <utility>
@@ -138,19 +139,54 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     out->mutable_inverted_index_file_info()->Swap(in.mutable_inverted_index_file_info());
 }
 
-RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in) {
+static void fill_schema_with_dict(const RowsetMetaCloudPB& in, RowsetMetaPB* out,
+                                  const SchemaCloudDictionary& dict) {
+    std::unordered_map<int32_t, ColumnPB*> unique_id_map;
+    //init map
+    for (ColumnPB& column : *out->mutable_tablet_schema()->mutable_column()) {
+        unique_id_map[column.unique_id()] = &column;
+    }
+    // column info
+    for (size_t i = 0; i < in.schema_dict_key_list().column_dict_key_list_size(); ++i) {
+        int dict_key = in.schema_dict_key_list().column_dict_key_list(i);
+        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
+        ColumnPB& to_add = *out->mutable_tablet_schema()->add_column();
+        to_add = dict_val;
+        VLOG_DEBUG << "fill dict column " << dict_val.ShortDebugString();
+    }
+
+    // index info
+    for (size_t i = 0; i < in.schema_dict_key_list().index_info_dict_key_list_size(); ++i) {
+        int dict_key = in.schema_dict_key_list().index_info_dict_key_list(i);
+        const TabletIndexPB& dict_val = dict.index_dict().at(dict_key);
+        *out->mutable_tablet_schema()->add_index() = dict_val;
+        VLOG_DEBUG << "fill dict index " << dict_val.ShortDebugString();
+    }
+
+    // sparse column info
+    for (size_t i = 0; i < in.schema_dict_key_list().sparse_column_dict_key_list_size(); ++i) {
+        int dict_key = in.schema_dict_key_list().sparse_column_dict_key_list(i);
+        const ColumnPB& dict_val = dict.column_dict().at(dict_key);
+        *unique_id_map.at(dict_val.parent_unique_id())->add_sparse_columns() = dict_val;
+        VLOG_DEBUG << "fill dict sparse column" << dict_val.ShortDebugString();
+    }
+}
+
+RowsetMetaPB cloud_rowset_meta_to_doris(const RowsetMetaCloudPB& in,
+                                        const SchemaCloudDictionary* dict) {
     RowsetMetaPB out;
-    cloud_rowset_meta_to_doris(&out, in);
+    cloud_rowset_meta_to_doris(&out, in, dict);
     return out;
 }
 
-RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&& in) {
+RowsetMetaPB cloud_rowset_meta_to_doris(RowsetMetaCloudPB&& in, const SchemaCloudDictionary* dict) {
     RowsetMetaPB out;
-    cloud_rowset_meta_to_doris(&out, std::move(in));
+    cloud_rowset_meta_to_doris(&out, std::move(in), dict);
     return out;
 }
 
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) {
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in,
+                                const SchemaCloudDictionary* dict) {
     // ATTN: please keep the set order aligned with the definition of proto `TabletSchemaCloudPB`.
     out->set_rowset_id(in.rowset_id());
     out->set_partition_id(in.partition_id());
@@ -185,6 +221,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has_tablet_schema()) {
         cloud_tablet_schema_to_doris(out->mutable_tablet_schema(), in.tablet_schema());
     }
+    if (dict != nullptr) {
+        fill_schema_with_dict(in, out, *dict);
+    }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
     out->mutable_segments_file_size()->CopyFrom(in.segments_file_size());
@@ -198,7 +237,8 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     out->mutable_inverted_index_file_info()->CopyFrom(in.inverted_index_file_info());
 }
 
-void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
+void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in,
+                                const SchemaCloudDictionary* dict) {
     // ATTN: please keep the set order aligned with the definition of proto `TabletSchemaCloudPB`.
     out->set_rowset_id(in.rowset_id());
     out->set_partition_id(in.partition_id());
@@ -233,6 +273,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     if (in.has_tablet_schema()) {
         cloud_tablet_schema_to_doris(out->mutable_tablet_schema(),
                                      std::move(*in.mutable_tablet_schema()));
+    }
+    if (dict != nullptr) {
+        fill_schema_with_dict(in, out, *dict);
     }
     out->set_txn_expiration(in.txn_expiration());
     out->set_segments_overlap_pb(in.segments_overlap_pb());
