@@ -668,7 +668,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, _exec_env, params.query_options,
-                                                params.coord, pipeline, params.is_nereids,
+                                                params.coord, params.is_nereids,
                                                 params.current_connect_fe, query_source);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
@@ -1138,7 +1138,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                                    butil::IOBufAsZeroCopyInputStream* attach_data) {
-    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
     int64_t start_apply = MonotonicMillis();
 
     std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
@@ -1150,22 +1149,18 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
     {
         std::unique_lock<std::mutex> lock(_lock);
         for (auto fragment_id : fragment_ids) {
-            if (is_pipeline) {
-                auto iter = _pipeline_map.find(
-                        {UniqueId(request->query_id()).to_thrift(), fragment_id});
-                if (iter == _pipeline_map.end()) {
-                    continue;
-                }
-                pip_context = iter->second;
-
-                DCHECK(pip_context != nullptr);
-                runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-                query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                        pip_context->get_query_ctx()->query_mem_tracker,
-                                        pip_context->get_query_ctx()->workload_group()};
-            } else {
-                return Status::InternalError("Non-pipeline is disabled!");
+            auto iter =
+                    _pipeline_map.find({UniqueId(request->query_id()).to_thrift(), fragment_id});
+            if (iter == _pipeline_map.end()) {
+                continue;
             }
+            pip_context = iter->second;
+
+            DCHECK(pip_context != nullptr);
+            runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
+            query_thread_context = {pip_context->get_query_ctx()->query_id(),
+                                    pip_context->get_query_ctx()->query_mem_tracker,
+                                    pip_context->get_query_ctx()->workload_group()};
             break;
         }
     }
