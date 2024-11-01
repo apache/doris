@@ -25,10 +25,9 @@
 
 namespace doris {
 
-template <class Key, bool has_null>
+template <class Key>
 using SetFixedKeyHashTableContext =
-        vectorized::MethodKeysFixed<HashMap<Key, pipeline::RowRefListWithFlags, HashCRC32<Key>>,
-                                    has_null>;
+        vectorized::MethodKeysFixed<HashMap<Key, pipeline::RowRefListWithFlags, HashCRC32<Key>>>;
 
 template <class T>
 using SetPrimaryTypeHashTableContext =
@@ -47,19 +46,14 @@ using SetHashTableVariants =
                      SetPrimaryTypeHashTableContext<vectorized::UInt64>,
                      SetPrimaryTypeHashTableContext<vectorized::UInt128>,
                      SetPrimaryTypeHashTableContext<vectorized::UInt256>,
-                     SetFixedKeyHashTableContext<vectorized::UInt64, true>,
-                     SetFixedKeyHashTableContext<vectorized::UInt64, false>,
-                     SetFixedKeyHashTableContext<vectorized::UInt128, true>,
-                     SetFixedKeyHashTableContext<vectorized::UInt128, false>,
-                     SetFixedKeyHashTableContext<vectorized::UInt256, true>,
-                     SetFixedKeyHashTableContext<vectorized::UInt256, false>,
-                     SetFixedKeyHashTableContext<vectorized::UInt136, true>,
-                     SetFixedKeyHashTableContext<vectorized::UInt136, false>>;
+                     SetFixedKeyHashTableContext<vectorized::UInt64>,
+                     SetFixedKeyHashTableContext<vectorized::UInt128>,
+                     SetFixedKeyHashTableContext<vectorized::UInt256>,
+                     SetFixedKeyHashTableContext<vectorized::UInt136>>;
 
 struct SetDataVariants {
     SetHashTableVariants method_variant;
 
-    template <bool nullable>
     void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
         switch (type) {
         case HashKeyType::serialized:
@@ -87,19 +81,19 @@ struct SetDataVariants {
             method_variant.emplace<SetMethodOneString>();
             break;
         case HashKeyType::fixed64:
-            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt64, nullable>>(
+            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt64>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
-            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt128, nullable>>(
+            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt128>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed136:
-            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt136, nullable>>(
+            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt136>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed256:
-            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt256, nullable>>(
+            method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt256>>(
                     get_key_sizes(data_types));
             break;
         default:
