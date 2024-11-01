@@ -5786,7 +5786,7 @@ TEST_F(BlockFileCacheTest, disposable_seize_after_normal) {
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 0);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], cache_max - limit);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE]
                       ->get_value(),
               limit);
 
@@ -5946,7 +5946,7 @@ TEST_F(BlockFileCacheTest, seize_after_full) {
         ASSERT_EQ(cache.get_stats_unsafe()[args.second_metrics], limit);
         ASSERT_EQ(cache.get_stats_unsafe()[args.first_metrics], cache_max - limit);
         ASSERT_EQ(
-                cache._evict_by_size_metrics_matrix[args.second_type][args.first_type]->get_value(),
+                cache._evict_by_size_metrics_matrix[args.first_type][args.second_type]->get_value(),
                 limit);
 
         // grab more exceed the limit
@@ -6103,13 +6103,13 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_disposable) {
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE]
                       ->get_value(),
               500000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::INDEX]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::DISPOSABLE]
                       ->get_value(),
               300000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::TTL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::DISPOSABLE]
                       ->get_value(),
               200000);
 
@@ -6132,13 +6132,13 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_disposable) {
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE]
                       ->get_value(),
               500000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::INDEX]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::DISPOSABLE]
                       ->get_value(),
               300000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::TTL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::DISPOSABLE]
                       ->get_value(),
               200000);
     ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::DISPOSABLE]->get_value(),
@@ -6277,13 +6277,13 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_normal) {
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL]
                       ->get_value(),
               500000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::INDEX]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::NORMAL]
                       ->get_value(),
               300000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::TTL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::NORMAL]
                       ->get_value(),
               2200000);
 
@@ -6306,13 +6306,13 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_normal) {
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL]
                       ->get_value(),
               500000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::INDEX]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::NORMAL]
                       ->get_value(),
               300000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::TTL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::NORMAL]
                       ->get_value(),
               2200000);
     ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::NORMAL]->get_value(), exceed);
@@ -6450,13 +6450,13 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_index) {
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::DISPOSABLE]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::INDEX]
                       ->get_value(),
               500000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::NORMAL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::INDEX]
                       ->get_value(),
               300000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::TTL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::INDEX]
                       ->get_value(),
               200000);
 
@@ -6479,13 +6479,13 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_index) {
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::DISPOSABLE]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::INDEX]
                       ->get_value(),
               500000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::NORMAL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::INDEX]
                       ->get_value(),
               300000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::TTL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::INDEX]
                       ->get_value(),
               200000);
     ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::INDEX]->get_value(), exceed);
@@ -6623,13 +6623,13 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_ttl) {
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::DISPOSABLE]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::TTL]
                       ->get_value(),
               500000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::INDEX]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::TTL]
                       ->get_value(),
               300000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::NORMAL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::TTL]
                       ->get_value(),
               4200000);
 
@@ -6652,13 +6652,13 @@ TEST_F(BlockFileCacheTest, evict_privilege_order_for_ttl) {
     ASSERT_EQ(cache.get_stats_unsafe()["ttl_queue_curr_size"], 5000000);
     ASSERT_EQ(cache.get_stats_unsafe()["index_queue_curr_size"], 1000000);
     ASSERT_EQ(cache.get_stats_unsafe()["normal_queue_curr_size"], 3000000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::DISPOSABLE]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::TTL]
                       ->get_value(),
               500000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::INDEX]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::INDEX][FileCacheType::TTL]
                       ->get_value(),
               300000);
-    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::TTL][FileCacheType::NORMAL]
+    ASSERT_EQ(cache._evict_by_size_metrics_matrix[FileCacheType::NORMAL][FileCacheType::TTL]
                       ->get_value(),
               4200000);
     ASSERT_EQ(cache._evict_by_self_lru_metrics_matrix[FileCacheType::TTL]->get_value(), exceed);

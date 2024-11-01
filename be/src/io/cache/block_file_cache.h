@@ -436,12 +436,12 @@ private:
 
     void recycle_deleted_blocks();
 
-    bool try_reserve_from_other_queue_by_hot_interval(FileCacheType src_type,
+    bool try_reserve_from_other_queue_by_hot_interval(FileCacheType cur_type,
                                                       std::vector<FileCacheType> other_cache_types,
                                                       size_t size, int64_t cur_time,
                                                       std::lock_guard<std::mutex>& cache_lock);
 
-    bool try_reserve_from_other_queue_by_size(FileCacheType src_type,
+    bool try_reserve_from_other_queue_by_size(FileCacheType cur_type,
                                               std::vector<FileCacheType> other_cache_types,
                                               size_t size, std::lock_guard<std::mutex>& cache_lock);
 

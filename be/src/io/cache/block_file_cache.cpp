@@ -1284,7 +1284,7 @@ void BlockFileCache::reset_range(const UInt128Wrapper& hash, size_t offset, size
 }
 
 bool BlockFileCache::try_reserve_from_other_queue_by_hot_interval(
-        FileCacheType src_type, std::vector<FileCacheType> other_cache_types, size_t size,
+        FileCacheType cur_type, std::vector<FileCacheType> other_cache_types, size_t size,
         int64_t cur_time, std::lock_guard<std::mutex>& cache_lock) {
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
@@ -1316,7 +1316,7 @@ bool BlockFileCache::try_reserve_from_other_queue_by_hot_interval(
                 remove_size_per_type += cell_size;
             }
         }
-        *(_evict_by_heat_metrics_matrix[src_type][cache_type]) << remove_size_per_type;
+        *(_evict_by_heat_metrics_matrix[cache_type][cur_type]) << remove_size_per_type;
     }
     remove_file_blocks(to_evict, cache_lock);
 
@@ -1335,7 +1335,7 @@ bool BlockFileCache::is_overflow(size_t removed_size, size_t need_size,
 }
 
 bool BlockFileCache::try_reserve_from_other_queue_by_size(
-        FileCacheType src_type, std::vector<FileCacheType> other_cache_types, size_t size,
+        FileCacheType cur_type, std::vector<FileCacheType> other_cache_types, size_t size,
         std::lock_guard<std::mutex>& cache_lock) {
     size_t removed_size = 0;
     size_t cur_cache_size = _cur_cache_size;
@@ -1354,7 +1354,7 @@ bool BlockFileCache::try_reserve_from_other_queue_by_size(
         size_t cur_removed_size = 0;
         find_evict_candidates(queue, size, cur_cache_size, removed_size, to_evict, cache_lock,
                               cur_removed_size);
-        *(_evict_by_size_metrics_matrix[src_type][cache_type]) << cur_removed_size;
+        *(_evict_by_size_metrics_matrix[cache_type][cur_type]) << cur_removed_size;
     }
     remove_file_blocks(to_evict, cache_lock);
     return !is_overflow(removed_size, size, cur_cache_size);
