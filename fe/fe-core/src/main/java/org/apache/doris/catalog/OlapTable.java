@@ -131,8 +131,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         WAITING_STABLE
     }
 
-    public static long ROW_COUNT_BEFORE_REPORT = -1;
-
     @SerializedName(value = "state")
     private volatile OlapTableState state;
 
@@ -1519,12 +1517,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
             if (index == null) {
                 LOG.warn("Index {} not exist in partition {}, table {}, {}",
                         indexId, entry.getValue().getName(), id, name);
-                return ROW_COUNT_BEFORE_REPORT;
+                return UNKNOWN_ROW_COUNT;
             }
             if (strict && !index.getRowCountReported()) {
-                return ROW_COUNT_BEFORE_REPORT;
+                return UNKNOWN_ROW_COUNT;
             }
-            rowCount += index.getRowCount() == -1 ? 0 : index.getRowCount();
+            rowCount += index.getRowCount() == UNKNOWN_ROW_COUNT ? 0 : index.getRowCount();
         }
         return rowCount;
     }

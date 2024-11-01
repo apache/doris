@@ -194,16 +194,16 @@ public class PaimonExternalTable extends ExternalTable {
             Table paimonTable = schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable())
                     .orElse(null);
             if (paimonTable == null) {
-                return -1;
+                return UNKNOWN_ROW_COUNT;
             }
             List<Split> splits = paimonTable.newReadBuilder().newScan().plan().splits();
             for (Split split : splits) {
                 rowCount += split.rowCount();
             }
-            return rowCount;
+            return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
         } catch (Exception e) {
             LOG.warn("Fail to collect row count for db {} table {}", dbName, name, e);
         }
-        return -1;
+        return UNKNOWN_ROW_COUNT;
     }
 }
