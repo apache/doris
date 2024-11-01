@@ -2012,6 +2012,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             index.setIndexId(existedIdx.getIndexId());
                             index.setColumns(existedIdx.getColumns());
                             index.setProperties(existedIdx.getProperties());
+                            index.setColumnUniqueIds(existedIdx.getColumnUniqueIds());
                             if (indexDef.getPartitionNames().isEmpty()) {
                                 invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                             } else {
@@ -2588,6 +2589,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite());
+                indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
@@ -2598,6 +2600,7 @@ public class SchemaChangeHandler extends AlterHandler {
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
         // there will use the column name in olapTable insead of the column name in CreateIndexClause.
         alterIndex.setColumns(indexDef.getColumns());
+        alterIndex.setColumnUniqueIds(indexDef.getColumnUniqueIds());
         newIndexes.add(alterIndex);
         return false;
     }

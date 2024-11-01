@@ -346,10 +346,14 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 auto column_name = inverted_index.columns[0];
                 auto column_idx = output_rowset_schema->field_index(column_name);
                 if (column_idx < 0) {
-                    LOG(WARNING) << "referenced column was missing. "
-                                 << "[column=" << column_name << " referenced_column=" << column_idx
-                                 << "]";
-                    continue;
+                    column_idx =
+                            output_rowset_schema->field_index(inverted_index.column_unique_ids[0]);
+                    if (column_idx < 0) {
+                        LOG(WARNING) << "referenced column was missing. "
+                                     << "[column=" << column_name
+                                     << " referenced_column=" << column_idx << "]";
+                        continue;
+                    }
                 }
                 auto column = output_rowset_schema->column(column_idx);
                 if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
