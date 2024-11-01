@@ -15,11 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_insert_overwrite_recover_no_partition") {
-    def table = "test_insert_overwrite_recover_no_partition"
-    def table_bk = "test_insert_overwrite_recover_no_partition_backup"
+suite("test_truncate_recover_no_partition") {
+    def table = "test_truncate_recover_no_partition"
+    def table_bk = "test_truncate_no_partition_backup"
     // create table and insert data for range.
-    sql """ drop table if exists ${table} force"""
+    sql """ drop table if exists ${table}"""
     sql """
     create table ${table} (
         `id` int(11),
@@ -42,7 +42,7 @@ suite("test_insert_overwrite_recover_no_partition") {
 
     qt_select_check_1 """ select * from  ${table} order by id,name,da; """
 
-    sql """ insert overwrite  table ${table} values(3, 'a', '2024-01-02'); """
+    sql """ truncate  table ${table}; """
 
     
     qt_select_check_2 """ select * from  ${table} order by id,name,da; """
@@ -52,7 +52,6 @@ suite("test_insert_overwrite_recover_no_partition") {
     sql """ recover partition ${table} as p2  from ${table}; """
 
     // create a table to copy the data only for partition p2.
-
     sql """ drop table if exists ${table_bk} force"""
     sql """
     create table ${table_bk} (
@@ -72,7 +71,6 @@ suite("test_insert_overwrite_recover_no_partition") {
 
     sql """ alter table ${table} replace with table ${table_bk}; """
 
-    // data from the select should be same as data before overwrite.
+    // data from the select should be same as data before truncate
     qt_select_check_3 """ select * from  ${table} order by id,name,da; """
-
 }
