@@ -1072,6 +1072,18 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
 
     RETURN_IF_ERROR(merge_input_rowsets());
 
+    DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.wrong_rowset_id", {
+        DCHECK(compaction_type() == ReaderType::READER_FULL_COMPACTION);
+        RowsetId id;
+        id.version = 2;
+        id.hi = _output_rowset->rowset_meta()->rowset_id().hi + ((int64_t)(1) << 56);
+        id.mi = _output_rowset->rowset_meta()->rowset_id().mi;
+        id.lo = _output_rowset->rowset_meta()->rowset_id().lo;
+        _output_rowset->rowset_meta()->set_rowset_id(id);
+        LOG(INFO) << "[Debug wrong rowset id]:"
+                  << _output_rowset->rowset_meta()->rowset_id().to_string();
+    })
+
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 
     // 4. modify rowsets in memory
