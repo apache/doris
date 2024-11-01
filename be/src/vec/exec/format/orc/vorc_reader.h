@@ -227,6 +227,7 @@ private:
         RuntimeProfile::Counter* decode_value_time = nullptr;
         RuntimeProfile::Counter* decode_null_map_time = nullptr;
         RuntimeProfile::Counter* filter_block_time = nullptr;
+        RuntimeProfile::Counter* selected_row_group_count = nullptr;
     };
 
     class ORCFilterImpl : public orc::ORCFilter {

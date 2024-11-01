@@ -237,6 +237,8 @@ void OrcReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", orc_profile, 1);
         _orc_profile.filter_block_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FilterBlockTime", orc_profile, 1);
+        _orc_profile.selected_row_group_count =
+                ADD_COUNTER_WITH_LEVEL(_profile, "SelectedRowGroupCount", TUnit::UNIT, 1);
     }
 }
 
@@ -1124,6 +1126,8 @@ Status OrcReader::set_fill_columns(
         if (!_lazy_read_ctx.conjuncts.empty()) {
             _string_dict_filter = std::make_unique<StringDictFilterImpl>(this);
         }
+        _profile->add_info_string("OrcReader SearchArgument: ",
+                                  _row_reader_options.getSearchArgument()->toString());
         _row_reader = _reader->createRowReader(_row_reader_options, _orc_filter.get(),
                                                _string_dict_filter.get());
         _batch = _row_reader->createRowBatch(_batch_size);
