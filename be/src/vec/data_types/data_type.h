@@ -63,7 +63,7 @@ constexpr auto SERIALIZED_MEM_SIZE_LIMIT = 256;
 template <typename T>
 inline T upper_int32(T size) {
     static_assert(std::is_unsigned_v<T>);
-    return T((3 + size) / 4.0);
+    return T(static_cast<double>(3 + size) / 4.0);
 }
 
 /** Properties of data type.
