@@ -41,6 +41,7 @@
 #include "vec/functions/function.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 struct ColumnRowRef {
     ENABLE_FACTORY_CREATOR(ColumnRowRef);
     ColumnPtr column;
@@ -128,7 +129,7 @@ public:
         }
         ColumnPtr column_ptr = std::move(args_column_ptr);
         // make collection ref into set
-        int col_size = column_ptr->size();
+        auto col_size = column_ptr->size();
         for (size_t i = 0; i < col_size; i++) {
             state->args_set.insert({column_ptr, i});
         }
@@ -191,3 +192,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

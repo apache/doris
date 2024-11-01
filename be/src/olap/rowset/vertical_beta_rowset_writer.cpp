@@ -138,7 +138,6 @@ Status VerticalBetaRowsetWriter<T>::_flush_columns(segment_v2::SegmentWriter* se
         this->_segment_num_rows.resize(_cur_writer_idx + 1);
         this->_segment_num_rows[_cur_writer_idx] = _segment_writers[_cur_writer_idx]->row_count();
     }
-    this->_total_index_size += static_cast<int64_t>(index_size);
     return Status::OK();
 }
 
@@ -164,26 +163,28 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
 
     int seg_id = this->_num_segment.fetch_add(1, std::memory_order_relaxed);
 
-    io::FileWriterPtr file_writer;
-    io::FileWriterOptions opts = this->_context.get_file_writer_options();
+    io::FileWriterPtr segment_file_writer;
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::create_file_writer(seg_id, segment_file_writer));
+    DCHECK(segment_file_writer != nullptr);
 
-    auto path = context.segment_path(seg_id);
-    auto& fs = context.fs_ref();
-    Status st = fs.create_file(path, &file_writer, &opts);
-    if (!st.ok()) {
-        LOG(WARNING) << "failed to create writable file. path=" << path << ", err: " << st;
-        return st;
+    InvertedIndexFileWriterPtr inverted_index_file_writer;
+    if (context.tablet_schema->has_inverted_index()) {
+        RETURN_IF_ERROR(RowsetWriter::create_inverted_index_file_writer(
+                seg_id, &inverted_index_file_writer));
     }
 
-    DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = context.enable_unique_key_merge_on_write;
     writer_options.rowset_ctx = &context;
     writer_options.max_rows_per_segment = context.max_rows_per_segment;
-    *writer = std::make_unique<segment_v2::SegmentWriter>(file_writer.get(), seg_id,
-                                                          context.tablet_schema, context.tablet,
-                                                          context.data_dir, writer_options);
-    RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(file_writer)));
+    *writer = std::make_unique<segment_v2::SegmentWriter>(
+            segment_file_writer.get(), seg_id, context.tablet_schema, context.tablet,
+            context.data_dir, writer_options, inverted_index_file_writer.get());
+
+    RETURN_IF_ERROR(this->_seg_files.add(seg_id, std::move(segment_file_writer)));
+    if (context.tablet_schema->has_inverted_index()) {
+        RETURN_IF_ERROR(this->_idx_files.add(seg_id, std::move(inverted_index_file_writer)));
+    }
 
     auto s = (*writer)->init(column_ids, is_key);
     if (!s.ok()) {
@@ -205,10 +206,7 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
             return st;
         }
-        this->_total_data_size += segment_size + segment_writer->get_inverted_index_total_size();
-        this->_total_index_size += segment_writer->get_inverted_index_total_size();
-        this->_idx_files_info.add_file_info(segment_writer->get_segment_id(),
-                                            segment_writer->get_inverted_index_file_info());
+        this->_total_data_size += segment_size;
         segment_writer.reset();
     }
     return Status::OK();
@@ -217,6 +215,7 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::_close_file_writers() {
+    RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_inverted_index_file_writers());
     return this->_seg_files.close();
 }
 

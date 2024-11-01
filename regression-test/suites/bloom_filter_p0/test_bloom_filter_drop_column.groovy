@@ -50,6 +50,29 @@ suite("test_bloom_filter_drop_column") {
         }
         assertTrue(useTime <= OpTimeout, "wait_for_latest_op_on_table_finish timeout")
     }
+
+    def assertShowCreateTableWithRetry = { tableName, expectedCondition, maxRetries, waitSeconds ->
+        int attempt = 0
+        while (attempt < maxRetries) {
+            def res = sql """SHOW CREATE TABLE ${tableName}"""
+            log.info("Attempt ${attempt + 1}: show table: ${res}")
+            if (res && res.size() > 0 && res[0][1].contains(expectedCondition)) {
+                logger.info("Attempt ${attempt + 1}: Condition met.")
+                return
+            } else {
+                logger.warn("Attempt ${attempt + 1}: Condition not met. Retrying after ${waitSeconds} second(s)...")
+            }
+            attempt++
+            if (attempt < maxRetries) {
+                sleep(waitSeconds * 1000)
+            }
+        }
+        def finalRes = sql """SHOW CREATE TABLE ${tableName}"""
+        log.info("Final attempt: show table: ${finalRes}")
+        assertTrue(finalRes && finalRes.size() > 0, "SHOW CREATE TABLE return empty or null")
+        assertTrue(finalRes[0][1].contains(expectedCondition), "expected\"${expectedCondition}\"，actural: ${finalRes[0][1]}")
+    }
+
     sql """INSERT INTO ${table_name} values ('1', '1')"""
 
     qt_select """select * from ${table_name} order by a"""
@@ -58,10 +81,8 @@ suite("test_bloom_filter_drop_column") {
     sql """ALTER TABLE ${table_name} DROP COLUMN c1"""
     wait_for_latest_op_on_table_finish(table_name, timeout)
 
-    // show create table
-    def res = sql """SHOW CREATE TABLE ${table_name}"""
-    log.info("show table:{}", res);
-    assert res[0][1].contains("\"bloom_filter_columns\" = \"\"")
+    // show create table with retry logic
+    assertShowCreateTableWithRetry(table_name, "\"bloom_filter_columns\" = \"\"", 3, 30)
 
     // add new column c1
     sql """ALTER TABLE ${table_name} ADD COLUMN c1 ARRAY<STRING>"""

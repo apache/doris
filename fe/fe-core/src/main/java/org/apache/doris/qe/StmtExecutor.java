@@ -1200,7 +1200,13 @@ public class StmtExecutor {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
         masterOpExecutor.execute();
-        if (parsedStmt instanceof SetStmt) {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            // for nereids command
+            if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
+                Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+                forward.afterForwardToMaster(context);
+            }
+        } else if (parsedStmt instanceof SetStmt) {
             SetStmt setStmt = (SetStmt) parsedStmt;
             setStmt.modifySetVarsForExecute();
             for (SetVar var : setStmt.getSetVars()) {
@@ -3121,7 +3127,7 @@ public class StmtExecutor {
         }
     }
 
-    private void handleIotStmt() {
+    private void handleIotStmt() throws AnalysisException {
         ConnectContext.get().setSkipAuth(true);
         try {
             InsertOverwriteTableStmt iotStmt = (InsertOverwriteTableStmt) this.parsedStmt;
@@ -3163,9 +3169,11 @@ public class StmtExecutor {
             return;
         }
         // after success create table insert data
+        // when overwrite table, allow auto partition or not is controlled by session variable.
+        boolean allowAutoPartition = context.getSessionVariable().isEnableAutoCreateWhenOverwrite();
         try {
             parsedStmt = new NativeInsertStmt(tmpTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
-                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true);
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), allowAutoPartition);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
@@ -3235,6 +3243,7 @@ public class StmtExecutor {
             return;
         }
         // after success add tmp partitions
+        // when overwrite partition, auto creating is always disallowed.
         try {
             parsedStmt = new NativeInsertStmt(targetTableName, new PartitionNames(true, tempPartitionName),
                     new LabelName(iotStmt.getDb(), iotStmt.getLabel()), iotStmt.getQueryStmt(),
@@ -3277,24 +3286,9 @@ public class StmtExecutor {
         }
     }
 
-    /*
-     * TODO: support insert overwrite auto detect partition in legacy planner
-     */
-    private void handleAutoOverwritePartition(InsertOverwriteTableStmt iotStmt) {
-        // TODO:
-        TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
-        try {
-            parsedStmt = new NativeInsertStmt(targetTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
-                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true).withAutoDetectOverwrite();
-            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
-            execute();
-        } catch (Exception e) {
-            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
-            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-            handleIotRollback(targetTableName);
-            return;
-        }
-
+    private void handleAutoOverwritePartition(InsertOverwriteTableStmt iotStmt) throws AnalysisException {
+        throw new AnalysisException(
+                "insert overwrite auto detect is not support in legacy planner. use nereids instead");
     }
 
     private void handleIotRollback(TableName table) {

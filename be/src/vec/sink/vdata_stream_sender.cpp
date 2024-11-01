@@ -95,7 +95,7 @@ Status Channel::open(RuntimeState* state) {
     }
     _be_number = state->be_number();
 
-    _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
+    _brpc_timeout_ms = get_execution_rpc_timeout_ms(state->execution_timeout());
 
     _serializer.set_is_local(_is_local);
 
@@ -238,14 +238,13 @@ Status BlockSerializer::next_serialized_block(Block* block, PBlock* dest, size_t
     }
 
     {
+        SCOPED_TIMER(_parent->merge_block_timer());
         if (rows) {
             if (!rows->empty()) {
-                SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
                 const auto* begin = rows->data();
                 RETURN_IF_ERROR(_mutable_block->add_rows(block, begin, begin + rows->size()));
             }
         } else if (!block->empty()) {
-            SCOPED_TIMER(_parent->merge_block_timer());
             RETURN_IF_ERROR(_mutable_block->merge(*block));
         }
     }

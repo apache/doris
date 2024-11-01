@@ -604,11 +604,14 @@ public class IcebergUtils {
                 .getIcebergTable(catalog, dbName, tbName);
         Snapshot snapshot = icebergTable.currentSnapshot();
         if (snapshot == null) {
+            LOG.info("Iceberg table {}.{}.{} is empty, return row count 0.", catalog.getName(), dbName, tbName);
             // empty table
             return 0;
         }
         Map<String, String> summary = snapshot.summary();
-        return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        long rows = Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        LOG.info("Iceberg table {}.{}.{} row count in summary is {}", catalog.getName(), dbName, tbName, rows);
+        return rows;
     }
 
 

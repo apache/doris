@@ -30,8 +30,10 @@ Status AnalyticSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     RETURN_IF_ERROR(PipelineXSinkLocalState<AnalyticSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
-    _blocks_memory_usage = ADD_COUNTER_WITH_LEVEL(_profile, "MemoryUsageBlocks", TUnit::BYTES, 1);
-    _evaluation_timer = ADD_TIMER(profile(), "EvaluationTime");
+    _evaluation_timer = ADD_TIMER(profile(), "GetPartitionBoundTime");
+    _compute_agg_data_timer = ADD_TIMER(profile(), "ComputeAggDataTime");
+    _compute_partition_by_timer = ADD_TIMER(profile(), "ComputePartitionByTime");
+    _compute_order_by_timer = ADD_TIMER(profile(), "ComputeOrderByTime");
     return Status::OK();
 }
 
@@ -288,35 +290,41 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
         }
     }
 
-    for (size_t i = 0; i < _agg_functions_size;
-         ++i) { //insert _agg_input_columns, execute calculate for its
-        for (size_t j = 0; j < local_state._agg_expr_ctxs[i].size(); ++j) {
-            RETURN_IF_ERROR(_insert_range_column(
-                    input_block, local_state._agg_expr_ctxs[i][j],
-                    local_state._shared_state->agg_input_columns[i][j].get(), block_rows));
+    {
+        SCOPED_TIMER(local_state._compute_agg_data_timer);
+        for (size_t i = 0; i < _agg_functions_size;
+             ++i) { //insert _agg_input_columns, execute calculate for its
+            for (size_t j = 0; j < local_state._agg_expr_ctxs[i].size(); ++j) {
+                RETURN_IF_ERROR(_insert_range_column(
+                        input_block, local_state._agg_expr_ctxs[i][j],
+                        local_state._shared_state->agg_input_columns[i][j].get(), block_rows));
+            }
         }
     }
-    //record column idx in block
-    for (size_t i = 0; i < local_state._shared_state->partition_by_eq_expr_ctxs.size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(local_state._shared_state->partition_by_eq_expr_ctxs[i]->execute(
-                input_block, &result_col_id));
-        DCHECK_GE(result_col_id, 0);
-        local_state._shared_state->partition_by_column_idxs[i] = result_col_id;
+    {
+        SCOPED_TIMER(local_state._compute_partition_by_timer);
+        for (size_t i = 0; i < local_state._shared_state->partition_by_eq_expr_ctxs.size(); ++i) {
+            int result_col_id = -1;
+            RETURN_IF_ERROR(local_state._shared_state->partition_by_eq_expr_ctxs[i]->execute(
+                    input_block, &result_col_id));
+            DCHECK_GE(result_col_id, 0);
+            local_state._shared_state->partition_by_column_idxs[i] = result_col_id;
+        }
     }
 
-    for (size_t i = 0; i < local_state._shared_state->order_by_eq_expr_ctxs.size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(local_state._shared_state->order_by_eq_expr_ctxs[i]->execute(
-                input_block, &result_col_id));
-        DCHECK_GE(result_col_id, 0);
-        local_state._shared_state->ordey_by_column_idxs[i] = result_col_id;
+    {
+        SCOPED_TIMER(local_state._compute_order_by_timer);
+        for (size_t i = 0; i < local_state._shared_state->order_by_eq_expr_ctxs.size(); ++i) {
+            int result_col_id = -1;
+            RETURN_IF_ERROR(local_state._shared_state->order_by_eq_expr_ctxs[i]->execute(
+                    input_block, &result_col_id));
+            DCHECK_GE(result_col_id, 0);
+            local_state._shared_state->ordey_by_column_idxs[i] = result_col_id;
+        }
     }
 
-    int64_t block_mem_usage = input_block->allocated_bytes();
-    COUNTER_UPDATE(local_state._memory_used_counter, block_mem_usage);
+    COUNTER_UPDATE(local_state._memory_used_counter, input_block->allocated_bytes());
     COUNTER_SET(local_state._peak_memory_usage_counter, local_state._memory_used_counter->value());
-    COUNTER_UPDATE(local_state._blocks_memory_usage, block_mem_usage);
 
     //TODO: if need improvement, the is a tips to maintain a free queue,
     //so the memory could reuse, no need to new/delete again;

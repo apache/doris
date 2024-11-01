@@ -46,10 +46,33 @@ struct NameProtocol {
 using FunctionProtocol =
         FunctionStringToString<ExtractSubstringImpl<ExtractProtocol>, NameProtocol>;
 
+struct NameTopLevelDomain {
+    static constexpr auto name = "top_level_domain";
+};
+using FunctionTopLevelDomain =
+        FunctionStringToString<ExtractSubstringImpl<ExtractTopLevelDomain>, NameTopLevelDomain>;
+
+struct NameFirstSignificantSubdomain {
+    static constexpr auto name = "first_significant_subdomain";
+};
+using FunctionFirstSignificantSubdomain =
+        FunctionStringToString<ExtractSubstringImpl<ExtractFirstSignificantSubdomain>,
+                               NameFirstSignificantSubdomain>;
+
+struct NameCutToFirstSignificantSubdomain {
+    static constexpr auto name = "cut_to_first_significant_subdomain";
+};
+using FunctionCutToFirstSignificantSubdomain =
+        FunctionStringToString<ExtractSubstringImpl<CutToFirstSignificantSubdomain>,
+                               NameCutToFirstSignificantSubdomain>;
+
 void register_function_url(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDomain>();
     factory.register_function<FunctionDomainWithoutWWW>();
     factory.register_function<FunctionProtocol>();
+    factory.register_function<FunctionTopLevelDomain>();
+    factory.register_function<FunctionFirstSignificantSubdomain>();
+    factory.register_function<FunctionCutToFirstSignificantSubdomain>();
 }
 
 } // namespace doris::vectorized

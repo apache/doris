@@ -71,20 +71,16 @@ public:
 
     std::vector<uint8_t>& get_visited() { return visited; }
 
-    template <int JoinOpType, bool with_other_conjuncts>
-    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums,
-               size_t num_elem) {
+    void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums, size_t num_elem,
+               bool keep_null_key) {
         build_keys = keys;
         for (size_t i = 1; i < num_elem; i++) {
             uint32_t bucket_num = bucket_nums[i];
             next[i] = first[bucket_num];
             first[bucket_num] = i;
         }
-        if constexpr ((JoinOpType != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
-                       JoinOpType != TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) ||
-                      !with_other_conjuncts) {
-            /// Only null aware join with other conjuncts need to access the null value in hash table
-            first[bucket_size] = 0; // index = bucket_num means null
+        if (!keep_null_key) {
+            first[bucket_size] = 0; // index = bucket_size means null
         }
     }
 

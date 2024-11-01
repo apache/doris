@@ -63,7 +63,9 @@ import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -75,6 +77,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
 
 
 public class BackupJob extends AbstractJob {
@@ -132,6 +135,11 @@ public class BackupJob extends AbstractJob {
 
     public BackupJob() {
         super(JobType.BACKUP);
+    }
+
+    public BackupJob(JobType jobType) {
+        super(jobType);
+        assert jobType == JobType.BACKUP || jobType == JobType.BACKUP_COMPRESSED;
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
@@ -208,11 +216,10 @@ public class BackupJob extends AbstractJob {
                     task.getIndexId(), task.getTabletId(),
                     task.getVersion(),
                     task.getSchemaHash(), timeoutMs, false /* not restore task */);
-            AgentBatchTask batchTask = new AgentBatchTask();
-            batchTask.addTask(newTask);
             unfinishedTaskIds.put(tablet.getId(), replica.getBackendIdWithoutException());
 
             //send task
+            AgentBatchTask batchTask = new AgentBatchTask(newTask);
             AgentTaskQueue.addTask(newTask);
             AgentTaskExecutor.submit(batchTask);
 
@@ -474,7 +481,7 @@ public class BackupJob extends AbstractJob {
         // copy all related schema at this moment
         List<Table> copiedTables = Lists.newArrayList();
         List<Resource> copiedResources = Lists.newArrayList();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
             Table tbl = db.getTableNullable(tblName);
@@ -729,7 +736,7 @@ public class BackupJob extends AbstractJob {
             beToSnapshots.put(info.getBeId(), info);
         }
 
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (Long beId : beToSnapshots.keySet()) {
             List<SnapshotInfo> infos = beToSnapshots.get(beId);
             int totalNum = infos.size();
@@ -892,7 +899,7 @@ public class BackupJob extends AbstractJob {
         }
         // we do not care about the release snapshot tasks' success or failure,
         // the GC thread on BE will sweep the snapshot, finally.
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
                     info.getTabletId(), info.getPath());
@@ -1051,13 +1058,35 @@ public class BackupJob extends AbstractJob {
             job.readFields(in);
             return job;
         } else {
-            return GsonUtils.GSON.fromJson(Text.readString(in), BackupJob.class);
+            String json = Text.readString(in);
+            if (AbstractJob.COMPRESSED_JOB_ID.equals(json)) {
+                return GsonUtils.fromJsonCompressed(in, BackupJob.class);
+            } else {
+                return GsonUtils.GSON.fromJson(json, BackupJob.class);
+            }
         }
     }
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
+        if (type == JobType.BACKUP_COMPRESSED) {
+            type = JobType.BACKUP;
 
+            Text text = new Text();
+            text.readFields(in);
+
+            ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
+            try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
+                try (DataInputStream stream = new DataInputStream(gzipStream)) {
+                    readOthers(in);
+                }
+            }
+        } else {
+            readOthers(in);
+        }
+    }
+
+    public void readOthers(DataInput in) throws IOException {
         // table refs
         int size = in.readInt();
         tableRefs = Lists.newArrayList();

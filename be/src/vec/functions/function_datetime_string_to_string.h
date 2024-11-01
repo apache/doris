@@ -23,6 +23,7 @@
 #include <utility>
 #include <variant>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -46,6 +47,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -189,7 +191,7 @@ public:
                     for (int i = 0; i < len; ++i) {
                         null_map[i] = Transform::template execute<Impl>(
                                 ts[i], format, res_data, offset, context->state()->timezone_obj());
-                        res_offsets[i] = offset;
+                        res_offsets[i] = cast_set<uint32_t>(offset);
                     }
                     res_data.resize(offset);
                 },
@@ -199,3 +201,5 @@ public:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"
