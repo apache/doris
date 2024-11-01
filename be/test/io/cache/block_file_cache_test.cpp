@@ -2898,7 +2898,8 @@ TEST_F(BlockFileCacheTest, recyle_cache_async) {
     cache.clear_file_cache_async();
     while (cache._async_clear_file_cache)
         ;
-    EXPECT_EQ(cache._cur_cache_size, 5);
+    EXPECT_EQ(cache._cur_cache_size, 20); // 0-4 is used again, so all the cache data in DISPOSABLE
+                                          // remain unremoved
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
     }
