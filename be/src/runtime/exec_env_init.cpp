@@ -383,7 +383,7 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     _without_group_task_scheduler =
-            new pipeline::TaskScheduler(this, t_queue, "PipeNoGSchePool", nullptr);
+            new pipeline::TaskScheduler(t_queue, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
 
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
