@@ -95,8 +95,6 @@ public class ExportMgr {
     }
 
     public void addExportJobAndRegisterTask(ExportJob job) throws Exception {
-        long jobId = Env.getCurrentEnv().getNextId();
-        job.setId(jobId);
         writeLock();
         try {
             if (dbTolabelToExportJobId.containsKey(job.getDbId())
@@ -113,7 +111,7 @@ public class ExportMgr {
                 BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
                         job.getBrokerDesc());
             }
-            job.getTaskExecutors().forEach(executor -> {
+            job.getCopiedTaskExecutors().forEach(executor -> {
                 Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
             });
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
