@@ -332,6 +332,7 @@ struct TPaimonFileDesc {
     11: optional string file_format
     12: optional TPaimonDeletionFileDesc deletion_file;
     13: optional map<string, string> hadoop_conf
+    14: optional string paimon_table
 }
 
 struct TTrinoConnectorFileDesc {
