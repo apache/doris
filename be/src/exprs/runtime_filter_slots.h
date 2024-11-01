@@ -77,6 +77,10 @@ public:
             if (filter->get_real_type() != RuntimeFilterType::IN_FILTER) {
                 continue;
             }
+            if (!filter->need_sync_filter_size() &&
+                filter->type() == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+                continue;
+            }
             if (has_in_filter.contains(filter->expr_order())) {
                 filter->set_ignored();
                 continue;
@@ -84,7 +88,7 @@ public:
             has_in_filter.insert(filter->expr_order());
         }
 
-        // process ignore filter when it has IN_FILTER on same expr, and init bloom filter size
+        // process ignore filter when it has IN_FILTER on same expr
         for (auto filter : _runtime_filters) {
             if (filter->get_ignored()) {
                 continue;
