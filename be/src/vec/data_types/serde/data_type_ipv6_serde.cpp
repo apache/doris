@@ -87,7 +87,10 @@ void DataTypeIPv6SerDe::write_one_cell_to_jsonb(const IColumn& column,
     result.writeKey(col_id);
     IPv6 data = assert_cast<const ColumnIPv6&>(column).get_element(row_num);
     IPv6Value ipv6_value(data);
-    result.writeString(ipv6_value.to_string());
+    std::string ipv6_str = ipv6_value.to_string();
+    result.writeStartString();
+    result.writeString(ipv6_str.c_str(), ipv6_str.size());
+    result.writeEndString();
 }
 
 Status DataTypeIPv6SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
