@@ -211,7 +211,7 @@ public:
         }
         // If enable overcommit, then the limit is useless, use a very large value as limit
         bool rt = _mem_counter.try_add(
-                bytes, _enable_overcommit ? std::numeric_limits<int64_t>::max() : _limit);
+                bytes, _enable_overcommit ? std::numeric_limits<int64_t>::max() : _limit.load());
         if (rt && _query_statistics) {
             _query_statistics->set_max_peak_memory_bytes(peak_consumption());
             _query_statistics->set_current_used_memory_bytes(consumption());
