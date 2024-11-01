@@ -2150,7 +2150,6 @@ void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* cont
                 {instance_id, tablet_id, rowset_ids[i], begin_versions[i], 0});
         auto delete_bitmap_end = meta_delete_bitmap_key(
                 {instance_id, tablet_id, rowset_ids[i], end_versions[i], INT64_MAX});
-        encode_int64(INT64_MAX, &delete_bitmap_end);
         txn->remove(delete_bitmap_start, delete_bitmap_end);
     }
     err = txn->commit();
