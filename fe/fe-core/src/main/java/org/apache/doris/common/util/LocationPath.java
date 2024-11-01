@@ -410,7 +410,7 @@ public class LocationPath {
         }
     }
 
-    private FileSystemType getFileSystemType() {
+    public FileSystemType getFileSystemType() {
         FileSystemType fsType;
         switch (scheme) {
             case S3:
