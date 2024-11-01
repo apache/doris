@@ -283,12 +283,17 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 std::string is_null_str = tcolumn_desc.is_allow_null ? "true" : "false";
                 std::string data_type_str =
                         std::to_string(int64_t(thrift_to_type(tcolumn_desc.column_type.type)));
-                auto it = slots_map.find(to_lower(tcolumn_desc.column_name) + "+" + data_type_str +
-                                         is_null_str);
+                auto key = to_lower(tcolumn_desc.column_name) + "+" + data_type_str + is_null_str;
+                auto it = slots_map.find(key);
                 if (it == slots_map.end()) {
-                    return Status::InternalError("unknown index column, column={}, type={}",
-                                                 tcolumn_desc.column_name,
-                                                 tcolumn_desc.column_type.type);
+                    std::string keys;
+                    for (const auto& [k, _] : slots_map) {
+                        keys += k;
+                        keys += ", ";
+                    }
+                    return Status::InternalError(
+                            "unknown index column, column={}, type={}, key={}, slot_map_keys={}",
+                            tcolumn_desc.column_name, tcolumn_desc.column_type.type, key, keys);
                 }
                 index->slots.emplace_back(it->second);
             }
