@@ -44,7 +44,7 @@ public class AuthenticatorManager {
 
     public AuthenticatorManager(String type) {
         LOG.info("Authenticate type: {}", type);
-
+        defaultAuthenticator = new DefaultAuthenticator();
         if (authTypeAuthenticator == null) {
             synchronized (AuthenticatorManager.class) {
                 if (authTypeAuthenticator == null) {
