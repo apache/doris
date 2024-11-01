@@ -103,7 +103,7 @@ suite("test_routine_load_with_udf","p0") {
             def count = 0
             while (true) {
                 res = sql "select count(*) from ${tableName}"
-                def state = sql "show routine load for test_routine_load_with_udf"
+                def state = sql "show routine load for test_udf_load"
                 log.info("routine load state: ${state[0][8].toString()}".toString())
                 log.info("routine load statistic: ${state[0][14].toString()}".toString())
                 log.info("reason of state changed: ${state[0][17].toString()}".toString())
