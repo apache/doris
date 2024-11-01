@@ -27,7 +27,7 @@ suite("test_json_reader_without_object", "p0") {
     sql """ set max_scan_key_num = 48 """
     sql """ set max_pushdown_conditions_per_column=1024 """
 
-    def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
+    def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/jsondata"
     def dataSimpleNumber = "json_reader_without_object.json"
     def dataSimpleArray = "json_reader_without_object_array.json"
 
