@@ -38,7 +38,6 @@ import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
@@ -57,9 +56,7 @@ import java.nio.ByteOrder;
 import java.nio.channels.AsynchronousCloseException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Process one mysql connection, receive one packet, process, send one packet.
@@ -107,7 +104,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
         int paramCount = prepareCommand.placeholderCount();
         LOG.debug("execute prepared statement {}, paramCount {}", stmtId, paramCount);
         // null bitmap
-        String stmtStr = prepareCommand.getOriginalStmt().originStmt;
+        String stmtStr = "";
         try {
             StatementContext statementContext = prepCtx.statementContext;
             if (paramCount > 0) {
@@ -153,7 +150,8 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.setExecutor(executor);
             executor.execute();
             if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
-                stmtStr = parseRealSql(stmtStr, statementContext.getIdToPlaceholderRealExpr());
+                stmtStr = executeStmt.toSql();
+                stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
             }
         } catch (Throwable e) {
             // Catch all throwable.
@@ -196,24 +194,6 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
         handleExecute(preparedStatementContext.command, stmtId, preparedStatementContext);
-    }
-
-    private String parseRealSql(String origStmt, Map<PlaceholderId, Expression> idExpressionMap) {
-        if (idExpressionMap.isEmpty()) {
-            return origStmt;
-        }
-        // To maintain the original order of replace, sort the entries accordingly.
-        List<Map.Entry<PlaceholderId, Expression>> sortedEntries = new ArrayList<>(idExpressionMap.entrySet());
-        sortedEntries.sort(Comparator.comparingInt(entry -> entry.getKey().asInt()));
-        for (Map.Entry<PlaceholderId, Expression> entry : sortedEntries) {
-            Expression expr = entry.getValue();
-            String value = "";
-            if (!expr.isNullLiteral()) {
-                value = expr.toString();
-            }
-            origStmt = origStmt.replaceFirst("\\?", value);
-        }
-        return origStmt;
     }
 
     // Process COM_QUERY statement,
