@@ -108,9 +108,6 @@ wait_process() {
 }
 
 main() {
-    change_to_host_user
-    health_log "i'm `whoami`"
-
     trap stop_cloud SIGTERM
 
     cd $DORIS_HOME

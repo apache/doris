@@ -50,8 +50,6 @@ stop_fdb() {
 }
 
 main() {
-    change_to_host_user
-
     trap stop_fdb SIGTERM
 
     init_db &

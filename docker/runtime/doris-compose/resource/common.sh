@@ -143,19 +143,3 @@ wait_pid() {
 
     health_log "wait end"
 }
-
-change_to_host_user() {
-    id ${HOST_USER}
-    if [ $? -eq 0 ]; then
-        health_log "had user ${HOST_USER}, no change"
-        return
-    fi
-    id ${HOST_UID}
-    if [ $? -eq 0 ]; then
-        health_log "had uid ${HOST_UID}, no change"
-        return
-    fi
-    adduser --disabled-password --gecos "" --uid ${HOST_UID} ${HOST_USER}
-    su ${HOST_USER}
-    health_log "create user ${HOST_USER}, i'm `whoami`"
-}

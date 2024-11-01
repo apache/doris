@@ -164,8 +164,6 @@ add_be_to_cluster() {
 }
 
 main() {
-    change_to_host_user
-
     trap stop_backend SIGTERM
 
     if [ -n "$LLVM_PROFILE_FILE_PREFIX" ]; then
