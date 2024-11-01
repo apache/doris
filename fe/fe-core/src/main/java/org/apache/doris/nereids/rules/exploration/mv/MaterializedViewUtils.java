@@ -369,7 +369,7 @@ public class MaterializedViewUtils {
                     // Contain sample, select * from orders TABLESAMPLE(20 percent)
                     return true;
                 }
-                if (!logicalOlapScan.getSelectedTabletIds().isEmpty()) {
+                if (!logicalOlapScan.getManuallySpecifiedTabletIds().isEmpty()) {
                     // Contain tablets, select * from orders TABLET(10098) because TABLET(10098)
                     return true;
                 }

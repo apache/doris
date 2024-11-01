@@ -327,8 +327,9 @@ public class StructInfo {
                 && hyperGraph.getNodes().stream().allMatch(n -> ((StructInfoNode) n).getExpressions() != null);
         // if relationList has any relation which contains table operator,
         // such as query with sample, index, table, is invalid
-        valid = relationList.stream().noneMatch(relation ->
+        boolean invalid = relationList.stream().anyMatch(relation ->
                 ((AbstractPlan) relation).accept(TableQueryOperatorChecker.INSTANCE, null));
+        valid = valid && !invalid;
         // collect predicate from top plan which not in hyper graph
         Set<Expression> topPlanPredicates = new LinkedHashSet<>();
         topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
