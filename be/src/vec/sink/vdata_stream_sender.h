@@ -195,7 +195,6 @@ protected:
     }
 
     Status _wait_last_brpc() {
-        SCOPED_TIMER(_parent->brpc_wait_timer());
         if (_send_remote_block_callback == nullptr) {
             return Status::OK();
         }
