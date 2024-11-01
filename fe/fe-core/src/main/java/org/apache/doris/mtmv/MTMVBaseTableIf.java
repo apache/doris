@@ -32,7 +32,5 @@ public interface MTMVBaseTableIf {
      * @param mtmv
      * @throws DdlException
      */
-    default void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
-        // do nothing
-    }
+    void beforeMTMVRefresh(MTMV mtmv) throws DdlException;
 }
