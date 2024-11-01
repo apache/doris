@@ -932,8 +932,6 @@ template <template <typename, typename> class Operation, typename Name, bool is_
 class FunctionBinaryArithmetic : public IFunction {
     using OpTraits = OperationTraits<Operation>;
 
-    mutable bool need_replace_null_data_to_default_ = false;
-
     template <typename F>
     static bool cast_type(const IDataType* type, F&& f) {
         return cast_type_to_either<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32,
@@ -968,10 +966,7 @@ public:
     FunctionBinaryArithmetic() = default;
 
     String get_name() const override { return name; }
-
-    bool need_replace_null_data_to_default() const override {
-        return need_replace_null_data_to_default_;
-    }
+    bool is_binary_arithmetic_function() const override { return true; }
 
     size_t get_number_of_arguments() const override { return 2; }
 
@@ -992,10 +987,6 @@ public:
                             typename BinaryOperationTraits<Operation, LeftDataType,
                                                            RightDataType>::ResultDataType;
                     if constexpr (!std::is_same_v<ResultDataType, InvalidType>) {
-                        need_replace_null_data_to_default_ =
-                                IsDataTypeDecimal<ResultDataType> ||
-                                (get_name() == "pow" &&
-                                 std::is_floating_point_v<typename ResultDataType::FieldType>);
                         if constexpr (IsDataTypeDecimal<LeftDataType> &&
                                       IsDataTypeDecimal<RightDataType>) {
                             type_res = decimal_result_type(left, right, OpTraits::is_multiply,

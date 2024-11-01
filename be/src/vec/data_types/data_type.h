@@ -383,6 +383,11 @@ bool is_columned_as_number(const T& data_type) {
 }
 
 template <typename T>
+bool is_decimal(const T& data_type) {
+    return WhichDataType(data_type).is_decimal();
+}
+
+template <typename T>
 bool is_string(const T& data_type) {
     return WhichDataType(data_type).is_string();
 }

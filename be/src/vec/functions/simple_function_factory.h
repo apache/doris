@@ -22,6 +22,7 @@
 
 #include <mutex>
 #include <string>
+#include <type_traits>
 
 #include "agent/be_exec_version_manager.h"
 #include "vec/functions/function.h"
@@ -206,6 +207,11 @@ private:
 
     template <typename Function>
     static FunctionBuilderPtr createDefaultFunction() {
+        static_assert(std::is_base_of_v<IFunction, Function>,
+                      "Functions using createDefaultFunction must inherit from IFunction.");
+        static_assert(sizeof(Function) == sizeof(IFunction),
+                      "The size of Function should match that of IFunction.Function should not "
+                      "contain member variables.");
         return std::make_shared<DefaultFunctionBuilder>(Function::create());
     }
 

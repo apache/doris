@@ -202,8 +202,17 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
         return Status::OK();
     }
 
+    auto have_decimal_column = [](const Block& block, const ColumnNumbers& args) {
+        return std::ranges::any_of(args, [&block](const auto& elem) {
+            return is_decimal(block.get_by_position(elem).type);
+        });
+    };
+
     if (have_null_column(block, args)) {
-        bool need_to_default = need_replace_null_data_to_default();
+        // When the input type is decimal, set the value corresponding to null to a default value
+        // to prevent errors in check_overflow_for_decimal.
+
+        bool need_to_default = have_decimal_column(block, args) && is_binary_arithmetic_function();
         if (context) {
             need_to_default &= context->check_overflow_for_decimal();
         }

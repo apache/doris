@@ -229,7 +229,7 @@ public:
     }
 
 private:
-    FunctionArrayIndex<ArrayContainsAction> array_contains;
+    inline static FunctionArrayIndex<ArrayContainsAction> array_contains;
 };
 
 template <bool is_key>

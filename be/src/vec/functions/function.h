@@ -112,11 +112,11 @@ public:
       */
     virtual bool use_default_implementation_for_constants() const { return true; }
 
-    /** If use_default_implementation_for_nulls() is true, after execute the function,
-      * whether need to replace the nested data of null data to the default value.
-      * E.g. for binary arithmetic exprs, need return true to avoid false overflow.
-      */
-    virtual bool need_replace_null_data_to_default() const { return false; }
+    // binary_arithmetic is a very special function.
+    // In binary_arithmetic, there may be changes in decimal precision, and in some cases,
+    // we perform overflow checks.
+
+    virtual bool is_binary_arithmetic_function() const { return false; }
 
 protected:
     virtual Status execute_impl_dry_run(FunctionContext* context, Block& block,
@@ -355,7 +355,7 @@ protected:
       */
     virtual bool use_default_implementation_for_nulls() const { return true; }
 
-    virtual bool need_replace_null_data_to_default() const { return false; }
+    virtual bool is_binary_arithmetic_function() const { return false; }
 
     /** If use_default_implementation_for_nulls() is true, than change arguments for get_return_type() and build_impl().
       * If function arguments has low cardinality types, convert them to ordinary types.
@@ -394,8 +394,7 @@ public:
 
     /// Override this functions to change default implementation behavior. See details in IMyFunction.
     bool use_default_implementation_for_nulls() const override { return true; }
-
-    bool need_replace_null_data_to_default() const override { return false; }
+    bool is_binary_arithmetic_function() const override { return false; }
 
     bool use_default_implementation_for_low_cardinality_columns() const override { return true; }
 
@@ -480,8 +479,9 @@ protected:
     bool use_default_implementation_for_nulls() const final {
         return function->use_default_implementation_for_nulls();
     }
-    bool need_replace_null_data_to_default() const final {
-        return function->need_replace_null_data_to_default();
+
+    bool is_binary_arithmetic_function() const final {
+        return function->is_binary_arithmetic_function();
     }
     bool use_default_implementation_for_constants() const final {
         return function->use_default_implementation_for_constants();
@@ -584,8 +584,8 @@ protected:
         return function->use_default_implementation_for_nulls();
     }
 
-    bool need_replace_null_data_to_default() const override {
-        return function->need_replace_null_data_to_default();
+    bool is_binary_arithmetic_function() const override {
+        return function->is_binary_arithmetic_function();
     }
     bool use_default_implementation_for_low_cardinality_columns() const override {
         return function->use_default_implementation_for_low_cardinality_columns();
