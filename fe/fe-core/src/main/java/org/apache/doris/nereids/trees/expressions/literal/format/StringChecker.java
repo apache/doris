@@ -25,7 +25,7 @@ public class StringChecker extends FormatChecker {
 
     public StringChecker(String name, String str) {
         super(name);
-        this.str = Objects.requireNonNull(str, "str can not be null");;
+        this.str = Objects.requireNonNull(str, "str can not be null");
     }
 
     @Override

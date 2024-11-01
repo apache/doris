@@ -26,7 +26,7 @@ public class CustomCharChecker extends FormatChecker {
 
     public CustomCharChecker(String name, Predicate<Character> checker) {
         super(name);
-        this.checker = Objects.requireNonNull(checker, "checker can not be null");;
+        this.checker = Objects.requireNonNull(checker, "checker can not be null");
     }
 
     @Override
