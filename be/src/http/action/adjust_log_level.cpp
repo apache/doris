@@ -17,8 +17,9 @@
 
 #include <http/action/adjust_log_level.h>
 
+#include <tuple>
+
 #include "common/logging.h"
-#include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_request.h"
 
@@ -26,7 +27,7 @@ namespace doris {
 
 // **Note**: If the module_name does not exist in the vlog modules, vlog
 // would create corresponding module for it.
-int handle_request(HttpRequest* req) {
+std::tuple<std::string, int, int> handle_request(HttpRequest* req) {
     auto parse_param = [&req](std::string param) {
         const auto& value = req->param(param);
         if (value.empty()) {
@@ -38,13 +39,16 @@ int handle_request(HttpRequest* req) {
     const auto& module = parse_param("module");
     const auto& level = parse_param("level");
     int new_level = std::stoi(level);
-    return google::SetVLOGLevel(module.c_str(), new_level);
+    return std::make_tuple(module, google::SetVLOGLevel(module.c_str(), new_level), new_level);
 }
 
 void AdjustLogLevelAction::handle(HttpRequest* req) {
     try {
-        auto old_level = handle_request(req);
-        auto msg = fmt::format("adjust log level success, origin level is {}", old_level);
+        auto handle_result = handle_request(req);
+        auto msg =
+                fmt::format("adjust vlog of {} from {} to {} succeed", std::get<0>(handle_result),
+                            std::get<1>(handle_result), std::get<2>(handle_result));
+        LOG(INFO) << msg;
         HttpChannel::send_reply(req, msg);
     } catch (const std::exception& e) {
         HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, e.what());
