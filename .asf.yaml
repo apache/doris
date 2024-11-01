@@ -152,13 +152,13 @@ github:
     - LemonLiTree
     - Yukang-Lian
     - TangSiyang2001
-    - Lchangliang
     - freemandealer
     - shuke987
     - wm1581066
     - KassieZ
     - yujun777
     - doris-robot
+    - LiBinfeng-01
 
 notifications:
     pullrequests_status:  commits@doris.apache.org
