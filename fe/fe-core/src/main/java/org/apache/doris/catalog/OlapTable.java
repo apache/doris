@@ -3286,11 +3286,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public boolean needAutoRefresh() {
-        return true;
-    }
-
-    @Override
     public boolean isPartitionColumnAllowNull() {
         return true;
     }

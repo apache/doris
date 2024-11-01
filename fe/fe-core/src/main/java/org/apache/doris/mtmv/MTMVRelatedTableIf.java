@@ -36,7 +36,7 @@ public interface MTMVRelatedTableIf extends TableIf {
     /**
      * Get all partitions of the table
      *
-     * @return partitionId->PartitionItem
+     * @return partitionName->PartitionItem
      */
     Map<String, PartitionItem> getAndCopyPartitionItems();
 
@@ -85,7 +85,9 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return If return false,The method of comparing whether to synchronize will directly return true,
      *         otherwise the snapshot information will be compared
      */
-    boolean needAutoRefresh();
+    default boolean needAutoRefresh() {
+        return true;
+    }
 
     /**
      * if allow partition column `isAllowNull`
