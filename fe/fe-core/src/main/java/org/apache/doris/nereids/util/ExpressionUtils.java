@@ -373,6 +373,19 @@ public class ExpressionUtils {
         return children.stream().allMatch(c -> c instanceof Literal);
     }
 
+    /**
+     * return true if all children are literal but not null literal.
+     */
+    public static boolean isAllNonNullLiteral(List<Expression> children) {
+        for (Expression child : children) {
+            if ((!(child instanceof Literal)) || (child instanceof NullLiteral)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** matchNumericType */
     public static boolean matchNumericType(List<Expression> children) {
         return children.stream().allMatch(c -> c.getDataType().isNumericType());
     }
