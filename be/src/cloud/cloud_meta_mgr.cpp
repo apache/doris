@@ -294,6 +294,9 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" tablet_id={}", req.rowset_meta().tablet_id());
     } else if constexpr (is_any_v<Request, RemoveDeleteBitmapRequest>) {
         return fmt::format(" tablet_id={}", req.tablet_id());
+    } else if constexpr (is_any_v<Request, RemoveDeleteBitmapUpdateLockRequest>) {
+        return fmt::format(" table_id={}, tablet_id={}, lock_id={}", req.table_id(),
+                           req.tablet_id(), req.lock_id());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -1107,6 +1110,25 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
     } while (++retry_times <= 100);
+    return st;
+}
+
+Status CloudMetaMgr::remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
+                                                      int64_t initiator) {
+    VLOG_DEBUG << "remove_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
+               << ",lock_id:" << lock_id;
+    RemoveDeleteBitmapUpdateLockRequest req;
+    RemoveDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_tablet_id(tablet.tablet_id());
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    auto st = retry_rpc("remove delete bitmap update lock", req, &res,
+                        &MetaService_Stub::remove_delete_bitmap_update_lock);
+    if (!st.ok()) {
+        LOG(WARNING) << "remove delete bitmap update lock fail,tablet_id=" << tablet.tablet_id()
+                     << " lock_id=" << lock_id << " st=" << st.to_string();
+    }
     return st;
 }
 
