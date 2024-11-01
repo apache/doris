@@ -349,6 +349,10 @@ public:
 
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
+    RuntimeProfile::Counter* memory_used_counter() { return _memory_used_counter; }
+    RuntimeProfile::HighWaterMarkCounter* peak_memory_usage_counter() {
+        return _peak_memory_usage_counter;
+    }
     virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in exchange sink , AsyncWriterSink
