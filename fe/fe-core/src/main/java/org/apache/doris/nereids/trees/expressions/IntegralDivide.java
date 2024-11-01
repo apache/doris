@@ -31,7 +31,7 @@ import java.util.List;
 /**
  * A DIV B
  */
-public class IntegralDivide extends BinaryArithmetic implements AlwaysNullable, AlwaysNullable, PropagateNullLiteral {
+public class IntegralDivide extends BinaryArithmetic implements AlwaysNullable, PropagateNullLiteral {
 
     public IntegralDivide(Expression left, Expression right) {
         super(ImmutableList.of(left, right), Operator.INT_DIVIDE);
