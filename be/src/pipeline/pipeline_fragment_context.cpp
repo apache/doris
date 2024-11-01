@@ -1198,6 +1198,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     std::stringstream error_msg;
     bool enable_query_cache = request.fragment.__isset.query_cache_param;
 
+    bool fe_with_old_version = false;
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
         op.reset(new OlapScanOperatorX(
@@ -1205,6 +1206,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 enable_query_cache ? request.fragment.query_cache_param : TQueryCacheParam {}));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
+        fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
     }
     case TPlanNodeType::GROUP_COMMIT_SCAN_NODE: {
@@ -1215,6 +1217,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         op.reset(new GroupCommitOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
+        fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
     }
     case doris::TPlanNodeType::JDBC_SCAN_NODE: {
@@ -1227,12 +1230,14 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                     "Jdbc scan node is disabled, you can change be config enable_java_support "
                     "to true and restart be.");
         }
+        fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
     }
     case doris::TPlanNodeType::FILE_SCAN_NODE: {
         op.reset(new FileScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
+        fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
     }
     case TPlanNodeType::ES_SCAN_NODE:
@@ -1240,6 +1245,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         op.reset(new EsScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
+        fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
     }
     case TPlanNodeType::EXCHANGE_NODE: {
@@ -1248,6 +1254,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         op.reset(new ExchangeSourceOperatorX(pool, tnode, next_operator_id(), descs, num_senders));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
+        fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {
@@ -1609,6 +1616,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         op.reset(new DataGenSourceOperatorX(pool, tnode, next_operator_id(), descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
+        fe_with_old_version = !tnode.__isset.is_serial_operator;
         break;
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
@@ -1632,6 +1640,10 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     default:
         return Status::InternalError("Unsupported exec type in pipeline: {}",
                                      print_plan_node_type(tnode.node_type));
+    }
+    if (request.__isset.parallel_instances && fe_with_old_version) {
+        cur_pipe->set_num_tasks(request.parallel_instances);
+        op->set_serial_operator();
     }
 
     return Status::OK();
