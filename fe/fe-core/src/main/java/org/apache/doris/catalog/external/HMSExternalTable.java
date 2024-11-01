@@ -23,6 +23,7 @@ import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.HudiUtils;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -308,9 +309,9 @@ public class HMSExternalTable extends ExternalTable {
                 break;
             default:
                 LOG.warn("getRowCount for dlaType {} is not supported.", dlaType);
-                rowCount = -1;
+                rowCount = TableIf.UNKNOWN_ROW_COUNT;
         }
-        return rowCount;
+        return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -477,7 +478,7 @@ public class HMSExternalTable extends ExternalTable {
         // Get row count from hive metastore property.
         long rowCount = getRowCountFromExternalSource();
         // Only hive table supports estimate row count by listing file.
-        if (rowCount == -1 && dlaType.equals(DLAType.HIVE)) {
+        if (rowCount == UNKNOWN_ROW_COUNT && dlaType.equals(DLAType.HIVE)) {
             LOG.debug("Will estimate row count from file list.");
             rowCount = StatisticsUtil.getRowCountFromFileList(this);
         }
