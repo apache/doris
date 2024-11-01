@@ -209,7 +209,9 @@ public:
         if (UNLIKELY(bytes == 0)) {
             return true;
         }
-        bool rt = _mem_counter.try_add(bytes, _limit);
+        // If enable overcommit, then the limit is useless, use a very large value as limit
+        bool rt = _mem_counter.try_add(
+                bytes, _enable_overcommit ? std::numeric_limits<int64_t>::max() : _limit);
         if (rt && _query_statistics) {
             _query_statistics->set_max_peak_memory_bytes(peak_consumption());
             _query_statistics->set_current_used_memory_bytes(consumption());
@@ -364,6 +366,7 @@ inline void MemTrackerLimiter::cache_consume(int64_t bytes) {
 }
 
 inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
+    /*
     if (bytes <= 0 || _enable_overcommit) {
         return Status::OK();
     }
@@ -372,7 +375,7 @@ inline Status MemTrackerLimiter::check_limit(int64_t bytes) {
         return Status::MemoryLimitExceeded(fmt::format("failed alloc size {}, {}",
                                                        MemCounter::print_bytes(bytes),
                                                        tracker_limit_exceeded_str()));
-    }
+    }*/
     return Status::OK();
 }
 
