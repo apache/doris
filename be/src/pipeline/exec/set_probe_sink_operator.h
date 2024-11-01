@@ -60,6 +60,9 @@ private:
     vectorized::ColumnRawPtrs _probe_columns;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+
+    RuntimeProfile::Counter* _extract_probe_data_timer = nullptr;
+    RuntimeProfile::Counter* _probe_timer = nullptr;
 };
 
 template <bool is_intersect>

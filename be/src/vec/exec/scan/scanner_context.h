@@ -75,7 +75,6 @@ private:
 public:
     std::weak_ptr<ScannerDelegate> scanner;
     std::list<std::pair<vectorized::BlockUPtr, size_t>> cached_blocks;
-    uint64_t last_submit_time; // nanoseconds
 
     void set_status(Status _status) {
         if (_status.is<ErrorCode::END_OF_FILE>()) {
@@ -112,7 +111,7 @@ public:
 
     ~ScannerContext() override {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
-        _blocks_queue.clear();
+        _tasks_queue.clear();
         vectorized::BlockUPtr block;
         while (_free_blocks.try_dequeue(block)) {
             // do nothing
@@ -143,37 +142,25 @@ public:
     // set the `eos` to `ScanTask::eos` if there is no more data in current scanner
     Status submit_scan_task(std::shared_ptr<ScanTask> scan_task);
 
-    // append the running scanner and its cached block to `_blocks_queue`
-    void append_block_to_queue(std::shared_ptr<ScanTask> scan_task);
-
-    void set_status_on_error(const Status& status);
+    // Push back a scan task.
+    void push_back_scan_task(std::shared_ptr<ScanTask> scan_task);
 
     // Return true if this ScannerContext need no more process
     bool done() const { return _is_finished || _should_stop; }
-    bool is_finished() { return _is_finished.load(); }
-    bool should_stop() { return _should_stop.load(); }
 
     std::string debug_string();
 
     RuntimeState* state() { return _state; }
-    void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
-    std::string parent_name();
-
-    bool empty_in_queue(int id);
 
     SimplifiedScanScheduler* get_scan_scheduler() { return _scanner_scheduler; }
 
     void stop_scanners(RuntimeState* state);
-
-    int32_t get_max_thread_num() const { return _max_thread_num; }
-    void set_max_thread_num(int32_t num) { _max_thread_num = num; }
 
     int batch_size() const { return _batch_size; }
 
     // the unique id of this context
     std::string ctx_id;
     TUniqueId _query_id;
-    int32_t queue_idx = -1;
     ThreadPoolToken* thread_token = nullptr;
 
     bool _should_reset_thread_name = true;
@@ -195,7 +182,7 @@ protected:
     const RowDescriptor* _output_row_descriptor = nullptr;
 
     std::mutex _transfer_lock;
-    std::list<std::shared_ptr<ScanTask>> _blocks_queue;
+    std::list<std::shared_ptr<ScanTask>> _tasks_queue;
 
     Status _process_status = Status::OK();
     std::atomic_bool _should_stop = false;
@@ -223,8 +210,6 @@ protected:
     // This counter refers to scan operator's local state
     RuntimeProfile::Counter* _scanner_memory_used_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
-    RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
-    RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;

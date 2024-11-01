@@ -139,7 +139,6 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     }
 
     if (eos) {
-        COUNTER_UPDATE(local_state._build_rows_counter, local_state._build_rows);
         RuntimeFilterBuild rf_ctx(&local_state);
         RETURN_IF_ERROR(rf_ctx(state));
 
