@@ -1796,27 +1796,13 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
         LOG(INFO) << "xxx update delete bitmap put pending_key=" << hex(pending_key)
                   << " lock_id=" << request->lock_id() << " value_size: " << pending_val.size();
     } else if (request->lock_id() == -3) {
-        std::unique_ptr<Transaction> txn_delete;
-        err = txn_kv_->create_txn(&txn_delete);
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::CREATE>(err);
-            msg = "failed to init txn";
-            return;
-        }
         // delete existing key
         for (size_t i = 0; i < request->rowset_ids_size(); ++i) {
             auto& start_key = delete_bitmap_keys.delete_bitmap_keys(i);
             std::string end_key {start_key};
             encode_int64(INT64_MAX, &end_key);
-            txn_delete->remove(start_key, end_key);
+            txn->remove(start_key, end_key);
             LOG(INFO) << "xxx remove existing key=" << hex(start_key) << " tablet_id=" << tablet_id;
-        }
-        err = txn_delete->commit();
-        if (err != TxnErrorCode::TXN_OK) {
-            code = cast_as<ErrCategory::COMMIT>(err);
-            ss << "failed to delete existing key, err=" << err;
-            msg = ss.str();
-            return;
         }
     }
 
