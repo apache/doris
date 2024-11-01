@@ -31,7 +31,7 @@ build_version_prefix="selectdb"
 build_version_major=4
 build_version_minor=0
 build_version_patch=3
-build_version_hotfix=0
+build_version_hotfix=1
 build_version_rc_version=""
 
 build_version="${build_version_prefix}-${build_version_major}.${build_version_minor}.${build_version_patch}"
