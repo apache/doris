@@ -55,6 +55,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 Status OlapTableBlockConvertor::validate_and_convert_block(
         RuntimeState* state, vectorized::Block* input_block,
@@ -186,11 +187,11 @@ DecimalType OlapTableBlockConvertor::_get_decimalv3_min_or_max(const TypeDescrip
 Status OlapTableBlockConvertor::_internal_validate_column(
         RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
         vectorized::ColumnPtr column, size_t slot_index, bool* stop_processing,
-        fmt::memory_buffer& error_prefix, const uint32_t row_count,
+        fmt::memory_buffer& error_prefix, const size_t row_count,
         vectorized::IColumn::Permutation* rows) {
     DCHECK((rows == nullptr) || (rows->size() == row_count));
     fmt::memory_buffer error_msg;
-    auto set_invalid_and_append_error_msg = [&](int row) {
+    auto set_invalid_and_append_error_msg = [&](size_t row) {
         _filter_map[row] = true;
         auto ret = state->append_error_msg_to_file([]() -> std::string { return ""; },
                                                    [&error_prefix, &error_msg]() -> std::string {
@@ -218,7 +219,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
 
         auto* __restrict offsets = column_string->get_offsets().data();
         int invalid_count = 0;
-        for (int j = 0; j < row_count; ++j) {
+        for (int64_t j = 0; j < row_count; ++j) {
             invalid_count += (offsets[j] - offsets[j - 1]) > limit;
         }
 
@@ -452,7 +453,7 @@ Status OlapTableBlockConvertor::_internal_validate_column(
 }
 
 Status OlapTableBlockConvertor::_validate_data(RuntimeState* state, vectorized::Block* block,
-                                               const uint32_t rows, int& filtered_rows,
+                                               const size_t rows, int& filtered_rows,
                                                bool* stop_processing) {
     for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];

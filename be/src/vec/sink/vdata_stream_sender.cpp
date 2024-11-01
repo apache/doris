@@ -53,6 +53,7 @@
 #include "vec/sink/writer/vtablet_writer_v2.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 Status Channel::init(RuntimeState* state) {
     if (_brpc_dest_addr.hostname.empty()) {
