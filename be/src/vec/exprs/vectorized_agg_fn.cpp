@@ -217,7 +217,6 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                                                    _sort_description, state);
     }
 
-    LOG_INFO("Backend exec version from fe {}", state->be_exec_version());
     if (!AggregateFunctionSimpleFactory::is_foreach(_fn.name.function_name)) {
         if (state->be_exec_version() >= BE_VERSION_THAT_SUPPORT_NULLABLE_CHECK) {
             RETURN_IF_ERROR(
