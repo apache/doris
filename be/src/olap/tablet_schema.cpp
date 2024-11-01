@@ -747,7 +747,15 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
         if (column_idx >= 0) {
             col_unique_ids[i] = tablet_schema.column(column_idx).unique_id();
         } else {
-            col_unique_ids[i] = -1;
+            // if column unique id not found by column name, find by column unique id
+            // column unique id can not bigger than tablet schema column size, if bigger than column size means
+            // this column is a new column added by light schema change
+            if (index.__isset.column_unique_ids &&
+                index.column_unique_ids[i] < tablet_schema.num_columns()) {
+                col_unique_ids[i] = index.column_unique_ids[i];
+            } else {
+                col_unique_ids[i] = -1;
+            }
         }
     }
     _col_unique_ids = std::move(col_unique_ids);
