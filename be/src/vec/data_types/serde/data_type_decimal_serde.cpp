@@ -31,7 +31,7 @@
 namespace doris {
 
 namespace vectorized {
-#include "common/compile_check_begin.h"
+// #include "common/compile_check_begin.h"
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -104,7 +104,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             const auto& data_ref = col.get_data_at(i);
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
-            uint64 low = cast_set<uint64>(p_value->value);
+            uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
@@ -122,7 +122,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             const auto& data_ref = col.get_data_at(i);
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
-            uint64 low = cast_set<uint64>(p_value->value);
+            uint64 low = cast_set<uint64>((p_value->value) & 0xFFFFFFFFFFFFFFFF);
             arrow::Decimal128 value(high, low);
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
