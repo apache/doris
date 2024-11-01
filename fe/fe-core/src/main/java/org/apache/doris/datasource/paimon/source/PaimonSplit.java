@@ -47,7 +47,7 @@ public class PaimonSplit extends FileSplit {
 
         if (split instanceof DataSplit) {
             List<DataFileMeta> dataFileMetas = ((DataSplit) split).dataFiles();
-            this.path = new LocationPath("hdfs://" + dataFileMetas.get(0).fileName());
+            this.path = new LocationPath("/" + dataFileMetas.get(0).fileName());
             this.selfSplitWeight = dataFileMetas.stream().mapToLong(DataFileMeta::fileSize).sum();
         } else {
             this.selfSplitWeight = split.rowCount();
