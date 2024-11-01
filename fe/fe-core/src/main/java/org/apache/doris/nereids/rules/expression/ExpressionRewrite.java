@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
@@ -45,7 +46,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -78,7 +81,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new JoinExpressionRewrite().build(),
                 new SortExpressionRewrite().build(),
                 new LogicalRepeatRewrite().build(),
-                new HavingExpressionRewrite().build());
+                new HavingExpressionRewrite().build(),
+                new OlapTableSinkExpressionRewrite().build());
     }
 
     private class GenerateExpressionRewrite extends OneRewriteRuleFactory {
@@ -148,6 +152,28 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 }
                 return new LogicalFilter<>(newConjuncts, filter.child());
             }).toRule(RuleType.REWRITE_FILTER_EXPRESSION);
+        }
+    }
+
+    private class OlapTableSinkExpressionRewrite extends OneRewriteRuleFactory {
+        @Override
+        public Rule build() {
+            return logicalOlapTableSink().thenApply(ctx -> {
+                LogicalOlapTableSink<Plan> olapTableSink = ctx.root;
+                ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
+                List<Expression> partitionExprList = olapTableSink.getPartitionExprList();
+                List<Expression> newPartitionExprList = rewriteAll(partitionExprList, rewriter, context);
+                Map<Long, Expression> syncMvWhereClauses = olapTableSink.getSyncMvWhereClauses();
+                Map<Long, Expression> newSyncMvWhereClauses = new HashMap<>();
+                for (Map.Entry<Long, Expression> entry : syncMvWhereClauses.entrySet()) {
+                    newSyncMvWhereClauses.put(entry.getKey(), rewriter.rewrite(entry.getValue(), context));
+                }
+                if (partitionExprList.equals(newPartitionExprList)
+                        && syncMvWhereClauses.equals(newSyncMvWhereClauses)) {
+                    return olapTableSink;
+                }
+                return olapTableSink.withPartitionExprAndMvWhereClause(newPartitionExprList, newSyncMvWhereClauses);
+            }).toRule(RuleType.REWRITE_OLAP_TABLE_SINK_EXPRESSION);
         }
     }
 

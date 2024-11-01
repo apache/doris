@@ -203,7 +203,20 @@ Status HttpService::start() {
     static_cast<void>(PprofActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register jeprof actions
-    static_cast<void>(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
+    SetJeHeapProfileActiveActions* set_jeheap_profile_active_action =
+            _pool.add(new SetJeHeapProfileActiveActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/active/{prof_value}",
+                                      set_jeheap_profile_active_action);
+
+    DumpJeHeapProfileToDotActions* dump_jeheap_profile_to_dot_action =
+            _pool.add(new DumpJeHeapProfileToDotActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump",
+                                      dump_jeheap_profile_to_dot_action);
+
+    DumpJeHeapProfileActions* dump_jeheap_profile_action =
+            _pool.add(new DumpJeHeapProfileActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump_only",
+                                      dump_jeheap_profile_action);
 
     // register metrics
     {

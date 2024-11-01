@@ -51,14 +51,26 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
 
     if (exists) {
         LOG(ERROR) << "try to init a directory:" << local_fs_index_path << " already exists";
-        return ResultError(Status::InternalError("init_fulltext_index directory already exists"));
+        return ResultError(
+                Status::InternalError("InvertedIndexFileWriter::open directory already exists"));
     }
 
     bool can_use_ram_dir = true;
     auto* dir = DorisFSDirectoryFactory::getDirectory(local_fs, local_fs_index_path.c_str(),
                                                       can_use_ram_dir);
-    _indices_dirs.emplace(std::make_pair(index_meta->index_id(), index_meta->get_index_suffix()),
-                          std::unique_ptr<DorisFSDirectory>(dir));
+    auto key = std::make_pair(index_meta->index_id(), index_meta->get_index_suffix());
+    auto [it, inserted] = _indices_dirs.emplace(key, std::unique_ptr<DorisFSDirectory>(dir));
+    if (!inserted) {
+        LOG(ERROR) << "InvertedIndexFileWriter::open attempted to insert a duplicate key: ("
+                   << key.first << ", " << key.second << ")";
+        LOG(ERROR) << "Directories already in map: ";
+        for (const auto& entry : _indices_dirs) {
+            LOG(ERROR) << "Key: (" << entry.first.first << ", " << entry.first.second << ")";
+        }
+        return ResultError(Status::InternalError(
+                "InvertedIndexFileWriter::open attempted to insert a duplicate dir"));
+    }
+
     return dir;
 }
 
@@ -110,6 +122,8 @@ int64_t InvertedIndexFileWriter::headerLength() {
 }
 
 Status InvertedIndexFileWriter::close() {
+    DCHECK(!_closed) << debug_string();
+    _closed = true;
     if (_indices_dirs.empty()) {
         return Status::OK();
     }
@@ -358,14 +372,10 @@ int64_t InvertedIndexFileWriter::write_v2() {
     out_dir->set_file_writer_opts(_opts);
 
     std::unique_ptr<lucene::store::IndexOutput> compound_file_output;
-    // idx v2 writer != nullptr means memtable on sink node now
-    if (_idx_v2_writer != nullptr) {
-        compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-                out_dir->createOutputV2(_idx_v2_writer.get()));
-    } else {
-        compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
-                out_dir->createOutput(index_path.filename().c_str()));
-    }
+
+    DCHECK(_idx_v2_writer != nullptr) << "inverted index file writer v2 is nullptr";
+    compound_file_output = std::unique_ptr<lucene::store::IndexOutput>(
+            out_dir->createOutputV2(_idx_v2_writer.get()));
 
     // Write the version number
     compound_file_output->writeInt(InvertedIndexStorageFormatPB::V2);

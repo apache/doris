@@ -71,12 +71,16 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
 
     auto probe_rows = in_block->rows();
     if (probe_rows > 0) {
-        RETURN_IF_ERROR(_extract_probe_column(local_state, *in_block, local_state._probe_columns,
-                                              _cur_child_id));
+        {
+            SCOPED_TIMER(local_state._extract_probe_data_timer);
+            RETURN_IF_ERROR(_extract_probe_column(local_state, *in_block,
+                                                  local_state._probe_columns, _cur_child_id));
+        }
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& arg) -> Status {
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
                     if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
+                        SCOPED_TIMER(local_state._probe_timer);
                         vectorized::HashTableProbe<HashTableCtxType, is_intersect>
                                 process_hashtable_ctx(&local_state, probe_rows);
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
@@ -85,7 +89,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                         __builtin_unreachable();
                     }
                 },
-                *local_state._shared_state->hash_table_variants));
+                local_state._shared_state->hash_table_variants->method_variant));
     }
 
     if (eos) {
@@ -99,6 +103,9 @@ Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSink
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+
+    _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
+    _extract_probe_data_timer = ADD_TIMER(Base::profile(), "ExtractProbeDataTime");
     Parent& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
     _dependency->block();
@@ -183,7 +190,7 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
                             valid_element_in_hash_tbl = arg.hash_table->size();
                         }
                     },
-                    *hash_table_variants);
+                    hash_table_variants->method_variant);
         }
         local_state._probe_columns.resize(
                 local_state._shared_state->child_exprs_lists[_cur_child_id + 1].size());
@@ -248,7 +255,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                     __builtin_unreachable();
                 }
             },
-            *hash_table_variants);
+            hash_table_variants->method_variant);
 }
 
 template class SetProbeSinkLocalState<true>;

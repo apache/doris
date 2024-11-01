@@ -27,6 +27,7 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
@@ -56,16 +57,14 @@ doris::Status VCastExpr::prepare(doris::RuntimeState* state, const doris::RowDes
     // Using typeindex to indicate the datatype, not using type name because
     // type name is not stable, but type index is stable and immutable
     _cast_param_data_type = _target_data_type;
-    // Has to cast to int16_t or there will be compile error because there is no
-    // TypeIndexField
-    _cast_param = _cast_param_data_type->create_column_const_with_default_value(1);
 
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(2);
     argument_template.emplace_back(nullptr, child->data_type(), child_name);
-    argument_template.emplace_back(_cast_param, _cast_param_data_type, _target_data_type_name);
-    _function = SimpleFunctionFactory::instance().get_function(function_name, argument_template,
-                                                               _data_type);
+    argument_template.emplace_back(nullptr, _cast_param_data_type, _target_data_type_name);
+    _function = SimpleFunctionFactory::instance().get_function(
+            function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
 
     if (_function == nullptr) {
         return Status::NotSupported("Function {} is not implemented", _fn.name.function_name);
@@ -131,7 +130,7 @@ const std::string& VCastExpr::expr_name() const {
 
 std::string VCastExpr::debug_string() const {
     std::stringstream out;
-    out << "CastExpr(CAST " << _cast_param_data_type->get_name() << " to "
+    out << "CastExpr(CAST " << get_child(0)->data_type()->get_name() << " to "
         << _target_data_type->get_name() << "){";
     bool first = true;
     for (auto& input_expr : children()) {

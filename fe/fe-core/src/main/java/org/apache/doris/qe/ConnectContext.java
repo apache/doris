@@ -554,6 +554,10 @@ public class ConnectContext {
         userVars.put(setVar.getVariable().toLowerCase(), setVar.getResult());
     }
 
+    public void setUserVar(String name, LiteralExpr value) {
+        userVars.put(name.toLowerCase(), value);
+    }
+
     public @Nullable Literal getLiteralForUserVar(String varName) {
         varName = varName.toLowerCase();
         if (userVars.containsKey(varName)) {
@@ -1272,11 +1276,6 @@ public class ConnectContext {
         if (!Strings.isNullOrEmpty(defaultCluster)) {
             cluster = defaultCluster;
             choseWay = "default compute group";
-            if (!Env.getCurrentEnv().getAuth().checkCloudPriv(getCurrentUserIdentity(),
-                    cluster, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-                throw new ComputeGroupException(String.format("default compute group %s check auth failed", cluster),
-                    ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP);
-            }
         } else {
             CloudClusterResult cloudClusterTypeAndName = getCloudClusterByPolicy();
             if (cloudClusterTypeAndName != null && !Strings.isNullOrEmpty(cloudClusterTypeAndName.clusterName)) {

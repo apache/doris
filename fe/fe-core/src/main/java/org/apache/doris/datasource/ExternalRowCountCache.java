@@ -113,6 +113,7 @@ public class ExternalRowCountCache {
             if (f.isDone()) {
                 return f.get().orElse(-1L);
             }
+            LOG.info("Row count for table {}.{}.{} is still processing.", catalogId, dbId, tableId);
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count", e);
         }

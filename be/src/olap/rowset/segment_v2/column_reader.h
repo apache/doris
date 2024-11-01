@@ -47,7 +47,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
 #include "vec/columns/subcolumn_tree.h"
-#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 
@@ -728,7 +727,7 @@ private:
 class DefaultNestedColumnIterator : public ColumnIterator {
 public:
     DefaultNestedColumnIterator(std::unique_ptr<ColumnIterator>&& sibling,
-                                DataTypePtr file_column_type)
+                                vectorized::DataTypePtr file_column_type)
             : _sibling_iter(std::move(sibling)), _file_column_type(std::move(file_column_type)) {}
 
     Status init(const ColumnIteratorOptions& opts) override {

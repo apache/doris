@@ -34,6 +34,7 @@
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/segment_v2/column_writer.h"
+#include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/faststring.h"
@@ -61,7 +62,6 @@ class FileWriter;
 } // namespace io
 
 namespace segment_v2 {
-class InvertedIndexFileWriter;
 
 extern const char* k_segment_magic;
 extern const uint32_t k_segment_magic_length;
@@ -84,7 +84,7 @@ public:
     explicit SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                            TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet, DataDir* data_dir,
                            const SegmentWriterOptions& opts,
-                           io::FileWriterPtr inverted_file_writer = nullptr);
+                           InvertedIndexFileWriter* inverted_file_writer);
     ~SegmentWriter();
 
     Status init();
@@ -107,34 +107,11 @@ public:
                              PartialUpdateStats& stats);
     Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
                                              size_t num_rows);
-    Status append_block_with_flexible_partial_content(const vectorized::Block* block,
-                                                      size_t row_pos, size_t num_rows);
-    Status generate_flexible_read_plan(
-            FlexibleReadPlan& read_plan, size_t row_pos, size_t num_rows, size_t segment_start_pos,
-            bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
-            std::vector<BitmapValue>* skip_bitmaps,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column,
-            const signed char* delete_sign_column_data,
-            const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-            bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-            PartialUpdateStats& stats);
-    Status merge_rows_for_sequence_column(
-            const vectorized::Block* block, size_t row_pos, size_t& num_rows,
-            std::vector<BitmapValue>* skip_bitmaps,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column,
-            const std::vector<RowsetSharedPtr>& specified_rowsets,
-            std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches);
     Status append_block_with_variant_subcolumns(vectorized::Block& data);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
     uint64_t estimate_segment_size();
-
-    InvertedIndexFileInfo get_inverted_index_file_info() const { return _inverted_index_file_info; }
-    int64_t get_inverted_index_total_size();
 
     uint32_t num_rows_written() const { return _num_rows_written; }
 
@@ -166,6 +143,17 @@ public:
     TabletSchemaSPtr flush_schema() const { return _flush_schema; };
 
     void set_mow_context(std::shared_ptr<MowContext> mow_context);
+
+    Status close_inverted_index(int64_t* inverted_index_file_size) {
+        // no inverted index
+        if (_inverted_index_file_writer == nullptr) {
+            *inverted_index_file_size = 0;
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(_inverted_index_file_writer->close());
+        *inverted_index_file_size = _inverted_index_file_writer->get_index_file_total_size();
+        return Status::OK();
+    }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
@@ -222,13 +210,15 @@ private:
 
     // Not owned. owned by RowsetWriter or SegmentFlusher
     io::FileWriter* _file_writer = nullptr;
-    std::unique_ptr<InvertedIndexFileWriter> _inverted_index_file_writer;
+    // Not owned. owned by RowsetWriter or SegmentFlusher
+    InvertedIndexFileWriter* _inverted_index_file_writer = nullptr;
+
     SegmentFooterPB _footer;
     // for mow tables with cluster key, the sort key is the cluster keys not unique keys
     // for other tables, the sort key is the keys
     size_t _num_sort_key_columns;
     size_t _num_short_key_columns;
-    InvertedIndexFileInfo _inverted_index_file_info;
+
     std::unique_ptr<ShortKeyIndexBuilder> _short_key_index_builder;
     std::unique_ptr<PrimaryKeyIndexBuilder> _primary_key_index_builder;
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;

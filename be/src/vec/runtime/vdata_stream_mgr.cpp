@@ -31,6 +31,7 @@
 #include "vec/runtime/vdata_stream_recvr.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 
 VDataStreamMgr::VDataStreamMgr() {
@@ -81,7 +82,7 @@ Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNod
                                   std::shared_ptr<VDataStreamRecvr>* res, bool acquire_lock) {
     VLOG_ROW << "looking up fragment_instance_id=" << print_id(fragment_instance_id)
              << ", node=" << node_id;
-    size_t hash_value = get_hash_value(fragment_instance_id, node_id);
+    uint32_t hash_value = get_hash_value(fragment_instance_id, node_id);
     // Create lock guard and not own lock currently and will lock conditionally
     std::unique_lock recvr_lock(_lock, std::defer_lock);
     if (acquire_lock) {
@@ -157,7 +158,7 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
     std::shared_ptr<VDataStreamRecvr> targert_recvr;
     VLOG_QUERY << "deregister_recvr(): fragment_instance_id=" << print_id(fragment_instance_id)
                << ", node=" << node_id;
-    size_t hash_value = get_hash_value(fragment_instance_id, node_id);
+    uint32_t hash_value = get_hash_value(fragment_instance_id, node_id);
     {
         std::lock_guard<std::mutex> l(_lock);
         auto range = _receiver_map.equal_range(hash_value);

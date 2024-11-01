@@ -223,7 +223,7 @@ public:
     }
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         this->data(place).add(row_num, columns);
     }
 
@@ -231,7 +231,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "ReaderFunctionData do not support add_range_single_place");
         __builtin_unreachable();
@@ -275,25 +275,26 @@ AggregateFunctionPtr create_function_single_value(const String& name,
     return nullptr;
 }
 
-#define CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(CREATE_FUNCTION_NAME, FUNCTION_DATA)           \
-    template <bool is_copy>                                                                      \
-    AggregateFunctionPtr CREATE_FUNCTION_NAME(                                                   \
-            const std::string& name, const DataTypes& argument_types, bool result_is_nullable) { \
-        const bool arg_is_nullable = argument_types[0]->is_nullable();                           \
-        AggregateFunctionPtr res = nullptr;                                                      \
-        std::visit(                                                                              \
-                [&](auto result_is_nullable, auto arg_is_nullable) {                             \
-                    res = AggregateFunctionPtr(                                                  \
-                            create_function_single_value<ReaderFunctionData, FUNCTION_DATA,      \
-                                                         result_is_nullable, arg_is_nullable,    \
-                                                         is_copy>(name, argument_types));        \
-                },                                                                               \
-                make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));      \
-        if (!res) {                                                                              \
-            LOG(WARNING) << " failed in  create_aggregate_function_" << name                     \
-                         << " and type is: " << argument_types[0]->get_name();                   \
-        }                                                                                        \
-        return res;                                                                              \
+#define CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(CREATE_FUNCTION_NAME, FUNCTION_DATA)         \
+    template <bool is_copy>                                                                    \
+    AggregateFunctionPtr CREATE_FUNCTION_NAME(                                                 \
+            const std::string& name, const DataTypes& argument_types, bool result_is_nullable, \
+            const AggregateFunctionAttr& attr) {                                               \
+        const bool arg_is_nullable = argument_types[0]->is_nullable();                         \
+        AggregateFunctionPtr res = nullptr;                                                    \
+        std::visit(                                                                            \
+                [&](auto result_is_nullable, auto arg_is_nullable) {                           \
+                    res = AggregateFunctionPtr(                                                \
+                            create_function_single_value<ReaderFunctionData, FUNCTION_DATA,    \
+                                                         result_is_nullable, arg_is_nullable,  \
+                                                         is_copy>(name, argument_types));      \
+                },                                                                             \
+                make_bool_variant(result_is_nullable), make_bool_variant(arg_is_nullable));    \
+        if (!res) {                                                                            \
+            LOG(WARNING) << " failed in  create_aggregate_function_" << name                   \
+                         << " and type is: " << argument_types[0]->get_name();                 \
+        }                                                                                      \
+        return res;                                                                            \
     }
 
 CREATE_READER_FUNCTION_WITH_NAME_AND_DATA(create_aggregate_function_first, ReaderFunctionFirstData);

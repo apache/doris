@@ -93,25 +93,18 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             "MemoryUsageSerializeKeyArena", TUnit::BYTES, "", 1);
 
     _build_timer = ADD_TIMER(Base::profile(), "BuildTime");
-    _build_table_convert_timer = ADD_TIMER(Base::profile(), "BuildConvertToPartitionedTime");
-    _serialize_key_timer = ADD_TIMER(Base::profile(), "SerializeKeyTime");
-    _exec_timer = ADD_TIMER(Base::profile(), "ExecTime");
     _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
     _expr_timer = ADD_TIMER(Base::profile(), "ExprTime");
-    _serialize_data_timer = ADD_TIMER(Base::profile(), "SerializeDataTime");
+    _insert_values_to_column_timer = ADD_TIMER(Base::profile(), "InsertValuesToColumnTime");
     _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
     _hash_table_compute_timer = ADD_TIMER(Base::profile(), "HashTableComputeTime");
     _hash_table_emplace_timer = ADD_TIMER(Base::profile(), "HashTableEmplaceTime");
     _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
-    _max_row_size_counter = ADD_COUNTER(Base::profile(), "MaxRowSizeInBytes", TUnit::UNIT);
     _hash_table_size_counter = ADD_COUNTER(profile(), "HashTableSize", TUnit::UNIT);
-    _queue_byte_size_counter = ADD_COUNTER(profile(), "MaxSizeInBlockQueue", TUnit::BYTES);
-    _queue_size_counter = ADD_COUNTER(profile(), "MaxSizeOfBlockQueue", TUnit::UNIT);
     _streaming_agg_timer = ADD_TIMER(profile(), "StreamingAggTime");
     _build_timer = ADD_TIMER(profile(), "BuildTime");
     _expr_timer = ADD_TIMER(Base::profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
-    _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
     _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
 
@@ -499,8 +492,8 @@ Status StreamingAggLocalState::_merge_with_serialized_key(vectorized::Block* blo
 }
 
 Status StreamingAggLocalState::_init_hash_method(const vectorized::VExprContextSPtrs& probe_exprs) {
-    RETURN_IF_ERROR(init_agg_hash_method(
-            _agg_data.get(), probe_exprs,
+    RETURN_IF_ERROR(init_hash_method<AggregatedDataVariants>(
+            _agg_data.get(), get_data_types(probe_exprs),
             Base::_parent->template cast<StreamingAggOperatorX>()._is_first_phase));
     return Status::OK();
 }
@@ -679,7 +672,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::vectorized::B
                             }
 
                             for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
-                                SCOPED_TIMER(_serialize_data_timer);
+                                SCOPED_TIMER(_insert_values_to_column_timer);
                                 RETURN_IF_ERROR(
                                         _aggregate_evaluators[i]->streaming_agg_serialize_to_column(
                                                 in_block, value_columns[i], rows,
@@ -848,12 +841,12 @@ Status StreamingAggLocalState::_get_with_serialized_key_result(RuntimeState* sta
     return Status::OK();
 }
 
-Status StreamingAggLocalState::_serialize_without_key(RuntimeState* state, vectorized::Block* block,
-                                                      bool* eos) {
+Status StreamingAggLocalState::_get_results_without_key(RuntimeState* state,
+                                                        vectorized::Block* block, bool* eos) {
     // 1. `child(0)->rows_returned() == 0` mean not data from child
     // in level two aggregation node should return NULL result
     //    level one aggregation node set `eos = true` return directly
-    SCOPED_TIMER(_serialize_result_timer);
+    SCOPED_TIMER(_get_results_timer);
     if (UNLIKELY(_input_num_rows == 0)) {
         *eos = true;
         return Status::OK();
@@ -892,10 +885,10 @@ Status StreamingAggLocalState::_serialize_without_key(RuntimeState* state, vecto
     return Status::OK();
 }
 
-Status StreamingAggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
-                                                                     vectorized::Block* block,
-                                                                     bool* eos) {
-    SCOPED_TIMER(_serialize_result_timer);
+Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* state,
+                                                                vectorized::Block* block,
+                                                                bool* eos) {
+    SCOPED_TIMER(_get_results_timer);
     auto& p = _parent->cast<StreamingAggOperatorX>();
     int key_size = _probe_expr_ctxs.size();
     int agg_size = _aggregate_evaluators.size();
@@ -914,7 +907,6 @@ Status StreamingAggLocalState::_serialize_with_serialized_key_result(RuntimeStat
         }
     }
 
-    SCOPED_TIMER(_get_results_timer);
     std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> void {
@@ -970,7 +962,7 @@ Status StreamingAggLocalState::_serialize_with_serialized_key_result(RuntimeStat
                         }
 
                         {
-                            SCOPED_TIMER(_serialize_data_timer);
+                            SCOPED_TIMER(_insert_values_to_column_timer);
                             for (size_t i = 0; i < _aggregate_evaluators.size(); ++i) {
                                 value_data_types[i] =
                                         _aggregate_evaluators[i]->function()->get_serialized_type();
@@ -1114,8 +1106,8 @@ void StreamingAggLocalState::_emplace_into_hash_table(vectorized::AggregateDataP
 
                            SCOPED_TIMER(_hash_table_emplace_timer);
                            for (size_t i = 0; i < num_rows; ++i) {
-                               places[i] = agg_method.lazy_emplace(state, i, creator,
-                                                                   creator_for_null_key);
+                               places[i] = *agg_method.lazy_emplace(state, i, creator,
+                                                                    creator_for_null_key);
                            }
 
                            COUNTER_UPDATE(_hash_table_input_counter, num_rows);

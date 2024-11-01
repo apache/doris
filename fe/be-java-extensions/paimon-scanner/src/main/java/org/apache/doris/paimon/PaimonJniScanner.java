@@ -135,7 +135,7 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private List<Predicate> getPredicates() {
-        List<Predicate> predicates = PaimonScannerUtils.decodeStringToObject(paimonPredicate);
+        List<Predicate> predicates = PaimonUtils.deserialize(paimonPredicate);
         if (LOG.isDebugEnabled()) {
             LOG.debug("predicates:{}", predicates);
         }
@@ -143,7 +143,7 @@ public class PaimonJniScanner extends JniScanner {
     }
 
     private Split getSplit() {
-        Split split = PaimonScannerUtils.decodeStringToObject(paimonSplit);
+        Split split = PaimonUtils.deserialize(paimonSplit);
         if (LOG.isDebugEnabled()) {
             LOG.debug("split:{}", split);
         }
@@ -224,7 +224,7 @@ public class PaimonJniScanner extends JniScanner {
             tableExt = PaimonTableCache.getTable(key);
         }
         this.table = tableExt.getTable();
-        paimonAllFieldNames = PaimonScannerUtils.fieldNames(this.table.rowType());
+        paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
         }

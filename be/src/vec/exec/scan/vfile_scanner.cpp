@@ -126,8 +126,6 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     _open_reader_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerOpenReaderTime");
     _cast_to_input_block_timer =
             ADD_TIMER(_local_state->scanner_profile(), "FileScannerCastInputBlockTime");
-    _fill_path_columns_timer =
-            ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillPathColumnTime");
     _fill_missing_columns_timer =
             ADD_TIMER(_local_state->scanner_profile(), "FileScannerFillMissingColumnTime");
     _pre_filter_timer = ADD_TIMER(_local_state->scanner_profile(), "FileScannerPreFilterTimer");
@@ -137,8 +135,6 @@ Status VFileScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     _not_found_file_counter =
             ADD_COUNTER(_local_state->scanner_profile(), "NotFoundFileNum", TUnit::UNIT);
     _file_counter = ADD_COUNTER(_local_state->scanner_profile(), "FileNumber", TUnit::UNIT);
-    _has_fully_rf_file_counter =
-            ADD_COUNTER(_local_state->scanner_profile(), "HasFullyRfFileNumber", TUnit::UNIT);
 
     _file_cache_statistics.reset(new io::FileCacheStatistics());
     _io_ctx.reset(new io::IOContext());
@@ -219,7 +215,7 @@ Status VFileScanner::_process_late_arrival_conjuncts() {
         _discard_conjuncts();
     }
     if (_applied_rf_num == _total_rf_num) {
-        COUNTER_UPDATE(_has_fully_rf_file_counter, 1);
+        _local_state->scanner_profile()->add_info_string("ApplyAllRuntimeFilters", "True");
     }
     return Status::OK();
 }
@@ -449,8 +445,9 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
                 remove_nullable(return_type)->get_type_as_type_descriptor());
         ColumnsWithTypeAndName arguments {
                 arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
-        auto func_cast =
-                SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
+        auto func_cast = SimpleFunctionFactory::instance().get_function(
+                "CAST", arguments, return_type,
+                {.enable_decimal256 = runtime_state()->enable_decimal256()});
         idx = _src_block_name_to_idx[slot_desc->col_name()];
         RETURN_IF_ERROR(
                 func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));

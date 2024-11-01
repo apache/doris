@@ -848,4 +848,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     public long getSelectedSplitNum() {
         return selectedSplitNum;
     }
+
+    @Override
+    public boolean isSerialOperator() {
+        return numScanBackends() <= 0 || getScanRangeNum()
+                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numScanBackends()
+                || (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isForceToLocalShuffle());
+    }
 }

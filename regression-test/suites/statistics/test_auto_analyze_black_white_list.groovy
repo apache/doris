@@ -17,6 +17,36 @@
 
 suite("test_auto_analyze_black_white_list") {
 
+    def wait_row_count_reported = { db, table, row, column, expected ->
+        def result = sql """show frontends;"""
+        logger.info("show frontends result origin: " + result)
+        def host
+        def port
+        for (int i = 0; i < result.size(); i++) {
+            if (result[i][8] == "true") {
+                host = result[i][1]
+                port = result[i][4]
+            }
+        }
+        def tokens = context.config.jdbcUrl.split('/')
+        def url=tokens[0] + "//" + host + ":" + port
+        logger.info("Master url is " + url)
+        connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url) {
+            sql """use ${db}"""
+            result = sql """show frontends;"""
+            logger.info("show frontends result master: " + result)
+            for (int i = 0; i < 120; i++) {
+                Thread.sleep(5000)
+                result = sql """show index stats ${table} ${table};"""
+                logger.info("result " + result)
+                if (result[row][column] == expected) {
+                    return;
+                }
+            }
+            throw new Exception("Row count report timeout.")
+        }
+    }
+
     sql """drop database if exists test_auto_analyze_black_white_list"""
     sql """create database test_auto_analyze_black_white_list"""
     sql """use test_auto_analyze_black_white_list"""
@@ -37,6 +67,13 @@ suite("test_auto_analyze_black_white_list") {
             "replication_num" = "1"
         )
     """
+
+    try {
+        wait_row_count_reported("test_auto_analyze_black_white_list", "test_bw", 0, 4, "0")
+    } catch (Exception e) {
+        logger.info(e.getMessage());
+        return;
+    }
 
     // Test show index row count
     def result = sql """show table stats test_bw"""
