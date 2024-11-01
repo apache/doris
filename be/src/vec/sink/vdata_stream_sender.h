@@ -184,6 +184,8 @@ public:
 
     void set_receiver_eof(Status st) { _receiver_status = st; }
 
+    int64_t mem_usage() const;
+
 protected:
     bool _recvr_is_valid() {
         if (_local_recvr && !_local_recvr->is_closed()) {

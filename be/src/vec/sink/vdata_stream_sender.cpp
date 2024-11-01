@@ -355,6 +355,13 @@ Status Channel<Parent>::close(RuntimeState* state, Status exec_status) {
 }
 
 template <typename Parent>
+int64_t Channel<Parent>::mem_usage() const {
+    auto* mutable_block = _serializer.get_block();
+    int64_t mem_usage = mutable_block ? mutable_block->allocated_bytes() : 0;
+    return mem_usage;
+}
+
+template <typename Parent>
 void Channel<Parent>::ch_roll_pb_block() {
     _ch_cur_pb_block = (_ch_cur_pb_block == &_ch_pb_block1 ? &_ch_pb_block2 : &_ch_pb_block1);
 }
