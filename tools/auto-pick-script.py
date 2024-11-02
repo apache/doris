@@ -65,6 +65,7 @@ repo_tmp_dir = f"/tmp/{pr_number}/{TARGET_BRANCH}/"
 if os.path.exists(repo_tmp_dir):
     print(f"Directory {repo_tmp_dir} already exists. Deleting it.")
     subprocess.run(["rm", "-rf", repo_tmp_dir])
+os.makedirs(repo_tmp_dir)
 # cd to tmp
 os.chdir(repo_tmp_dir)
 subprocess.run(["git", "clone", repo_url])
