@@ -76,13 +76,16 @@ suite("docs/data-operate/import/import-way/insert-into-manual.md") {
             }
         }
         sql """INSERT INTO tbl1 SELECT * FROM tbl2 WHERE k1 = "a";"""
-        try {
-            sql "INSERT INTO tbl1 SELECT LPAD('foo', 100, 'bar');"
-            Assertions.fail("this sql should fail, because we want get err url ")
-        } catch (Exception e) {
-            var msg = e.getMessage()
-            var err_url = msg.substring(msg.lastIndexOf("http"))
-            sql """SHOW LOAD WARNINGS ON "${err_url}";"""
+        if (!isCloudMode()) {
+            // skip this case if this is a cloud cluster
+            try {
+                sql "INSERT INTO tbl1 SELECT LPAD('foo', 100, 'bar');"
+                Assertions.fail("this sql should fail, because we want get err url ")
+            } catch (Exception e) {
+                var msg = e.getMessage()
+                var err_url = msg.substring(msg.lastIndexOf("http"))
+                sql """SHOW LOAD WARNINGS ON "${err_url}";"""
+            }
         }
     } catch (Throwable t) {
         Assertions.fail("examples in docs/data-operate/import/import-way/insert-into-manual.md failed to exec, please fix it", t)

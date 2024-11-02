@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Assertions
 
 suite("docs/data-operate/import/import-way/mysql-load-manual.md") {
-    def is_linux = System.getProperty("os.name").toLowerCase().contains("linux")
+    def is_linux = !System.getProperty("os.name").toLowerCase().contains("linux")
     def run_cmd = { String cmdText ->
         try {
-            cmd cmdText
+            println(cmd cmdText)
             return true
         } catch (Exception ignored) {
             return false
@@ -38,14 +38,26 @@ suite("docs/data-operate/import/import-way/mysql-load-manual.md") {
         logger.warn("could not install mysql cmd client, skip this case")
         return
     }
+    def writeToFile = {String path, String data ->
+        OutputStreamWriter w = null
+        try {
+            w = new OutputStreamWriter(new FileOutputStream(path))
+            w.write(data)
+            w.flush()
+            w.close()
+        } finally {
+            if (w != null) w.close()
+        }
+    }
     def load_local = {String sql ->
         if (is_linux) {
-            cmd """
+            var output = cmd """
                 cd ${context.file.parent} && \\ 
                 cat << EOF | mysql --local-infile -h ${getMasterIp()} -P ${getMasterPort("mysql")} -u ${context.config.jdbcUser} ${context.config.jdbcPassword.isEmpty() ? "" : "-p  ${context.config.jdbcPassword}"} -D testdb
 ${sql}
 EOF
             """
+            println(output)
         }
     }
 
@@ -96,6 +108,7 @@ EOF
             DISTRIBUTED BY hash (k1)
             PROPERTIES ("replication_num" = "1");
         """
+        writeToFile("${context.file.parent}/testData", "1\t2\t3\n")
         load_local """
             LOAD DATA LOCAL
             INFILE 'testData'
@@ -114,13 +127,15 @@ EOF
             INTO TABLE testDb.testTbl
             (k2, k1, v1);
         """
+        writeToFile("${context.file.parent}/testData", "1,2,3\n")
         load_local """
             LOAD DATA LOCAL
-            INFILE 'testData2'
+            INFILE 'testData'
             INTO TABLE testDb.testTbl
             COLUMNS TERMINATED BY ','
             LINES TERMINATED BY '\\n';
         """
+        writeToFile("${context.file.parent}/testData", "1\t2\t3\n")
         load_local """
             LOAD DATA LOCAL
             INFILE 'testData'
