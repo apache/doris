@@ -18,7 +18,7 @@
 import org.junit.jupiter.api.Assertions
 
 suite("docs/data-operate/import/import-way/mysql-load-manual.md") {
-    def is_linux = !System.getProperty("os.name").toLowerCase().contains("linux")
+    def is_linux = System.getProperty("os.name").toLowerCase().contains("linux")
     def run_cmd = { String cmdText ->
         try {
             println(cmd cmdText)
@@ -32,7 +32,7 @@ suite("docs/data-operate/import/import-way/mysql-load-manual.md") {
         return
     }
     logger.info("check if has installed mysql cmd")
-    if (run_cmd("mysql --help") || run_cmd("yum -y install mysql")) {
+    if (run_cmd("mysql --help 2>&1 >/dev/null") || run_cmd("yum -y install mysql")) {
         logger.info("mysql cmd can work properly, go continue")
     } else {
         logger.warn("could not install mysql cmd client, skip this case")
@@ -53,7 +53,7 @@ suite("docs/data-operate/import/import-way/mysql-load-manual.md") {
         if (is_linux) {
             var output = cmd """
                 cd ${context.file.parent} && \\ 
-                cat << EOF | mysql --local-infile -h ${getMasterIp()} -P ${getMasterPort("mysql")} -u ${context.config.jdbcUser} ${context.config.jdbcPassword.isEmpty() ? "" : "-p  ${context.config.jdbcPassword}"} -D testdb
+                cat << EOF | mysql --local-infile -vvv -h ${getMasterIp()} -P ${getMasterPort("mysql")} -u ${context.config.jdbcUser} ${context.config.jdbcPassword.isEmpty() ? "" : "-p  ${context.config.jdbcPassword}"} -D testdb
 ${sql}
 EOF
             """
