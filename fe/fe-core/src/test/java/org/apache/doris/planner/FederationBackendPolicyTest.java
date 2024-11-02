@@ -744,7 +744,7 @@ public class FederationBackendPolicyTest {
 
     @Test
     public void testSplitWeight() {
-        FileSplit fileSplit = new FileSplit(new Path("s1"), 0, 1000, 1000, 0, null, Collections.emptyList());
+        FileSplit fileSplit = new FileSplit(new LocationPath("s1"), 0, 1000, 1000, 0, null, Collections.emptyList());
         fileSplit.setSelfSplitWeight(1000L);
 
         fileSplit.setTargetSplitSize(10L);
@@ -831,7 +831,7 @@ public class FederationBackendPolicyTest {
     }
 
     private FileSplit genFileSplit(String path, long length, long targetSplit) {
-        FileSplit s = new FileSplit(new Path(path), 0, length, length, 0, null, Collections.emptyList());
+        FileSplit s = new FileSplit(new LocationPath(path), 0, length, length, 0, null, Collections.emptyList());
         s.setSelfSplitWeight(length);
         s.setTargetSplitSize(targetSplit);
         return s;
