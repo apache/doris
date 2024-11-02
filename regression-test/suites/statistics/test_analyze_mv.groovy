@@ -742,6 +742,7 @@ suite("test_analyze_mv") {
     assertEquals("0.0", result[0][6])
     assertEquals("1", result[0][7])
     assertEquals("5", result[0][8])
+    assertEquals("5", result[0][8])
 
     sql """drop database if exists test_analyze_mv"""
 }
