@@ -396,8 +396,8 @@ public class ExportJob implements Writable {
         return statementBase;
     }
 
-    public List<? extends TransientTaskExecutor> getTaskExecutors() {
-        return jobExecutorList;
+    public List<? extends TransientTaskExecutor> getCopiedTaskExecutors() {
+        return Lists.newArrayList(jobExecutorList);
     }
 
     private void generateExportJobExecutor() {
