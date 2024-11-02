@@ -614,6 +614,6 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     @Override
     public long fetchRowCount() {
-        return 0;
+        return UNKNOWN_ROW_COUNT;
     }
 }

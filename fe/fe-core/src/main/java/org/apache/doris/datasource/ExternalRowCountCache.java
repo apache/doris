@@ -94,7 +94,7 @@ public class ExternalRowCountCache {
     }
 
     /**
-     * Get cached row count for the given table. Return 0 if cached not loaded or table not exists.
+     * Get cached row count for the given table. Return -1 if cached not loaded or table not exists.
      * Cached will be loaded async.
      * @param catalogId
      * @param dbId
@@ -106,12 +106,12 @@ public class ExternalRowCountCache {
         try {
             CompletableFuture<Optional<Long>> f = rowCountCache.get(key);
             if (f.isDone()) {
-                return f.get().orElse(0L);
+                return f.get().orElse(TableIf.UNKNOWN_ROW_COUNT);
             }
         } catch (Exception e) {
             LOG.warn("Unexpected exception while returning row count", e);
         }
-        return 0;
+        return TableIf.UNKNOWN_ROW_COUNT;
     }
 
 }
