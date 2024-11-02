@@ -59,8 +59,17 @@ subprocess.run(["git", "config", "--global", "credential.helper", "store"], chec
 
 # Clone the repository locally and switch to the new branch
 repo_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{REPO_NAME}.git"
-subprocess.run(["git", "clone", repo_url])
 repo_dir = REPO_NAME.split("/")[-1]  # Get the directory name
+#create tmp dir
+repo_tmp_dir = f"/tmp/{pr_number}/{TARGET_BRANCH}/"
+if os.path.exists(repo_tmp_dir):
+    print(f"Directory {repo_tmp_dir} already exists. Deleting it.")
+    subprocess.run(["rm", "-rf", repo_tmp_dir])
+os.makedirs(repo_tmp_dir)
+# cd to tmp
+os.chdir(repo_tmp_dir)
+subprocess.run(["git", "clone", repo_url])
+
 subprocess.run(["git", "checkout", new_branch_name], cwd=repo_dir)
 
 # Set Git user identity for commits
@@ -89,11 +98,10 @@ try:
         # Create a new PR for the cherry-picked changes
         new_pr = repo.create_pull(
             title=f"{TARGET_BRANCH}: {pr.title}",  # Prefix with branch name
-            body=f"PR Body: {pr.body} \n Cherry-picked from #{pr.number}",  # Keep the original PR body
+            body=f"Cherry-picked from #{pr.number}",  # Keep the original PR body
             head=new_branch_name,
             base=TARGET_BRANCH
         )
-        new_pr.create_issue_comment("run buildall")
         print(f"Created a new PR #{new_pr.number} for cherry-picked changes.")
     else:
         print(f"Commit {merge_commit_sha} was not found in {new_branch_name} after cherry-picking.")
