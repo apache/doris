@@ -57,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
@@ -271,6 +272,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowBackendsCommand(ShowBackendsCommand showBackendsCommand, C context) {
         return visitCommand(showBackendsCommand, context);
+    }
+
+    default R visitShowCreateTableCommand(ShowCreateTableCommand showCreateTableCommand, C context) {
+        return visitCommand(showCreateTableCommand, context);
     }
 
     default R visitShowRepositoriesCommand(ShowRepositoriesCommand showRepositoriesCommand, C context) {
