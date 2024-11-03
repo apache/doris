@@ -32,6 +32,7 @@
 #include "pipeline_task.h"
 
 namespace doris::pipeline {
+#include "common/compile_check_begin.h"
 
 class TaskQueue {
 public:
@@ -70,11 +71,13 @@ public:
     // note:
     // runtime is the time consumed by the actual execution of the task
     // vruntime(means virtual runtime) = runtime / _level_factor
-    double get_vruntime() { return _runtime / _level_factor; }
+    double get_vruntime() { return double(_runtime) / _level_factor; }
 
     void inc_runtime(uint64_t delta_time) { _runtime += delta_time; }
 
-    void adjust_runtime(uint64_t vruntime) { this->_runtime = uint64_t(vruntime * _level_factor); }
+    void adjust_runtime(uint64_t vruntime) {
+        this->_runtime = uint64_t(double(vruntime) * _level_factor);
+    }
 
     bool empty() { return _queue.empty(); }
 
@@ -150,5 +153,5 @@ private:
     std::atomic<uint32_t> _next_core = 0;
     std::atomic<bool> _closed;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

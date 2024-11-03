@@ -43,6 +43,9 @@ namespace doris::pipeline {
 
 Status OlapScanLocalState::_init_profile() {
     RETURN_IF_ERROR(ScanLocalState<OlapScanLocalState>::_init_profile());
+    // Rows read from storage.
+    // Include the rows read from doris page cache.
+    _scan_rows = ADD_COUNTER(_runtime_profile, "ScanRows", TUnit::UNIT);
     // 1. init segment profile
     _segment_profile.reset(new RuntimeProfile("SegmentIterator"));
     _scanner_profile->add_child(_segment_profile.get(), true, nullptr);
@@ -58,23 +61,20 @@ Status OlapScanLocalState::_init_profile() {
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
     _delete_bitmap_get_agg_timer = ADD_TIMER(_scanner_profile, "DeleteBitmapGetAggTime");
-    _sync_rowset_timer = ADD_TIMER(_scanner_profile, "SyncRowsetTime");
-    _raw_rows_counter = ADD_COUNTER(_segment_profile, "RawRowsRead", TUnit::UNIT);
-    _block_convert_timer = ADD_TIMER(_scanner_profile, "BlockConvertTime");
+    if (config::is_cloud_mode()) {
+        _sync_rowset_timer = ADD_TIMER(_scanner_profile, "SyncRowsetTime");
+    }
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
-    _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
-    _block_conditions_filtered_bf_timer =
-            ADD_TIMER(_segment_profile, "BlockConditionsFilteredBloomFilterTime");
+    _segment_generate_row_range_timer = ADD_TIMER(_segment_profile, "GenerateRowRangeTime");
+    _segment_generate_row_range_by_bf_timer =
+            ADD_TIMER(_segment_profile, "GenerateRowRangeByBloomFilterIndexTime");
     _collect_iterator_merge_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorMergeTime");
-    _collect_iterator_normal_next_timer = ADD_TIMER(_segment_profile, "CollectIteratorNormalTime");
-    _block_conditions_filtered_zonemap_timer =
-            ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapTime");
-    _block_conditions_filtered_zonemap_rp_timer =
-            ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapRuntimePredicateTime");
-    _block_conditions_filtered_dict_timer =
-            ADD_TIMER(_segment_profile, "BlockConditionsFilteredDictTime");
+    _segment_generate_row_range_by_zonemap_timer =
+            ADD_TIMER(_segment_profile, "GenerateRowRangeByZoneMapIndexTime");
+    _segment_generate_row_range_by_dict_timer =
+            ADD_TIMER(_segment_profile, "GenerateRowRangeByDictTime");
 
     _rows_vec_cond_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
@@ -87,10 +87,11 @@ Status OlapScanLocalState::_init_profile() {
     _vec_cond_timer = ADD_TIMER(_segment_profile, "VectorPredEvalTime");
     _short_cond_timer = ADD_TIMER(_segment_profile, "ShortPredEvalTime");
     _expr_filter_timer = ADD_TIMER(_segment_profile, "ExprFilterEvalTime");
-    _first_read_timer = ADD_TIMER(_segment_profile, "FirstReadTime");
-    _second_read_timer = ADD_TIMER(_segment_profile, "SecondReadTime");
-    _first_read_seek_timer = ADD_TIMER(_segment_profile, "FirstReadSeekTime");
-    _first_read_seek_counter = ADD_COUNTER(_segment_profile, "FirstReadSeekCount", TUnit::UNIT);
+    _predicate_column_read_timer = ADD_TIMER(_segment_profile, "PredicateColumnReadTime");
+    _non_predicate_column_read_timer = ADD_TIMER(_segment_profile, "NonPredicateColumnReadTime");
+    _predicate_column_read_seek_timer = ADD_TIMER(_segment_profile, "PredicateColumnReadSeekTime");
+    _predicate_column_read_seek_counter =
+            ADD_COUNTER(_segment_profile, "PredicateColumnReadSeekCount", TUnit::UNIT);
 
     _lazy_read_timer = ADD_TIMER(_segment_profile, "LazyReadTime");
     _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
@@ -100,7 +101,7 @@ Status OlapScanLocalState::_init_profile() {
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
     _stats_rp_filtered_counter =
-            ADD_COUNTER(_segment_profile, "RowsZonemapRuntimePredicateFiltered", TUnit::UNIT);
+            ADD_COUNTER(_segment_profile, "RowsZoneMapRuntimePredicateFiltered", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
     _dict_filtered_counter = ADD_COUNTER(_segment_profile, "RowsDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
@@ -131,8 +132,6 @@ Status OlapScanLocalState::_init_profile() {
             ADD_TIMER(_segment_profile, "InvertedIndexQueryNullBitmapTime");
     _inverted_index_query_bitmap_copy_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapCopyTime");
-    _inverted_index_query_bitmap_op_timer =
-            ADD_TIMER(_segment_profile, "InvertedIndexQueryBitmapOpTime");
     _inverted_index_searcher_open_timer =
             ADD_TIMER(_segment_profile, "InvertedIndexSearcherOpenTime");
     _inverted_index_searcher_search_timer =
@@ -144,7 +143,7 @@ Status OlapScanLocalState::_init_profile() {
     _inverted_index_downgrade_count_counter =
             ADD_COUNTER(_segment_profile, "InvertedIndexDowngradeCount", TUnit::UNIT);
 
-    _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTimer");
+    _output_index_result_column_timer = ADD_TIMER(_segment_profile, "OutputIndexResultColumnTime");
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
@@ -164,16 +163,13 @@ Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
 }
 
 bool OlapScanLocalState::_is_key_column(const std::string& key_name) {
-    auto& p = _parent->cast<OlapScanOperatorX>();
     // all column in dup_keys table or unique_keys with merge on write table olap scan node threat
     // as key column
-    if (p._olap_scan_node.keyType == TKeysType::DUP_KEYS ||
-        (p._olap_scan_node.keyType == TKeysType::UNIQUE_KEYS &&
-         p._olap_scan_node.__isset.enable_unique_key_merge_on_write &&
-         p._olap_scan_node.enable_unique_key_merge_on_write)) {
+    if (_storage_no_merge()) {
         return true;
     }
 
+    auto& p = _parent->cast<OlapScanOperatorX>();
     auto res = std::find(p._olap_scan_node.key_column_name.begin(),
                          p._olap_scan_node.key_column_name.end(), key_name);
     return res != p._olap_scan_node.key_column_name.end();
@@ -282,8 +278,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                         scan_range->version.data() + scan_range->version.size(), version);
         tablets.emplace_back(std::move(tablet), version);
     }
-    int64_t duration_ns = 0;
+
     if (config::is_cloud_mode()) {
+        int64_t duration_ns = 0;
         SCOPED_RAW_TIMER(&duration_ns);
         std::vector<std::function<Status()>> tasks;
         tasks.reserve(_scan_ranges.size());
@@ -293,8 +290,8 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
             });
         }
         RETURN_IF_ERROR(cloud::bthread_fork_join(tasks, 10));
+        _sync_rowset_timer->update(duration_ns);
     }
-    _sync_rowset_timer->update(duration_ns);
 
     if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
         p._push_down_agg_type == TPushAggOp::NONE &&
@@ -335,25 +332,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
 
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
 
-    auto build_new_scanner = [&](BaseTabletSPtr tablet, int64_t version,
-                                 const std::vector<OlapScanRange*>& key_ranges) {
-        COUNTER_UPDATE(_key_range_counter, key_ranges.size());
-        auto scanner = vectorized::NewOlapScanner::create_shared(
-                this, vectorized::NewOlapScanner::Params {
-                              state(),
-                              _scanner_profile.get(),
-                              key_ranges,
-                              std::move(tablet),
-                              version,
-                              {},
-                              p._limit,
-                              p._olap_scan_node.is_preaggregation,
-                      });
-        RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
-        scanners->push_back(std::move(scanner));
-        return Status::OK();
-    };
-
     for (auto& scan_range : _scan_ranges) {
         auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
         int64_t version = 0;
@@ -379,7 +357,21 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                  ++j, ++i) {
                 scanner_ranges.push_back((*ranges)[i].get());
             }
-            RETURN_IF_ERROR(build_new_scanner(tablet, version, scanner_ranges));
+
+            COUNTER_UPDATE(_key_range_counter, scanner_ranges.size());
+            auto scanner = vectorized::NewOlapScanner::create_shared(
+                    this, vectorized::NewOlapScanner::Params {
+                                  state(),
+                                  _scanner_profile.get(),
+                                  scanner_ranges,
+                                  std::move(tablet),
+                                  version,
+                                  {},
+                                  p._limit,
+                                  p._olap_scan_node.is_preaggregation,
+                          });
+            RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
+            scanners->push_back(std::move(scanner));
         }
     }
 

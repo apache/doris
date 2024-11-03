@@ -49,6 +49,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class FunctionContext;
 } // namespace doris
 
@@ -72,8 +73,6 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
@@ -90,10 +89,6 @@ public:
                                            : block.get_by_position(arguments[0]).column;
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
-
-        for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], result_null_map_column, col_const[i]);
-        }
 
         if (col_const[1] && col_const[2]) {
             execute_scalar_args(

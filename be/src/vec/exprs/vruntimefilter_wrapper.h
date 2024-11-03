@@ -72,34 +72,50 @@ public:
         _always_true_counter = always_true_counter;
     }
 
-    template <typename T, typename TT>
-    static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
-                                  T& always_true, TT& judge_counter) {
-        always_true = filter_rows / (input_rows * 1.0) < ignore_threshold;
-        judge_counter = config::runtime_filter_sampling_frequency;
+    void update_counters(int64_t filter_rows, int64_t input_rows) {
+        COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
+        COUNTER_UPDATE(_expr_input_rows_counter, input_rows);
     }
 
-    bool need_judge_selectivity() override {
-        if (_judge_counter <= 0) {
-            _always_true = false;
-            return true;
-        }
-        return false;
+    template <typename T>
+    static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
+                                  T& always_true) {
+        always_true = filter_rows / (input_rows * 1.0) < ignore_threshold;
     }
+
+    bool is_rf_wrapper() const override { return true; }
 
     void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) override {
-        judge_selectivity(_ignore_thredhold, filter_rows, input_rows, _always_true, _judge_counter);
-        if (_expr_filtered_rows_counter) {
-            COUNTER_UPDATE(_expr_filtered_rows_counter, filter_rows);
-        }
-        if (_expr_input_rows_counter) {
-            COUNTER_UPDATE(_expr_input_rows_counter, input_rows);
+        update_counters(filter_rows, input_rows);
+
+        if (!_always_true) {
+            _judge_filter_rows += filter_rows;
+            _judge_input_rows += input_rows;
+            judge_selectivity(_ignore_thredhold, _judge_filter_rows, _judge_input_rows,
+                              _always_true);
         }
     }
 
 private:
+    void reset_judge_selectivity() {
+        _always_true = false;
+        _judge_counter = config::runtime_filter_sampling_frequency;
+        _judge_input_rows = 0;
+        _judge_filter_rows = 0;
+    }
+
     VExprSPtr _impl;
+    // VRuntimeFilterWrapper and ColumnPredicate share the same logic,
+    // but it's challenging to unify them, so the code is duplicated.
+    // _judge_counter, _judge_input_rows, _judge_filter_rows, and _always_true
+    // are variables used to implement the _always_true logic, calculated periodically
+    // based on runtime_filter_sampling_frequency. During each period, if _always_true
+    // is evaluated as true, the logic for always_true is applied for the rest of that period
+    // without recalculating. At the beginning of the next period,
+    // reset_judge_selectivity is used to reset these variables.
     std::atomic_int _judge_counter = 0;
+    std::atomic_int _judge_input_rows = 0;
+    std::atomic_int _judge_filter_rows = 0;
     std::atomic_int _always_true = false;
 
     RuntimeProfile::Counter* _expr_filtered_rows_counter = nullptr;

@@ -48,9 +48,6 @@ UDFTableFunction::UDFTableFunction(const TFunction& t_fn) : TableFunction(), _t_
 Status UDFTableFunction::open() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    if (env == nullptr) {
-        return Status::InternalError("Failed to get/create JVM");
-    }
     _jni_ctx = std::make_shared<JniContext>();
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
     JniLocalFrame jni_frame;
@@ -70,14 +67,22 @@ Status UDFTableFunction::open() {
         RETURN_IF_ERROR(jni_frame.push(env));
         RETURN_IF_ERROR(SerializeThriftMsg(env, &ctor_params, &ctor_params_bytes));
         RETURN_IF_ERROR(JniUtil::GetGlobalClassRef(env, EXECUTOR_CLASS, &_jni_ctx->executor_cl));
-        _jni_ctx->executor_ctor_id =
-                env->GetMethodID(_jni_ctx->executor_cl, "<init>", EXECUTOR_CTOR_SIGNATURE);
-        _jni_ctx->executor_evaluate_id =
-                env->GetMethodID(_jni_ctx->executor_cl, "evaluate", EXECUTOR_EVALUATE_SIGNATURE);
-        _jni_ctx->executor_close_id =
-                env->GetMethodID(_jni_ctx->executor_cl, "close", EXECUTOR_CLOSE_SIGNATURE);
-        _jni_ctx->executor = env->NewObject(_jni_ctx->executor_cl, _jni_ctx->executor_ctor_id,
-                                            ctor_params_bytes);
+
+        JNI_CALL_METHOD_CHECK_EXCEPTION(
+                , _jni_ctx->executor_ctor_id, env,
+                GetMethodID(_jni_ctx->executor_cl, "<init>", EXECUTOR_CTOR_SIGNATURE));
+
+        JNI_CALL_METHOD_CHECK_EXCEPTION(
+                , _jni_ctx->executor_evaluate_id, env,
+                GetMethodID(_jni_ctx->executor_cl, "evaluate", EXECUTOR_EVALUATE_SIGNATURE));
+
+        JNI_CALL_METHOD_CHECK_EXCEPTION(
+                , _jni_ctx->executor_close_id, env,
+                GetMethodID(_jni_ctx->executor_cl, "close", EXECUTOR_CLOSE_SIGNATURE));
+
+        JNI_CALL_METHOD_CHECK_EXCEPTION(
+                , _jni_ctx->executor, env,
+                NewObject(_jni_ctx->executor_cl, _jni_ctx->executor_ctor_id, ctor_params_bytes));
         jbyte* pBytes = env->GetByteArrayElements(ctor_params_bytes, nullptr);
         env->ReleaseByteArrayElements(ctor_params_bytes, pBytes, JNI_ABORT);
         env->DeleteLocalRef(ctor_params_bytes);
@@ -123,9 +128,10 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
     jobject output_map = JniUtil::convert_to_java_map(env, output_params);
     DCHECK(_jni_ctx != nullptr);
     DCHECK(_jni_ctx->executor != nullptr);
-    long output_address = env->CallLongMethod(_jni_ctx->executor, _jni_ctx->executor_evaluate_id,
-                                              input_map, output_map);
-    RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+    JNI_CALL_METHOD_CHECK_EXCEPTION(
+            long, output_address, env,
+            CallLongMethod(_jni_ctx->executor, _jni_ctx->executor_evaluate_id, input_map,
+                           output_map));
     env->DeleteLocalRef(input_map);
     env->DeleteLocalRef(output_map);
     RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));

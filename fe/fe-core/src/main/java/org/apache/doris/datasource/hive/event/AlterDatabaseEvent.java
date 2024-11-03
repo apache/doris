@@ -67,7 +67,7 @@ public class AlterDatabaseEvent extends MetastoreEvent {
             dbNameAfter = dbAfter.getName();
         } catch (Exception e) {
             throw new MetastoreNotificationException(
-                    debugString("Unable to parse the alter database message"), e);
+                    getMsgWithEventInfo("Unable to parse the alter database message"), e);
         }
         // this is a rename event if either dbName of before and after object changed
         isRename = !dbBefore.getName().equalsIgnoreCase(dbAfter.getName());
@@ -82,13 +82,13 @@ public class AlterDatabaseEvent extends MetastoreEvent {
             throw new DdlException("Only support ExternalCatalog Databases");
         }
         if (catalog.getDbNullable(dbAfter.getName()) != null) {
-            infoLog("AlterExternalDatabase canceled, because dbAfter has exist, "
+            logInfo("AlterExternalDatabase canceled, because dbAfter has exist, "
                             + "catalogName:[{}],dbName:[{}]",
                     catalogName, dbAfter.getName());
             return;
         }
-        Env.getCurrentEnv().getCatalogMgr().unregisterExternalDatabase(dbBefore.getName(), catalogName, true);
-        Env.getCurrentEnv().getCatalogMgr().registerExternalDatabaseFromEvent(dbAfter.getName(), catalogName, true);
+        Env.getCurrentEnv().getCatalogMgr().unregisterExternalDatabase(dbBefore.getName(), catalogName);
+        Env.getCurrentEnv().getCatalogMgr().registerExternalDatabaseFromEvent(dbAfter.getName(), catalogName);
 
     }
 
@@ -113,10 +113,10 @@ public class AlterDatabaseEvent extends MetastoreEvent {
                 return;
             }
             // only can change properties,we do nothing
-            infoLog("catalogName:[{}],dbName:[{}]", catalogName, dbName);
+            logInfo("catalogName:[{}],dbName:[{}]", catalogName, dbName);
         } catch (Exception e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"), e);
+                    getMsgWithEventInfo("Failed to process event"), e);
         }
     }
 }

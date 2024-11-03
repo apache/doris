@@ -115,11 +115,13 @@ public class EsScanNode extends ExternalScanNode {
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
+        buildQuery();
         doFinalize();
     }
 
     @Override
     public void finalizeForNereids() throws UserException {
+        buildQuery();
         doFinalize();
     }
 

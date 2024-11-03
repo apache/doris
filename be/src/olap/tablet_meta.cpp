@@ -42,6 +42,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/rowset.h"
+#include "olap/rowset/rowset_meta_manager.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
 #include "util/debug_points.h"
@@ -1188,6 +1189,9 @@ void DeleteBitmap::add_to_remove_queue(
 }
 
 void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector) {
+    if (!config::enable_delete_bitmap_merge_on_compaction) {
+        return;
+    }
     std::shared_lock l(stale_delete_bitmap_lock);
     //<rowset_id, start_version, end_version>
     std::vector<std::tuple<std::string, uint64_t, uint64_t>> to_delete;

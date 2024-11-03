@@ -33,8 +33,8 @@ import org.apache.doris.system.Backend;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 
-import java.util.Arrays;
 import java.util.List;
 
 /*
@@ -116,7 +116,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
             if (Config.enable_query_hit_stats) {
                 queryHits = QueryStatsUtil.getMergedReplicaStats(replica.getId());
             }
-            List<String> replicaInfo = Arrays.asList(String.valueOf(replica.getId()),
+            List<String> replicaInfo = Lists.newArrayList(String.valueOf(replica.getId()),
                     String.valueOf(replica.getBackendIdWithoutException()),
                     String.valueOf(replica.getVersion()),
                     String.valueOf(replica.getLastSuccessVersion()),

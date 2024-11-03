@@ -77,7 +77,12 @@ visible_functions = {
         [['bitnot'], 'LARGEINT', ['LARGEINT'], ''],
         
         [['bit_shift_left'],    'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
-        [['bit_shift_right'],   'BIGINT',   ['BIGINT',  'TINYINT'],     '']
+        [['bit_shift_right'],   'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['TINYINT','TINYINT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['SMALLINT','SMALLINT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['INT','INT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['BIGINT','BIGINT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['LARGEINT','LARGEINT','...'], '']
     ],
 
     # map functions
@@ -1676,6 +1681,7 @@ visible_functions = {
 
         [['overlay'], 'VARCHAR', ['VARCHAR', 'INT', 'INT', 'VARCHAR'], ''],
 
+        [['count_substrings'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['strleft', 'left'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
@@ -2071,7 +2077,10 @@ visible_functions = {
     "Url": [
         [['domain'], 'STRING', ['STRING'], ''],
         [['domain_without_www'], 'STRING', ['STRING'], ''],
-        [['protocol'], 'STRING', ['STRING'], '']
+        [['protocol'], 'STRING', ['STRING'], ''],
+        [['top_level_domain'], 'STRING', ['STRING'], ''],
+        [['cut_to_first_significant_subdomain'], 'STRING', ['STRING'], ''],
+        [['first_significant_subdomain'], 'STRING', ['STRING'], '']
     ],
 
     # search functions

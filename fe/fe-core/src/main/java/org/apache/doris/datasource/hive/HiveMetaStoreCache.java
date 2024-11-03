@@ -244,7 +244,7 @@ public class HiveMetaStoreCache {
     }
 
     private HivePartitionValues loadPartitionValues(PartitionValueCacheKey key) {
-        // partition name format: nation=cn/city=beijing
+        // partition name format: nation=cn/city=beijing,`listPartitionNames` returned string is the encoded string.
         List<String> partitionNames = catalog.getClient().listPartitionNames(key.dbName, key.tblName);
         if (LOG.isDebugEnabled()) {
             LOG.debug("load #{} partitions for {} in catalog {}", partitionNames.size(), key, catalog.getName());
@@ -281,11 +281,10 @@ public class HiveMetaStoreCache {
     public ListPartitionItem toListPartitionItem(String partitionName, List<Type> types) {
         // Partition name will be in format: nation=cn/city=beijing
         // parse it to get values "cn" and "beijing"
-        String[] parts = partitionName.split("/");
-        Preconditions.checkState(parts.length == types.size(), partitionName + " vs. " + types);
+        List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
+        Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
-        for (String part : parts) {
-            String partitionValue = HiveUtil.getHivePartitionValue(part);
+        for (String partitionValue : partitionValues) {
             values.add(new PartitionValue(partitionValue, HIVE_DEFAULT_PARTITION.equals(partitionValue)));
         }
         try {
@@ -325,9 +324,9 @@ public class HiveMetaStoreCache {
             StringBuilder sb = new StringBuilder();
             Preconditions.checkState(key.getValues().size() == partitionColumns.size());
             for (int i = 0; i < partitionColumns.size(); i++) {
-                sb.append(partitionColumns.get(i).getName());
+                // Partition name and value  may contain special character, like / and so on. Need to encode.
+                sb.append(FileUtils.escapePathName(partitionColumns.get(i).getName()));
                 sb.append("=");
-                // Partition value may contain special character, like / and so on. Need to encode.
                 sb.append(FileUtils.escapePathName(key.getValues().get(i)));
                 sb.append("/");
             }
@@ -744,7 +743,7 @@ public class HiveMetaStoreCache {
     }
 
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
-            boolean isFullAcid, long tableId, String bindBrokerName) {
+            boolean isFullAcid, boolean skipCheckingAcidVersionFile, long tableId, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
         String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
         try {
@@ -778,25 +777,27 @@ public class HiveMetaStoreCache {
                     if (baseOrDeltaPath == null) {
                         return Collections.emptyList();
                     }
-                    String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
-                    RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                            new FileSystemCache.FileSystemCacheKey(
-                                    LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
-                                            bindBrokerName),
-                                            catalog.getCatalogProperty().getProperties(),
-                                            bindBrokerName, jobConf));
-                    Status status = fs.exists(acidVersionPath);
-                    if (status != Status.OK) {
-                        if (status.getErrCode() == ErrCode.NOT_FOUND) {
-                            acidVersion = 0;
-                        } else {
-                            throw new Exception(String.format("Failed to check remote path {} exists.",
-                                    acidVersionPath));
+                    if (!skipCheckingAcidVersionFile) {
+                        String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
+                        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
+                                new FileSystemCache.FileSystemCacheKey(
+                                        LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
+                                                bindBrokerName),
+                                        catalog.getCatalogProperty().getProperties(),
+                                        bindBrokerName, jobConf));
+                        Status status = fs.exists(acidVersionPath);
+                        if (status != Status.OK) {
+                            if (status.getErrCode() == ErrCode.NOT_FOUND) {
+                                acidVersion = 0;
+                            } else {
+                                throw new Exception(String.format("Failed to check remote path {} exists.",
+                                        acidVersionPath));
+                            }
                         }
-                    }
-                    if (acidVersion == 0 && !directory.getCurrentDirectories().isEmpty()) {
-                        throw new Exception(
-                                "Hive 2.x versioned full-acid tables need to run major compaction.");
+                        if (acidVersion == 0 && !directory.getCurrentDirectories().isEmpty()) {
+                            throw new Exception(
+                                    "Hive 2.x versioned full-acid tables need to run major compaction.");
+                        }
                     }
                 }
 

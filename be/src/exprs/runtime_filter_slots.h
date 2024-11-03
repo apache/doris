@@ -42,17 +42,17 @@ public:
     }
 
     Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
-                            std::shared_ptr<pipeline::Dependency> dependency) {
+                            std::shared_ptr<pipeline::CountedFinishDependency> dependency) {
         if (_runtime_filters.empty()) {
             return Status::OK();
         }
         for (auto runtime_filter : _runtime_filters) {
             if (runtime_filter->need_sync_filter_size()) {
-                runtime_filter->set_dependency(dependency);
+                runtime_filter->set_finish_dependency(dependency);
             }
         }
 
-        // send_filter_size may call dependency->sub(), so we call set_dependency firstly for all rf to avoid dependency set_ready repeatedly
+        // send_filter_size may call dependency->sub(), so we call set_finish_dependency firstly for all rf to avoid dependency set_ready repeatedly
         for (auto runtime_filter : _runtime_filters) {
             if (runtime_filter->need_sync_filter_size()) {
                 RETURN_IF_ERROR(runtime_filter->send_filter_size(state, hash_table_size));

@@ -17,53 +17,52 @@
 
 #pragma once
 
-#include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/hash_table/hash_key_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
-enum class HashKeyType {
-    EMPTY = 0,
-    without_key,
-    serialized,
-    int8_key,
-    int16_key,
-    int32_key,
-    int32_key_phase2,
-    int64_key,
-    int64_key_phase2,
-    int128_key,
-    int128_key_phase2,
-    string_key,
-};
+inline std::vector<vectorized::DataTypePtr> get_data_types(
+        const vectorized::VExprContextSPtrs& expr_contexts) {
+    std::vector<vectorized::DataTypePtr> data_types;
+    for (const auto& ctx : expr_contexts) {
+        data_types.emplace_back(ctx->root()->data_type());
+    }
+    return data_types;
+}
 
-inline HashKeyType get_hash_key_type_with_phase(HashKeyType t, bool phase2) {
-    if (!phase2) {
-        return t;
+template <typename DataVariants>
+Status init_hash_method(DataVariants* data, const std::vector<vectorized::DataTypePtr>& data_types,
+                        bool is_first_phase) {
+    auto type = HashKeyType::EMPTY;
+    try {
+        type = get_hash_key_type_with_phase(get_hash_key_type(data_types), !is_first_phase);
+        data->init(data_types, type);
+    } catch (const Exception& e) {
+        // method_variant may meet valueless_by_exception, so we set it to monostate
+        data->method_variant.template emplace<std::monostate>();
+        return e.to_status();
     }
-    if (t == HashKeyType::int32_key) {
-        return HashKeyType::int32_key_phase2;
+
+    CHECK(!data->method_variant.valueless_by_exception());
+
+    if (type != HashKeyType::without_key && type != HashKeyType::EMPTY &&
+        data->method_variant.index() == 0) { // index is 0 means variant is monostate
+        return Status::InternalError("method_variant init failed");
     }
-    if (t == HashKeyType::int64_key) {
-        return HashKeyType::int64_key_phase2;
-    }
-    return t;
+    return Status::OK();
 }
 
 template <typename MethodVariants, template <typename> typename MethodNullable,
           template <typename, typename> typename MethodOneNumber,
-          template <typename, bool> typename MethodFixed, template <typename> typename DataNullable>
+          template <typename> typename DataNullable>
 struct DataVariants {
     DataVariants() = default;
     DataVariants(const DataVariants&) = delete;
     DataVariants& operator=(const DataVariants&) = delete;
     MethodVariants method_variant;
 
-    using Type = HashKeyType;
-
-    Type _type = Type::EMPTY;
-
-    template <typename T, typename TT, bool nullable>
-    void emplace_single() {
+    template <typename T, typename TT>
+    void emplace_single(bool nullable) {
         if (nullable) {
             method_variant.template emplace<MethodNullable<MethodOneNumber<T, DataNullable<TT>>>>();
         } else {
@@ -71,4 +70,5 @@ struct DataVariants {
         }
     }
 };
-} // namespace doris::vectorized
+
+} // namespace doris

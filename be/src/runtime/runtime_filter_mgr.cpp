@@ -29,6 +29,7 @@
 #include <string>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exprs/bloom_filter_func.h"
@@ -228,7 +229,6 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     // so we need to copy to cnt_val
     cnt_val->producer_size = producer_size;
     cnt_val->runtime_filter_desc = *runtime_filter_desc;
-    cnt_val->target_info = *target_info;
     cnt_val->pool.reset(new ObjectPool());
     cnt_val->filter = cnt_val->pool->add(new IRuntimeFilter(_state, runtime_filter_desc));
 
@@ -344,8 +344,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(_state->query_id.hi());
             pquery_id->set_lo(_state->query_id.lo());
-            closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
-            closure->cntl_->ignore_eovercrowded();
+            closure->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(_state->execution_timeout));
+            if (config::execution_ignore_eovercrowded) {
+                closure->cntl_->ignore_eovercrowded();
+            }
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val->global_size);
@@ -457,13 +459,24 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             if (has_attachment) {
                 closure->cntl_->request_attachment().append(request_attachment);
             }
-            closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
-            closure->cntl_->ignore_eovercrowded();
+
+            closure->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(_state->execution_timeout));
+            if (config::execution_ignore_eovercrowded) {
+                closure->cntl_->ignore_eovercrowded();
+            }
+
             // set fragment-id
-            for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
-                PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
-                cur_id->set_hi(target_fragment_instance_id.hi);
-                cur_id->set_lo(target_fragment_instance_id.lo);
+            if (target.__isset.target_fragment_ids) {
+                for (auto& target_fragment_id : target.target_fragment_ids) {
+                    closure->request_->add_fragment_ids(target_fragment_id);
+                }
+            } else {
+                // FE not upgraded yet.
+                for (auto& target_fragment_instance_id : target.target_fragment_instance_ids) {
+                    PUniqueId* cur_id = closure->request_->add_fragment_instance_ids();
+                    cur_id->set_hi(target_fragment_instance_id.hi);
+                    cur_id->set_lo(target_fragment_instance_id.lo);
+                }
             }
 
             std::shared_ptr<PBackendService_Stub> stub(

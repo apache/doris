@@ -41,6 +41,7 @@
 #include "vec/runtime/vsorted_run_merger.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VDataStreamRecvr::SenderQueue::SenderQueue(
         VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile,

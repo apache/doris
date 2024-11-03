@@ -42,7 +42,7 @@ public class InsertEvent extends MetastoreTableEvent {
         super(event, catalogName);
         Preconditions.checkArgument(getEventType().equals(MetastoreEventType.INSERT));
         Preconditions
-                .checkNotNull(event.getMessage(), debugString("Event message is null"));
+                .checkNotNull(event.getMessage(), getMsgWithEventInfo("Event message is null"));
     }
 
     protected static List<MetastoreEvent> getEvents(NotificationEvent event, String catalogName) {
@@ -62,7 +62,7 @@ public class InsertEvent extends MetastoreTableEvent {
     @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
+            logInfo("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tblName);
             /**
              *  Only when we use hive client to execute a `INSERT INTO TBL SELECT * ...` or `INSERT INTO TBL ...` sql
              *  to a non-partitioned table then the hms will generate an insert event, and there is not
@@ -75,7 +75,7 @@ public class InsertEvent extends MetastoreTableEvent {
                     eventTime);
         } catch (DdlException e) {
             throw new MetastoreNotificationException(
-                    debugString("Failed to process event"), e);
+                    getMsgWithEventInfo("Failed to process event"), e);
         }
     }
 

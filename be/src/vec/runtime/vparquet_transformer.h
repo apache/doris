@@ -30,6 +30,7 @@
 #include "vfile_format_transformer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace io {
 class FileWriter;
 } // namespace io
@@ -134,3 +135,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

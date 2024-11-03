@@ -58,8 +58,8 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();
     private HikariDataSource hikariDataSource = null;
     private final byte[] hikariDataSourceLock = new byte[0];
-    private JdbcDataSourceConfig config;
     private Connection conn = null;
+    protected JdbcDataSourceConfig config;
     protected PreparedStatement preparedStatement = null;
     protected Statement stmt = null;
     protected ResultSet resultSet = null;
@@ -125,11 +125,17 @@ public abstract class BaseJdbcExecutor implements JdbcExecutor {
         }
     }
 
-    private void closeResources(AutoCloseable... closeables) {
-        for (AutoCloseable closeable : closeables) {
-            if (closeable != null) {
+    private void closeResources(Object... resources) {
+        for (Object resource : resources) {
+            if (resource != null) {
                 try {
-                    closeable.close();
+                    if (resource instanceof ResultSet) {
+                        ((ResultSet) resource).close();
+                    } else if (resource instanceof Statement) {
+                        ((Statement) resource).close();
+                    } else if (resource instanceof Connection) {
+                        ((Connection) resource).close();
+                    }
                 } catch (Exception e) {
                     LOG.warn("Cannot close resource: ", e);
                 }

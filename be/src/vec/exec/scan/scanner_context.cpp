@@ -80,8 +80,6 @@ Status ScannerContext::init() {
     _scanner_profile = _local_state->_scanner_profile;
     _scanner_sched_counter = _local_state->_scanner_sched_counter;
     _newly_create_free_blocks_num = _local_state->_newly_create_free_blocks_num;
-    _scanner_wait_batch_timer = _local_state->_scanner_wait_batch_timer;
-    _scanner_ctx_sched_time = _local_state->_scanner_ctx_sched_time;
     _scale_up_scanners_counter = _local_state->_scale_up_scanners_counter;
     _scanner_memory_used_counter = _local_state->_memory_used_counter;
 
@@ -224,10 +222,6 @@ Status ScannerContext::init() {
     return Status::OK();
 }
 
-std::string ScannerContext::parent_name() {
-    return _local_state->get_name();
-}
-
 vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
     vectorized::BlockUPtr block = nullptr;
     if (_free_blocks.try_dequeue(block)) {
@@ -257,18 +251,13 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
     }
 }
 
-bool ScannerContext::empty_in_queue(int id) {
-    std::lock_guard<std::mutex> l(_transfer_lock);
-    return _blocks_queue.empty();
-}
-
 Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
     _scanner_sched_counter->update(1);
     _num_scheduled_scanners++;
     return _scanner_scheduler_global->submit(shared_from_this(), scan_task);
 }
 
-void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) {
+void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
     if (scan_task->status_ok()) {
         for (const auto& [block, _] : scan_task->cached_blocks) {
             if (block->rows() > 0) {
@@ -287,12 +276,12 @@ void ScannerContext::append_block_to_queue(std::shared_ptr<ScanTask> scan_task) 
     if (_last_scale_up_time == 0) {
         _last_scale_up_time = UnixMillis();
     }
-    if (_blocks_queue.empty() && _last_fetch_time != 0) {
+    if (_tasks_queue.empty() && _last_fetch_time != 0) {
         // there's no block in queue before current block, so the consumer is waiting
         _total_wait_block_time += UnixMillis() - _last_fetch_time;
     }
     _num_scheduled_scanners--;
-    _blocks_queue.emplace_back(scan_task);
+    _tasks_queue.emplace_back(scan_task);
     _dependency->set_ready();
 }
 
@@ -308,9 +297,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         _set_scanner_done();
         return _process_status;
     }
-    if (!_blocks_queue.empty() && !done()) {
+    if (!_tasks_queue.empty() && !done()) {
         _last_fetch_time = UnixMillis();
-        auto scan_task = _blocks_queue.front();
+        auto scan_task = _tasks_queue.front();
         DCHECK(scan_task);
 
         // The abnormal status of scanner may come from the execution of the scanner itself,
@@ -335,7 +324,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             return_free_block(std::move(current_block));
         } else {
             // This scan task do not have any cached blocks.
-            _blocks_queue.pop_front();
+            _tasks_queue.pop_front();
             // current scanner is finished, and no more data to read
             if (scan_task->is_eos()) {
                 _num_finished_scanners++;
@@ -374,13 +363,13 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         RETURN_IF_ERROR(_try_to_scale_up());
     }
 
-    if (_num_finished_scanners == _all_scanners.size() && _blocks_queue.empty()) {
+    if (_num_finished_scanners == _all_scanners.size() && _tasks_queue.empty()) {
         _set_scanner_done();
         _is_finished = true;
     }
     *eos = done();
 
-    if (_blocks_queue.empty()) {
+    if (_tasks_queue.empty()) {
         _dependency->block();
     }
     return Status::OK();
@@ -466,11 +455,6 @@ Status ScannerContext::validate_block_schema(Block* block) {
     return Status::OK();
 }
 
-void ScannerContext::set_status_on_error(const Status& status) {
-    std::lock_guard<std::mutex> l(_transfer_lock);
-    _process_status = status;
-}
-
 void ScannerContext::stop_scanners(RuntimeState* state) {
     std::lock_guard<std::mutex> l(_transfer_lock);
     if (_should_stop) {
@@ -483,7 +467,7 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
             sc->_scanner->try_stop();
         }
     }
-    _blocks_queue.clear();
+    _tasks_queue.clear();
     // TODO yiguolei, call mark close to scanners
     if (state->enable_profile()) {
         std::stringstream scanner_statistics;
@@ -533,11 +517,11 @@ void ScannerContext::stop_scanners(RuntimeState* state) {
 
 std::string ScannerContext::debug_string() {
     return fmt::format(
-            "id: {}, total scanners: {}, blocks in queue: {},"
+            "id: {}, total scanners: {}, pending tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
             " limit: {}, _num_running_scanners: {}, _max_thread_num: {},"
             " _max_bytes_in_queue: {}, query_id: {}",
-            ctx_id, _all_scanners.size(), _blocks_queue.size(), _should_stop, _is_finished,
+            ctx_id, _all_scanners.size(), _tasks_queue.size(), _should_stop, _is_finished,
             _free_blocks.size_approx(), limit, _num_scheduled_scanners, _max_thread_num,
             _max_bytes_in_queue, print_id(_query_id));
 }

@@ -176,7 +176,7 @@ public class HudiScanNode extends HiveScanNode {
         }
         for (Schema.Field hudiField : hudiSchema.getFields()) {
             columnNames.add(hudiField.name().toLowerCase(Locale.ROOT));
-            String columnType = HudiUtils.fromAvroHudiTypeToHiveTypeString(hudiField.schema());
+            String columnType = HudiUtils.convertAvroToHiveType(hudiField.schema());
             columnTypes.add(columnType);
         }
 

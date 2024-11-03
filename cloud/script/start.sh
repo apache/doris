@@ -62,7 +62,7 @@ done <"${DORIS_HOME}/conf/doris_cloud.conf"
 
 process=doris_cloud
 
-if [[ -f "${DORIS_HOME}/bin/${process}.pid" ]]; then
+if [[ ${RUN_VERSION} -eq 0 ]] && [[ -f "${DORIS_HOME}/bin/${process}.pid" ]]; then
     pid=$(cat "${DORIS_HOME}/bin/${process}.pid")
     if [[ "${pid}" != "" ]]; then
         if kill -0 "$(cat "${DORIS_HOME}/bin/${process}.pid")" >/dev/null 2>&1; then
@@ -76,14 +76,7 @@ fi
 
 lib_path="${DORIS_HOME}/lib"
 bin="${DORIS_HOME}/lib/doris_cloud"
-if ldd "${bin}" | grep -Ei 'libfdb_c.*not found' &>/dev/null; then
-    if ! command -v patchelf &>/dev/null; then
-        echo "patchelf is needed to launch meta_service"
-        exit 1
-    fi
-    patchelf --set-rpath "${lib_path}" "${bin}"
-    # ldd "${bin}"
-fi
+export LD_LIBRARY_PATH="${lib_path}:${LD_LIBRARY_PATH}"
 
 chmod 550 "${DORIS_HOME}/lib/doris_cloud"
 
@@ -122,12 +115,12 @@ fi
 
 echo "LIBHDFS3_CONF=${LIBHDFS3_CONF}"
 
-# to enable dump jeprof heap stats prodigally, change `prof:false` to `prof:true`
+# to enable dump jeprof heap stats prodigally, change `prof_active:false` to `prof_active:true` or curl http://be_host:be_webport/jeheap/prof/true
 # to control the dump interval change `lg_prof_interval` to a specific value, it is pow/exponent of 2 in size of bytes, default 34 means 2 ** 34 = 16GB
 # to control the dump path, change `prof_prefix` to a specific path, e.g. /doris_cloud/log/ms_, by default it dumps at the path where the start command called
-export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof_prefix:ms_,prof:false,lg_prof_interval:34"
+export JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof_prefix:ms_,prof:true,prof_active:false,lg_prof_interval:34"
 
-if [[ "${RUN_VERSION}" -eq 1 ]]; then
+if [[ "${RUN_VERSION}" -ne 0 ]]; then
     "${bin}" --version
     exit 0
 fi

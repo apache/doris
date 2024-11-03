@@ -17,6 +17,7 @@
 
 #include "pipeline/local_exchange/local_exchanger.h"
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
@@ -25,7 +26,7 @@
 #include "vec/runtime/partitioner.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 template <typename BlockType>
 void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
                                                        LocalExchangeSinkLocalState& local_state,
@@ -170,11 +171,11 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
 Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                                      vectorized::Block* block,
                                      LocalExchangeSinkLocalState& local_state) {
-    const auto rows = block->rows();
+    const auto rows = cast_set<int32_t>(block->rows());
     auto row_idx = std::make_shared<vectorized::PODArray<uint32_t>>(rows);
     {
         local_state._partition_rows_histogram.assign(_num_partitions + 1, 0);
-        for (size_t i = 0; i < rows; ++i) {
+        for (int32_t i = 0; i < rows; ++i) {
             local_state._partition_rows_histogram[channel_ids[i]]++;
         }
         for (int32_t i = 1; i <= _num_partitions; ++i) {
@@ -212,7 +213,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
          */
         const auto& map = local_state._parent->cast<LocalExchangeSinkOperatorX>()
                                   ._shuffle_idx_to_instance_idx;
-        new_block_wrapper->ref(map.size());
+        new_block_wrapper->ref(cast_set<int>(map.size()));
         for (const auto& it : map) {
             DCHECK(it.second >= 0 && it.second < _num_partitions)
                     << it.first << " : " << it.second << " " << _num_partitions;
@@ -225,7 +226,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
                 new_block_wrapper->unref(local_state._shared_state, local_state._channel_id);
             }
         }
-    } else if (_num_senders != _num_sources || _ignore_source_data_distribution) {
+    } else if (_num_senders != _num_sources) {
         // In this branch, data just should be distributed equally into all instances.
         new_block_wrapper->ref(_num_partitions);
         for (size_t i = 0; i < _num_partitions; i++) {
@@ -241,7 +242,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
     } else {
         DCHECK(!bucket_seq_to_instance_idx.empty());
         new_block_wrapper->ref(_num_partitions);
-        for (size_t i = 0; i < _num_partitions; i++) {
+        for (int i = 0; i < _num_partitions; i++) {
             uint32_t start = local_state._partition_rows_histogram[i];
             uint32_t size = local_state._partition_rows_histogram[i + 1] - start;
             if (size > 0) {
@@ -426,7 +427,7 @@ Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block
     local_state._shared_state->add_total_mem_usage(wrapper->data_block.allocated_bytes(),
                                                    local_state._channel_id);
     wrapper->ref(_num_partitions);
-    for (size_t i = 0; i < _num_partitions; i++) {
+    for (int i = 0; i < _num_partitions; i++) {
         _enqueue_data_and_set_ready(i, local_state, {wrapper, {0, wrapper->data_block.rows()}});
     }
 
@@ -500,11 +501,11 @@ Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
                                                  const uint32_t* __restrict channel_ids,
                                                  vectorized::Block* block,
                                                  LocalExchangeSinkLocalState& local_state) {
-    const auto rows = block->rows();
+    const auto rows = cast_set<int32_t>(block->rows());
     auto row_idx = std::make_shared<std::vector<uint32_t>>(rows);
     {
         local_state._partition_rows_histogram.assign(_num_partitions + 1, 0);
-        for (size_t i = 0; i < rows; ++i) {
+        for (int32_t i = 0; i < rows; ++i) {
             local_state._partition_rows_histogram[channel_ids[i]]++;
         }
         for (int32_t i = 1; i <= _num_partitions; ++i) {
@@ -517,7 +518,7 @@ Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,
             local_state._partition_rows_histogram[channel_ids[i]]--;
         }
     }
-    for (size_t i = 0; i < _num_partitions; i++) {
+    for (int32_t i = 0; i < _num_partitions; i++) {
         const size_t start = local_state._partition_rows_histogram[i];
         const size_t size = local_state._partition_rows_histogram[i + 1] - start;
         if (size > 0) {

@@ -47,6 +47,10 @@ struct FuncExprParams;
 
 namespace doris::vectorized {
 
+struct FunctionAttr {
+    bool enable_decimal256 {false};
+};
+
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
     bool is_nullable = false;                                                            \
     bool is_datev2 = false;                                                              \
@@ -205,6 +209,8 @@ public:
     }
 
     virtual bool is_use_default_implementation_for_constants() const = 0;
+
+    virtual bool is_udf_function() const { return false; }
 
     /// The property of monotonicity for a certain range.
     struct Monotonicity {

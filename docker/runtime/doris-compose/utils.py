@@ -15,11 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import contextlib
 import docker
-import json
+import jsonpickle
 import logging
 import os
 import pwd
+import socket
 import subprocess
 import time
 import yaml
@@ -278,6 +280,12 @@ def copy_image_directory(image, image_dir, local_dir):
         entrypoint="cp -r  {}  /opt/mount/".format(image_dir))
 
 
+def is_socket_avail(ip, port):
+    with contextlib.closing(socket.socket(socket.AF_INET,
+                                          socket.SOCK_STREAM)) as sock:
+        return sock.connect_ex((ip, port)) == 0
+
+
 def enable_dir_with_rw_perm(dir):
     if not os.path.exists(dir):
         return
@@ -313,7 +321,7 @@ def write_compose_file(file, compose):
 
 
 def pretty_json(json_data):
-    return json.dumps(json_data, indent=4, sort_keys=True)
+    return jsonpickle.dumps(json_data, indent=4)
 
 
 def is_true(val):

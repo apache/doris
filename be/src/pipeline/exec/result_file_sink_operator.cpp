@@ -31,9 +31,7 @@ namespace doris::pipeline {
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
-        : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state),
-          _serializer(
-                  std::make_unique<vectorized::BlockSerializer<ResultFileSinkLocalState>>(this)) {}
+        : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
@@ -87,12 +85,6 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     SCOPED_TIMER(_init_timer);
     _sender_id = info.sender_id;
 
-    _brpc_wait_timer = ADD_TIMER(_profile, "BrpcSendTime.Wait");
-    _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
-    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
-    _split_block_distribute_by_channel_timer =
-            ADD_TIMER(_profile, "SplitBlockDistributeByChannelTime");
-    _brpc_send_timer = ADD_TIMER(_profile, "BrpcSendTime");
     auto& p = _parent->cast<ResultFileSinkOperatorX>();
     CHECK(p._file_opts.get() != nullptr);
     // create sender
@@ -143,14 +135,6 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
             state->fragment_instance_id());
 
     return Base::close(state, exec_status);
-}
-
-template <typename ChannelPtrType>
-void ResultFileSinkLocalState::_handle_eof_channel(RuntimeState* state, ChannelPtrType channel,
-                                                   Status st) {
-    channel->set_receiver_eof(st);
-    // Chanel will not send RPC to the downstream when eof, so close chanel by OK status.
-    static_cast<void>(channel->close(state, Status::OK()));
 }
 
 Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {

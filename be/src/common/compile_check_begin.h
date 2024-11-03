@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
 #ifdef __clang__
 #pragma clang diagnostic push
-#pragma clang diagnostic error "-Wshorten-64-to-32"
+#pragma clang diagnostic error "-Wconversion"
+#pragma clang diagnostic ignored "-Wsign-conversion"
+#pragma clang diagnostic ignored "-Wfloat-conversion"
 #endif
 //#include "common/compile_check_begin.h"

@@ -314,4 +314,35 @@ suite("test_auto_partition_behavior") {
     sql "insert into test_change select * from empty_range"
     sql "create table if not exists empty_list like long_value"
     sql "insert into long_value select * from empty_list"
+
+
+    // test not auto partition have expr.
+    test {
+        sql """
+            CREATE TABLE if not exists dup_dynamic_t_logs (
+                `timestamp` datetime NOT NULL,
+                `source` text NULL,
+                `node` text NULL,
+                `level` text NULL,
+                `component` text NULL,
+                `clientRequestId` varchar(50) NULL,
+                `message` text NULL,
+                `properties` variant NULL,
+            INDEX idx_source (`source`) USING INVERTED COMMENT '',
+            INDEX idx_node (`node`) USING INVERTED COMMENT '',
+            INDEX idx_level (`level`) USING INVERTED COMMENT '',
+            INDEX idx_component (`component`) USING INVERTED COMMENT '',
+            INDEX idx_clientRequestId (`clientRequestId`) USING INVERTED COMMENT '',
+            INDEX idx_message (`message`) USING INVERTED PROPERTIES("parser"="english") COMMENT '',
+            -- INDEX idx_properties (`properties`) USING INVERTED COMMENT '',
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`timestamp`)
+            AUTO PARTITION BY RANGE (`timestamp`)()
+            DISTRIBUTED BY RANDOM BUCKETS 100
+            PROPERTIES (
+            "file_cache_ttl_seconds" = "600"
+            );
+        """
+        exception "auto create partition only support date_trunc function of RANGE partition"
+    }
 }

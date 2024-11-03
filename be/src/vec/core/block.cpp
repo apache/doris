@@ -726,7 +726,7 @@ std::string Block::print_use_count() {
     return ss.str();
 }
 
-void Block::clear_column_data(int column_size) noexcept {
+void Block::clear_column_data(int64_t column_size) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
@@ -1083,7 +1083,7 @@ Status MutableBlock::add_rows(const Block* block, size_t row_begin, size_t lengt
     return Status::OK();
 }
 
-Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
+Status MutableBlock::add_rows(const Block* block, const std::vector<int64_t>& rows) {
     RETURN_IF_CATCH_EXCEPTION({
         DCHECK_LE(columns(), block->columns());
         const auto& block_data = block->get_columns_with_type_and_name();
@@ -1093,7 +1093,7 @@ Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
             auto& dst = _columns[i];
             const auto& src = *block_data[i].column.get();
             dst->reserve(dst->size() + length);
-            for (size_t row : rows) {
+            for (auto row : rows) {
                 // we can introduce a new function like `insert_assume_reserved` for IColumn.
                 dst->insert_from(src, row);
             }
