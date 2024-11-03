@@ -741,4 +741,99 @@ public class FederationBackendPolicyTest {
 
         return entries1.containsAll(entries2) && entries2.containsAll(entries1);
     }
+
+    @Test
+    public void testSplitWeight() {
+        FileSplit fileSplit = new FileSplit(new LocationPath("s1"), 0, 1000, 1000, 0, null, Collections.emptyList());
+        fileSplit.setSelfSplitWeight(1000L);
+
+        fileSplit.setTargetSplitSize(10L);
+        Assert.assertEquals(100L, fileSplit.getSplitWeight().getRawValue(), 100L);
+
+        fileSplit.setTargetSplitSize(10000000L);
+        Assert.assertEquals(1L, fileSplit.getSplitWeight().getRawValue());
+
+        fileSplit.setTargetSplitSize(2000L);
+        Assert.assertEquals(50, fileSplit.getSplitWeight().getRawValue());
+    }
+
+    @Test
+    public void testBiggerSplit() throws UserException {
+        SystemInfoService service = new SystemInfoService();
+
+        Backend backend1 = new Backend(1L, "172.30.0.100", 9050);
+        backend1.setAlive(true);
+        service.addBackend(backend1);
+        Backend backend2 = new Backend(2L, "172.30.0.106", 9050);
+        backend2.setAlive(true);
+        service.addBackend(backend2);
+        Backend backend3 = new Backend(3L, "172.30.0.118", 9050);
+        backend3.setAlive(true);
+        service.addBackend(backend3);
+
+        new MockUp<Env>() {
+            @Mock
+            public SystemInfoService getCurrentSystemInfo() {
+                return service;
+            }
+        };
+
+        List<Split> splits = new ArrayList<>();
+        splits.add(genFileSplit("s1", 1000000L, 1000L)); // belong 2
+        splits.add(genFileSplit("s2", 100000L, 1000L));  // belong 2
+        splits.add(genFileSplit("s3", 200000L, 1000L));  // belong 2
+        splits.add(genFileSplit("s4", 300000L, 1000L));  // belong 2
+        splits.add(genFileSplit("s5", 800000L, 1000L));  // belong 1
+
+        FederationBackendPolicy policy = new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING);
+        // Set these options to ensure that the consistent hash algorithm is consistent.
+        policy.setEnableSplitsRedistribution(false);
+        Config.split_assigner_min_consistent_hash_candidate_num = 1;
+        policy.init();
+        Multimap<Backend, Split> assignment = policy.computeScanRangeAssignment(splits);
+        Map<Backend, List<Split>> backendListMap = mergeAssignment(assignment);
+        backendListMap.forEach((k, v) -> {
+            if (k.getId() == 1) {
+                Assert.assertEquals(800000L, v.stream().mapToLong(Split::getLength).sum());
+            } else if (k.getId() == 2) {
+                Assert.assertEquals(1600000L, v.stream().mapToLong(Split::getLength).sum());
+            }
+        });
+
+        Config.split_assigner_min_consistent_hash_candidate_num = 1;
+        FederationBackendPolicy policy2 = new FederationBackendPolicy(NodeSelectionStrategy.CONSISTENT_HASHING);
+        policy2.init();
+        Multimap<Backend, Split> assignment2 = policy2.computeScanRangeAssignment(splits);
+        Map<Backend, List<Split>> backendListMap2 = mergeAssignment(assignment2);
+        backendListMap2.forEach((k, v) -> {
+            if (k.getId() == 1) {
+                Assert.assertEquals(900000L, v.stream().mapToLong(Split::getLength).sum());
+            } else if (k.getId() == 2) {
+                Assert.assertEquals(500000L, v.stream().mapToLong(Split::getLength).sum());
+            } else if (k.getId() == 3) {
+                Assert.assertEquals(1000000L, v.stream().mapToLong(Split::getLength).sum());
+            }
+        });
+    }
+
+    private Map<Backend, List<Split>> mergeAssignment(Multimap<Backend, Split> ass) {
+        HashMap<Backend, List<Split>> map = new HashMap<>();
+        ass.forEach((k, v) -> {
+            if (map.containsKey(k)) {
+                map.get(k).add(v);
+            } else {
+                ArrayList<Split> splits = new ArrayList<>();
+                splits.add(v);
+                map.put(k, splits);
+            }
+        });
+        return map;
+    }
+
+    private FileSplit genFileSplit(String path, long length, long targetSplit) {
+        FileSplit s = new FileSplit(new LocationPath(path), 0, length, length, 0, null, Collections.emptyList());
+        s.setSelfSplitWeight(length);
+        s.setTargetSplitSize(targetSplit);
+        return s;
+    }
 }
