@@ -87,6 +87,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcessListCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSmallFilesCommand;
@@ -477,5 +478,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateRoutineLoadCommand(CreateRoutineLoadCommand createRoutineLoadCommand, C context) {
         return visitCommand(createRoutineLoadCommand, context);
+    }
+
+    default R visitShowProcessListCommand(ShowProcessListCommand showProcessListCommand, C context) {
+        return visitCommand(showProcessListCommand, context);
     }
 }
