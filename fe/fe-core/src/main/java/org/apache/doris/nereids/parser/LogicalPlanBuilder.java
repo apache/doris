@@ -198,8 +198,12 @@ import org.apache.doris.nereids.DorisParser.SetTransactionContext;
 import org.apache.doris.nereids.DorisParser.SetUserPropertiesContext;
 import org.apache.doris.nereids.DorisParser.SetUserVariableContext;
 import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
+<<<<<<< HEAD
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
+=======
+import org.apache.doris.nereids.DorisParser.ShowCollationContext;
+>>>>>>> 9515d6e82c ([Enhancement] (nereids)implement showCollationCommand in nereids)
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateCatalogContext;
@@ -457,6 +461,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCollationCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
@@ -4276,5 +4281,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tabletIdLists.add(Long.parseLong(tabletToken.getText()));
         });
         return new ShowTabletsBelongCommand(tabletIdLists);
+    }
+
+    @Override
+    public LogicalPlan visitShowCollation(ShowCollationContext ctx) {
+        String wild = null;
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                wild = ctx.wildWhere().STRING_LITERAL().getText().replace("'", "").trim();
+            } else if (ctx.wildWhere().WHERE() != null) {
+                wild = ctx.wildWhere().expression().getText();
+            }
+        }
+        return new ShowCollationCommand(wild);
     }
 }
