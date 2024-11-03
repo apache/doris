@@ -96,7 +96,6 @@ private:
         DCHECK(filter_id != -1);
         return filter_id;
     }
-    bool is_filter() const override { return true; }
 
     std::shared_ptr<BloomFilterFuncBase> _filter;
     SpecificFilter* _specific_filter; // owned by _filter
