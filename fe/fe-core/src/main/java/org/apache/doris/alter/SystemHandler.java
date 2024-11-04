@@ -229,7 +229,7 @@ public class SystemHandler extends AlterHandler {
         }
         // if too many tablets, no check for efficiency
         if (backendTabletIds.size() > Config.decommission_tablet_check_threshold) {
-            backendTabletIds..stream().limit(sampleLimit).forEach(sampleTablets::add);
+            backendTabletIds.stream().limit(sampleLimit).forEach(sampleTablets::add);
             return false;
         }
         // dbId -> tableId -> partitionId -> tablet list
