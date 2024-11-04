@@ -54,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -64,7 +65,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
 
     // Concurrency control is delegated by Auth, so not concurrentMap
     @SerializedName(value = "roles")
-    private Map<String, Role> roles = Maps.newHashMap();
+    private ConcurrentMap<String, Role> roles = Maps.newConcurrentMap();
 
     public RoleManager() {
         roles.put(Role.OPERATOR.getRoleName(), Role.OPERATOR);
@@ -320,7 +321,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
 
     // should be removed after version 3.0
     private void removeClusterPrefix() {
-        Map<String, Role> newRoles = Maps.newHashMap();
+        ConcurrentMap<String, Role> newRoles = Maps.newConcurrentMap();
         for (Map.Entry<String, Role> entry : roles.entrySet()) {
             String roleName = ClusterNamespace.getNameFromFullName(entry.getKey());
             newRoles.put(roleName, entry.getValue());
