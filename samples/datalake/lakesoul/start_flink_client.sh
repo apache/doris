@@ -16,4 +16,5 @@
 # specific language governing permissions and limitations
 # under the License.
 
-sudo docker exec -it doris-lakesoul-jobmanager sql-client.sh -i /opt/flink/sql/init_tables.sql
+sudo docker exec -it doris-lakesoul-jobmanager sql-client.sh 
+# -i /opt/flink/sql/init_tables.sql

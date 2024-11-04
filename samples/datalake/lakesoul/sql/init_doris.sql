@@ -6,6 +6,6 @@ create catalog `lakesoul`  properties (
 	'lakesoul.pg.password'='lakesoul_test',
 	'lakesoul.pg.url'='jdbc:postgresql://lakesoul-meta-pg:5432/lakesoul_test?stringtype=unspecified',
 	'minio.endpoint'='http://minio:9000',
-	'minio.access_key'='minioadmin1',
-	'minio.secret_key'='minioadmin1'
+	'minio.access_key'='admin',
+	'minio.secret_key'='password'
 	);

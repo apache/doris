@@ -29,7 +29,7 @@ services:
       - ./sql/meta_cleanup.sql:/meta_cleanup.sql
 
   doris:
-    image: swr.cn-southwest-2.myhuaweicloud.com/dmetasoul-repo/hadoop-env:3.1.1
+    image: swr.cn-southwest-2.myhuaweicloud.com/dmetasoul-repo/mysql:8.0.18
     container_name: doris-lakesoul-doris
     networks:
       - doris-lakesoul
@@ -52,7 +52,7 @@ services:
     command: bin/bash /opt/scripts/start_doris.sh
 
   mysql:
-    image: mysql:8
+    image: swr.cn-southwest-2.myhuaweicloud.com/dmetasoul-repo/mysql:8.0.18
     restart: always
     container_name: doris-lakesoul-mysql-source
     networks:
@@ -78,8 +78,9 @@ services:
       - ${MINIO_UI_PORT}:9001
     environment:
       MINIO_DEFAULT_BUCKETS: lakesoul-test-bucket:public
-      MINIO_ROOT_USER: minioadmin1
-      MINIO_ROOT_PASSWORD: minioadmin1
+      MINIO_ROOT_USER: admin
+      MINIO_ROOT_PASSWORD: password
+      MINIO_DOMAIN: minio
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 3s
@@ -99,6 +100,7 @@ services:
     networks:
       - doris-lakesoul
     depends_on:
+      - postgres
       - minio
     deploy:
       replicas: 1
@@ -109,8 +111,8 @@ services:
         taskmanager.memory.process.size: 3000m
         taskmanager.memory.flink.size: 2048m
         s3.endpoint: http://minio:9000
-        s3.access-key: minioadmin1
-        s3.secret-key: minioadmin1
+        s3.access-key: admin
+        s3.secret-key: password
         s3.path.style.access: true
       - LAKESOUL_PG_DRIVER=com.lakesoul.shaded.org.postgresql.Driver
       - LAKESOUL_PG_URL=jdbc:postgresql://${LAKESOUL_META_HOST}:5432/lakesoul_test?stringtype=unspecified
@@ -146,8 +148,8 @@ services:
         taskmanager.memory.flink.size: 2048m
         taskmanager.numberOfTaskSlots: 6
         s3.endpoint: http://minio:9000
-        s3.access-key: minioadmin1
-        s3.secret-key: minioadmin1
+        s3.access-key: admin
+        s3.secret-key: password
         s3.path.style.access: true
       - LAKESOUL_PG_DRIVER=com.lakesoul.shaded.org.postgresql.Driver
       - LAKESOUL_PG_URL=jdbc:postgresql://${LAKESOUL_META_HOST}:5432/lakesoul_test?stringtype=unspecified
@@ -163,6 +165,30 @@ services:
       - ./packages/jars/flink-s3-fs-hadoop-1.17.1.jar:/opt/flink/plugins/s3/flink-s3-fs-hadoop-1.17.1.jar
       - ./packages/jars/flink-parquet-1.17.1.jar:/opt/flink/lib/flink-parquet-1.17.1.jar
       - ./packages/jars/parquet-hadoop-bundle-1.12.3.jar:/opt/flink/lib/parquet-hadoop-bundle-1.12.3.jar
+
+  spark:
+    image: swr.cn-southwest-2.myhuaweicloud.com/dmetasoul-repo/spark:bitnami-custom-3.3.1
+    container_name: doris-lakesoul-spark
+    hostname: demo-spark-iceberg
+    build: spark/
+    volumes:
+      - ./packages/jars/lakesoul-spark-3.3-2.6.1.jar:/opt/bitnami/spark/jars/lakesoul-spark-3.3-2.6.1.jar
+      - ./data/table:/opt/data
+      - ./data/spark-conf:/opt/bitnami/spark/conf
+      - ./sql/prepare_data.sql:/opt/sql/prepare_data.sql
+    depends_on:
+      - postgres
+      - minio
+    environment:
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+      - AWS_REGION=us-east-1
+      - LAKESOUL_PG_DRIVER=com.lakesoul.shaded.org.postgresql.Driver
+      - LAKESOUL_PG_URL=jdbc:postgresql://${LAKESOUL_META_HOST}:5432/lakesoul_test?stringtype=unspecified
+      - LAKESOUL_PG_USERNAME=lakesoul_test
+      - LAKESOUL_PG_PASSWORD=lakesoul_test
+    networks:
+      - doris-lakesoul
 
 networks:
   doris-lakesoul:

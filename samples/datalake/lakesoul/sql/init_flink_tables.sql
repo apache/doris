@@ -25,4 +25,19 @@ CREATE TABLE IF NOT EXISTS `lakesoul`.`demo`.test_table (
 
 INSERT INTO `lakesoul`.`demo`.test_table VALUES (1, 'AAA', 98, '2023-05-10', 'China');
 
--- SELECT * FROM `lakesoul`.`demo`.test_table;
+SELECT * FROM `lakesoul`.`demo`.test_table;
+
+CREATE TABLE if not exists `lakesoul`.`demo`.customer (
+  `c_custkey` int,
+  `c_name` varchar(25),
+  `c_address` varchar(40),
+  `c_nationkey` int,
+  `c_phone` char(15),
+  `c_acctbal` decimal(12,2),
+  `c_mktsegment` char(10),
+  `c_comment` varchar(117),
+  PRIMARY KEY (c_custkey, c_nationkey) NOT ENFORCED
+) PARTITIONED BY (c_nationkey) WITH (
+  'connector'='lakesoul',
+    'hashBucketNum'='4',
+);

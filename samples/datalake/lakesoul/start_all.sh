@@ -128,6 +128,10 @@ sudo docker compose -f docker-compose.yml --env-file docker-compose.env up -d
 
 echo "Start init lakesoul tables..."
 
+echo "Start prepare data for tables..."
+sudo docker exec -it doris-lakesoul-spark spark-sql --conf spark.sql.extensions=com.dmetasoul.lakesoul.sql.LakeSoulSparkSessionExtension --conf spark.hadoop.fs.s3.impl=org.apache.hadoop.fs.s3a.S3AFileSystem --conf spark.hadoop.fs.s3a.buffer.dir=/opt/spark/work-dir/s3a --conf spark.hadoop.fs.s3a.path.style.access=true --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 --conf spark.hadoop.fs.s3a.aws.credentials.provider=org.apache.hadoop.fs.s3a.AnonymousAWSCredentialsProvider --conf spark.hadoop.fs.s3a.access.key=admin --conf spark.hadoop.fs.s3a.secret.key=password -f /opt/sql/prepare_data.sql | tee -a init.log >/dev/null
+
+
 echo "============================================================================="
 echo "Success to launch doris+iceberg+paimon+flink+spark+minio environments!"
 echo "You can:"
