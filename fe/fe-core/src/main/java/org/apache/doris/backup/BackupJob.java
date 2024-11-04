@@ -1077,7 +1077,7 @@ public class BackupJob extends AbstractJob {
             ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
             try (GZIPOutputStream gzipStream = new GZIPOutputStream(byteStream)) {
                 try (DataOutputStream stream = new DataOutputStream(gzipStream)) {
-                    writeOthers(out);
+                    writeOthers(stream);
                     written = stream.size();
                 }
             }
