@@ -229,6 +229,7 @@ public class SystemHandler extends AlterHandler {
         }
         // if too many tablets, no check for efficiency
         if (backendTabletIds.size() > Config.decommission_tablet_check_threshold) {
+            backendTabletIds..stream().limit(sampleLimit).forEach(sampleTablets::add);
             return false;
         }
         // dbId -> tableId -> partitionId -> tablet list
@@ -334,12 +335,12 @@ public class SystemHandler extends AlterHandler {
 
         // If a tablet can't be found in path 'db -> table -> partition', and it's not in recyle bin,
         // we treat this tablet as leaky, but it maybe not real leaky.
-        // The onfight creating new partiton/table may let its tablets seem like leaky temporarily.
+        // The onflight creating new partiton/table may let its tablets seem like leaky temporarily.
         // For example, when creatting a new partition, firstly its tablets will add to TabletInvertedIndex.
         // But at this moment, the partition hadn't add to table, so search the tablet with path
         // 'db -> table -> partition' will failed. Only after finish creating, the partition will add to the table.
         //
-        // So the onfight new tablet maynot be real leaky. Need to wait for a time to confirm they are real leaky.
+        // So the onflight new tablet maynot be real leaky. Need to wait for a time to confirm they are real leaky.
         long skipLeakyTs = now - Config.decommission_skip_leaky_tablet_second * 1000L;
 
         // if a backend no normal tablets (sampleTablets size = 0), and leaky tablets had been leaky for a long time,
