@@ -75,6 +75,9 @@ public:
                                                              FileCacheType type,
                                                              bool is_tmp = false);
 
+    [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
+            const std::string& dir, size_t offset);
+
     [[nodiscard]] static std::string get_path_in_local_cache_old_ttl_format(const std::string& dir,
                                                                             size_t offset,
                                                                             FileCacheType type,
