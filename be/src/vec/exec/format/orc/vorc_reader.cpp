@@ -33,6 +33,7 @@
 #include <memory>
 #include <ostream>
 #include <tuple>
+#include <unordered_map>
 #include <variant>
 
 #include "cctz/civil_time.h"
@@ -261,6 +262,7 @@ Status OrcReader::_create_file_reader() {
     try {
         orc::ReaderOptions options;
         options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
+        options.setReaderMetrics(&_reader_metrics);
         _reader = orc::createReader(
                 std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
@@ -751,6 +753,13 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
         return false;
     }
 
+    std::unordered_map<std::string, uint64_t> col_name_to_id;
+    const auto& root_type = _reader->getType();
+    for (uint64_t i = 0; i < root_type.getSubtypeCount(); ++i) {
+        col_name_to_id.emplace(get_field_name_lower_case(&root_type, i),
+                               root_type.getSubtype(i)->getColumnId());
+    }
+
     auto to_orc_literal =
             [&](const VSlotRef* slot_ref,
                 const VLiteral* literal) -> std::tuple<bool, orc::Literal, orc::PredicateDataType> {
@@ -841,7 +850,8 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->lessThan(slot_ref->column_id(), predicate_type, orc_literal);
+            sargBuilder->lessThan(col_name_to_id[slot_ref->expr_name()], predicate_type,
+                                  orc_literal);
             sargBuilder->end();
             break;
         }
@@ -856,7 +866,8 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->lessThanEquals(slot_ref->column_id(), predicate_type, orc_literal);
+            sargBuilder->lessThanEquals(col_name_to_id[slot_ref->expr_name()], predicate_type,
+                                        orc_literal);
             sargBuilder->end();
             break;
         }
@@ -870,7 +881,8 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->lessThanEquals(slot_ref->column_id(), predicate_type, orc_literal);
+            sargBuilder->lessThanEquals(col_name_to_id[slot_ref->expr_name()], predicate_type,
+                                        orc_literal);
             break;
         }
         case TExprOpcode::LT: {
@@ -883,7 +895,8 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->lessThan(slot_ref->column_id(), predicate_type, orc_literal);
+            sargBuilder->lessThan(col_name_to_id[slot_ref->expr_name()], predicate_type,
+                                  orc_literal);
             break;
         }
         case TExprOpcode::EQ: {
@@ -896,7 +909,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->equals(slot_ref->column_id(), predicate_type, orc_literal);
+            sargBuilder->equals(col_name_to_id[slot_ref->expr_name()], predicate_type, orc_literal);
             break;
         }
         case TExprOpcode::NE: {
@@ -910,7 +923,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             if (!valid) {
                 return false;
             }
-            sargBuilder->equals(slot_ref->column_id(), predicate_type, orc_literal);
+            sargBuilder->equals(col_name_to_id[slot_ref->expr_name()], predicate_type, orc_literal);
             sargBuilder->end();
             break;
         }
@@ -921,7 +934,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
             const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
             const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
-            sargBuilder->isNull(slot_ref->column_id(), predicate_type);
+            sargBuilder->isNull(col_name_to_id[slot_ref->expr_name()], predicate_type);
             break;
         }
         case TExprOpcode::FILTER_IN: {
@@ -940,7 +953,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
                 predicate_type = type;
             }
             if (!literals.empty()) {
-                sargBuilder->in(slot_ref->column_id(), predicate_type, literals);
+                sargBuilder->in(col_name_to_id[slot_ref->expr_name()], predicate_type, literals);
             }
             break;
         }
@@ -961,7 +974,7 @@ bool OrcReader::_init_search_argument_by_conjuncts(const VExprContextSPtrs& conj
             }
             if (!literals.empty()) {
                 sargBuilder->startNot();
-                sargBuilder->in(slot_ref->column_id(), predicate_type, literals);
+                sargBuilder->in(col_name_to_id[slot_ref->expr_name()], predicate_type, literals);
                 sargBuilder->end();
             }
             break;
@@ -1126,8 +1139,10 @@ Status OrcReader::set_fill_columns(
         if (!_lazy_read_ctx.conjuncts.empty()) {
             _string_dict_filter = std::make_unique<StringDictFilterImpl>(this);
         }
-        _profile->add_info_string("OrcReader SearchArgument: ",
-                                  _row_reader_options.getSearchArgument()->toString());
+        if (_row_reader_options.getSearchArgument() != nullptr) {
+            _profile->add_info_string("OrcReader SearchArgument: ",
+                                      _row_reader_options.getSearchArgument()->toString());
+        }
         _row_reader = _reader->createRowReader(_row_reader_options, _orc_filter.get(),
                                                _string_dict_filter.get());
         _batch = _row_reader->createRowBatch(_batch_size);
@@ -1814,6 +1829,10 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
+    if (*eof) {
+        COUNTER_UPDATE(_orc_profile.selected_row_group_count,
+                       _reader_metrics.SelectedRowGroupCount);
+    }
     if (_orc_filter) {
         RETURN_IF_ERROR(_orc_filter->get_status());
     }
