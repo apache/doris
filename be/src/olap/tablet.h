@@ -199,6 +199,8 @@ public:
     // If skip_missing_version is true, skip versions if they are missing.
     Status capture_rs_readers(const Version& spec_version, std::vector<RowSetSplits>* rs_splits,
                               bool skip_missing_version) override;
+    Status capture_sub_txn_rowsets(const std::vector<int64_t>& sub_txn_ids,
+                                   std::vector<RowsetSharedPtr>* rowsets) override;
 
     // Find the missed versions until the spec_version.
     //

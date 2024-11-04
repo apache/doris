@@ -800,6 +800,28 @@ void TxnManager::get_all_related_tablets(std::set<TabletInfo>* tablet_infos) {
     }
 }
 
+RowsetSharedPtr TxnManager::get_tablet_rowset(TTabletId tablet_id, TabletUid tablet_uid,
+                                              int64_t partition_id, TTransactionId transaction_id) {
+    pair<int64_t, int64_t> key(partition_id, transaction_id);
+    std::shared_lock txn_rdlock(_get_txn_map_lock(transaction_id));
+    txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
+    auto it = txn_tablet_map.find(key);
+    if (it == txn_tablet_map.end()) {
+        LOG(WARNING) << "could not find tablet for"
+                     << " partition_id=" << partition_id << ", transaction_id=" << transaction_id;
+        return nullptr;
+    }
+
+    auto& load_info_map = it->second;
+    for (auto& load_info : load_info_map) {
+        const TabletInfo& tablet_info = load_info.first;
+        if (tablet_info.tablet_id == tablet_id && tablet_info.tablet_uid == tablet_uid) {
+            return load_info.second->rowset;
+        }
+    }
+    return nullptr;
+}
+
 void TxnManager::get_all_commit_tablet_txn_info_by_tablet(
         const Tablet& tablet, CommitTabletTxnInfoVec* commit_tablet_txn_info_vec) {
     for (int32_t i = 0; i < _txn_map_shard_size; i++) {

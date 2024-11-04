@@ -494,6 +494,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_COMMIT = "group_commit";
 
+    public static final String ENABLE_QUERY_IN_TRANSACTION_LOAD = "enable_query_in_transaction_load";
+
     public static final String ENABLE_PREPARED_STMT_AUDIT_LOG = "enable_prepared_stmt_audit_log";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
@@ -1850,6 +1852,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = GROUP_COMMIT, needForward = true)
     public String groupCommit = "off_mode";
+
+    @VariableMgr.VarAttr(name = ENABLE_QUERY_IN_TRANSACTION_LOAD, needForward = true)
+    public boolean enableQueryInTransactionLoad = false;
 
     @VariableMgr.VarAttr(name = ENABLE_PREPARED_STMT_AUDIT_LOG, needForward = true)
     public boolean enablePreparedStmtAuditLog = false;

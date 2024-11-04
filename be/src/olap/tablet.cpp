@@ -955,6 +955,20 @@ Status Tablet::capture_rs_readers(const Version& spec_version, std::vector<RowSe
     return Status::OK();
 }
 
+Status Tablet::capture_sub_txn_rowsets(const std::vector<int64_t>& sub_txn_ids,
+                                       std::vector<RowsetSharedPtr>* rowsets) {
+    for (int i = 0; i < sub_txn_ids.size(); ++i) {
+        auto sub_txn_id = sub_txn_ids[i];
+        auto rowset = _engine.txn_manager()->get_tablet_rowset(tablet_id(), tablet_uid(),
+                                                               partition_id(), sub_txn_id);
+        DCHECK(rowset != nullptr) << " rowset is nullptr for sub_txn_id=" << sub_txn_ids[i]
+                                  << ", partition_id=" << partition_id()
+                                  << ", tablet=" << tablet_id();
+        rowsets->push_back(rowset);
+    }
+    return Status::OK();
+}
+
 Versions Tablet::calc_missed_versions(int64_t spec_version, Versions existing_versions) const {
     DCHECK(spec_version > 0) << "invalid spec_version: " << spec_version;
 

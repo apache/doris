@@ -69,7 +69,7 @@ private:
 
     std::shared_ptr<vectorized::NewOlapScanner> _build_scanner(
             BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
-            TabletReader::ReadSource&& read_source);
+            TabletReader::ReadSource&& read_source, const std::vector<int64_t>& sub_txn_ids);
 
     pipeline::OlapScanLocalState* _parent;
 

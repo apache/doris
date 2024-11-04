@@ -987,6 +987,18 @@ message GetRowsetResponse {
     optional SchemaCloudDictionary schema_dict = 4; 
 }
 
+message GetTmpRowsetRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 index_id = 2;
+    optional int64 tablet_id = 3;
+    repeated int64 txn_ids = 4;
+}
+
+message GetTmpRowsetResponse {
+    optional MetaServiceResponseStatus status = 1;
+    repeated doris.RowsetMetaCloudPB rowset_meta = 2;
+}
+
 message IndexRequest {
     optional string cloud_unique_id = 1; // For auth
     repeated int64 index_ids = 2;
@@ -1543,6 +1555,7 @@ service MetaService {
     rpc prepare_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc commit_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
     rpc update_tmp_rowset(CreateRowsetRequest) returns (CreateRowsetResponse);
+    rpc get_tmp_rowset(GetTmpRowsetRequest) returns (GetTmpRowsetResponse);
     rpc get_rowset(GetRowsetRequest) returns (GetRowsetResponse);
     rpc prepare_index(IndexRequest) returns (IndexResponse);
     rpc commit_index(IndexRequest) returns (IndexResponse);

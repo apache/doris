@@ -135,6 +135,42 @@ BaseTablet::~BaseTablet() {
     g_total_tablet_num << -1;
 }
 
+Status BaseTablet::capture_sub_txn_rs_readers(int64_t version,
+                                              const std::vector<int64_t>& sub_txn_ids,
+                                              std::vector<RowSetSplits>* rs_splits) {
+    LOG(INFO) << "capture_sub_txn_rs_readers for partition=" << partition_id()
+              << ", tablet_id=" << tablet_id() << ", version=" << version
+              << ", sub_txn_ids.size=" << sub_txn_ids.size();
+    std::vector<RowsetSharedPtr> rowsets;
+    RETURN_IF_ERROR(capture_sub_txn_rowsets(sub_txn_ids, &rowsets));
+    DCHECK(rowsets.size() == sub_txn_ids.size())
+            << " sub_txn_id size=" << sub_txn_ids.size() << ", rowset size=" << rowsets.size()
+            << ", partition_id=" << partition_id() << ", tablet=" << tablet_id();
+    for (int i = 0; i < rowsets.size(); ++i) {
+        auto& rowset = rowsets[i];
+        DCHECK(rowset != nullptr) << " rowset is nullptr for sub_txn_id=" << sub_txn_ids[i]
+                                  << ", partition_id=" << partition_id()
+                                  << ", tablet=" << tablet_id();
+        int64_t tmp_version = version + i + 1;
+        LOG(INFO) << "sub_txn_id=" << sub_txn_ids[i] << ", partition_id=" << partition_id()
+                  << ", tablet=" << tablet_id() << ", set tmp version=" << tmp_version;
+        rowset->set_version(Version(tmp_version, tmp_version));
+        if (rowset->rowset_meta()->has_delete_predicate()) {
+            rowset->rowset_meta()->mutable_delete_predicate()->set_version(tmp_version);
+        }
+        if (rowset != nullptr) {
+            RowsetReaderSharedPtr rs_reader;
+            auto res = rowset->create_reader(&rs_reader);
+            if (!res.ok()) {
+                return Status::Error<ErrorCode::CAPTURE_ROWSET_READER_ERROR>(
+                        "failed to create reader for rowset:{}", rowset->rowset_id().to_string());
+            }
+            rs_splits->emplace_back(std::move(rs_reader));
+        }
+    }
+    return Status::OK();
+}
+
 TabletSchemaSPtr BaseTablet::tablet_schema_with_merged_max_schema_version(
         const std::vector<RowsetMetaSharedPtr>& rowset_metas) {
     RowsetMetaSharedPtr max_schema_version_rs = *std::max_element(

@@ -18,11 +18,15 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.qe.ConnectContext;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -30,6 +34,7 @@ import java.util.List;
  * Used to prune empty partition.
  */
 public class PruneEmptyPartition extends OneRewriteRuleFactory {
+    public static final Logger LOG = LogManager.getLogger(PruneEmptyPartition.class);
 
     @Override
     public Rule build() {
@@ -37,11 +42,36 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
             LogicalOlapScan scan = ctx.root;
             OlapTable table = scan.getTable();
             List<Long> ids = table.selectNonEmptyPartitionIds(scan.getSelectedPartitionIds());
+            // In transaction load, need to add empty partitions which have invisible data of sub transactions
+            selectNonEmptyPartitionIdsForTxnLoad(scan.getSelectedPartitionIds(), ids, table, scan.getSelectedIndexId());
             if (ids.isEmpty()) {
                 return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
                         scan.getOutput());
             }
             return scan.withSelectedPartitionIds(ids);
         }).toRule(RuleType.PRUNE_EMPTY_PARTITION);
+    }
+
+    private void selectNonEmptyPartitionIdsForTxnLoad(List<Long> selectedPartitions, List<Long> nonEmptyPartitions,
+            OlapTable table, long indexId) {
+        if (!ConnectContext.get().isTxnModel()) {
+            return;
+        }
+        for (Long selectedPartitionId : selectedPartitions) {
+            if (nonEmptyPartitions.contains(selectedPartitionId)) {
+                continue;
+            }
+            Partition partition = table.getPartition(selectedPartitionId);
+            if (partition == null) {
+                continue;
+            }
+            // TODO if partition version is -1 and the operatiob is delete, can skip this partition
+            if (!ConnectContext.get().getTxnEntry().getPartitionSubTxnIds(table.getId(), partition, indexId)
+                    .isEmpty()) {
+                nonEmptyPartitions.add(selectedPartitionId);
+            }
+        }
+        LOG.info("add partition for txn load, table: {}, selected partitions: {}, non empty partitions: {}",
+                table.getId(), selectedPartitions, nonEmptyPartitions);
     }
 }
