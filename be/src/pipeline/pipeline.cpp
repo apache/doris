@@ -22,6 +22,7 @@
 #include <utility>
 
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
 
 namespace doris::pipeline {
@@ -31,7 +32,48 @@ void Pipeline::_init_profile() {
     _pipeline_profile = std::make_unique<RuntimeProfile>(std::move(s));
 }
 
-Status Pipeline::add_operator(OperatorPtr& op) {
+bool Pipeline::need_to_local_exchange(const DataDistribution target_data_distribution,
+                                      const int idx) const {
+    // If serial operator exists after `idx`-th operator, we should not improve parallelism.
+    if (std::any_of(_operators.begin() + idx, _operators.end(),
+                    [&](OperatorPtr op) -> bool { return op->is_serial_operator(); })) {
+        return false;
+    }
+    // If all operators are serial and sink is not serial, we should improve parallelism for sink.
+    if (std::all_of(_operators.begin(), _operators.end(),
+                    [&](OperatorPtr op) -> bool { return op->is_serial_operator(); })) {
+        if (!_sink->is_serial_operator()) {
+            return true;
+        }
+    } else if (std::any_of(_operators.begin(), _operators.end(),
+                           [&](OperatorPtr op) -> bool { return op->is_serial_operator(); })) {
+        // If non-serial operators exist, we should improve parallelism for those.
+        return true;
+    }
+
+    if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
+        target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {
+        // Always do local exchange if non-hash-partition exchanger is required.
+        // For example, `PASSTHROUGH` exchanger is always required to distribute data evenly.
+        return true;
+    } else if (_operators.front()->is_serial_operator()) {
+        DCHECK(std::all_of(_operators.begin(), _operators.end(),
+                           [&](OperatorPtr op) -> bool { return op->is_serial_operator(); }) &&
+               _sink->is_serial_operator())
+                << debug_string();
+        // All operators and sink are serial in this path.
+        return false;
+    } else {
+        return _data_distribution.distribution_type != target_data_distribution.distribution_type &&
+               !(is_hash_exchange(_data_distribution.distribution_type) &&
+                 is_hash_exchange(target_data_distribution.distribution_type));
+    }
+}
+
+Status Pipeline::add_operator(OperatorPtr& op, const int parallelism) {
+    if (parallelism > 0 && op->is_serial_operator()) {
+        set_num_tasks(parallelism);
+    }
     op->set_parallel_tasks(num_tasks());
     _operators.emplace_back(op);
     if (op->is_source()) {

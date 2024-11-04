@@ -894,7 +894,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                 AgentBatchTask batchTask = batchTaskPerTable.get(localTbl.getId());
                 if (batchTask == null) {
-                    batchTask = new AgentBatchTask();
+                    batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
                     batchTaskPerTable.put(localTbl.getId(), batchTask);
                 }
                 createReplicas(db, batchTask, localTbl, restorePart);
@@ -910,7 +910,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     for (Partition restorePart : restoreOlapTable.getPartitions()) {
                         AgentBatchTask batchTask = batchTaskPerTable.get(restoreTbl.getId());
                         if (batchTask == null) {
-                            batchTask = new AgentBatchTask();
+                            batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
                             batchTaskPerTable.put(restoreTbl.getId(), batchTask);
                         }
                         createReplicas(db, batchTask, restoreOlapTable, restorePart, tabletBases);
@@ -966,11 +966,23 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
 
             // estimate timeout
-            long timeout = DbUtil.getCreateReplicasTimeoutMs(numBatchTasks);
+            long timeout = DbUtil.getCreateReplicasTimeoutMs(numBatchTasks) / 1000;
             try {
-                LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}",
+                LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}s",
                         numBatchTasks, timeout);
-                ok = latch.await(timeout, TimeUnit.MILLISECONDS);
+                for (long elapsed = 0; elapsed <= timeout; elapsed++) {
+                    if (latch.await(1, TimeUnit.SECONDS)) {
+                        ok = true;
+                        break;
+                    }
+                    if (state != RestoreJobState.PENDING) {  // user cancelled
+                        return;
+                    }
+                    if (elapsed % 5 == 0) {
+                        LOG.info("waiting {} create replica tasks for restore to finish, total {} tasks, elapsed {}s",
+                                latch.getCount(), numBatchTasks, elapsed);
+                    }
+                }
             } catch (InterruptedException e) {
                 LOG.warn("InterruptedException: ", e);
                 ok = false;
@@ -979,7 +991,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             ok = true;
         }
 
-        if (ok) {
+        if (ok && latch.getStatus().ok()) {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("finished to create all restored replicas. {}", this);
             }
@@ -1043,8 +1055,13 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                     .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
                     .collect(Collectors.toList());
             String idStr = Joiner.on(", ").join(subList);
-            status = new Status(ErrCode.COMMON_ERROR,
-                    "Failed to create replicas for restore. unfinished marks: " + idStr);
+            String reason = "TIMEDOUT";
+            if (!latch.getStatus().ok()) {
+                reason = latch.getStatus().getErrorMsg();
+            }
+            String errMsg = String.format(
+                    "Failed to create replicas for restore: %s, unfinished marks: %s", reason, idStr);
+            status = new Status(ErrCode.COMMON_ERROR, errMsg);
             return;
         }
         LOG.info("finished to prepare meta. {}", this);
@@ -1150,7 +1167,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         taskProgress.clear();
         taskErrMsg.clear();
         Multimap<Long, Long> bePathsMap = HashMultimap.create();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         db.readLock();
         try {
             for (Map.Entry<IdChain, IdChain> entry : fileMapping.getMapping().entrySet()) {
@@ -1635,7 +1652,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
@@ -1795,7 +1812,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (long dbId : dbToSnapshotInfos.keySet()) {
             List<SnapshotInfo> infos = dbToSnapshotInfos.get(dbId);
 
@@ -1975,7 +1992,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         // tablet id->(be id -> download info)
         for (Cell<Long, Long, SnapshotInfo> cell : snapshotInfos.cellSet()) {
             SnapshotInfo info = cell.getValue();
@@ -2165,7 +2182,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
         // we do not care about the release snapshot tasks' success or failure,
         // the GC thread on BE will sweep the snapshot, finally.
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
                     info.getTabletId(), info.getPath());

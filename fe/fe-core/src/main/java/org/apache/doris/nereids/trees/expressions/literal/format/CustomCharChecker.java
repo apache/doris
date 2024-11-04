@@ -15,27 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer.ranger.cache;
+package org.apache.doris.nereids.trees.expressions.literal.format;
 
-import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
+import java.util.Objects;
+import java.util.function.Predicate;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
-import org.apache.ranger.plugin.service.RangerAuthContextListener;
+/** CustomCharChecker */
+public class CustomCharChecker extends FormatChecker {
+    private final Predicate<Character> checker;
 
-public class RangerCacheInvalidateListener implements RangerAuthContextListener {
-    private static final Logger LOG = LogManager.getLogger(RangerDorisAccessController.class);
-
-    private RangerCache cache;
-
-    public RangerCacheInvalidateListener(RangerCache cache) {
-        this.cache = cache;
+    public CustomCharChecker(String name, Predicate<Character> checker) {
+        super(name);
+        this.checker = Objects.requireNonNull(checker, "checker can not be null");
     }
 
     @Override
-    public void contextChanged() {
-        LOG.info("ranger context changed");
-        cache.invalidateDataMaskCache();
-        cache.invalidateRowFilterCache();
+    protected boolean doCheck(StringInspect stringInspect) {
+        if (stringInspect.eos() || !checker.test(stringInspect.lookAndStep())) {
+            return false;
+        }
+        return true;
     }
 }

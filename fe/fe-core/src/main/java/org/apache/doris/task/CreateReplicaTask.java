@@ -235,6 +235,23 @@ public class CreateReplicaTask extends AgentTask {
         }
     }
 
+    @Override
+    public void failedWithMsg(String errMsg) {
+        super.failedWithMsg(errMsg);
+
+        // CreateReplicaTask will not trigger a retry in ReportTask. Therefore, it needs to
+        // be marked as failed here and all threads waiting for the result of
+        // CreateReplicaTask need to be awakened.
+        if (this.latch != null) {
+            Status s = new Status(TStatusCode.CANCELLED, errMsg);
+            latch.markedCountDownWithStatus(getBackendId(), getTabletId(), s);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("CreateReplicaTask failed with msg: {}, tablet: {}, backend: {}",
+                        errMsg, getTabletId(), getBackendId());
+            }
+        }
+    }
+
     public void setLatch(MarkedCountDownLatch<Long, Long> latch) {
         this.latch = latch;
     }

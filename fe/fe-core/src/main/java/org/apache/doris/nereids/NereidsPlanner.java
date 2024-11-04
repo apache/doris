@@ -82,6 +82,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -187,6 +189,7 @@ public class NereidsPlanner extends Planner {
                 ExplainLevel explainLevel, boolean showPlanProcess,
                 Consumer<Plan> lockCallback) {
         try {
+            long beforePlanGcTime = getGarbageCollectionTime();
             if (plan instanceof LogicalSqlCache) {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
@@ -214,6 +217,10 @@ public class NereidsPlanner extends Planner {
             try (Lock lock = new Lock(plan, cascadesContext)) {
                 Plan resultPlan = planWithoutLock(plan, explainLevel, showPlanProcess, requireProperties);
                 lockCallback.accept(resultPlan);
+                if (statementContext.getConnectContext().getExecutor() != null) {
+                    statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                            .setNereidsGarbageCollectionTime(getGarbageCollectionTime() - beforePlanGcTime);
+                }
                 return resultPlan;
             }
         } finally {
@@ -267,7 +274,9 @@ public class NereidsPlanner extends Planner {
                 && !cascadesContext.isLeadingDisableJoinReorder()) {
             List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
                     .collectToList(LogicalOlapScan.class::isInstance);
-            StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
+            Optional<String> disableJoinReorderReason = StatsCalculator
+                    .disableJoinReorderIfStatsInvalid(scans, cascadesContext);
+            disableJoinReorderReason.ifPresent(statementContext::setDisableJoinReorderReason);
         }
 
         optimize();
@@ -534,6 +543,15 @@ public class NereidsPlanner extends Planner {
             LOG.warn("Failed to choose best plan, memo structure:{}", cascadesContext.getMemo(), e);
             throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
         }
+    }
+
+    private long getGarbageCollectionTime() {
+        List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        long initialGCTime = 0;
+        for (GarbageCollectorMXBean gcBean : gcMxBeans) {
+            initialGCTime += gcBean.getCollectionTime();
+        }
+        return initialGCTime;
     }
 
     /**

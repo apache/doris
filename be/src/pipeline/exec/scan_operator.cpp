@@ -70,7 +70,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
-    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.ignore_data_distribution()));
+    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.is_serial_operator()));
     // init profile for runtime filter
     RuntimeFilterConsumer::_init_profile(profile());
     init_runtime_filter_dependency(_filter_dependencies, p.operator_id(), p.node_id(),
@@ -994,7 +994,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, p.ignore_data_distribution());
+            _scan_dependency, p.is_serial_operator());
     return Status::OK();
 }
 
@@ -1052,13 +1052,10 @@ Status ScanLocalState<Derived>::_init_profile() {
             ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
     _scale_up_scanners_counter = ADD_COUNTER(_scanner_profile, "NumScaleUpScanners", TUnit::UNIT);
     // time of transfer thread to wait for block from scan thread
-    _scanner_wait_batch_timer = ADD_TIMER(_scanner_profile, "ScannerBatchWaitTime");
     _scanner_sched_counter = ADD_COUNTER(_scanner_profile, "ScannerSchedCount", TUnit::UNIT);
-    _scanner_ctx_sched_time = ADD_TIMER(_scanner_profile, "ScannerCtxSchedTime");
 
     _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
     _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
-    _convert_block_timer = ADD_TIMER(_scanner_profile, "ScannerConvertBlockTime");
     _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
 
     // time of scan thread to wait for worker thread of the thread pool
@@ -1155,6 +1152,8 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
             _should_run_serial = true;
         }
     }
+    OperatorX<LocalStateType>::_is_serial_operator =
+            tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }

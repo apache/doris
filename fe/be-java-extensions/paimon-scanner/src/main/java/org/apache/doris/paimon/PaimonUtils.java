@@ -25,22 +25,23 @@ import java.util.Base64;
 import java.util.List;
 import java.util.stream.Collectors;
 
-public class PaimonScannerUtils {
-    private static final Base64.Decoder BASE64_DECODER = Base64.getUrlDecoder();
+public class PaimonUtils {
+    private static final Base64.Decoder DECODER = Base64.getUrlDecoder();
 
-    public static <T> T decodeStringToObject(String encodedStr) {
-        final byte[] bytes = BASE64_DECODER.decode(encodedStr.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        try {
-            return InstantiationUtil.deserializeObject(bytes, PaimonScannerUtils.class.getClassLoader());
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
-    public static List<String> fieldNames(RowType rowType) {
+    public static List<String> getFieldNames(RowType rowType) {
         return rowType.getFields().stream()
                 .map(DataField::name)
                 .map(String::toLowerCase)
                 .collect(Collectors.toList());
+    }
+
+    public static <T> T deserialize(String encodedStr) {
+        try {
+            return InstantiationUtil.deserializeObject(
+                    DECODER.decode(encodedStr.getBytes(java.nio.charset.StandardCharsets.UTF_8)),
+                    PaimonUtils.class.getClassLoader());
+        } catch (Throwable e) {
+            throw new RuntimeException(e);
+        }
     }
 }

@@ -305,23 +305,21 @@ struct OlapReaderStatistics {
     // block_load_ns
     //      block_init_ns
     //          block_init_seek_ns
-    //          block_conditions_filtered_ns
-    //      first_read_ns
-    //          block_first_read_seek_ns
+    //          generate_row_ranges_ns
+    //      predicate_column_read_ns
+    //          predicate_column_read_seek_ns
     //      lazy_read_ns
     //          block_lazy_read_seek_ns
     int64_t block_init_ns = 0;
     int64_t block_init_seek_num = 0;
     int64_t block_init_seek_ns = 0;
-    int64_t first_read_ns = 0;
-    int64_t second_read_ns = 0;
-    int64_t block_first_read_seek_num = 0;
-    int64_t block_first_read_seek_ns = 0;
+    int64_t predicate_column_read_ns = 0;
+    int64_t non_predicate_read_ns = 0;
+    int64_t predicate_column_read_seek_num = 0;
+    int64_t predicate_column_read_seek_ns = 0;
     int64_t lazy_read_ns = 0;
     int64_t block_lazy_read_seek_num = 0;
     int64_t block_lazy_read_seek_ns = 0;
-
-    int64_t block_convert_ns = 0;
 
     int64_t raw_rows_read = 0;
 
@@ -351,11 +349,10 @@ struct OlapReaderStatistics {
     int64_t rows_del_by_bitmap = 0;
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
-    int64_t block_conditions_filtered_ns = 0;
-    int64_t block_conditions_filtered_bf_ns = 0;
-    int64_t block_conditions_filtered_zonemap_ns = 0;
-    int64_t block_conditions_filtered_zonemap_rp_ns = 0;
-    int64_t block_conditions_filtered_dict_ns = 0;
+    int64_t generate_row_ranges_ns = 0;
+    int64_t generate_row_ranges_by_bf_ns = 0;
+    int64_t generate_row_ranges_by_zonemap_ns = 0;
+    int64_t generate_row_ranges_by_dict_ns = 0;
 
     int64_t index_load_ns = 0;
 
@@ -372,7 +369,6 @@ struct OlapReaderStatistics {
     int64_t inverted_index_query_cache_miss = 0;
     int64_t inverted_index_query_null_bitmap_timer = 0;
     int64_t inverted_index_query_bitmap_copy_timer = 0;
-    int64_t inverted_index_query_bitmap_op_timer = 0;
     int64_t inverted_index_searcher_open_timer = 0;
     int64_t inverted_index_searcher_search_timer = 0;
     int64_t inverted_index_searcher_cache_hit = 0;
