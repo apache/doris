@@ -42,54 +42,36 @@ JniMetrics::JniMetrics(MetricRegistry* registry) {
     _registry = registry;
     _server_entity = _registry->register_entity("server");
     DCHECK(_server_entity != nullptr);
-    _server_entity->register_hook(_s_hook_name,
-                                  std::bind(&JniMetrics::update_jdbc_connection_metrics, this));
     _init();
 }
 
-void JniMetrics::_init() {
+Status JniMetrics::_init() {
     JNIEnv* env = nullptr;
-    Status st = JniUtil::GetJNIEnv(&env);
-    if (!st.ok()) {
-        LOG(WARNING) << "get jni env failed. " << st.to_string();
-        return;
-    }
-    st = JniUtil::get_jni_scanner_class(env, "org/apache/doris/jdbc/JdbcDataSource",
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    Status st = JniUtil::get_jni_scanner_class(env, "org/apache/doris/jdbc/JdbcDataSource",
                                         &_jdbc_data_source_clz);
     if (!st.ok()) {
         LOG(WARNING) << "class org/apachhe/doris/jdbc/JdbcDataSource not find in jvm."
                      << st.to_string();
         return;
     }
-    _get_connection_percent_id = env->GetStaticMethodID(
-            _jdbc_data_source_clz, "getConnectionPercent", "()Ljava/util/Map;");
-    st = JniUtil::GetJniExceptionMsg(env);
-    if (!st.ok()) {
-        LOG(WARNING) << "get getConnectionPercent method id failed. " << st.to_string();
-        return;
-    }
+    JNI_CALL_METHOD_CHECK_EXCEPTION(
+         , _get_connection_percent_id, env,
+         GetStaticMethodID(_jdbc_data_source_clz, "getConnectionPercent",
+                           "()Ljava/util/Map;"));
     _is_init = true;
+    _server_entity->register_hook(_s_hook_name,
+                                  std::bind(&JniMetrics::update_jdbc_connection_metrics, this));
     LOG(INFO) << "jni metrics inited successfully";
 }
 
-void JniMetrics::update_jdbc_connection_metrics() {
-    if (!_is_init) {
-        return;
-    }
+Status JniMetrics::update_jdbc_connection_metrics() {
     JNIEnv* env = nullptr;
-    Status st = JniUtil::GetJNIEnv(&env);
-    if (!st.ok()) {
-        LOG(WARNING) << "get jni env failed. " << st.to_string();
-        return;
-    }
-    jobject metrics =
-            env->CallStaticObjectMethod(_jdbc_data_source_clz, _get_connection_percent_id);
+    RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
+    JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
+         jobject, metrics, env,
+         CallStaticObjectMethod(_jdbc_data_source_clz, _get_connection_percent_id));
     std::map<std::string, std::string> result = JniUtil::convert_to_cpp_map(env, metrics);
-    st = JniUtil::GetJniExceptionMsg(env);
-    if (!st.ok()) {
-        LOG(WARNING) << "invoke getConnectionPercent method failed. " << st.to_string();
-        return;
-    }
     for (auto item : result) {
         std::string catalog_id = item.first;
         int percent = std::stoi(item.second);
@@ -111,7 +93,6 @@ void JniMetrics::update_jdbc_connection_metrics() {
             LOG(INFO) << "catalog id : " << item.first << " unused, removed.";
         }
     }
-    env->DeleteLocalRef(metrics);
 }
 
 JniMetrics::~JniMetrics() {

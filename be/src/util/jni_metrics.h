@@ -30,10 +30,10 @@ class JniMetrics {
 public:
     JniMetrics(MetricRegistry* registry);
     ~JniMetrics();
-    void update_jdbc_connection_metrics();
+    Status update_jdbc_connection_metrics();
 
 private:
-    void _init();
+    Status _init();
 
 private:
     static const char* _s_hook_name;
