@@ -1184,7 +1184,6 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
     pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_request->set_filter_id(_filter_id);
-    merge_filter_request->set_is_pipeline(true);
     auto column_type = _wrapper->column_type();
     RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
 

@@ -50,7 +50,7 @@ class AggFnEvaluator {
 
 public:
     static Status create(ObjectPool* pool, const TExpr& desc, const TSortInfo& sort_info,
-                         AggFnEvaluator** result);
+                         const bool without_key, AggFnEvaluator** result);
 
     Status prepare(RuntimeState* state, const RowDescriptor& desc,
                    const SlotDescriptor* intermediate_slot_desc,
@@ -109,8 +109,12 @@ private:
     const TFunction _fn;
 
     const bool _is_merge;
+    // We need this flag to distinguish between the two types of aggregation functions:
+    // 1. executed without group by key (agg function used with window function is also regarded as this type)
+    // 2. executed with group by key
+    const bool _without_key;
 
-    AggFnEvaluator(const TExprNode& desc);
+    AggFnEvaluator(const TExprNode& desc, const bool without_key);
     AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state);
 
     Status _calc_argument_columns(Block* block);
