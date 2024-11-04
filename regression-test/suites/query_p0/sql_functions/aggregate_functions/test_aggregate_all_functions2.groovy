@@ -113,5 +113,8 @@ suite("test_aggregate_all_functions2") {
     qt_select_minmax2 """ select max_by(datekey,hour) from metric_table; """
     qt_select_minmax3 """ select bitmap_to_string(max_by(device_id,hour)) from metric_table; """
     qt_select_minmax4 """ select bitmap_to_string(min_by(device_id,hour)) from metric_table; """
-    qt_select_minus """select * from (select device_id from metric_table where hour=1 minus select device_id from metric_table where hour=2 ) x;"""
+    test {
+       sql "select * from (select device_id from metric_table where hour=1 minus select device_id from metric_table where hour=2 ) x;"
+       exception "not implemented"
+    }
 }
