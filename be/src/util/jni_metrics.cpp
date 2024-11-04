@@ -63,6 +63,7 @@ Status JniMetrics::_init() {
     _server_entity->register_hook(_s_hook_name,
                                   std::bind(&JniMetrics::update_jdbc_connection_metrics, this));
     LOG(INFO) << "jni metrics inited successfully";
+    return Status::OK();
 }
 
 Status JniMetrics::update_jdbc_connection_metrics() {
@@ -93,6 +94,7 @@ Status JniMetrics::update_jdbc_connection_metrics() {
             LOG(INFO) << "catalog id : " << item.first << " unused, removed.";
         }
     }
+    return Status::OK();
 }
 
 JniMetrics::~JniMetrics() {
