@@ -38,6 +38,8 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOut
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplitOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeVariantArray;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PoseExplode;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PoseExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdtf;
 
@@ -133,5 +135,13 @@ public interface TableGeneratingFunctionVisitor<R, C> {
 
     default R visitJavaUdtf(JavaUdtf udtf, C context) {
         return visitTableGeneratingFunction(udtf, context);
+    }
+
+    default R visitPoseExplode(PoseExplode poseExplode, C context) {
+        return visitTableGeneratingFunction(poseExplode, context);
+    }
+
+    default R visitPoseExplodeOuter(PoseExplodeOuter poseExplodeOuter, C context) {
+        return visitTableGeneratingFunction(poseExplodeOuter, context);
     }
 }
