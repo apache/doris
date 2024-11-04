@@ -75,10 +75,6 @@ bool BlockReader::_rowsets_mono_asc_disjoint(const ReaderParams& read_params) {
     std::string cur_rs_last_key;
     const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
     for (const auto& rs_split : rs_splits) {
-        // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_split.rs_reader->rowset()->version().second == 1) {
-            continue;
-        }
         if (rs_split.rs_reader->rowset()->num_rows() == 0) {
             continue;
         }
