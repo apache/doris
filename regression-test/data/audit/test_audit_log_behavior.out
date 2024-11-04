@@ -20,7 +20,6 @@ scan_bytes_from_remote_storage	bigint	Yes	false	\N	NONE
 stmt_id	bigint	Yes	false	\N	NONE
 stmt_type	varchar(48)	Yes	false	\N	NONE
 is_query	tinyint	Yes	false	\N	NONE
-is_query	tinyint	Yes	false	\N	NONE
 is_nereids	tinyint	Yes	false	\N	NONE
 frontend_ip	varchar(128)	Yes	false	\N	NONE
 cpu_time_ms	bigint	Yes	false	\N	NONE
