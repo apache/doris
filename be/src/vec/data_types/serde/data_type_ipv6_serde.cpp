@@ -69,17 +69,21 @@ Status DataTypeIPv6SerDe::write_column_to_mysql(const IColumn& column,
 }
 
 void DataTypeIPv6SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
-    const auto ip_value = static_cast<const JsonbInt128Val*>(arg)->val();
-    const IPv6* ip_val = reinterpret_cast<const IPv6*>(&ip_value);
-    assert_cast<ColumnIPv6&>(column).insert_value(*ip_val);
+    const auto* str_value = static_cast<const JsonbBinaryVal*>(arg);
+    column.deserialize_and_insert_from_arena(str_value->getBlob());
 }
 
 void DataTypeIPv6SerDe::write_one_cell_to_jsonb(const IColumn& column,
                                                 JsonbWriterT<JsonbOutStream>& result,
                                                 Arena* mem_pool, int col_id, int row_num) const {
+    // we make ipv6 as BinaryValue in jsonb
     result.writeKey(col_id);
-    IPv6 data = assert_cast<const ColumnIPv6&>(column).get_element(row_num);
-    result.writeInt128(int128_t(data));
+    const char* begin = nullptr;
+    // maybe serialize_value_into_arena should move to here later.
+    StringRef value = column.serialize_value_into_arena(row_num, *mem_pool, begin);
+    result.writeStartBinary();
+    result.writeBinary(value.data, value.size);
+    result.writeEndBinary();
 }
 
 Status DataTypeIPv6SerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,

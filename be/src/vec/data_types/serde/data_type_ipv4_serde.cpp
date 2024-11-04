@@ -92,6 +92,26 @@ Status DataTypeIPv4SerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
     return Status::OK();
 }
 
+void DataTypeIPv4SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    if (arg->isInt32()) {
+        // old value format
+        assert_cast<ColumnIPv4&>(column).insert_value(
+                static_cast<const JsonbInt32Val*>(arg)->val());
+        return;
+    }
+    const auto jsonb_ipv4 = static_cast<const JsonbInt64Val*>(arg)->val();
+    const IPv4* ip_val = reinterpret_cast<const IPv4*>(&jsonb_ipv4);
+    assert_cast<ColumnIPv4&>(column).insert_value(*ip_val);
+}
+
+void DataTypeIPv4SerDe::write_one_cell_to_jsonb(const IColumn& column,
+                                                JsonbWriterT<JsonbOutStream>& result,
+                                                Arena* mem_pool, int col_id, int row_num) const {
+    result.writeKey(col_id);
+    IPv4 data = assert_cast<const ColumnIPv4&>(column).get_element(row_num);
+    result.writeInt64(int64_t(data));
+}
+
 Status DataTypeIPv4SerDe::write_column_to_pb(const IColumn& column, PValues& result, int start,
                                              int end) const {
     const auto& column_data = assert_cast<const ColumnIPv4&>(column).get_data();
