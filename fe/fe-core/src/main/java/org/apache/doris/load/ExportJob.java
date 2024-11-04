@@ -425,8 +425,8 @@ public class ExportJob implements Writable {
             list.addItem(SelectListItem.createStarItem(this.tableName));
         } else {
             for (Column column : exportTable.getBaseSchema()) {
-                String colName = column.getName().toLowerCase();
-                if (exportColumns.contains(colName)) {
+                String colName = column.getName();
+                if (exportColumns.contains(colName.toLowerCase())) {
                     SlotRef slotRef = new SlotRef(this.tableName, colName);
                     SelectListItem selectListItem = new SelectListItem(slotRef, null);
                     list.addItem(selectListItem);
