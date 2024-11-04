@@ -73,7 +73,8 @@ suite("test_audit_log_behavior") {
 
     qt_audit_log_schema """desc internal.__internal_schema.audit_log"""
 
-    for (def on : [true, false]) {
+    // branch-2.1 not support call flush_audit_log() when enable_nereids_planner=false, skip it.
+    for (def on : [true]) {
         sql "set enable_nereids_planner=${on}"
         sql "truncate table  __internal_schema.audit_log"
         // run queries
