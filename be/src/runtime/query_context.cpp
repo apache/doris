@@ -74,12 +74,11 @@ const std::string toString(QuerySource queryType) {
 
 QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
                            const TQueryOptions& query_options, TNetworkAddress coord_addr,
-                           bool is_pipeline, bool is_nereids, TNetworkAddress current_connect_fe,
+                           bool is_nereids, TNetworkAddress current_connect_fe,
                            QuerySource query_source)
         : _timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
-          _is_pipeline(is_pipeline),
           _is_nereids(is_nereids),
           _query_options(query_options),
           _query_source(query_source) {
@@ -180,8 +179,7 @@ QueryContext::~QueryContext() {
         }
     }
 
-    //TODO: check if pipeline and tracing both enabled
-    if (_is_pipeline && ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
+    if (ExecEnv::GetInstance()->pipeline_tracer_context()->enabled()) [[unlikely]] {
         try {
             ExecEnv::GetInstance()->pipeline_tracer_context()->end_query(_query_id, group_id);
         } catch (std::exception& e) {
