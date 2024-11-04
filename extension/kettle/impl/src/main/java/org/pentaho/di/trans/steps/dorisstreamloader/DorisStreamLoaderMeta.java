@@ -526,8 +526,8 @@ public class DorisStreamLoaderMeta extends BaseStepMeta implements StepMetaInter
         return getPOSTResults(sql);
     }
 
-    private JSONArray getFields(){
-        String sql = "select `COLUMN_NAME` from `information_schema`.`COLUMNS` where `TABLE_SCHEMA`='"+getDatabase()+"' and `TABLE_NAME`='"+getTable()+"';";
+    public JSONArray getFields(){
+        String sql = "select `COLUMN_NAME`, `ORDINAL_POSITION`, `COLUMN_KEY`, `DATA_TYPE`, `COLUMN_SIZE`, `DECIMAL_DIGITS` from `information_schema`.`COLUMNS` where `TABLE_SCHEMA`='"+getDatabase()+"' and `TABLE_NAME`='"+getTable()+"';";
         return getPOSTResults(sql);
     }
 
