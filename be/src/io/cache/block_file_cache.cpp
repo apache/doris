@@ -1200,23 +1200,6 @@ void BlockFileCache::remove_if_cached(const UInt128Wrapper& file_key) {
     }
 }
 
-void BlockFileCache::remove_if_cached_async(const UInt128Wrapper& file_key) {
-    SCOPED_CACHE_LOCK(_mutex);
-    bool is_ttl_file = remove_if_ttl_file_unlock(file_key, true, cache_lock);
-    if (!is_ttl_file) {
-        auto iter = _files.find(file_key);
-        std::vector<FileBlockCell*> to_remove;
-        if (iter != _files.end()) {
-            for (auto& [_, cell] : iter->second) {
-                if (cell.releasable()) {
-                    to_remove.push_back(&cell);
-                }
-            }
-        }
-        remove_file_blocks_async(to_remove, cache_lock);
-    }
-}
-
 std::vector<FileCacheType> BlockFileCache::get_other_cache_type_without_ttl(
         FileCacheType cur_cache_type) {
     switch (cur_cache_type) {
