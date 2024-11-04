@@ -619,19 +619,19 @@ public class StatisticsUtil {
     public static long getHiveRowCount(HMSExternalTable table) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
-            return -1;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // Table parameters contains row count, simply get and return it.
         if (parameters.containsKey(NUM_ROWS)) {
             long rows = Long.parseLong(parameters.get(NUM_ROWS));
             // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
-            if (rows != 0) {
+            if (rows > 0) {
                 LOG.info("Get row count {} for hive table {} in table parameters.", rows, table.getName());
                 return rows;
             }
         }
         if (!parameters.containsKey(TOTAL_SIZE)) {
-            return -1;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
         long totalSize = Long.parseLong(parameters.get(TOTAL_SIZE));
@@ -641,7 +641,7 @@ public class StatisticsUtil {
         }
         if (estimatedRowSize == 0) {
             LOG.warn("Hive table {} estimated row size is invalid {}", table.getName(), estimatedRowSize);
-            return -1;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         long rows = totalSize / estimatedRowSize;
         LOG.info("Get row count {} for hive table {} by total size {} and row size {}",
