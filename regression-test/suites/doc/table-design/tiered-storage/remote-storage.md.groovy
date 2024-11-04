@@ -18,7 +18,20 @@
 import org.junit.jupiter.api.Assertions;
 
 suite("docs/table-design/tiered-storage/remote-storage.md") {
+
+    def clean = {
+        multi_sql """
+            DROP TABLE IF EXISTS create_table_use_created_policy;
+            DROP TABLE IF EXISTS create_table_not_have_policy;
+            DROP TABLE IF EXISTS create_table_partition;
+            DROP STORAGE POLICY IF EXISTS test_policy;
+            DROP RESOURCE IF EXISTS 'remote_hdfs';
+            DROP RESOURCE IF EXISTS 'remote_s3';
+        """
+    }
+
     try {
+        clean()
         multi_sql """
             DROP TABLE IF EXISTS create_table_use_created_policy;
             DROP STORAGE POLICY IF EXISTS test_policy;
@@ -77,12 +90,12 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
                 "dfs.namenode.rpc-address.my_ha.my_namenode2" = "127.0.0.1:10000",
                 "dfs.client.failover.proxy.provider.my_ha" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
             );
-            
+
             CREATE STORAGE POLICY test_policy PROPERTIES (
                     "storage_resource" = "remote_hdfs",
                     "cooldown_ttl" = "300"
             );
-            
+
             CREATE TABLE IF NOT EXISTS create_table_use_created_policy (
                 k1 BIGINT,
                 k2 LARGEINT,
@@ -96,14 +109,52 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
                 "replication_num" = "1"
             );
         """
+
+        multi_sql """
+            DROP TABLE IF EXISTS create_table_not_have_policy;
+            CREATE TABLE IF NOT EXISTS create_table_not_have_policy 
+            (
+                k1 BIGINT,
+                k2 LARGEINT,
+                v1 VARCHAR(2048)
+            )
+            UNIQUE KEY(k1)
+            PARTITION BY RANGE(k1) (
+                PARTITION p1 VALUES LESS THAN (1),
+                PARTITION p2 VALUES LESS THAN (2),
+                PARTITION p3 VALUES LESS THAN (3)
+            )
+            DISTRIBUTED BY HASH (k1) BUCKETS 3
+            PROPERTIES(
+                "enable_unique_key_merge_on_write" = "false",
+                "replication_num" = "1"
+            );
+        """
+        sql """ALTER TABLE create_table_not_have_policy set ("storage_policy" = "test_policy");"""
+        multi_sql """
+            DROP TABLE IF EXISTS create_table_partition;
+            CREATE TABLE IF NOT EXISTS create_table_partition 
+            (
+                k1 BIGINT,
+                k2 LARGEINT,
+                v1 VARCHAR(2048)
+            )
+            UNIQUE KEY(k1)
+            PARTITION BY RANGE(k1) (
+                PARTITION p1 VALUES LESS THAN (1),
+                PARTITION p2 VALUES LESS THAN (2),
+                PARTITION p3 VALUES LESS THAN (3)
+            )
+            DISTRIBUTED BY HASH (k1) BUCKETS 3
+            PROPERTIES(
+                "enable_unique_key_merge_on_write" = "false",
+                "replication_num" = "1"
+            );
+        """
+        sql """ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="test_policy");"""
     } catch (Throwable t) {
         Assertions.fail("examples in docs/table-design/tiered-storage/remote-storage.md failed to exec, please fix it", t)
     } finally {
-        multi_sql """
-            DROP TABLE IF EXISTS create_table_use_created_policy;
-            DROP STORAGE POLICY IF EXISTS test_policy;
-            DROP RESOURCE IF EXISTS 'remote_hdfs';
-            DROP RESOURCE IF EXISTS 'remote_s3';
-        """
+        clean()
     }
 }
