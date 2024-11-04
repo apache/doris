@@ -907,9 +907,8 @@ void TabletSchema::append_index(TabletIndex&& index) {
 }
 
 void TabletSchema::update_index(const TabletColumn& col, TabletIndex index) {
-    int32_t col_unique_id = col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
+    const std::string& suffix_path = escape_for_path_name(col.suffix_path());
     for (size_t i = 0; i < _indexes.size(); i++) {
         for (int32_t id : _indexes[i].col_unique_ids()) {
             if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
@@ -1380,9 +1379,7 @@ const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
-    return inverted_index(col_unique_id, suffix_path);
+    return inverted_index(col_unique_id, escape_for_path_name(col.suffix_path()));
 }
 
 bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {

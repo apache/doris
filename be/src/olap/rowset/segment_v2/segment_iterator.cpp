@@ -1065,10 +1065,9 @@ Status SegmentIterator::_init_inverted_index_iterators() {
             const auto& column = _opts.tablet_schema->column(cid);
             int32_t col_unique_id =
                     column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
-            const std::string& suffix_path =
-                    column.has_path_info() ? column.path_info_ptr()->get_path() : "";
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    column, _segment->_tablet_schema->inverted_index(col_unique_id, suffix_path),
+                    column,
+                    _segment->_tablet_schema->inverted_index(col_unique_id, column.suffix_path()),
                     _opts, &_inverted_index_iterators[cid]));
         }
     }

@@ -164,6 +164,9 @@ public:
     bool is_extracted_column() const {
         return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
     };
+    std::string suffix_path() const {
+        return is_extracted_column() ? _column_path->get_path() : "";
+    }
     bool is_nested_subcolumn() const {
         return _column_path != nullptr && _column_path->has_nested_part();
     }
@@ -224,13 +227,16 @@ private:
 
     bool _has_bitmap_index = false;
     bool _visible = true;
-    int32_t _parent_col_unique_id = -1;
+
     std::vector<TabletColumnPtr> _sub_columns;
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
     int _be_exec_version = -1;
-    vectorized::PathInDataPtr _column_path;
+
+    // The extracted sub-columns from "variant" contain the following information:
+    int32_t _parent_col_unique_id = -1;     // "variant" -> col_unique_id
+    vectorized::PathInDataPtr _column_path; // the path of the sub-columns themselves
 
     // Record information about columns merged into a sparse column within a variant
     // `{"id": 100, "name" : "jack", "point" : 3.9}`
