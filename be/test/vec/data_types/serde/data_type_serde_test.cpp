@@ -228,20 +228,23 @@ TEST(DataTypeSerDeTest, DataTypeRowStoreSerDeTest) {
         IPv6Value ipv6;
         EXPECT_TRUE(ipv6.from_string(ip));
         vec->insert(ipv6.value());
+
         vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
         auto serde = data_type->get_serde(0);
         JsonbWriterT<JsonbOutStream> jsonb_writer;
         Arena pool;
-        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, &pool, 0, 0);
         jsonb_writer.writeStartObject();
-        std::string jsonb_str = jsonb_writer.getOutput()->getBuffer();
+        serde->write_one_cell_to_jsonb(*vec, jsonb_writer, &pool, 0, 0);
         jsonb_writer.writeEndObject();
         auto jsonb_column = ColumnString::create();
         jsonb_column->insert_data(jsonb_writer.getOutput()->getBuffer(),
                                   jsonb_writer.getOutput()->getSize());
         StringRef jsonb_data = jsonb_column->get_data_at(0);
-        auto* val = JsonbDocument::createValue(jsonb_data.data, jsonb_data.size);
-        serde->read_one_cell_from_jsonb(*vec, val);
+        auto pdoc = JsonbDocument::createDocument(jsonb_data.data, jsonb_data.size);
+        JsonbDocument& doc = *pdoc;
+        for (auto it = doc->begin(); it != doc->end(); ++it) {
+            serde->read_one_cell_from_jsonb(*vec, it->value());
+        }
         EXPECT_TRUE(vec->size() == 2);
         IPv6 data = vec->get_element(1);
         IPv6Value ipv6_value(data);
