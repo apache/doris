@@ -20,20 +20,15 @@
 #include <iostream>
 #include <memory>
 
-#include "CLucene/StdHeader.h"
-#include "CLucene/config/repl_wchar.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "json2pb/json_to_pb.h"
-#include "json2pb/pb_to_json.h"
 #include "olap/base_compaction.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/segment_v2/inverted_index/query/phrase_query.h"
-#include "olap/rowset/segment_v2/inverted_index/query/query_factory.h"
 #include "olap/rowset/segment_v2/inverted_index_compaction.h"
-#include "olap/rowset/segment_v2/inverted_index_file_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/storage_engine.h"
 
 namespace doris {
@@ -79,7 +74,7 @@ static std::vector<DataRow> read_data(const std::string file_name) {
 }
 
 static void check_terms_stats(lucene::store::Directory* dir) {
-    IndexReader* r = IndexReader::open(dir);
+    lucene::index::IndexReader* r = lucene::index::IndexReader::open(dir);
 
     printf("Max Docs: %d\n", r->maxDoc());
     printf("Num Docs: %d\n", r->numDocs());
@@ -87,7 +82,7 @@ static void check_terms_stats(lucene::store::Directory* dir) {
     int64_t ver = r->getCurrentVersion(dir);
     printf("Current Version: %f\n", (float_t)ver);
 
-    TermEnum* te = r->terms();
+    lucene::index::TermEnum* te = r->terms();
     int32_t nterms;
     for (nterms = 0; te->next(); nterms++) {
         /* empty */
@@ -100,7 +95,7 @@ static void check_terms_stats(lucene::store::Directory* dir) {
         printf("Term: %s ", token.c_str());
         printf("Freq: %d\n", te->docFreq());
         if (false) {
-            TermDocs* td = r->termDocs(te->term());
+            lucene::index::TermDocs* td = r->termDocs(te->term());
             while (td->next()) {
                 printf("DocID: %d ", td->doc());
                 printf("TermFreq: %d\n", td->freq());
@@ -236,18 +231,18 @@ static RowsetSharedPtr do_compaction(std::vector<RowsetSharedPtr> rowsets,
     EXPECT_TRUE(compaction.construct_output_rowset_writer(ctx, true).ok());
 
     if (is_index_compaction) {
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.size() == 2);
+        EXPECT_TRUE(ctx.skip_inverted_index.size() == 2);
         // col v1
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(1));
+        EXPECT_TRUE(ctx.skip_inverted_index.contains(1));
         // col v2
-        EXPECT_TRUE(ctx.columns_to_do_index_compaction.contains(2));
+        EXPECT_TRUE(ctx.skip_inverted_index.contains(2));
     }
 
     Merger::Statistics stats;
     stats.rowid_conversion = &compaction._rowid_conversion;
-    Status st = Merger::vertical_merge_rowsets(
-            tablet, compaction.compaction_type(), compaction._cur_tablet_schema, input_rs_readers,
-            compaction._output_rs_writer.get(), 100000, 5, &stats);
+    Status st = Merger::vertical_merge_rowsets(tablet, compaction.compaction_type(),
+                                               compaction._cur_tablet_schema, input_rs_readers,
+                                               compaction._output_rs_writer.get(), 100000, &stats);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     st = compaction._output_rs_writer->build(compaction._output_rowset);
@@ -258,7 +253,7 @@ static RowsetSharedPtr do_compaction(std::vector<RowsetSharedPtr> rowsets,
     // do index compaction
 
     if (stats.rowid_conversion && config::inverted_index_compaction_enable &&
-        !ctx.columns_to_do_index_compaction.empty()) {
+        !ctx.skip_inverted_index.empty()) {
         OlapStopWatch inverted_watch;
 
         // translation vec
@@ -277,7 +272,7 @@ static RowsetSharedPtr do_compaction(std::vector<RowsetSharedPtr> rowsets,
         RowsetId dest_rowset_id = stats.rowid_conversion->get_dst_rowset_id();
         // dest segment id -> num rows
         std::vector<uint32_t> dest_segment_num_rows;
-        Status st = compaction._output_rs_writer->get_segment_num_rows(&dest_segment_num_rows);
+        auto st = compaction._output_rs_writer->get_segment_num_rows(&dest_segment_num_rows);
         EXPECT_TRUE(st.ok()) << st.to_string();
 
         auto src_segment_num = src_seg_to_id_map.size();
@@ -301,163 +296,66 @@ static RowsetSharedPtr do_compaction(std::vector<RowsetSharedPtr> rowsets,
             }
 
             // create index_writer to compaction indexes
-            const auto& fs = compaction._output_rowset->rowset_meta()->fs();
-            const auto& tablet_path = tablet->tablet_path();
-
-            // src index dirs
-            // format: rowsetId_segmentId
-            std::vector<std::unique_ptr<InvertedIndexFileReader>> inverted_index_file_readers(
-                    src_segment_num);
-            for (const auto& m : src_seg_to_id_map) {
-                std::pair<RowsetId, uint32_t> p = m.first;
-                auto segment_file_name =
-                        p.first.to_string() + "_" + std::to_string(p.second) + ".dat";
-                auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
-                        fs, tablet_path, segment_file_name,
-                        compaction._cur_tablet_schema->get_inverted_index_storage_format());
-                bool open_idx_file_cache = false;
-                auto st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                           open_idx_file_cache);
-                EXPECT_TRUE(st.ok()) << st.to_string();
-                inverted_index_file_readers[m.second] = std::move(inverted_index_file_reader);
-            }
-
-            // dest index files
-            // format: rowsetId_segmentId
-            std::vector<std::unique_ptr<InvertedIndexFileWriter>> inverted_index_file_writers(
-                    dest_segment_num);
-
-            // Some columns have already been indexed
-            // key: seg_id, value: inverted index file size
-            std::unordered_map<int, int64_t> compacted_idx_file_size;
-            for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
-                auto prefix = dest_rowset_id.to_string() + "_" + std::to_string(seg_id) + ".dat";
-                auto inverted_index_file_reader = std::make_unique<InvertedIndexFileReader>(
-                        fs, tablet_path, prefix,
-                        compaction._cur_tablet_schema->get_inverted_index_storage_format());
-                bool open_idx_file_cache = false;
-                st = inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                      open_idx_file_cache);
-                if (st.ok()) {
-                    auto index_not_need_to_compact =
-                            inverted_index_file_reader->get_all_directories();
-                    EXPECT_TRUE(index_not_need_to_compact.has_value());
-                    // V1: each index is a separate file
-                    // V2: all indexes are in a single file
-                    if (compaction._cur_tablet_schema->get_inverted_index_storage_format() !=
-                        doris::InvertedIndexStorageFormatPB::V1) {
-                        int64_t fsize = 0;
-                        st = fs->file_size(InvertedIndexDescriptor::get_index_file_name(prefix),
-                                           &fsize);
-                        EXPECT_TRUE(st.ok()) << st.to_string();
-                        compacted_idx_file_size[seg_id] = fsize;
-                    }
-                    auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                            fs, tablet_path, prefix,
-                            compaction._cur_tablet_schema->get_inverted_index_storage_format());
-                    st = inverted_index_file_writer->initialize(index_not_need_to_compact.value());
-                    EXPECT_TRUE(st.ok()) << st.to_string();
-                    inverted_index_file_writers[seg_id] = std::move(inverted_index_file_writer);
-                } else if (st.is<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>()) {
-                    auto inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                            fs, tablet_path, prefix,
-                            compaction._cur_tablet_schema->get_inverted_index_storage_format());
-                    inverted_index_file_writers[seg_id] = std::move(inverted_index_file_writer);
-                    // no index file
-                    compacted_idx_file_size[seg_id] = 0;
-                } else {
-                    EXPECT_TRUE(st.ok()) << st.to_string();
-                }
-            }
+            auto& fs = compaction._output_rowset->rowset_meta()->fs();
+            auto& tablet_path = tablet->tablet_path();
 
             // we choose the first destination segment name as the temporary index writer path
             // Used to distinguish between different index compaction
-            auto index_tmp_path = tablet_path + "/" + dest_rowset_id.to_string() + "_" + "tmp";
-
-            auto error_handler = [&compaction](int64_t index_id, int64_t column_uniq_id) {
-                for (auto& rowset : compaction._input_rowsets) {
-                    rowset->set_skip_index_compaction(column_uniq_id);
-                }
-            };
-
+            auto index_writer_path = tablet_path + "/" + dest_index_files[0];
             Status status = Status::OK();
-            for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
-                auto col = compaction._cur_tablet_schema->column_by_uid(column_uniq_id);
-                const auto* index_meta = compaction._cur_tablet_schema->get_inverted_index(col);
+            std::for_each(
+                    ctx.skip_inverted_index.cbegin(), ctx.skip_inverted_index.cend(),
+                    [&src_segment_num, &dest_segment_num, &index_writer_path, &src_index_files,
+                     &dest_index_files, &fs, &tablet_path, &trans_vec, &dest_segment_num_rows,
+                     &status, &compaction](int32_t column_uniq_id) {
+                        auto error_handler = [&compaction](int64_t index_id,
+                                                           int64_t column_uniq_id) {
+                            for (auto& rowset : compaction._input_rowsets) {
+                                rowset->set_skip_index_compaction(column_uniq_id);
+                            }
+                        };
 
-                // if index properties are different, index compaction maybe needs to be skipped.
-                bool is_continue = false;
-                std::optional<std::map<std::string, std::string>> first_properties;
-                for (const auto& rowset : compaction._input_rowsets) {
-                    const auto* tablet_index = rowset->tablet_schema()->get_inverted_index(col);
-                    const auto& properties = tablet_index->properties();
-                    if (!first_properties.has_value()) {
-                        first_properties = properties;
-                    } else {
-                        if (properties != first_properties.value()) {
-                            error_handler(index_meta->index_id(), column_uniq_id);
-                            status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
-                                    "if index properties are different, index compaction needs to "
-                                    "be "
-                                    "skipped.");
-                            is_continue = true;
-                            break;
+                        auto index_id =
+                                compaction._cur_tablet_schema->get_inverted_index(column_uniq_id)
+                                        ->index_id();
+
+                        // if index properties are different, index compaction maybe needs to be skipped.
+                        std::optional<std::map<std::string, std::string>> first_properties;
+                        for (const auto& rowset : compaction._input_rowsets) {
+                            const auto* tablet_index =
+                                    rowset->tablet_schema()->get_inverted_index(column_uniq_id);
+                            const auto& properties = tablet_index->properties();
+                            if (!first_properties.has_value()) {
+                                first_properties = properties;
+                            } else {
+                                if (properties != first_properties.value()) {
+                                    error_handler(index_id, column_uniq_id);
+                                    return;
+                                }
+                            }
                         }
-                    }
-                }
-                if (is_continue) {
-                    continue;
-                }
 
-                std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
-                try {
-                    std::vector<std::unique_ptr<DorisCompoundReader>> src_idx_dirs(src_segment_num);
-                    for (int src_segment_id = 0; src_segment_id < src_segment_num;
-                         src_segment_id++) {
-                        auto res = inverted_index_file_readers[src_segment_id]->open(index_meta);
-                        EXPECT_TRUE(res.has_value());
-                        src_idx_dirs[src_segment_id] = std::move(res.value());
-                    }
-                    for (int dest_segment_id = 0; dest_segment_id < dest_segment_num;
-                         dest_segment_id++) {
-                        auto ret = inverted_index_file_writers[dest_segment_id]->open(index_meta);
-                        // EXPECT_TRUE(res.has_value());
-                        dest_index_dirs[dest_segment_id] = ret.value();
-                    }
-                    auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
-                                             fs, index_tmp_path, trans_vec, dest_segment_num_rows);
-                    if (!st.ok()) {
-                        error_handler(index_meta->index_id(), column_uniq_id);
-                        status =
-                                Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
-                    }
-                } catch (CLuceneError& e) {
-                    error_handler(index_meta->index_id(), column_uniq_id);
-                    status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(e.what());
-                }
-            }
-            uint64_t inverted_index_file_size = 0;
-            for (int seg_id = 0; seg_id < dest_segment_num; ++seg_id) {
-                auto inverted_index_file_writer = inverted_index_file_writers[seg_id].get();
-                if (Status st = inverted_index_file_writer->close(); !st.ok()) {
-                    status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(st.msg());
-                } else {
-                    inverted_index_file_size += inverted_index_file_writer->get_index_file_size();
-                    inverted_index_file_size -= compacted_idx_file_size[seg_id];
-                }
-            }
+                        try {
+                            Status st = compact_column(index_id, src_segment_num, dest_segment_num,
+                                                       src_index_files, dest_index_files, fs,
+                                                       index_writer_path, tablet_path, trans_vec,
+                                                       dest_segment_num_rows);
+                            if (!st.ok()) {
+                                error_handler(index_id, column_uniq_id);
+                                status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                                        st.msg());
+                            }
+                        } catch (CLuceneError& e) {
+                            error_handler(index_id, column_uniq_id);
+                            status = Status::Error<ErrorCode::INVERTED_INDEX_COMPACTION_ERROR>(
+                                    e.what());
+                        }
+                    });
+
             EXPECT_TRUE(status.ok()) << status.to_string();
 
-            // index compaction should update total disk size and index disk size
-            compaction._output_rowset->rowset_meta()->set_data_disk_size(
-                    compaction._output_rowset->data_disk_size() + inverted_index_file_size);
-            compaction._output_rowset->rowset_meta()->set_total_disk_size(
-                    compaction._output_rowset->data_disk_size() + inverted_index_file_size);
-            compaction._output_rowset->rowset_meta()->set_index_disk_size(
-                    compaction._output_rowset->index_disk_size() + inverted_index_file_size);
-
-            COUNTER_UPDATE(compaction._output_rowset_data_size_counter,
-                           compaction._output_rowset->data_disk_size());
+        } else {
+            EXPECT_TRUE(false) << "should not reach skip doing index compaction";
         }
     }
 
@@ -480,10 +378,6 @@ protected:
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(tmp_dir).ok());
         std::vector<StorePath> paths;
         paths.emplace_back(std::string(tmp_dir), 1024000000);
-        auto tmp_file_dirs = std::make_unique<segment_v2::TmpFileDirs>(paths);
-        Status st = tmp_file_dirs->init();
-        EXPECT_TRUE(st.ok()) << st.to_json();
-        ExecEnv::GetInstance()->set_tmp_file_dir(std::move(tmp_file_dirs));
 
         // storage engine
         doris::EngineOptions options;
@@ -495,7 +389,6 @@ protected:
         // tablet_schema
         TabletSchemaPB schema_pb;
         schema_pb.set_keys_type(KeysType::DUP_KEYS);
-        schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
 
         construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "key_index", 0,
                          "INT", "key");
@@ -513,7 +406,7 @@ protected:
         TabletMetaSharedPtr tablet_meta(new TabletMeta());
         tablet_meta->_schema = _tablet_schema;
 
-        _tablet.reset(new Tablet(*_engine_ref, tablet_meta, _data_dir.get()));
+        _tablet.reset(new Tablet(tablet_meta, _data_dir.get()));
         EXPECT_TRUE(_tablet->init().ok());
     }
     void TearDown() override {
@@ -660,29 +553,30 @@ TEST_F(IndexCompactionDeleteTest, delete_index_test) {
     auto segment_file_name_index =
             fmt::format("{}_{}.dat", output_rowset_index->rowset_id().to_string(), seg_id);
     std::cout << "segment_file_name: " << segment_file_name_index << std::endl;
-    auto inverted_index_file_reader_index = std::make_unique<InvertedIndexFileReader>(
-            output_rowset_index->_rowset_meta->fs(), _tablet->tablet_path(),
-            segment_file_name_index, _tablet_schema->get_inverted_index_storage_format());
-    EXPECT_TRUE(inverted_index_file_reader_index->init().ok());
+    auto index_file_name_index =
+            InvertedIndexDescriptor::get_index_file_name(segment_file_name_index, 10001);
+    auto inverted_index_file_reader_index = std::make_unique<DorisCompoundReader>(
+            DorisCompoundDirectoryFactory::getDirectory(output_rowset_index->_rowset_meta->fs(),
+                                                        output_rowset_index->tablet_path().c_str()),
+            index_file_name_index.c_str(), config::inverted_index_read_buffer_size);
 
     auto output_rowset_normal = do_compaction(rowsets, _engine_ref, _tablet, false);
 
     auto segment_file_name_normal =
             fmt::format("{}_{}.dat", output_rowset_index->rowset_id().to_string(), seg_id);
-    auto inverted_index_file_reader_normal = std::make_unique<InvertedIndexFileReader>(
-            output_rowset_normal->_rowset_meta->fs(), _tablet->tablet_path(),
-            segment_file_name_normal, _tablet_schema->get_inverted_index_storage_format());
-    EXPECT_TRUE(inverted_index_file_reader_normal->init().ok());
+    auto index_file_name_normal =
+            InvertedIndexDescriptor::get_index_file_name(segment_file_name_normal, 10001);
+    auto inverted_index_file_reader_normal = std::make_unique<DorisCompoundReader>(
+            DorisCompoundDirectoryFactory::getDirectory(
+                    output_rowset_normal->_rowset_meta->fs(),
+                    output_rowset_normal->tablet_path().c_str()),
+            index_file_name_normal.c_str(), config::inverted_index_read_buffer_size);
 
     // check index file terms
-    std::string empty_string;
-    auto dir_idx_compaction = inverted_index_file_reader_index->_open(10001, empty_string);
-    auto dir_normal_compaction = inverted_index_file_reader_normal->_open(10001, empty_string);
-    EXPECT_TRUE(dir_idx_compaction.has_value()) << dir_idx_compaction.error();
-    EXPECT_TRUE(dir_normal_compaction.has_value()) << dir_normal_compaction.error();
-    check_terms_stats(dir_idx_compaction->get());
-    check_terms_stats(dir_normal_compaction->get());
-    auto st = check_idx_file_correctness(dir_idx_compaction->get(), dir_normal_compaction->get());
+    check_terms_stats(inverted_index_file_reader_index.get());
+    check_terms_stats(inverted_index_file_reader_normal.get());
+    auto st = check_idx_file_correctness(inverted_index_file_reader_index.get(),
+                                         inverted_index_file_reader_normal.get());
     EXPECT_TRUE(st.ok()) << st.to_string();
 }
 
