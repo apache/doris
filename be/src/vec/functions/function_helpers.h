@@ -103,7 +103,7 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(
 
 // Same as above and return the new_res loc in tuple
 std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(
-        const Block& block, const ColumnNumbers& args, size_t result,
+        const Block& block, const ColumnNumbers& args, uint32_t result,
         bool need_replace_null_data_to_default = false);
 
 /// Checks argument type at specified index with predicate.

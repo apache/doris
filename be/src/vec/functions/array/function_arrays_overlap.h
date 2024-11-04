@@ -207,7 +207,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DBUG_EXECUTE_IF("array_func.arrays_overlap", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                     "array_func.arrays_overlap", "req_id", 0);

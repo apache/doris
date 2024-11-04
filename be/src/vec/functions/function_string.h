@@ -165,7 +165,7 @@ struct StringOP {
 struct SubstringUtil {
     static constexpr auto name = "substring";
 
-    static void substring_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static void substring_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                   size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 3);
         auto res = ColumnString::create();
@@ -336,7 +336,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& [arg0_column, arg0_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& [arg1_column, arg1_const] =
@@ -396,7 +396,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         size_t argument_size = arguments.size();
         auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -488,7 +488,7 @@ private:
                                         std::vector<bool>& is_const_args,
                                         const std::vector<const ColumnUInt8::Container*>& null_list,
                                         auto& res_data, auto& res_offset, size_t input_rows_count,
-                                        size_t argument_size, Block& block, size_t result,
+                                        size_t argument_size, Block& block, uint32_t result,
                                         auto& res) const {
         int curr_len = 0;
         for (int row = 0; row < input_rows_count; row++) {
@@ -546,7 +546,7 @@ private:
                                          std::vector<const ColumnString::Offsets*>& offsets_list,
                                          std::vector<bool>& is_const_args, auto& res_data,
                                          auto& res_offset, size_t input_rows_count,
-                                         size_t argument_size, Block& block, size_t result,
+                                         size_t argument_size, Block& block, uint32_t result,
                                          auto& res) const {
         const char* range_type = chars_list[1]->raw_data();
 
@@ -631,7 +631,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -643,7 +643,7 @@ struct Substr3Impl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         SubstringUtil::substring_execute(block, arguments, result, input_rows_count);
         return Status::OK();
@@ -656,7 +656,7 @@ struct Substr2Impl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto col_len = ColumnInt32::create(input_rows_count);
         auto& strlen_data = col_len->get_data();
@@ -705,7 +705,7 @@ public:
     bool is_variadic() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         DCHECK_LE(arguments.size(), 4);
 
@@ -802,7 +802,7 @@ public:
     bool is_variadic() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         int n = -1; // means unassigned
 
         auto res = ColumnString::create();
@@ -879,7 +879,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto int_type = std::make_shared<DataTypeInt32>();
         size_t num_columns_without_result = block.columns();
         block.insert({int_type->create_column_const(input_rows_count, to_field(1)), int_type,
@@ -905,7 +905,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto int_type = std::make_shared<DataTypeInt32>();
         auto params1 = ColumnInt32::create(input_rows_count);
         auto params2 = ColumnInt32::create(input_rows_count);
@@ -947,7 +947,7 @@ struct NullOrEmptyImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeUInt8>()}; }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count, bool reverse) {
+                          uint32_t result, size_t input_rows_count, bool reverse) {
         auto res_map = ColumnUInt8::create(input_rows_count, 0);
 
         auto column = block.get_by_position(arguments[0]).column;
@@ -988,7 +988,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         RETURN_IF_ERROR(NullOrEmptyImpl::execute(context, block, arguments, result,
                                                  input_rows_count, false));
         return Status::OK();
@@ -1009,7 +1009,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         RETURN_IF_ERROR(NullOrEmptyImpl::execute(context, block, arguments, result,
                                                  input_rows_count, true));
         return Status::OK();
@@ -1068,7 +1068,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
 
         if (arguments.size() == 1) {
@@ -1096,7 +1096,7 @@ public:
         }
     }
 
-    Status execute_vecotr(Block& block, const ColumnNumbers& arguments, size_t result,
+    Status execute_vecotr(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           size_t input_rows_count) const {
         int argument_size = arguments.size();
         std::vector<ColumnPtr> argument_columns(argument_size);
@@ -1158,7 +1158,7 @@ public:
 
     template <bool is_const>
     Status execute_const(ConcatState* concat_state, Block& block, const ColumnString* col_str,
-                         size_t result, size_t input_rows_count) const {
+                         uint32_t result, size_t input_rows_count) const {
         // using tail optimize
 
         auto res = ColumnString::create();
@@ -1211,7 +1211,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         int arguent_size = arguments.size();
         int num_children = arguent_size - 1;
         auto res = ColumnString::create();
@@ -1332,7 +1332,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 2);
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         // we create a zero column to simply implement
@@ -1529,7 +1529,7 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 2);
         auto res = ColumnString::create();
         auto null_map = ColumnUInt8::create();
@@ -1635,7 +1635,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 3);
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         // we create a zero column to simply implement
@@ -1781,7 +1781,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -1952,7 +1952,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
 
         // Create a zero column to simply implement
@@ -2115,7 +2115,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) const override {
+                        uint32_t result, size_t /*input_rows_count*/) const override {
         DCHECK_EQ(arguments.size(), 2);
 
         const auto& [src_column, left_const] =
@@ -2392,7 +2392,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 2);
         const auto& [src_column, left_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
@@ -2510,7 +2510,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
 
         int argument_size = arguments.size();
@@ -2574,7 +2574,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 1);
 
         ColumnPtr str_col = block.get_by_position(arguments[0]).column;
@@ -2613,7 +2613,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK(!is_column_const(*block.get_by_position(arguments[0]).column));
 
         ColumnPtr str_col = block.get_by_position(arguments[0]).column;
@@ -2674,7 +2674,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto col_url =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto col_parameter =
@@ -2718,7 +2718,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         auto& null_map_data = null_map->get_data();
         DCHECK_GE(3, arguments.size());
@@ -2839,7 +2839,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res = ColumnString::create();
         res->get_offsets().reserve(input_rows_count);
 
@@ -2872,7 +2872,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res = ColumnString::create();
         res->get_offsets().reserve(input_rows_count);
 
@@ -2907,7 +2907,7 @@ public:
     bool use_default_implementation_for_constants() const final { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res = ColumnString::create();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
@@ -2973,7 +2973,7 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res_column = ColumnString::create();
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
 
@@ -3272,7 +3272,7 @@ public:
     bool is_variadic() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
         bool col_const[3];
         ColumnPtr argument_columns[3];
@@ -3423,7 +3423,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         // We need a local variable to hold a reference to the converted column.
         // So that the converted column will not be released before we use it.
         ColumnPtr col[3];
@@ -3556,13 +3556,13 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 
 struct SubReplaceImpl {
-    static Status replace_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status replace_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                   size_t input_rows_count) {
         auto res_column = ColumnString::create();
         auto* result_column = assert_cast<ColumnString*>(res_column.get());
@@ -3684,7 +3684,7 @@ struct SubReplaceThreeImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto params = ColumnInt32::create(input_rows_count);
         auto& strlen_data = params->get_data();
@@ -3715,7 +3715,7 @@ struct SubReplaceFourImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         return SubReplaceImpl::replace_execute(block, arguments, result, input_rows_count);
     }
@@ -3754,7 +3754,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr argument_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnString* str_col = static_cast<const ColumnString*>(argument_column.get());
@@ -3945,7 +3945,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 2);
 
         int argument_size = arguments.size();
@@ -4143,7 +4143,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 4);
 
         bool col_const[4];
@@ -4268,7 +4268,7 @@ public:
 
     // ngram_search(text,pattern,gram_num)
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 3);
         auto col_res = ColumnFloat64::create();
         bool col_const[3];
@@ -4398,7 +4398,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         CHECK_EQ(arguments.size(), 3);
         auto col_res = ColumnString::create();
         bool col_const[3];

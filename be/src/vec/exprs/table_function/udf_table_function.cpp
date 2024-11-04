@@ -24,6 +24,7 @@
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -95,7 +96,7 @@ Status UDFTableFunction::open() {
 
 Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
     auto child_size = _expr_context->root()->children().size();
-    std::vector<size_t> child_column_idxs;
+    ColumnNumbers child_column_idxs;
     child_column_idxs.resize(child_size);
     for (int i = 0; i < child_size; ++i) {
         int result_id = -1;

@@ -18,26 +18,22 @@
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 #include <fmt/format.h>
-#include <stddef.h>
 
-#include <cstdint>
-#include <memory>
-#include <utility>
+#include <cstddef>
 
-#include "util/defer_op.h"
 #include "util/runtime_profile.h"
-#include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_vector.h"
 #include "vec/core/block.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RowDescriptor;
 class RuntimeState;
 class TExprNode;
@@ -53,17 +49,18 @@ double get_comparison_ignore_thredhold() {
 double get_bloom_filter_ignore_thredhold() {
     return 0.4;
 }
-
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
 
-VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl,
+class VExprContext;
+
+VRuntimeFilterWrapper::VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl,
                                              double ignore_thredhold, bool null_aware)
-        : VExpr(node), _impl(impl), _ignore_thredhold(ignore_thredhold), _null_aware(null_aware) {
+        : VExpr(node),
+          _impl(std::move(impl)),
+          _ignore_thredhold(ignore_thredhold),
+          _null_aware(null_aware) {
     reset_judge_selectivity();
 }
 
@@ -108,7 +105,7 @@ Status VRuntimeFilterWrapper::execute(VExprContext* context, Block* block, int* 
         if (_getting_const_col) {
             _impl->set_getting_const_col(true);
         }
-        std::vector<size_t> args;
+        ColumnNumbers args;
         RETURN_IF_ERROR(_impl->execute_runtime_fitler(context, block, result_column_id, args));
         if (_getting_const_col) {
             _impl->set_getting_const_col(false);
@@ -128,4 +125,5 @@ const std::string& VRuntimeFilterWrapper::expr_name() const {
     return _expr_name;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

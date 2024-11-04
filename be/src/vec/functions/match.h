@@ -69,7 +69,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override;
+                        uint32_t result, size_t input_rows_count) const override;
 
     virtual Status execute_match(FunctionContext* context, const std::string& column_name,
                                  const std::string& match_query_str, size_t input_rows_count,
