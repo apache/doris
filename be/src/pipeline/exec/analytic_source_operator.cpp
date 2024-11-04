@@ -506,11 +506,13 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
     RETURN_IF_ERROR(OperatorX<AnalyticLocalState>::init(tnode, state));
     const TAnalyticNode& analytic_node = tnode.analytic_node;
     size_t agg_size = analytic_node.analytic_functions.size();
-
     for (int i = 0; i < agg_size; ++i) {
         vectorized::AggFnEvaluator* evaluator = nullptr;
+        // Window function treats all NullableAggregateFunction as AlwaysNullable.
+        // Its behavior is same with executed without group by key.
+        // https://github.com/apache/doris/pull/40693
         RETURN_IF_ERROR(vectorized::AggFnEvaluator::create(
-                _pool, analytic_node.analytic_functions[i], {}, &evaluator));
+                _pool, analytic_node.analytic_functions[i], {}, /*wihout_key*/ true, &evaluator));
         _agg_functions.emplace_back(evaluator);
     }
 
