@@ -106,22 +106,30 @@ run_sql() {
 
 get_session_variable() {
   k="$1"
-  v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" \
-      -e "show variables like '${k}'\G" 2>&1 | grep " Value: ")
-
-  if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-      echo "Error: Failed to execute SQL command: show variables like '${k}'\G" >&2
+  if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "show variables like '${k}'\G" 2>&1); then
+      printf "%s\n" "$output" >&2
+      printf "Error: Failed to execute SQL command: show variables like '%s'\G\n" "$k" >&2
       exit 1
   fi
 
-  if [[ ${PIPESTATUS[1]} -eq 1 ]]; then
-      echo "Warning: No 'Value: ' found for variable '${k}'." >&2
+  if ! grep_output=$(grep " Value: " <<< "$output" 2>&1); then
+      printf "%s\n" "$grep_output" >&2
+      printf "Error: grep command failed while processing SQL output.\n" >&2
+      exit 1
+  fi
+
+  if ! v=$(awk '{print $2}' <<< "$grep_output" 2>&1); then
+      printf "%s\n" "$v" >&2
+      printf "Error: awk command failed while processing the grep output.\n" >&2
+      exit 1
+  fi
+
+  if [[ -z $v ]]; then
+      printf "Warning: No 'Value: ' found for variable '%s'.\n" "$k" >&2
       return 1
-  elif [[ ${PIPESTATUS[1]} -ne 0 ]]; then
-      echo "Error: grep command failed while processing SQL output." >&2
-      exit 1
   fi
-  echo "${v/*Value: /}"
+
+  echo "$v"
 }
 
 _exec_mem_limit="$(get_session_variable exec_mem_limit)"
@@ -145,19 +153,35 @@ cat ${QUERIES_FILE} | while read query; do
 
   echo -n "query${QUERY_NUM}," | tee -a result.csv
   for i in $(seq 1 $TRIES); do
-    RES=$(mysql -vvv -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "${query}" 2>&1 | \
-          perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' 2>&1 || :)
-
-    if [[ ${PIPESTATUS[0]} -ne 0 ]]; then
-        echo "Error: Failed to execute SQL command: ${query}" >&2
+    output=$(mysql -vvv -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "${query}" 2>&1)
+    if [ $? -ne 0 ]; then
+        printf "%s\n" "$output" >&2
+        printf "Error: Failed to execute SQL command: %s\n" "${query}" >&2
         exit 1
     fi
 
-    if [[ ${PIPESTATUS[1]} -ne 0 ]]; then
-        echo "Error: Perl processing failed while parsing the SQL output." >&2
+    RES=$(perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' <<< "$output")
+    if [ -z "$RES" ]; then
+        printf "Warning: No output received from the SQL command: %s.\n" "${query}" >&2
+        continue
+    fi
+
+    if ! grep_output=$(grep " Value: " <<< "$output" 2>&1); then
+        printf "%s\n" "$grep_output" >&2
+        printf "Error: grep command failed while processing SQL output.\n" >&2
         exit 1
     fi
-    
+
+    if ! v=$(awk '{print $2}' <<< "$grep_output" 2>&1); then
+        printf "%s\n" "$v" >&2
+        printf "Error: awk command failed while processing the grep output.\n" >&2
+        exit 1
+    fi
+
+    if [[ -z $v ]]; then
+        printf "Warning: No 'Value: ' found for variable '%s'.\n" "$k" >&2
+        return 1
+    fi
     echo -n "${RES}" | tee -a result.csv
     [[ "$i" != $TRIES ]] && echo -n "," | tee -a result.csv
   done

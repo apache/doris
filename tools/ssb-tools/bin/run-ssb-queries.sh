@@ -94,9 +94,9 @@ echo "USER: ${USER:='root'}"
 echo "DB: ${DB:='ssb'}"
 
 run_sql() {
-    echo "$@"
+    printf "%s\n" "$@"
     if ! mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D"${DB}" -e "$@" 2>&1; then
-        echo "Error: Failed to execute the SQL command: $@" >&2
+        printf "Error: Failed to execute the SQL command: %s\n" "$@" >&2
         exit 1
     fi
 }
@@ -125,7 +125,7 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
         <"${QUERIES_DIR}/q${i}.sql" >"${RESULT_DIR}/result${i}.out" 2>"${RESULT_DIR}/result${i}.log"; then
-        echo "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log" >&2
+        printf "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log\n" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -135,7 +135,7 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
         <"${QUERIES_DIR}/q${i}.sql" >"${RESULT_DIR}/result${i}.out" 2>"${RESULT_DIR}/result${i}.log"; then
-        echo "Error: Failed to execute query q${i} (hot run 1). Check the log: ${RESULT_DIR}/result${i}.log" >&2
+        printf "Error: Failed to execute query q${i} (hot run 1). Check the log: ${RESULT_DIR}/result${i}.log\n" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -145,7 +145,7 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
         <"${QUERIES_DIR}/q${i}.sql" >"${RESULT_DIR}/result${i}.out" 2>"${RESULT_DIR}/result${i}.log"; then
-        echo "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log" >&2
+        printf "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log\n" >&2
         continue
     fi
     end=$(date +%s%3N)

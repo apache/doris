@@ -111,8 +111,11 @@ check_prerequest() {
 
 run_sql() {
     sql="$*"
-    echo "${sql}"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$@"
+    printf "%s\n" "${sql}"
+    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$@" 2>&1; then
+        printf "Error: Failed to execute SQL command.\n" >&2
+        exit 1
+    fi
 }
 
 load_lineitem_flat() {
