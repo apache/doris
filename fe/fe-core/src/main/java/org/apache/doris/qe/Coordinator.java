@@ -1896,8 +1896,7 @@ public class Coordinator implements CoordInterface {
                         boolean sharedScan = true;
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
-                        boolean ignoreStorageDataDistribution = node.isPresent()
-                                && fragment.useSerialSource(context);
+                        boolean ignoreStorageDataDistribution = fragment.useSerialSource(context);
                         if (node.isPresent() && ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
