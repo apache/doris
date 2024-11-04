@@ -1205,10 +1205,6 @@ Status Tablet::_contains_version(const Version& version) {
     return Status::OK();
 }
 
-TabletInfo Tablet::get_tablet_info() const {
-    return TabletInfo(tablet_id(), tablet_uid());
-}
-
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {

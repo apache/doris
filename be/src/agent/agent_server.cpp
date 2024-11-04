@@ -33,6 +33,7 @@
 #include "agent/utils.h"
 #include "agent/workload_group_listener.h"
 #include "agent/workload_sched_policy_listener.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -193,7 +194,7 @@ void AgentServer::start_workers(StorageEngine& engine, ExecEnv* exec_env) {
             "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds, [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
 
     _report_workers.push_back(std::make_unique<ReportWorker>(
-            "REPORT_OLAP_TABLE", _master_info, config::report_tablet_interval_seconds,[&engine, &master_info = _master_info] { report_tablet_callback(engine, master_info); }));
+            "REPORT_OLAP_TABLET", _master_info, config::report_tablet_interval_seconds,[&engine, &master_info = _master_info] { report_tablet_callback(engine, master_info); }));
     // clang-format on
 }
 
@@ -211,6 +212,10 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
             "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,
             [&engine](auto&& task) { return calc_delete_bitmap_callback(engine, task); });
 
+    // cloud, drop tablet just clean clear_cache, so just one thread do it
+    _workers[TTaskType::DROP] = std::make_unique<TaskWorkerPool>(
+            "DROP_TABLE", 1, [&engine](auto&& task) { return drop_tablet_callback(engine, task); });
+
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_TASK", _master_info, config::report_task_interval_seconds,
             [&master_info = _master_info] { report_task_callback(master_info); }));
@@ -218,6 +223,14 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
     _report_workers.push_back(std::make_unique<ReportWorker>(
             "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds,
             [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); }));
+
+    if (config::enable_cloud_tablet_report) {
+        _report_workers.push_back(std::make_unique<ReportWorker>(
+                "REPORT_OLAP_TABLET", _master_info, config::report_tablet_interval_seconds,
+                [&engine, &master_info = _master_info] {
+                    report_tablet_callback(engine, master_info);
+                }));
+    }
 }
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and
