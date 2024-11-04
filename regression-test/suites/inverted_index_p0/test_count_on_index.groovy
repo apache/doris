@@ -146,30 +146,38 @@ suite("test_count_on_index_httplogs", "p0") {
         sql """set enable_fallback_to_original_planner=false;"""
         sql """analyze table ${testTable_dup} with sync""";
         // case1: test duplicate table
-        def maxRetries = 3
-        def attempt = 0
-        def success = false
+        def executeSqlWithRetry = { String sqlQuery, int maxRetries = 3, int waitSeconds = 1 ->
+            def attempt = 0
+            def success = false
 
-        while (attempt < maxRetries && !success) {
-            try {
-                explain {
-                    sleep(10000)
-                    sql("select COUNT() from ${testTable_dup}")
-                    notContains("cardinality=0")
-                }
-                success = true
-            } catch (Exception e) {
-                attempt++
-                log.error("Attempt ${attempt} failed: ${e.message}")
-                if (attempt < maxRetries) {
-                    log.info("Retrying... (${attempt + 1}/${maxRetries})")
-                    sleep(1000)
-                } else {
-                    log.error("All ${maxRetries} attempts failed.")
-                    throw e
+            while (attempt < maxRetries && !success) {
+                try {
+                    explain {
+                        // Wait for BE to report every partition's row count
+                        sleep(10000)
+                        sql(sqlQuery)
+                        notContains("cardinality=0")
+                    }
+                    success = true
+                } catch (Exception e) {
+                    attempt++
+                    log.error("Attempt ${attempt} failed: ${e.message}")
+                    if (attempt < maxRetries) {
+                        log.info("Retrying... (${attempt + 1}/${maxRetries}) after ${waitSeconds} second(s).")
+                        sleep(waitSeconds * 1000)
+                    } else {
+                        log.error("All ${maxRetries} attempts failed.")
+                        throw e
+                    }
                 }
             }
         }
+        // make sure row count stats is not 0 for duplicate table
+        executeSqlWithRetry("SELECT COUNT() FROM ${testTable_dup}")
+        // make sure row count stats is not 0 for unique table
+        sql """analyze table ${testTable_unique} with sync""";
+        executeSqlWithRetry("SELECT COUNT() FROM ${testTable_unique}")
+
         explain {
             sql("select COUNT() from ${testTable_dup} where request match 'GET'")
             contains "pushAggOp=COUNT_ON_INDEX"

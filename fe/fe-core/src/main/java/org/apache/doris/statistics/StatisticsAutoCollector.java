@@ -208,7 +208,7 @@ public class StatisticsAutoCollector extends MasterDaemon {
         }
         if (table instanceof OlapTable && analysisMethod.equals(AnalysisMethod.SAMPLE)) {
             OlapTable ot = (OlapTable) table;
-            if (ot.getRowCountForIndex(ot.getBaseIndexId(), true) == OlapTable.ROW_COUNT_BEFORE_REPORT) {
+            if (ot.getRowCountForIndex(ot.getBaseIndexId(), true) == TableIf.UNKNOWN_ROW_COUNT) {
                 LOG.info("Table {} row count is not fully reported, skip auto analyzing this time.", ot.getName());
                 return null;
             }

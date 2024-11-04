@@ -82,6 +82,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
     private TableBatchReadSession tableBatchReadSession;
+    private Predicate filterPredicate;
     private static final LocationPath ROW_OFFSET_PATH = new LocationPath("/row_offset", Maps.newHashMap());
     private static final LocationPath BYTE_SIZE_PATH = new LocationPath("/byte_size", Maps.newHashMap());
 
@@ -117,8 +118,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     void createTableBatchReadSession() throws UserException {
-        Predicate filterPredicate = convertPredicate();
-
         List<String> requiredPartitionColumns = new ArrayList<>();
         List<String> orderedRequiredDataColumns = new ArrayList<>();
 
@@ -166,9 +165,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     }
 
-    protected Predicate convertPredicate() {
+    @Override
+    protected void convertPredicate() {
         if (conjuncts.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         }
 
         List<Predicate> odpsPredicates = new ArrayList<>();
@@ -182,9 +182,9 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
 
         if (odpsPredicates.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         } else if (odpsPredicates.size() == 1) {
-            return odpsPredicates.get(0);
+            this.filterPredicate = odpsPredicates.get(0);
         } else {
             com.aliyun.odps.table.optimizer.predicate.CompoundPredicate
                     filterPredicate = new com.aliyun.odps.table.optimizer.predicate.CompoundPredicate(
@@ -193,7 +193,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             for (Predicate odpsPredicate : odpsPredicates) {
                 filterPredicate.addPredicate(odpsPredicate);
             }
-            return filterPredicate;
+            this.filterPredicate = filterPredicate;
         }
     }
 

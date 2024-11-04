@@ -15,25 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.trees.expressions.literal.format;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import java.util.Objects;
 
-/**
- * Rewrite es plan to set the conjuncts.
- */
-public class PushConjunctsIntoEsScan extends OneRewriteRuleFactory {
+/** OptionChecker */
+public class OptionChecker extends FormatChecker {
+    private final FormatChecker checker;
+
+    public OptionChecker(String name, FormatChecker checker) {
+        super(name);
+        this.checker = Objects.requireNonNull(checker, "checker can not be null");
+    }
 
     @Override
-    public Rule build() {
-        return logicalFilter(logicalEsScan()).thenApply(ctx -> {
-            LogicalFilter<LogicalEsScan> filter = ctx.root;
-            LogicalEsScan scan = filter.child();
-            LogicalEsScan rewrittenScan = scan.withConjuncts(filter.getConjuncts());
-            return rewrittenScan;
-        }).toRule(RuleType.PUSH_CONJUNCTS_INTO_ES_SCAN);
+    protected boolean doCheck(StringInspect stringInspect) {
+        checker.check(stringInspect);
+        return true;
     }
 }

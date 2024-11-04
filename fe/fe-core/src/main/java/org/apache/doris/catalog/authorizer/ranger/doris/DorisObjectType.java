@@ -18,5 +18,5 @@
 package org.apache.doris.catalog.authorizer.ranger.doris;
 
 public enum DorisObjectType {
-    NONE, CATALOG, DATABASE, TABLE, COLUMN, RESOURCE, WORKLOAD_GROUP
+    NONE, CATALOG, DATABASE, TABLE, COLUMN, RESOURCE, WORKLOAD_GROUP, GLOBAL
 }
