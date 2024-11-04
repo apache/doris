@@ -605,7 +605,6 @@ bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* o
     bool new_schema_has_inverted_index = new_schema->inverted_index(column_new);
     bool old_schema_has_inverted_index = old_schema->inverted_index(column_old);
 
-    // TODO(scy): ngram index
     return new_schema_has_inverted_index != old_schema_has_inverted_index;
 }
 
