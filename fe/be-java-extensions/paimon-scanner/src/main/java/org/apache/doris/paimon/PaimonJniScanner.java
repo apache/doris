@@ -125,7 +125,7 @@ public class PaimonJniScanner extends JniScanner {
         int[] projected = getProjected();
         readBuilder.withProjection(projected);
         readBuilder.withFilter(getPredicates());
-        reader = readBuilder.newRead().createReader(getSplit());
+        reader = readBuilder.newRead().executeFilter().createReader(getSplit());
         paimonDataTypeList =
             Arrays.stream(projected).mapToObj(i -> table.rowType().getTypeAt(i)).collect(Collectors.toList());
     }
