@@ -2226,11 +2226,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         info.add(label);
         info.add(backupTimestamp);
         info.add(dbName);
-        String processState = "";
-        if (state == RestoreJobState.DOWNLOADING) {
-            processState = (1 - unfinishedSignatureToId.entrySet().size() * 1.00 / snapshotInfos.size()) * 100 + "%";
-        }
-        info.add(state.name() + " " + processState);
+        String processState = snapshotInfos.size() > 0
+                ? (1 - unfinishedSignatureToId.size() * 1.00 / snapshotInfos.size()) * 100 + "%" : "";
+        info.add(state.name());
+        info.add(processState);
         info.add(String.valueOf(allowLoad));
         info.add(String.valueOf(replicaAlloc.getTotalReplicaNum()));
         info.add(replicaAlloc.toCreateStmt());
