@@ -21,7 +21,7 @@ import org.awaitility.Awaitility
 
 suite("test_index_compaction_p0", "p0, nonConcurrent") {
 
-    def compaction_table_name = "httplogs"
+    def compaction_table_name = "test_index_compaction_p0_httplogs"
 
     def load_json_data = {table_name, file_name ->
         // load the json data
@@ -71,15 +71,11 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
             "disable_auto_compaction" = "true"
         );
     """
-    def executor = Executors.newFixedThreadPool(20)
     (1..20).each { i ->
-        executor.submit {
-            def fileName = "documents-" + i + ".json"
-            load_json_data.call(compaction_table_name, """${getS3Url()}/regression/inverted_index_cases/httplogs/${fileName}""")
-        }
+        def fileName = "documents-" + i + ".json"
+        load_json_data.call(compaction_table_name, """${fileName}""")
+
     }
-    executor.shutdown()
-    executor.awaitTermination(1, TimeUnit.MINUTES)
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]
