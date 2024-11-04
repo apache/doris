@@ -519,7 +519,6 @@ Status Compaction::do_inverted_index_compaction() {
     if (dest_segment_num <= 0) {
         LOG(INFO) << "skip doing index compaction due to no output segments"
                   << ". tablet=" << _tablet->tablet_id() << ", input row number=" << _input_row_num
-                  << ", output row number=" << _output_rowset->num_rows()
                   << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         return Status::OK();
     }
