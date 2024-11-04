@@ -119,6 +119,15 @@ fi
 # copy FE audit plugin
 echo "Copy audit log plugin if necessary"
 mkdir -p output/fe/plugins
+audit_plugin_path=output/fe/plugins/auditloader.zip
 if [[ -f output/audit_loader/auditloader.zip ]]; then
-  cp output/audit_loader/auditloader.zip output/fe/plugins/
+    cp output/audit_loader/auditloader.zip ${audit_plugin_path}
+else
+    echo "force download audit plugin for compatibility reason: cloud-4.0.x needs this plugin if it is upgrading from cloud-3.0.x"
+    wget --no-check-certificate -q https://apache-doris-releases.oss-cn-beijing.aliyuncs.com/doris-plugins/doris-2.0.13-auditloader.zip -O ${audit_plugin_path}
+    if md5sum_func "${audit_plugin_path}" "3abdddfabcf6aeae04a69114864f6cbd"; then
+        echo "Success to download audit plugin"
+    else
+        echo "failed to download audit plugin, md5 not match"
+    fi
 fi
