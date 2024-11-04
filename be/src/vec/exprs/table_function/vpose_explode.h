@@ -17,13 +17,10 @@
 
 #pragma once
 
-#include <stddef.h>
-
 #include "common/status.h"
 #include "vec/columns/column_map.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_map.h"
 #include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/array/function_array_utils.h"
 

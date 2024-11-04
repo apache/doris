@@ -19,9 +19,9 @@ suite("pose_explode") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
-    sql """ DROP TABLE IF EXISTS sdu """
+    sql """ DROP TABLE IF EXISTS table_test """
     sql """
-        CREATE TABLE IF NOT EXISTS `sdu`(
+        CREATE TABLE IF NOT EXISTS `table_test`(
                    `id` INT NULL,
                    `name` TEXT NULL,
                    `score` array<string> NULL
@@ -33,22 +33,22 @@ suite("pose_explode") {
     """
 
     // insert values
-    sql """ insert into sdu values (0, "zhangsan", ["Chinese","Math","English"]); """
-    sql """ insert into sdu values (1, "lisi", ["null"]); """
-    sql """ insert into sdu values (2, "wangwu", ["88a","90b","96c"]); """
-    sql """ insert into sdu values (3, "lisi2", [null]); """
-    sql """ insert into sdu values (4, "amory", NULL); """
+    sql """ insert into table_test values (0, "zhangsan", ["Chinese","Math","English"]); """
+    sql """ insert into table_test values (1, "lisi", ["null"]); """
+    sql """ insert into table_test values (2, "wangwu", ["88a","90b","96c"]); """
+    sql """ insert into table_test values (3, "lisi2", [null]); """
+    sql """ insert into table_test values (4, "amory", NULL); """
 
-    qt_sql """ select * from sdu order by id; """
-    order_qt_explode_sql """ select id,name,score, k,v from sdu lateral view pose_explode(score) tmp as k,v order by id;"""
-    order_qt_explode_outer_sql """ select id,name,score, k,v from sdu lateral view pose_explode_outer(score) tmp as k,v order by id; """
+    qt_sql """ select * from table_test order by id; """
+    order_qt_explode_sql """ select id,name,score, k,v from table_test lateral view pose_explode(score) tmp as k,v order by id;"""
+    order_qt_explode_outer_sql """ select id,name,score, k,v from table_test lateral view pose_explode_outer(score) tmp as k,v order by id; """
 
     // multi lateral view
-    order_qt_explode_sql_multi """ select id,name,score, k,v,k1,v1 from sdu lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k1,v1 order by id;"""
+    order_qt_explode_sql_multi """ select id,name,score, k,v,k1,v1 from table_test lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k1,v1 order by id;"""
 
     // test with alias
-    order_qt_explode_sql_alias """ select id,name,score, tmp.k, tmp.v from sdu lateral view pose_explode(score) tmp as k,v order by id;"""
-    order_qt_explode_outer_sql_alias """ select id,name,score, tmp.k, tmp.v from sdu lateral view pose_explode_outer(score) tmp as k,v order by id; """
+    order_qt_explode_sql_alias """ select id,name,score, tmp.k, tmp.v from table_test lateral view pose_explode(score) tmp as k,v order by id;"""
+    order_qt_explode_outer_sql_alias """ select id,name,score, tmp.k, tmp.v from table_test lateral view pose_explode_outer(score) tmp as k,v order by id; """
 
-    order_qt_explode_sql_alias_multi """ select id,name,score, tmp.k, tmp.v, tmp2.k, tmp2.v from sdu lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k,v order by id;"""
+    order_qt_explode_sql_alias_multi """ select id,name,score, tmp.k, tmp.v, tmp2.k, tmp2.v from table_test lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k,v order by id;"""
 }
