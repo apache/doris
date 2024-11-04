@@ -58,13 +58,13 @@ suite("docs/data-operate/delete/batch-delete-manual.md") {
 """)
         println (cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: APPEND"  -T ${context.file.parent}/table1_data http://${context.config.feHttpAddress}/api/test/table1/_stream_load""")
         println (cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "column_separator:," -H "columns: siteid, citycode, username, pv" -T ${context.file.parent}/table1_data http://${context.config.feHttpAddress}/api/test/table1/_stream_load""")
-        qt_sql( "SELECT * FROM test.table1", isOrder = true)
+        order_qt_sql "SELECT * FROM test.table1"
 
         writeToFile("${context.file.parent}/table1_data", """\
 3,2,tom,0
 """)
         println (cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: DELETE"  -T ${context.file.parent}/table1_data http://${context.config.feHttpAddress}/api/test/table1/_stream_load""")
-        qt_sql( "SELECT * FROM test.table1", isOrder = true)
+        order_qt_sql "SELECT * FROM test.table1"
 
         multi_sql """
             TRUNCATE TABLE table1;
@@ -79,7 +79,7 @@ suite("docs/data-operate/delete/batch-delete-manual.md") {
 1,1,jim,2
 """)
         println (cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "column_separator:," -H "columns: siteid, citycode, username, pv" -H "merge_type: MERGE" -H "delete: siteid=1"  -T ${context.file.parent}/table1_data http://${context.config.feHttpAddress}/api/test/table1/_stream_load""")
-        qt_sql( "SELECT * FROM test.table1", isOrder = true)
+        order_qt_sql "SELECT * FROM test.table1"
 
         multi_sql """
             DROP TABLE IF EXISTS table1;
@@ -106,14 +106,14 @@ suite("docs/data-operate/delete/batch-delete-manual.md") {
 li,male,10
 """)
         println (cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "column_separator:," -H "columns: name, gender, age" -H "function_column.sequence_col: age" -H "merge_type: DELETE"  -T ${context.file.parent}/table1_data http://${context.config.feHttpAddress}/api/test/table1/_stream_load""")
-        qt_sql( "SELECT * FROM test.table1", isOrder = true)
+        order_qt_sql "SELECT * FROM test.table1"
 
         sql """INSERT INTO table1(name, gender, age) VALUES ('li', 'male', 10);"""
         writeToFile("${context.file.parent}/table1_data", """\
 li,male,9
 """)
         println (cmd """curl --location-trusted -u ${context.config.jdbcUser}:${context.config.jdbcPassword} -H "column_separator:," -H "columns: name, gender, age" -H "function_column.sequence_col: age" -H "merge_type: DELETE"  -T ${context.file.parent}/table1_data http://${context.config.feHttpAddress}/api/test/table1/_stream_load""")
-        qt_sql( "SELECT * FROM test.table1", isOrder = true)
+        order_qt_sql "SELECT * FROM test.table1"
     } catch (Throwable t) {
         Assertions.fail("examples in docs/data-operate/delete/batch-delete-manual.md failed to exec, please fix it", t)
     }
