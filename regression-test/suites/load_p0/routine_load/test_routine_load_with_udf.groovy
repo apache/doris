@@ -22,7 +22,7 @@ import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load_with_udf","p0") {
     def kafkaCsvTpoics = [
-                  "test_show_routine_load",
+                  "test_routine_load_udf",
                 ]
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
     String kafka_port = context.config.otherConfigs.get("kafka_port")
