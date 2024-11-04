@@ -82,10 +82,13 @@ suite("test_audit_log_behavior") {
             sql tuple2[0]
         }
 
-        // make sure audit event is created.
-        // see WorkloadRuntimeStatusMgr.getQueryNeedAudit()
-        Thread.sleep(6000)
-        sql """call flush_audit_log()"""
+        if (on == true) {
+            // only new planner supports call flush_audit_log
+            // make sure audit event is created.
+            // see WorkloadRuntimeStatusMgr.getQueryNeedAudit()
+            Thread.sleep(6000)
+            sql """call flush_audit_log()"""
+        }
         // check result
         for (int i = 0; i < cnt; i++) {
             def tuple2 = sqls.get(i)
