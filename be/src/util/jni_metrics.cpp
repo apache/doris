@@ -42,19 +42,17 @@ JniMetrics::JniMetrics(MetricRegistry* registry) {
     _registry = registry;
     _server_entity = _registry->register_entity("server");
     DCHECK(_server_entity != nullptr);
-    _init();
+    Status st = _init();
+    if (!st.ok()) {
+        LOG(WARNING) << "init jni metric failed. " << st.to_string();
+    }
 }
 
 Status JniMetrics::_init() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
-    Status st = JniUtil::get_jni_scanner_class(env, "org/apache/doris/jdbc/JdbcDataSource",
-                                        &_jdbc_data_source_clz);
-    if (!st.ok()) {
-        LOG(WARNING) << "class org/apachhe/doris/jdbc/JdbcDataSource not find in jvm."
-                     << st.to_string();
-        return Status::OK();
-    }
+    RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, "org/apache/doris/jdbc/JdbcDataSource",
+                                        &_jdbc_data_source_clz));
     JNI_CALL_METHOD_CHECK_EXCEPTION(
          , _get_connection_percent_id, env,
          GetStaticMethodID(_jdbc_data_source_clz, "getConnectionPercent",
