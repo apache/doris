@@ -574,7 +574,7 @@ message PMergeFilterRequest {
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
-    optional bool is_pipeline = 8;
+    optional bool is_pipeline = 8 [deprecated = true];
     optional bool opt_remote_rf = 9; // Deprecated
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
@@ -594,7 +594,7 @@ message PPublishFilterRequest {
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
-    optional bool is_pipeline = 8;
+    optional bool is_pipeline = 8 [deprecated = true];
     optional int64 merge_time = 9;
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
@@ -609,7 +609,7 @@ message PPublishFilterRequestV2 {
     optional PMinMaxFilter minmax_filter = 5;
     optional PBloomFilter bloom_filter = 6;
     optional PInFilter in_filter = 7;
-    optional bool is_pipeline = 8;
+    optional bool is_pipeline = 8 [deprecated = true];
     optional int64 merge_time = 9;
     optional bool contain_null = 10;
     optional bool ignored = 11;
