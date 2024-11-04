@@ -37,6 +37,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -167,14 +168,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         super(id, name, catalog, dbName, TableType.HMS_EXTERNAL_TABLE);
     }
 
+    // Will throw NotSupportedException if not supported hms table.
+    // Otherwise, return true.
     public boolean isSupportedHmsTable() {
-        try {
-            makeSureInitialized();
-            return true;
-        } catch (NotSupportedException e) {
-            LOG.warn("Not supported hms table, message: {}", e.getMessage());
-            return false;
-        }
+        makeSureInitialized();
+        return true;
     }
 
     protected synchronized void makeSureInitialized() {
@@ -191,6 +189,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 } else if (supportedHiveTable()) {
                     dlaType = DLAType.HIVE;
                 } else {
+                    // Should not reach here. Because `supportedHiveTable` will throw exception if not return true.
                     throw new NotSupportedException("Unsupported dlaType for table: " + getNameWithFullQualifiers());
                 }
             }
@@ -290,6 +289,21 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 .orElse(Collections.emptyList());
     }
 
+    public SelectedPartitions getAllPartitions() {
+        if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
+            return SelectedPartitions.NOT_PRUNED;
+        }
+
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) this.getCatalog());
+        List<Type> partitionColumnTypes = this.getPartitionColumnTypes();
+        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                this.getDbName(), this.getName(), partitionColumnTypes);
+        Map<Long, PartitionItem> idToPartitionItem = hivePartitionValues.getIdToPartitionItem();
+
+        return new SelectedPartitions(idToPartitionItem.size(), idToPartitionItem, false);
+    }
+
     public boolean isHiveTransactionalTable() {
         return dlaType == DLAType.HIVE && AcidUtils.isTransactionalTable(remoteTable)
                 && isSupportedTransactionalFileFormat();
@@ -323,7 +337,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     private long getRowCountFromExternalSource() {
-        long rowCount = -1;
+        long rowCount = UNKNOWN_ROW_COUNT;
         switch (dlaType) {
             case HIVE:
                 rowCount = StatisticsUtil.getHiveRowCount(this);
@@ -336,7 +350,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                     LOG.debug("getRowCount for dlaType {} is not supported.", dlaType);
                 }
         }
-        return rowCount;
+        return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -510,8 +524,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         // Get row count from hive metastore property.
         long rowCount = getRowCountFromExternalSource();
         // Only hive table supports estimate row count by listing file.
-        if (rowCount == -1 && dlaType.equals(DLAType.HIVE)) {
-            LOG.debug("Will estimate row count from file list.");
+        if (rowCount == UNKNOWN_ROW_COUNT && dlaType.equals(DLAType.HIVE)) {
+            LOG.info("Will estimate row count for table {} from file list.", name);
             rowCount = getRowCountFromFileList();
         }
         return rowCount;
@@ -603,9 +617,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (!parameters.containsKey(NUM_ROWS) || Long.parseLong(parameters.get(NUM_ROWS)) == 0) {
             return Optional.empty();
         }
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         long count = Long.parseLong(parameters.get(NUM_ROWS));
-        columnStatisticBuilder.setCount(count);
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(count);
         // The tableStats length is at most 1.
         for (ColumnStatisticsObj tableStat : tableStats) {
             if (!tableStat.isSetStatsData()) {
@@ -760,26 +773,26 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (getPartitionType() == PartitionType.UNPARTITIONED) {
             return new MTMVMaxTimestampSnapshot(getName(), getLastDdlTime());
         }
-        Long maxPartitionId = 0L;
+        HivePartition maxPartition = null;
         long maxVersionTime = 0L;
         long visibleVersionTime;
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) getCatalog());
         HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                 getDbName(), getName(), getPartitionColumnTypes());
-        BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
-        if (MapUtils.isEmpty(idToName)) {
-            throw new AnalysisException("partitions is empty for : " + getName());
+        List<HivePartition> partitionList = cache.getAllPartitionsWithCache(getDbName(), getName(),
+                Lists.newArrayList(hivePartitionValues.getPartitionValuesMap().values()));
+        if (CollectionUtils.isEmpty(partitionList)) {
+            throw new AnalysisException("partitionList is empty, table name: " + getName());
         }
-        for (Long partitionId : idToName.keySet()) {
-            visibleVersionTime = getHivePartitionByIdOrAnalysisException(partitionId, hivePartitionValues,
-                    cache).getLastModifiedTime();
+        for (HivePartition hivePartition : partitionList) {
+            visibleVersionTime = hivePartition.getLastModifiedTime();
             if (visibleVersionTime > maxVersionTime) {
                 maxVersionTime = visibleVersionTime;
-                maxPartitionId = partitionId;
+                maxPartition = hivePartition;
             }
         }
-        return new MTMVMaxTimestampSnapshot(idToName.get(maxPartitionId), maxVersionTime);
+        return new MTMVMaxTimestampSnapshot(maxPartition.getPartitionName(getPartitionColumns()), maxVersionTime);
     }
 
     private Long getPartitionIdByNameOrAnalysisException(String partitionName,
@@ -821,17 +834,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
      */
     private long getRowCountFromFileList() {
         if (!GlobalVariable.enable_get_row_count_from_file_list) {
-            return -1;
+            return UNKNOWN_ROW_COUNT;
         }
         if (isView()) {
-            return 0;
+            LOG.info("Table {} is view, return -1.", name);
+            return UNKNOWN_ROW_COUNT;
         }
         HiveMetaStoreCache.HivePartitionValues partitionValues = getAllPartitionValues();
 
         // Get files for all partitions.
         int samplePartitionSize = Config.hive_stats_partition_sample_size;
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = getFilesForPartitions(partitionValues,
-                samplePartitionSize);
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions =
+                getFilesForPartitions(partitionValues, samplePartitionSize);
+        LOG.info("Number of files selected for hive table {} is {}", name, filesByPartitions.size());
         long totalSize = 0;
         // Calculate the total file size.
         for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
@@ -850,14 +865,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
-            return 0;
+            LOG.warn("Table {} estimated size is 0, return -1.", name);
+            return UNKNOWN_ROW_COUNT;
         }
 
         int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
         if (samplePartitionSize != 0 && samplePartitionSize < totalPartitionSize) {
+            LOG.info("Table {} sampled {} of {} partitions, sampled size is {}",
+                    name, samplePartitionSize, totalPartitionSize, totalSize);
             totalSize = totalSize * totalPartitionSize / samplePartitionSize;
         }
-        return totalSize / estimatedRowSize;
+        long rows = totalSize / estimatedRowSize;
+        LOG.info("Table {} rows {}, total size is {}, estimatedRowSize is {}",
+                name, rows, totalSize, estimatedRowSize);
+        return rows > 0 ? rows : UNKNOWN_ROW_COUNT;
     }
 
     // Get all partition values from cache.
@@ -875,6 +896,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             // no need to worry that this call will invalid or refresh the cache.
             // because it has enough space to keep partition info of all tables in cache.
             partitionValues = cache.getPartitionValues(dbName, name, partitionColumnTypes);
+            if (partitionValues == null || partitionValues.getPartitionNameToIdMap() == null) {
+                LOG.warn("Partition values for hive table {} is null", name);
+            } else {
+                LOG.info("Partition values size for hive table {} is {}",
+                        name, partitionValues.getPartitionNameToIdMap().size());
+            }
         }
         return partitionValues;
     }
@@ -910,6 +937,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             // get partitions without cache, so that it will not invalid the cache when executing
             // non query request such as `show table status`
             hivePartitions = cache.getAllPartitionsWithoutCache(dbName, name, partitionValuesList);
+            LOG.info("Partition list size for hive partition table {} is {}", name, hivePartitions.size());
         } else {
             hivePartitions.add(new HivePartition(dbName, name, true,
                     getRemoteTable().getSd().getInputFormat(),
@@ -917,12 +945,17 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
         // Get files for all partitions.
         String bindBrokerName = catalog.bindBrokerName();
+        if (LOG.isDebugEnabled()) {
+            for (HivePartition partition : hivePartitions) {
+                LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
+            }
+        }
         return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
     }
 
     @Override
     public boolean isPartitionedTable() {
         makeSureInitialized();
-        return remoteTable.getPartitionKeysSize() > 0;
+        return !isView() && remoteTable.getPartitionKeysSize() > 0;
     }
 }

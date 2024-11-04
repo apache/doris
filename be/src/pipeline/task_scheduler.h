@@ -36,17 +36,14 @@
 namespace doris {
 class ExecEnv;
 class ThreadPool;
-
-namespace pipeline {
-class TaskQueue;
-} // namespace pipeline
 } // namespace doris
 
 namespace doris::pipeline {
+class TaskQueue;
 
 class TaskScheduler {
 public:
-    TaskScheduler(ExecEnv* exec_env, std::shared_ptr<TaskQueue> task_queue, std::string name,
+    TaskScheduler(std::shared_ptr<TaskQueue> task_queue, std::string name,
                   CgroupCpuCtl* cgroup_cpu_ctl)
             : _task_queue(std::move(task_queue)),
               _shutdown(false),
@@ -71,6 +68,6 @@ private:
     std::string _name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
 
-    void _do_work(size_t index);
+    void _do_work(int index);
 };
 } // namespace doris::pipeline

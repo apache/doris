@@ -171,7 +171,8 @@ public:
     bool is_empty() const { return (_data_bitmap == nullptr && _null_bitmap == nullptr); }
 };
 
-class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader> {
+class InvertedIndexReader : public std::enable_shared_from_this<InvertedIndexReader>,
+                            public MetadataAdder<InvertedIndexReader> {
 public:
     explicit InvertedIndexReader(
             const TabletIndex* index_meta,
@@ -205,17 +206,6 @@ public:
 
     [[nodiscard]] bool has_null() const { return _has_null; }
     void set_has_null(bool has_null) { _has_null = has_null; }
-
-    static void get_analyse_result(std::vector<std::string>& analyse_result,
-                                   lucene::util::Reader* reader,
-                                   lucene::analysis::Analyzer* analyzer,
-                                   const std::string& field_name, InvertedIndexQueryType query_type,
-                                   bool drop_duplicates = true);
-
-    static std::unique_ptr<lucene::util::Reader> create_reader(InvertedIndexCtx* inverted_index_ctx,
-                                                               const std::string& value);
-    static std::unique_ptr<lucene::analysis::Analyzer> create_analyzer(
-            InvertedIndexCtx* inverted_index_ctx);
 
     virtual Status handle_query_cache(InvertedIndexQueryCache* cache,
                                       const InvertedIndexQueryCache::CacheKey& cache_key,
@@ -277,11 +267,6 @@ public:
     }
 
     InvertedIndexReaderType type() override;
-
-    static void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
-                                         const std::map<string, string>& properties);
-    static void setup_analyzer_use_stopwords(std::unique_ptr<lucene::analysis::Analyzer>& analyzer,
-                                             const std::map<string, string>& properties);
 };
 
 class StringTypeInvertedIndexReader : public InvertedIndexReader {
@@ -423,6 +408,10 @@ public:
             M(PrimitiveType::TYPE_CHAR)
             M(PrimitiveType::TYPE_VARCHAR)
             M(PrimitiveType::TYPE_STRING)
+            M(PrimitiveType::TYPE_DATEV2)
+            M(PrimitiveType::TYPE_DATETIMEV2)
+            M(PrimitiveType::TYPE_IPV4)
+            M(PrimitiveType::TYPE_IPV6)
 #undef M
         default:
             return Status::NotSupported("Unsupported primitive type {} for inverted index reader",

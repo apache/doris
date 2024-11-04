@@ -90,8 +90,7 @@ bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_colu
 
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
         : _engine(engine),
-          _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
-                  "TabletMeta(experimental)", ExecEnv::GetInstance()->details_mem_tracker_set())),
+          _tablet_meta_mem_tracker(std::make_shared<MemTracker>("TabletMeta(experimental)")),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
@@ -102,7 +101,9 @@ TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shar
 }
 
 TabletManager::~TabletManager() {
+#ifndef BE_TEST
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
+#endif
 }
 
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
@@ -279,6 +280,7 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     // we need use write lock on shard-1 and then use read lock on shard-2
     // if there have create rollup tablet C(assume on shard-2) from tablet D(assume on shard-1) at the same time, we will meet deadlock
     std::unique_lock two_tablet_lock(_two_tablet_mtx, std::defer_lock);
+    bool in_restore_mode = request.__isset.in_restore_mode && request.in_restore_mode;
     bool is_schema_change_or_atomic_restore =
             request.__isset.base_tablet_id && request.base_tablet_id > 0;
     bool need_two_lock =
@@ -325,14 +327,20 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
         if (base_tablet == nullptr) {
             DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
             return Status::Error<TABLE_CREATE_META_ERROR>(
-                    "fail to create tablet(change schema), base tablet does not exist. "
-                    "new_tablet_id={}, base_tablet_id={}",
+                    "fail to create tablet(change schema/atomic restore), base tablet does not "
+                    "exist. new_tablet_id={}, base_tablet_id={}",
                     tablet_id, request.base_tablet_id);
         }
         // If we are doing schema-change or atomic-restore, we should use the same data dir
         // TODO(lingbin): A litter trick here, the directory should be determined before
         // entering this method
-        if (request.storage_medium == base_tablet->data_dir()->storage_medium()) {
+        //
+        // ATTN: Since all restored replicas will be saved to HDD, so no storage_medium check here.
+        if (in_restore_mode ||
+            request.storage_medium == base_tablet->data_dir()->storage_medium()) {
+            LOG(INFO) << "create tablet use the base tablet data dir. tablet_id=" << tablet_id
+                      << ", base tablet_id=" << request.base_tablet_id
+                      << ", data dir=" << base_tablet->data_dir()->path();
             stores.clear();
             stores.push_back(base_tablet->data_dir());
         }
@@ -791,8 +799,7 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         }
         auto cumulative_compaction_policy = all_cumulative_compaction_policies.at(
                 tablet_ptr->tablet_meta()->compaction_policy());
-        uint32_t current_compaction_score =
-                tablet_ptr->calc_compaction_score(compaction_type, cumulative_compaction_policy);
+        uint32_t current_compaction_score = tablet_ptr->calc_compaction_score();
         if (current_compaction_score < 5) {
             tablet_ptr->set_skip_compaction(true, compaction_type, UnixSeconds());
         }
@@ -800,14 +807,22 @@ std::vector<TabletSharedPtr> TabletManager::find_best_tablets_to_compaction(
         // tablet should do single compaction
         if (current_compaction_score > single_compact_highest_score &&
             tablet_ptr->should_fetch_from_peer()) {
-            single_compact_highest_score = current_compaction_score;
-            best_single_compact_tablet = tablet_ptr;
+            bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
+                                                           cumulative_compaction_policy);
+            if (ret) {
+                single_compact_highest_score = current_compaction_score;
+                best_single_compact_tablet = tablet_ptr;
+            }
         }
 
         // tablet should do cumu or base compaction
         if (current_compaction_score > highest_score && !tablet_ptr->should_fetch_from_peer()) {
-            highest_score = current_compaction_score;
-            best_tablet = tablet_ptr;
+            bool ret = tablet_ptr->suitable_for_compaction(compaction_type,
+                                                           cumulative_compaction_policy);
+            if (ret) {
+                highest_score = current_compaction_score;
+                best_tablet = tablet_ptr;
+            }
         }
     };
 
@@ -966,6 +981,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
         if (binlog_meta_filesize > 0) {
             contain_binlog = true;
             RETURN_IF_ERROR(read_pb(binlog_metas_file, &rowset_binlog_metas_pb));
+            VLOG_DEBUG << "load rowset binlog metas from file. file_path=" << binlog_metas_file;
         }
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(binlog_metas_file));
     }

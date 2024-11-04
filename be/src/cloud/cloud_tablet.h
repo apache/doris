@@ -176,7 +176,7 @@ public:
                                              const RowsetSharedPtr& output_rowset,
                                              const RowIdConversion& rowid_conversion,
                                              ReaderType compaction_type, int64_t merged_rows,
-                                             int64_t initiator,
+                                             int64_t filtered_rows, int64_t initiator,
                                              DeleteBitmapPtr& output_rowset_delete_bitmap,
                                              bool allow_delete_in_cumu_compaction);
 
@@ -207,6 +207,9 @@ private:
     static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     Status sync_if_not_running();
+
+    // Merge all rowset schemas within a CloudTablet
+    Status merge_rowsets_schema();
 
     CloudStorageEngine& _engine;
 
@@ -246,6 +249,9 @@ private:
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
     mutable std::mutex _rowset_update_lock;
+
+    // Schema will be merged from all rowsets when sync_rowsets
+    TabletSchemaSPtr _merged_tablet_schema;
 };
 
 using CloudTabletSPtr = std::shared_ptr<CloudTablet>;

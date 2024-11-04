@@ -81,7 +81,7 @@ ColumnPtr IDataType::create_column_const_with_default_value(size_t size) const {
 }
 
 size_t IDataType::get_size_of_value_in_memory() const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                            "Value of type {} in memory is not of fixed size.", get_name());
     return 0;
 }
@@ -196,6 +196,51 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
                                data_type->get_type_id());
         return PGenericType::UNKNOWN;
     }
+}
+
+// write const_flag and row_num to buf
+char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
+                                       size_t* real_need_copy_num) {
+    const auto* col = *column;
+    // const flag
+    bool is_const_column = is_column_const(*col);
+    *reinterpret_cast<bool*>(buf) = is_const_column;
+    buf += sizeof(bool);
+
+    // row num
+    const auto row_num = col->size();
+    *reinterpret_cast<size_t*>(buf) = row_num;
+    buf += sizeof(size_t);
+
+    // real saved num
+    *real_need_copy_num = is_const_column ? 1 : row_num;
+    *reinterpret_cast<size_t*>(buf) = *real_need_copy_num;
+    buf += sizeof(size_t);
+
+    if (is_const_column) {
+        const auto& const_column = assert_cast<const vectorized::ColumnConst&>(*col);
+        *column = &(const_column.get_data_column());
+    }
+    return buf;
+}
+
+const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
+                                               size_t* real_have_saved_num) {
+    // const flag
+    bool is_const_column = *reinterpret_cast<const bool*>(buf);
+    buf += sizeof(bool);
+    // row num
+    size_t row_num = *reinterpret_cast<const size_t*>(buf);
+    buf += sizeof(size_t);
+    // real saved num
+    *real_have_saved_num = *reinterpret_cast<const size_t*>(buf);
+    buf += sizeof(size_t);
+
+    if (is_const_column) {
+        auto const_column = ColumnConst::create((*column)->get_ptr(), row_num, true);
+        *column = const_column->get_ptr();
+    }
+    return buf;
 }
 
 } // namespace doris::vectorized

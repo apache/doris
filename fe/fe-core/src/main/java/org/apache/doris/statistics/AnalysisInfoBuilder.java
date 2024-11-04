@@ -61,7 +61,7 @@ public class AnalysisInfoBuilder {
     private boolean usingSqlForExternalTable;
     private long tblUpdateTime;
     private long rowCount;
-    private boolean userInject;
+    private boolean userInject = false;
     private long updateRows;
     private JobPriority priority;
     private Map<Long, Long> partitionUpdateRows;

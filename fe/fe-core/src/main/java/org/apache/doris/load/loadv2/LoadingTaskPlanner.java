@@ -126,6 +126,9 @@ public class LoadingTaskPlanner {
         if (isPartialUpdate && !table.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Only unique key merge on write support partial update");
         }
+        if (isPartialUpdate && table.isUniqKeyMergeOnWriteWithClusterKeys()) {
+            throw new UserException("Only unique key merge on write without cluster keys support partial update");
+        }
 
         HashSet<String> partialUpdateInputColumns = new HashSet<>();
         if (isPartialUpdate) {

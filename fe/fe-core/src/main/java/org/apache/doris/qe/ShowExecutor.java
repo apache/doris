@@ -157,6 +157,7 @@ import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudLoadManager;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -812,7 +813,13 @@ public class ShowExecutor {
                             PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
                 continue;
             }
-            row.add(clusterName.equals(ctx.getCloudCluster()) ? "TRUE" : "FALSE");
+            String clusterNameFromCtx = "";
+            try {
+                clusterNameFromCtx = ctx.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get cluster name", e);
+            }
+            row.add(clusterName.equals(clusterNameFromCtx) ? "TRUE" : "FALSE");
             List<String> users = Env.getCurrentEnv().getAuth().getCloudClusterUsers(clusterName);
             // non-root do not display root information
             if (!Auth.ROOT_USER.equals(ctx.getQualifiedUser())) {
@@ -823,8 +830,12 @@ public class ShowExecutor {
                     PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV), Operator.OR))) {
                 users.removeIf(user -> !user.equals(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser())));
             }
+
             String result = Joiner.on(", ").join(users);
             row.add(result);
+            int backendNum = ((CloudSystemInfoService) Env.getCurrentEnv().getCurrentSystemInfo())
+                    .getBackendsByClusterName(clusterName).size();
+            row.add(String.valueOf(backendNum));
             rows.add(row);
         }
 
@@ -1753,6 +1764,8 @@ public class ShowExecutor {
                     + " in db " + showRoutineLoadStmt.getDbFullName()
                     + ". Include history? " + showRoutineLoadStmt.isIncludeHistory());
         }
+        // sort by create time
+        rows.sort(Comparator.comparing(x -> x.get(2)));
         resultSet = new ShowResultSet(showRoutineLoadStmt.getMetaData(), rows);
     }
 
@@ -1951,6 +1964,11 @@ public class ShowExecutor {
         Map<String, Expr> filterMap = showStmt.getFilterMap();
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
 
+        // catalog.getClient().listPartitionNames() returned string is the encoded string.
+        // example: insert into tmp partition(pt="1=3/3") values( xxx );
+        //          show partitions from tmp: pt=1%3D3%2F3
+        // Need to consider whether to call `HiveUtil.toPartitionColNameAndValues` method
+
         if (limit != null && limit.hasLimit() && limit.getOffset() == 0
                 && (orderByPairs == null || !orderByPairs.get(0).isDesc())) {
             // hmsClient returns unordered partition list, hence if offset > 0 cannot pass limit
@@ -2064,7 +2082,7 @@ public class ShowExecutor {
 
                     List<Replica> replicas = tablet.getReplicas();
                     for (Replica replica : replicas) {
-                        Replica tmp = invertedIndex.getReplica(tabletId, replica.getBackendId());
+                        Replica tmp = invertedIndex.getReplica(tabletId, replica.getBackendIdWithoutException());
                         if (tmp == null) {
                             isSync = false;
                             break;
@@ -2249,7 +2267,9 @@ public class ShowExecutor {
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Env env = Env.getCurrentEnv();
-        DatabaseIf db = env.getCurrentCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
+        CatalogIf catalog = env.getCatalogMgr()
+                .getCatalogOrAnalysisException(showExportStmt.getCtlName());
+        DatabaseIf db = catalog.getDbOrAnalysisException(showExportStmt.getDbName());
         long dbId = db.getId();
 
         ExportMgr exportMgr = env.getExportMgr();
@@ -3188,7 +3208,7 @@ public class ShowExecutor {
         if (replica == null) {
             throw new AnalysisException("Replica not found on backend: " + backendId);
         }
-        backendId = replica.getBackendId();
+        backendId = replica.getBackendIdWithoutException();
         Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
         if (be == null || !be.isAlive()) {
             throw new AnalysisException("Unavailable backend: " + backendId);
@@ -3423,8 +3443,7 @@ public class ShowExecutor {
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
                     .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
-                            PrivPredicate.USAGE)
-                    )
+                            PrivPredicate.USAGE))
                     .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {

@@ -134,15 +134,18 @@ public class TabletStatMgr extends MasterDaemon {
                                 Long tabletDataSize = 0L;
                                 Long tabletRemoteDataSize = 0L;
 
-                                Long tabletRowCount = 0L;
+                                Long tabletRowCount = Long.MAX_VALUE;
 
                                 boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
                                     LOG.debug("Table {} replica {} current version {}, report version {}",
                                             olapTable.getName(), replica.getId(),
                                             replica.getVersion(), replica.getLastReportVersion());
+                                    // Replica with less row count is more accurate than the others
+                                    // when replicas' version are identical. Because less row count
+                                    // means this replica does more compaction than the others.
                                     if (replica.checkVersionCatchUp(version, false)
-                                            && replica.getRowCount() >= tabletRowCount) {
+                                            && replica.getRowCount() < tabletRowCount) {
                                         // 1. If replica version and reported replica version are all equal to
                                         // PARTITION_INIT_VERSION, set tabletReported to true, which indicates this
                                         // tablet is empty for sure when previous report.
@@ -173,6 +176,10 @@ public class TabletStatMgr extends MasterDaemon {
                                 tableDataSize += tabletDataSize;
                                 tableRemoteDataSize += tabletRemoteDataSize;
 
+                                // When all BEs are down, avoid set Long.MAX_VALUE to index and table row count. Use 0.
+                                if (tabletRowCount == Long.MAX_VALUE) {
+                                    tabletRowCount = 0L;
+                                }
                                 tableRowCount += tabletRowCount;
                                 indexRowCount += tabletRowCount;
                                 // Only when all tablets of this index are reported, we set indexReported to true.

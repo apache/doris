@@ -59,6 +59,7 @@ import javax.servlet.http.HttpServletResponse;
  * And meta info like databases, tables and schema
  */
 @RestController
+@Deprecated
 public class MetaInfoAction extends RestBaseController {
 
     private static final String NAMESPACES = "namespaces";

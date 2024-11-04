@@ -46,7 +46,7 @@ namespace segment_v2 {
 class EncodingInfo;
 
 // thread-safe reader for IndexedColumn (see comments of `IndexedColumnWriter` to understand what IndexedColumn is)
-class IndexedColumnReader {
+class IndexedColumnReader : public MetadataAdder<IndexedColumnReader> {
 public:
     explicit IndexedColumnReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& meta)
             : _file_reader(std::move(file_reader)), _meta(meta) {}
@@ -71,6 +71,8 @@ public:
 
 private:
     Status load_index_page(const PagePointerPB& pp, PageHandle* handle, IndexPageReader* reader);
+
+    int64_t get_metadata_size() const override;
 
     friend class IndexedColumnIterator;
 

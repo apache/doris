@@ -67,9 +67,10 @@ public:
 protected:
     Status merge_input_rowsets();
 
+    // merge inverted index files
     Status do_inverted_index_compaction();
 
-    void construct_skip_inverted_index(RowsetWriterContext& ctx);
+    void construct_index_compaction_columns(RowsetWriterContext& ctx);
 
     virtual Status construct_output_rowset_writer(RowsetWriterContext& ctx) = 0;
 
@@ -89,10 +90,11 @@ protected:
     BaseTabletSPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
-    int64_t _input_rowsets_size {0};
+    int64_t _input_rowsets_data_size {0};
+    int64_t _input_rowsets_index_size {0};
+    int64_t _input_rowsets_total_size {0};
     int64_t _input_row_num {0};
     int64_t _input_num_segments {0};
-    int64_t _input_index_size {0};
 
     Merger::Statistics _stats;
 
@@ -108,7 +110,7 @@ protected:
     Version _output_version;
 
     int64_t _newest_write_timestamp {-1};
-    RowIdConversion _rowid_conversion;
+    std::unique_ptr<RowIdConversion> _rowid_conversion = nullptr;
     TabletSchemaSPtr _cur_tablet_schema;
 
     std::unique_ptr<RuntimeProfile> _profile;

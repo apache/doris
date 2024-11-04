@@ -252,6 +252,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             changer, sc_sorting,
             _cloud_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.block", DBUG_BLOCK);
+
     // 3. Convert historical data
     bool already_exist_any_version = false;
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
@@ -342,7 +344,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             sc_job->add_txn_ids(rs->txn_id());
             sc_job->add_output_versions(rs->end_version());
             num_output_rows += rs->num_rows();
-            size_output_rowsets += rs->data_disk_size();
+            size_output_rowsets += rs->total_disk_size();
             num_output_segments += rs->num_segments();
         }
         sc_job->set_num_output_rows(num_output_rows);

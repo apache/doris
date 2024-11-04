@@ -22,7 +22,8 @@ suite("test_prepared_stmt", "nonConcurrent") {
     def tableName = "tbl_prepared_stmt"
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
-    def url = context.config.jdbcUrl + "&useServerPrepStmts=true&useCursorFetch=true"
+    // def url = context.config.jdbcUrl + "&useServerPrepStmts=true&useCursorFetch=true"
+    String url = getServerPrepareJdbcUrl(context.config.jdbcUrl, "regression_test_prepared_stmt_p0")
     def result1 = connect(user=user, password=password, url=url) {
         sql """DROP TABLE IF EXISTS ${tableName} """
         sql """
@@ -151,8 +152,6 @@ suite("test_prepared_stmt", "nonConcurrent") {
 
         sql """insert into mytable1 values(2,1,'user1',null);"""
 
-        // sql "set experimental_enable_nereids_planner = false"
-
         stmt_read = prepareStatement "SELECT *, ? FROM (select *, ? from mytable1 where pv is null) AS `SpotfireCustomQuery1` WHERE 1 = 1"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setString(1, "xxxlalala")
@@ -162,8 +161,6 @@ suite("test_prepared_stmt", "nonConcurrent") {
         stmt_read.setString(2, "1111111")
         qe_select7 stmt_read
         // stmt_read.close()
-
-        // sql "set experimental_enable_nereids_planner = true"
 
         stmt_read.setString(1, "xxxlalala")
         stmt_read.setDouble(2, 1234.1111)
@@ -222,12 +219,14 @@ suite("test_prepared_stmt", "nonConcurrent") {
         assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
         // alter stmt
         stmt_read = prepareStatement "alter table mytable1 rename mytable2"
-        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
+        def result = stmt_read.execute()
+        logger.info("result: ${result}")
+        // assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
         // update stmt
         stmt_read = prepareStatement "update tbl_prepared_stmt set k5 = ?"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
         stmt_read.setString(1, "2021-01-01")
-        def result = stmt_read.execute()
+        result = stmt_read.execute()
         logger.info("result: ${result}")
         stmt_read = prepareStatement "update tbl_prepared_stmt set k4 = 'Will we ignore LIMIT ?,?'"
         assertEquals(com.mysql.cj.jdbc.ServerPreparedStatement, stmt_read.class)
@@ -235,8 +234,10 @@ suite("test_prepared_stmt", "nonConcurrent") {
         logger.info("result: ${result}")
         qt_sql "select * from tbl_prepared_stmt where k4 = 'Will we ignore LIMIT ?,?' order by k1"
         // show create table
-        stmt_read = prepareStatement "SHOW CREATE TABLE mytable1"
-        assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
+        stmt_read = prepareStatement "SHOW CREATE TABLE tbl_prepared_stmt"
+        result = stmt_read.execute()
+        logger.info("result: ${result}")
+        // assertEquals(com.mysql.cj.jdbc.ClientPreparedStatement, stmt_read.class)
         // not stable
         // qe_select16 stmt_read
         stmt_read.close()

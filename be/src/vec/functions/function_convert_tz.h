@@ -52,6 +52,7 @@
 #include "vec/functions/function.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct ConvertTzState {
     bool use_state = false;
@@ -215,7 +216,7 @@ private:
                                             NullMap& result_null_map, size_t input_rows_count) {
         cctz::time_zone& from_tz = convert_tz_state->from_tz;
         cctz::time_zone& to_tz = convert_tz_state->to_tz;
-        auto push_null = [&](int row) {
+        auto push_null = [&](size_t row) {
             result_null_map[row] = true;
             result_column->insert_default();
         };
@@ -310,3 +311,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

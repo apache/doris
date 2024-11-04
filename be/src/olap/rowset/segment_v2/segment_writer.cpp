@@ -85,13 +85,14 @@ inline std::string segment_mem_tracker_name(uint32_t segment_id) {
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, const SegmentWriterOptions& opts,
-                             io::FileWriterPtr inverted_file_writer)
+                             InvertedIndexFileWriter* inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
+          _inverted_index_file_writer(inverted_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
@@ -126,22 +127,11 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
             _key_index_size.clear();
             _num_sort_key_columns = _tablet_schema->cluster_key_idxes().size();
             for (auto cid : _tablet_schema->cluster_key_idxes()) {
-                const auto& column = _tablet_schema->column(cid);
+                const auto& column = _tablet_schema->column_by_uid(cid);
                 _key_coders.push_back(get_key_coder(column.type()));
                 _key_index_size.push_back(column.index_length());
             }
         }
-    }
-    if (_tablet_schema->has_inverted_index()) {
-        _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                _opts.rowset_ctx->fs(),
-                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
-                        file_writer->path().c_str())},
-                _opts.rowset_ctx->rowset_id.to_string(), segment_id,
-                _tablet_schema->get_inverted_index_storage_format(),
-                std::move(inverted_file_writer));
-        _inverted_index_file_writer->set_file_writer_opts(
-                _opts.rowset_ctx->get_file_writer_options());
     }
 }
 
@@ -209,8 +199,9 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     opts.need_bitmap_index = column.has_bitmap_index();
     bool skip_inverted_index = false;
     if (_opts.rowset_ctx != nullptr) {
-        // skip write inverted index for index compaction
-        skip_inverted_index = _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
+        // skip write inverted index for index compaction column
+        skip_inverted_index =
+                _opts.rowset_ctx->columns_to_do_index_compaction.count(column.unique_id()) > 0;
     }
     // skip write inverted index on load if skip_write_index_on_load is true
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
@@ -223,11 +214,12 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         opts.need_bloom_filter = false;
         opts.need_bitmap_index = false;
     }
-    opts.inverted_index_file_writer = _inverted_index_file_writer.get();
+    opts.inverted_index_file_writer = _inverted_index_file_writer;
     for (const auto* index : opts.indexes) {
         if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
             opts.inverted_index = index;
             opts.need_inverted_index = true;
+            DCHECK(_inverted_index_file_writer != nullptr);
             // TODO support multiple inverted index
             break;
         }
@@ -464,10 +456,11 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 
 Status SegmentWriter::probe_key_for_mow(
         std::string key, std::size_t segment_pos, bool have_input_seq_column, bool have_delete_sign,
-        PartialUpdateReadPlan& read_plan, const std::vector<RowsetSharedPtr>& specified_rowsets,
+        const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-        PartialUpdateStats& stats) {
+        const std::function<void(const RowLocation& loc)>& found_cb,
+        const std::function<Status()>& not_found_cb, PartialUpdateStats& stats) {
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
@@ -482,9 +475,7 @@ Status SegmentWriter::probe_key_for_mow(
                     {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                     segment_pos);
         } else if (!have_delete_sign) {
-            RETURN_IF_ERROR(
-                    _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                            *_tablet_schema));
+            RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
         has_default_or_nullable = true;
@@ -508,7 +499,7 @@ Status SegmentWriter::probe_key_for_mow(
         // partial update should not contain invisible columns
         use_default_or_null_flag.emplace_back(false);
         _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-        read_plan.prepare_to_read(loc, segment_pos);
+        found_cb(loc);
     }
 
     if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -535,7 +526,7 @@ Status SegmentWriter::probe_key_for_mow(
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    if (block->columns() <= _tablet_schema->num_key_columns() ||
+    if (block->columns() < _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
         return Status::InvalidArgument(
                 fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
@@ -546,6 +537,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     DCHECK(_is_mow());
 
     DCHECK(_opts.rowset_ctx->partial_update_info);
+    DCHECK(_opts.rowset_ctx->partial_update_info->is_fixed_partial_update());
     DCHECK(row_pos == 0);
 
     // find missing column cids
@@ -595,7 +587,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
-    PartialUpdateReadPlan read_plan;
+    FixedReadPlan read_plan;
 
     // locate rows in base data
     PartialUpdateStats stats;
@@ -625,10 +617,17 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
-        RETURN_IF_ERROR(probe_key_for_mow(key, segment_pos, have_input_seq_column, have_delete_sign,
-                                          read_plan, specified_rowsets, segment_caches,
+        auto not_found_cb = [&]() {
+            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
+                    *_tablet_schema);
+        };
+        auto update_read_plan = [&](const RowLocation& loc) {
+            read_plan.prepare_to_read(loc, segment_pos);
+        };
+        RETURN_IF_ERROR(probe_key_for_mow(std::move(key), segment_pos, have_input_seq_column,
+                                          have_delete_sign, specified_rowsets, segment_caches,
                                           has_default_or_nullable, use_default_or_null_flag,
-                                          stats));
+                                          update_read_plan, not_found_cb, stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
@@ -637,7 +636,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                     _mow_context->rowset_ids);
     }
 
-    // read and fill block
+    // read to fill full block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, block));
@@ -692,10 +691,17 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
-        _opts.rowset_ctx->partial_update_info->is_partial_update &&
+        _opts.rowset_ctx->partial_update_info->is_partial_update() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
-        RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
+        if (_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
+            RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
+        } else {
+            return Status::NotSupported<false>(
+                    "SegmentWriter doesn't support flexible partial update, please set "
+                    "enable_vertical_segment_writer=true in be.conf on all BEs to use "
+                    "VerticalSegmentWriter.");
+        }
         return Status::OK();
     }
     CHECK(block->columns() >= _column_writers.size())
@@ -755,16 +761,30 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             // 2. generate short key index (use cluster key)
             key_columns.clear();
             for (const auto& cid : _tablet_schema->cluster_key_idxes()) {
-                for (size_t id = 0; id < _column_writers.size(); ++id) {
-                    // olap data convertor always start from id = 0
-                    if (cid == _column_ids[id]) {
-                        auto converted_result = _olap_data_convertor->convert_column_data(id);
+                // find cluster key index in tablet schema
+                auto cluster_key_index = _tablet_schema->field_index(cid);
+                if (cluster_key_index == -1) {
+                    return Status::InternalError(
+                            "could not find cluster key column with unique_id=" +
+                            std::to_string(cid) + " in tablet schema");
+                }
+                bool found = false;
+                for (auto i = 0; i < _column_ids.size(); ++i) {
+                    if (_column_ids[i] == cluster_key_index) {
+                        auto converted_result = _olap_data_convertor->convert_column_data(i);
                         if (!converted_result.first.ok()) {
                             return converted_result.first;
                         }
                         key_columns.push_back(converted_result.second);
+                        found = true;
                         break;
                     }
+                }
+                if (!found) {
+                    return Status::InternalError(
+                            "could not found cluster key column with unique_id=" +
+                            std::to_string(cid) +
+                            ", tablet schema index=" + std::to_string(cluster_key_index));
                 }
             }
             RETURN_IF_ERROR(_generate_short_key_index(key_columns, num_rows, short_key_pos));
@@ -996,10 +1016,6 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
-    if (_inverted_index_file_writer != nullptr) {
-        RETURN_IF_ERROR(_inverted_index_file_writer->close());
-        _inverted_index_file_info = _inverted_index_file_writer->get_index_file_info();
-    }
     return Status::OK();
 }
 
@@ -1187,7 +1203,7 @@ Status SegmentWriter::_generate_primary_key_index(
             }
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
-                    << ", last key" << last_key;
+                    << ", last key: " << last_key;
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
             last_key = std::move(key);
         }
@@ -1210,8 +1226,9 @@ Status SegmentWriter::_generate_primary_key_index(
         for (const auto& key : primary_keys) {
             DCHECK(key.compare(last_key) > 0)
                     << "found duplicate key or key is not sorted! current key: " << key
-                    << ", last key" << last_key;
+                    << ", last key: " << last_key;
             RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+            last_key = key;
         }
     }
     return Status::OK();
@@ -1223,19 +1240,20 @@ Status SegmentWriter::_generate_short_key_index(
     // use _key_coders
     set_min_key(_full_encode_keys(key_columns, 0));
     set_max_key(_full_encode_keys(key_columns, num_rows - 1));
+    DCHECK(Slice(_max_key.data(), _max_key.size())
+                   .compare(Slice(_min_key.data(), _min_key.size())) >= 0)
+            << "key is not sorted! min key: " << _min_key << ", max key: " << _max_key;
 
     key_columns.resize(_num_short_key_columns);
+    std::string last_key;
     for (const auto pos : short_key_pos) {
-        RETURN_IF_ERROR(_short_key_index_builder->add_item(_encode_keys(key_columns, pos)));
+        std::string key = _encode_keys(key_columns, pos);
+        DCHECK(key.compare(last_key) >= 0)
+                << "key is not sorted! current key: " << key << ", last key: " << last_key;
+        RETURN_IF_ERROR(_short_key_index_builder->add_item(key));
+        last_key = std::move(key);
     }
     return Status::OK();
-}
-
-int64_t SegmentWriter::get_inverted_index_total_size() {
-    if (_inverted_index_file_writer != nullptr) {
-        return _inverted_index_file_writer->get_index_file_total_size();
-    }
-    return 0;
 }
 
 inline bool SegmentWriter::_is_mow() {

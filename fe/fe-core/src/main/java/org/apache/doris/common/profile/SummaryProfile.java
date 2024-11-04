@@ -102,6 +102,8 @@ public class SummaryProfile {
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
     public static final String NEREIDS_TRANSLATE_TIME = "Nereids Translate Time";
     public static final String NEREIDS_DISTRIBUTE_TIME = "Nereids Distribute Time";
+    public static final String NEREIDS_GARBAGE_COLLECT_TIME = "Nereids GarbageCollect Time";
+    public static final String NEREIDS_BE_FOLD_CONST_TIME = "Nereids BeFoldConst Time";
 
     public static final String FRAGMENT_COMPRESSED_SIZE = "Fragment Compressed Size";
     public static final String FRAGMENT_RPC_COUNT = "Fragment RPC Count";
@@ -229,6 +231,10 @@ public class SummaryProfile {
     private long nereidsOptimizeFinishTime = -1;
     @SerializedName(value = "nereidsTranslateFinishTime")
     private long nereidsTranslateFinishTime = -1;
+    @SerializedName(value = "nereidsGarbageCollectionTime")
+    private long nereidsGarbageCollectionTime = -1;
+    @SerializedName(value = "nereidsBeFoldConstTime")
+    private long nereidsBeFoldConstTime = 0;
     private long nereidsDistributeFinishTime = -1;
     // timestamp of query begin
     @SerializedName(value = "queryBeginTime")
@@ -408,6 +414,8 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
         executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
         executionSummaryProfile.addInfoString(NEREIDS_DISTRIBUTE_TIME, getPrettyNereidsDistributeTime());
+        executionSummaryProfile.addInfoString(NEREIDS_GARBAGE_COLLECT_TIME, getPrettyNereidsGarbageCollectionTime());
+        executionSummaryProfile.addInfoString(NEREIDS_BE_FOLD_CONST_TIME, getPrettyNereidsBeFoldConstTime());
         executionSummaryProfile.addInfoString(ANALYSIS_TIME,
                 getPrettyTime(queryAnalysisFinishTime, queryBeginTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(PLAN_TIME,
@@ -511,6 +519,14 @@ public class SummaryProfile {
 
     public void setNereidsTranslateTime() {
         this.nereidsTranslateFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setNereidsGarbageCollectionTime(long nereidsGarbageCollectionTime) {
+        this.nereidsGarbageCollectionTime = nereidsGarbageCollectionTime;
+    }
+
+    public void sumBeFoldTime(long beFoldConstTimeOnce) {
+        this.nereidsBeFoldConstTime += beFoldConstTimeOnce;
     }
 
     public void setNereidsDistributeTime() {
@@ -765,6 +781,14 @@ public class SummaryProfile {
         return getPrettyTime(nereidsTranslateFinishTime, nereidsOptimizeFinishTime, TUnit.TIME_MS);
     }
 
+    public String getPrettyNereidsGarbageCollectionTime() {
+        return RuntimeProfile.printCounter(nereidsGarbageCollectionTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyNereidsBeFoldConstTime() {
+        return RuntimeProfile.printCounter(nereidsBeFoldConstTime, TUnit.TIME_MS);
+    }
+
     public String getPrettyNereidsDistributeTime() {
         return getPrettyTime(nereidsDistributeFinishTime, nereidsTranslateFinishTime, TUnit.TIME_MS);
     }
@@ -902,11 +926,11 @@ public class SummaryProfile {
     }
 
     public void setSystemMessage(String msg) {
-        summaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
+        executionSummaryProfile.addInfoString(SYSTEM_MESSAGE, msg);
     }
 
     public void setExecutedByFrontend(boolean executedByFrontend) {
-        summaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
+        executionSummaryProfile.addInfoString(EXECUTED_BY_FRONTEND, String.valueOf(executedByFrontend));
     }
 
     public void write(DataOutput output) throws IOException {

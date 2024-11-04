@@ -135,8 +135,10 @@ CONF_mBool(snapshot_get_tablet_stats, "true");
 // Value codec version
 CONF_mInt16(meta_schema_value_version, "1");
 
-// Limit kv size of Schema SchemaDictKeyList, default 10MB
-CONF_mInt32(schema_dict_kv_size_limit, "10485760");
+// Limit kv size of Schema SchemaDictKeyList, default 5MB
+CONF_mInt32(schema_dict_kv_size_limit, "5242880");
+// Limit the count of columns in schema dict value, default 4K
+CONF_mInt32(schema_dict_key_count_limit, "4096");
 
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
@@ -212,7 +214,6 @@ CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
 CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
-
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
 

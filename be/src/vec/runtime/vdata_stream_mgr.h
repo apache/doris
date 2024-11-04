@@ -30,6 +30,7 @@
 #include "common/status.h"
 
 namespace google {
+#include "common/compile_check_begin.h"
 namespace protobuf {
 class Closure;
 }
@@ -40,6 +41,9 @@ class RuntimeState;
 class RowDescriptor;
 class RuntimeProfile;
 class PTransmitDataParams;
+namespace pipeline {
+class ExchangeLocalState;
+}
 
 namespace vectorized {
 class VDataStreamRecvr;
@@ -50,6 +54,7 @@ public:
     ~VDataStreamMgr();
 
     std::shared_ptr<VDataStreamRecvr> create_recvr(RuntimeState* state,
+                                                   pipeline::ExchangeLocalState* parent,
                                                    const RowDescriptor& row_desc,
                                                    const TUniqueId& fragment_instance_id,
                                                    PlanNodeId dest_node_id, int num_senders,
@@ -92,3 +97,5 @@ private:
 };
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

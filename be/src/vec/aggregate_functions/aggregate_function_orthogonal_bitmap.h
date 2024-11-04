@@ -52,6 +52,11 @@ struct AggOrthBitmapBaseData {
 public:
     using ColVecData = std::conditional_t<IsNumber<T>, ColumnVector<T>, ColumnString>;
 
+    void reset() {
+        bitmap = {};
+        first_init = true;
+    }
+
     void add(const IColumn** columns, size_t row_num) {
         const auto& bitmap_col =
                 assert_cast<const ColumnBitmap&, TypeCheckOnRelease::DISABLE>(*columns[0]);
@@ -99,6 +104,11 @@ public:
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeBitMap>(); }
 
+    void reset() {
+        AggOrthBitmapBaseData<T>::reset();
+        result.reset();
+    }
+
     void merge(const AggOrthBitMapIntersect& rhs) {
         if (rhs.first_init) {
             return;
@@ -120,7 +130,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnBitmap&>(to);
-        column.get_data().emplace_back(result);
+        column.get_data().emplace_back(result.empty() ? AggOrthBitmapBaseData<T>::bitmap.intersect()
+                                                      : result);
     }
 
 private:
@@ -169,6 +180,11 @@ public:
     static constexpr auto name = "orthogonal_bitmap_intersect_count";
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }
+
+    void reset() {
+        AggOrthBitmapBaseData<T>::reset();
+        result = 0;
+    }
 
     void merge(const AggOrthBitMapIntersectCount& rhs) {
         if (rhs.first_init) {
@@ -225,6 +241,11 @@ public:
         }
     }
 
+    void reset() {
+        bitmap_expr_cal = {};
+        first_init = true;
+    }
+
 protected:
     doris::BitmapExprCalculation bitmap_expr_cal;
     bool first_init = true;
@@ -263,6 +284,11 @@ public:
                                                          ->bitmap_expr_cal.bitmap_calculate());
     }
 
+    void reset() {
+        AggOrthBitmapExprCalBaseData<T>::reset();
+        result.reset();
+    }
+
 private:
     BitmapValue result;
 };
@@ -299,6 +325,11 @@ public:
                                                         ->bitmap_expr_cal.bitmap_calculate_count());
     }
 
+    void reset() {
+        AggOrthBitmapExprCalBaseData<T>::reset();
+        result = 0;
+    }
+
 private:
     int64_t result = 0;
 };
@@ -330,6 +361,11 @@ struct OrthBitmapUnionCountData {
         column.get_data().emplace_back(result ? result : value.cardinality());
     }
 
+    void reset() {
+        value.reset();
+        result = 0;
+    }
+
 private:
     BitmapValue value;
     int64_t result = 0;
@@ -346,6 +382,8 @@ public:
               _argument_size(argument_types_.size()) {}
 
     DataTypePtr get_return_type() const override { return Impl::get_return_type(); }
+
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {

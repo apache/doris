@@ -91,6 +91,10 @@ protected:
 
     void _collect_profile_before_close() override;
 
+    // fe will add skip_bitmap_col to _input_tuple_desc iff the target olaptable has skip_bitmap_col
+    // and the current load is a flexible partial update
+    bool _should_process_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
+
 protected:
     const TFileScanRangeParams* _params = nullptr;
     std::shared_ptr<vectorized::SplitSourceConnector> _split_source;
@@ -167,18 +171,21 @@ protected:
             _partition_col_descs;
     std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
+    // idx of skip_bitmap_col in _input_tuple_desc
+    int32_t _skip_bitmap_col_idx {-1};
+    int32_t _sequence_map_col_uid {-1};
+    int32_t _sequence_col_uid {-1};
+
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _open_reader_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
-    RuntimeProfile::Counter* _fill_path_columns_timer = nullptr;
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
-    RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     // single slot filter conjuncts
@@ -207,7 +214,6 @@ private:
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
     Status _generate_fill_columns();
-    Status _handle_dynamic_block(Block* block);
     Status _process_conjuncts_for_dict_filter();
     Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);

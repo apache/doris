@@ -40,6 +40,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 /**
@@ -112,8 +113,14 @@ public class SimplifyCastRule implements ExpressionPatternRuleFactory {
                         return new DecimalV3Literal(decimalV3Type,
                                 new BigDecimal(((BigIntLiteral) child).getValue()));
                     } else if (child instanceof DecimalV3Literal) {
-                        return new DecimalV3Literal(decimalV3Type,
-                                ((DecimalV3Literal) child).getValue());
+                        DecimalV3Type childType = (DecimalV3Type) child.getDataType();
+                        if (childType.getRange() <= decimalV3Type.getRange()) {
+                            return new DecimalV3Literal(decimalV3Type,
+                                    ((DecimalV3Literal) child).getValue()
+                                            .setScale(decimalV3Type.getScale(), RoundingMode.HALF_UP));
+                        } else {
+                            return cast;
+                        }
                     }
                 }
             } catch (Throwable t) {

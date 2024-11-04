@@ -30,6 +30,7 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class BufferControlBlock;
 class RuntimeState;
 
@@ -77,3 +78,5 @@ private:
 };
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

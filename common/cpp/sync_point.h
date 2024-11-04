@@ -205,7 +205,7 @@ auto try_any_cast_ret(std::vector<std::any>& any) {
 
 // TEST_SYNC_POINT is no op in release build.
 // Turn on this feature by defining the macro
-#ifndef BE_TEST
+#if !defined(BE_TEST) && !defined(ENABLE_INJECTION_POINT)
 # define TEST_SYNC_POINT(x)
 # define TEST_IDX_SYNC_POINT(x, index)
 # define TEST_SYNC_POINT_CALLBACK(x, ...)

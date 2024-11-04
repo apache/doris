@@ -989,6 +989,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(vault.id());
             instance.set_default_storage_vault_name(vault.name());
         }
+        response->set_storage_vault_id(vault.id());
         LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault.id(),
                  vault.name(), hex(vault_key));
     } break;
@@ -1006,6 +1007,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(*instance.resource_ids().rbegin());
             instance.set_default_storage_vault_name(*instance.storage_vault_names().rbegin());
         }
+        response->set_storage_vault_id(request->vault().id());
         break;
     }
     case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {

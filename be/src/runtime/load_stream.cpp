@@ -31,11 +31,14 @@
 #include <sstream>
 
 #include "bvar/bvar.h"
+#include "cloud/config.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
+#include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
@@ -149,6 +152,14 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         signal::set_signal_task_id(_load_id);
         g_load_stream_flush_running_threads << -1;
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
+        if (!st.ok() && !config::is_cloud_mode()) {
+            auto res = ExecEnv::get_tablet(_id);
+            TabletSharedPtr tablet =
+                    res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
+            if (tablet) {
+                tablet->report_error(st);
+            }
+        }
         if (eos && st.ok()) {
             DBUG_EXECUTE_IF("TabletStream.append_data.unknown_file_type",
                             { file_type = static_cast<FileType>(-1); });
@@ -293,7 +304,7 @@ Status TabletStream::close() {
     }
 
     DBUG_EXECUTE_IF("TabletStream.close.segment_num_mismatch", { _num_segments++; });
-    if (_next_segid.load() != _num_segments) {
+    if (_check_num_segments && (_next_segid.load() != _num_segments)) {
         _status = Status::Corruption(
                 "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
                 _num_segments, _next_segid.load(), print_id(_load_id));
@@ -380,9 +391,14 @@ void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
         auto it = _tablet_streams_map.find(tablet.tablet_id());
         if (it == _tablet_streams_map.end()) {
             _init_tablet_stream(tablet_stream, tablet.tablet_id(), tablet.partition_id());
+        } else {
+            tablet_stream = it->second;
+        }
+        if (tablet.has_num_segments()) {
             tablet_stream->add_num_segments(tablet.num_segments());
         } else {
-            it->second->add_num_segments(tablet.num_segments());
+            // for compatibility reasons (sink from old version BE)
+            tablet_stream->disable_num_segments_check();
         }
     }
 

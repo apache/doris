@@ -30,8 +30,6 @@ import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExplainLevel;
 
 import com.google.common.collect.ArrayListMultimap;
@@ -255,12 +253,6 @@ public class UnassignedJobBuilder {
     }
 
     private static boolean enableBucketShuffleJoin() {
-        if (ConnectContext.get() != null) {
-            SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
-            if (!sessionVariable.isEnableBucketShuffleJoin() && !sessionVariable.isEnableNereidsPlanner()) {
-                return false;
-            }
-        }
         return true;
     }
 

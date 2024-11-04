@@ -39,7 +39,6 @@ suite("dimension_join_agg_negative") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
     DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -69,7 +68,6 @@ suite("dimension_join_agg_negative") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
     DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
@@ -102,19 +100,6 @@ suite("dimension_join_agg_negative") {
 
     sql """analyze table orders_negative with sync;"""
     sql """analyze table lineitem_negative with sync;"""
-
-    def create_all_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
-        sql """DROP TABLE IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH AUTO ON MANUAL 
-        DISTRIBUTED BY RANDOM BUCKETS 2 
-        PROPERTIES ('replication_num' = '1') 
-        AS  
-        ${mv_sql}
-        """
-    }
 
     // left join + agg (function + group by + +-*/ + filter)
     def left_mv_stmt_1 = """select t1.o_orderdate, t1.o_shippriority, t1.o_orderkey 
@@ -465,14 +450,9 @@ suite("dimension_join_agg_negative") {
 
         def mv_name = "mv_negative_" + (i + 1)
 
-        create_all_mv(mv_name, sql_list[i])
-        def job_name = getJobName(db, mv_name)
-        waitingMTMVTaskFinished(job_name)
+        create_async_mv(db, mv_name, sql_list[i])
 
-        explain {
-            sql("${query_list[i]}")
-            notContains "${mv_name}(${mv_name})"
-        }
+        mv_rewrite_fail(query_list[i], mv_name)
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name};"""
     }

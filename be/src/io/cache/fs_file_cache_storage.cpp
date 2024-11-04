@@ -471,7 +471,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
     auto add_cell_batch_func = [&]() {
-        std::lock_guard cache_lock(_mgr->_mutex);
+        SCOPED_CACHE_LOCK(_mgr->_mutex);
+
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
@@ -636,6 +637,27 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
             }
         }
     }
+}
+
+Status FSFileCacheStorage::clear(std::string& msg) {
+    std::stringstream ss;
+    auto st = global_local_filesystem()->delete_directory(_cache_base_path);
+    if (!st.ok()) {
+        ss << "failed to clear_file_cache_directly, path=" << _cache_base_path
+           << " delete dir failed: " << st;
+        LOG(WARNING) << ss.str();
+        msg = ss.str();
+        return Status::InternalError(ss.str());
+    }
+    st = global_local_filesystem()->create_directory(_cache_base_path);
+    if (!st.ok()) {
+        ss << "failed to clear_file_cache_directly, path=" << _cache_base_path
+           << " create dir failed: " << st;
+        LOG(WARNING) << ss.str();
+        msg = ss.str();
+        return Status::InternalError(ss.str());
+    }
+    return Status::OK();
 }
 
 FSFileCacheStorage::~FSFileCacheStorage() {

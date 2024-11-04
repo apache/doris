@@ -31,6 +31,7 @@ public class DefaultValue {
     public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
     public static String NOW = "now";
     public static String HLL_EMPTY = "HLL_EMPTY";
+    public static String BITMAP_EMPTY = "BITMAP_EMPTY";
     public static DefaultValue CURRENT_DATE_DEFAULT_VALUE = new DefaultValue(CURRENT_DATE, CURRENT_DATE.toLowerCase());
     public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(CURRENT_TIMESTAMP, NOW);
     // default null
@@ -40,7 +41,7 @@ public class DefaultValue {
     // default "value", "0" means empty hll
     public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO, HLL_EMPTY);
     // default "value", "0" means empty bitmap
-    public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO);
+    public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(ZERO, BITMAP_EMPTY);
     // default "value", "[]" means empty array
     public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue("[]");
     // Lets use the const value from math pacakge.

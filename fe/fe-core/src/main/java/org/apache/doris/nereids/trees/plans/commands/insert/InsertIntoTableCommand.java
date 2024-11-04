@@ -24,7 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.util.ProfileManager.ProfileType;
+import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
@@ -123,12 +123,20 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        return initPlan(ctx, executor, true);
+    }
+
     /**
      * This function is used to generate the plan for Nereids.
      * There are some load functions that only need to the plan, such as stream_load.
      * Therefore, this section will be presented separately.
+     * @param needBeginTransaction whether to start a transaction.
+     *       For external uses such as creating a job, only basic analysis is needed without starting a transaction,
+     *       in which case this can be set to false.
      */
-    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor,
+                                           boolean needBeginTransaction) throws Exception {
         TableIf targetTableIf = InsertUtils.getTargetTable(logicalQuery, ctx);
         // check auth
         if (!Env.getCurrentEnv().getAccessManager()
@@ -220,6 +228,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 // TODO: support other table types
                 throw new AnalysisException("insert into command only support [olap, hive, iceberg, jdbc] table");
             }
+            if (!needBeginTransaction) {
+                targetTableIf.readUnlock();
+                return insertExecutor;
+            }
             if (!insertExecutor.isEmptyInsert()) {
                 insertExecutor.beginTransaction();
                 insertExecutor.finalizeSink(planner.getFragments().get(0), sink, physicalSink);
@@ -237,6 +249,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         executor.setProfileType(ProfileType.LOAD);
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
         // so we need to set this here
+        insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
         executor.setCoord(insertExecutor.getCoordinator());
         return insertExecutor;
     }

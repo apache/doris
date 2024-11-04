@@ -67,6 +67,8 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
         BACKEND_TABLE.add("backend_active_tasks");
         BACKEND_TABLE.add("workload_group_resource_usage");
         BEACKEND_ID_COLUMN_SET.add("be_id");
+
+        BACKEND_TABLE.add("file_cache_statistics");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {

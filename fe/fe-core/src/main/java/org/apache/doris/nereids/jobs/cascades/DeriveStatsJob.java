@@ -26,6 +26,7 @@ import org.apache.doris.nereids.metrics.EventChannel;
 import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
+import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -113,7 +114,7 @@ public class DeriveStatsJob extends Job {
                     context.getCascadesContext());
             STATS_STATE_TRACER.log(StatsStateEvent.of(groupExpression,
                     groupExpression.getOwnerGroup().getStatistics()));
-            if (sessionVariable.isEnableMinidump() && !sessionVariable.isPlayNereidsDump()) {
+            if (MinidumpUtils.isDump() && !sessionVariable.isPlayNereidsDump()) {
                 connectContext.getTotalColumnStatisticMap().putAll(statsCalculator.getTotalColumnStatisticMap());
                 connectContext.getTotalHistogramMap().putAll(statsCalculator.getTotalHistogramMap());
             }

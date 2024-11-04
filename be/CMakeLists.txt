@@ -299,8 +299,6 @@ if (COMPILER_CLANG)
                         -Wno-implicit-float-conversion
                         -Wno-implicit-int-conversion
                         -Wno-sign-conversion
-                        -Wno-missing-field-initializers
-                        -Wno-unused-const-variable
                         -Wno-shorten-64-to-32)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
@@ -342,6 +340,10 @@ endif()
 
 if (ENABLE_INJECTION_POINT)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_INJECTION_POINT")
+endif()
+
+if (ENABLE_CACHE_LOCK_DEBUG)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_CACHE_LOCK_DEBUG")
 endif()
 
 # Enable memory tracker, which allows BE to limit the memory of tasks such as query, load,
@@ -784,6 +786,7 @@ install(DIRECTORY DESTINATION ${OUTPUT_DIR}/conf)
 install(FILES
     ${BASE_DIR}/../bin/start_be.sh
     ${BASE_DIR}/../bin/stop_be.sh
+    ${BASE_DIR}/../tools/jeprof
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
     GROUP_READ GROUP_WRITE GROUP_EXECUTE
     WORLD_READ WORLD_EXECUTE

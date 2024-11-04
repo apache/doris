@@ -47,6 +47,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
@@ -153,6 +154,8 @@ public class Backend implements Writable {
     // send some queries to this BE, it is not an important problem.
     private AtomicBoolean isShutDown = new AtomicBoolean(false);
 
+    private long nextForceEditlogHeartbeatTime = System.currentTimeMillis() + (new SecureRandom()).nextInt(60 * 1000);
+
     public Backend() {
         this.host = "";
         this.version = "";
@@ -188,7 +191,7 @@ public class Backend implements Writable {
     }
 
     public String getCloudClusterStatus() {
-        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(Cloud.ClusterStatus.UNKNOWN));
+        return tagMap.getOrDefault(Tag.CLOUD_CLUSTER_STATUS, String.valueOf(Cloud.ClusterStatus.NORMAL));
     }
 
     public void setCloudClusterStatus(final String clusterStatus) {
@@ -298,6 +301,71 @@ public class Backend implements Writable {
 
     public long getCurrentFragmentNum() {
         return this.backendStatus.currentFragmentNum;
+    }
+
+    public String getDetailsForCreateReplica() {
+        int hddBad = 0;
+        int hddExceedLimit = 0;
+        int hddOk = 0;
+        int ssdBad = 0;
+        int ssdExceedLimit = 0;
+        int ssdOk = 0;
+        for (DiskInfo disk : disksRef.values()) {
+            TStorageMedium storageMedium = disk.getStorageMedium();
+            if (storageMedium == TStorageMedium.HDD) {
+                if (!disk.isAlive()) {
+                    hddBad++;
+                } else if (disk.exceedLimit(true)) {
+                    hddExceedLimit++;
+                } else {
+                    hddOk++;
+                }
+            } else if (storageMedium == TStorageMedium.SSD) {
+                if (!disk.isAlive()) {
+                    ssdBad++;
+                } else if (disk.exceedLimit(true)) {
+                    ssdExceedLimit++;
+                } else {
+                    ssdOk++;
+                }
+            }
+        }
+
+        StringBuilder sb = new StringBuilder("[");
+        sb.append("backendId=").append(id);
+        sb.append(", host=").append(host);
+        if (!isAlive()) {
+            sb.append(", isAlive=false, exclude it");
+        } else if (isDecommissioned()) {
+            sb.append(", isDecommissioned=true, exclude it");
+        } else if (isComputeNode()) {
+            sb.append(", isComputeNode=true, exclude it");
+        } else {
+            sb.append(", hdd disks count={");
+            if (hddOk > 0) {
+                sb.append("ok=").append(hddOk).append(",");
+            }
+            if (hddBad > 0) {
+                sb.append("bad=").append(hddBad).append(",");
+            }
+            if (hddExceedLimit > 0) {
+                sb.append("capExceedLimit=").append(hddExceedLimit).append(",");
+            }
+            sb.append("}, ssd disk count={");
+            if (ssdOk > 0) {
+                sb.append("ok=").append(ssdOk).append(",");
+            }
+            if (ssdBad > 0) {
+                sb.append("bad=").append(ssdBad).append(",");
+            }
+            if (ssdExceedLimit > 0) {
+                sb.append("capExceedLimit=").append(ssdExceedLimit).append(",");
+            }
+            sb.append("}");
+        }
+        sb.append("]");
+
+        return sb.toString();
     }
 
     // for test only
@@ -732,13 +800,8 @@ public class Backend implements Writable {
     public String toString() {
         return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
                 + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", process epoch=" + lastStartTime
-                + ", isDecommissioned=" + isDecommissioned + ", tags: " + tagMap + "]";
-    }
-
-    public String getHealthyStatus() {
-        return "Backend [id=" + id + ", isDecommission: " + isDecommissioned
-                + ", backendStatus: " + backendStatus + ", isAlive: " + isAlive.get() + ", lastUpdateTime: "
-                + TimeUtils.longToTimeString(lastUpdateMs);
+                + ", isDecommissioned=" + isDecommissioned + ", tags: " + tagMap + "]"
+                + ", backendStatus: " + backendStatus;
     }
 
     /**
@@ -816,7 +879,18 @@ public class Backend implements Writable {
 
             heartbeatErrMsg = "";
             this.heartbeatFailureCounter = 0;
+
+            // even if no change, write an editlog to make lastUpdateMs in image update
+            if (System.currentTimeMillis() >= this.nextForceEditlogHeartbeatTime) {
+                isChanged = true;
+                int delaySecond = Config.editlog_healthy_heartbeat_seconds + (new SecureRandom()).nextInt(60);
+                this.nextForceEditlogHeartbeatTime = System.currentTimeMillis() + delaySecond * 1000L;
+            }
         } else {
+            // for a bad BackendHbResponse, its hbTime is last succ hbTime, not this hbTime
+            if (hbResponse.getHbTime() > 0) {
+                this.lastUpdateMs = hbResponse.getHbTime();
+            }
             // Only set backend to dead if the heartbeat failure counter exceed threshold.
             // And if it is a replay process, must set backend to dead.
             if (isReplay || ++this.heartbeatFailureCounter >= Config.max_backend_heartbeat_failure_tolerance_count) {
@@ -880,7 +954,9 @@ public class Backend implements Writable {
         public String toString() {
             return "[" + "lastSuccessReportTabletsTime='" + lastSuccessReportTabletsTime + '\''
                     + ", lastStreamLoadTime=" + lastStreamLoadTime + ", isQueryDisabled=" + isQueryDisabled
-                    + ", isLoadDisabled=" + isLoadDisabled + "]";
+                    + ", isLoadDisabled=" + isLoadDisabled
+                    + ", currentFragmentNum=" + currentFragmentNum
+                    + ", lastFragmentUpdateTime=" + lastFragmentUpdateTime + "]";
         }
     }
 
@@ -925,8 +1001,28 @@ public class Backend implements Writable {
         return new TNetworkAddress(getHost(), getArrowFlightSqlPort());
     }
 
+    // Only used for users, we hide and rename some internal tags.
     public String getTagMapString() {
-        return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
+        Map<String, String> displayTagMap = Maps.newHashMap();
+        displayTagMap.putAll(tagMap);
+
+        if (displayTagMap.containsKey("cloud_cluster_public_endpoint")) {
+            displayTagMap.put("public_endpoint", displayTagMap.remove("cloud_cluster_public_endpoint"));
+        }
+        if (displayTagMap.containsKey("cloud_cluster_private_endpoint")) {
+            displayTagMap.put("private_endpoint", displayTagMap.remove("cloud_cluster_private_endpoint"));
+        }
+        if (displayTagMap.containsKey("cloud_cluster_status")) {
+            displayTagMap.put("compute_group_status", displayTagMap.remove("cloud_cluster_status"));
+        }
+        if (displayTagMap.containsKey("cloud_cluster_id")) {
+            displayTagMap.put("compute_group_id", displayTagMap.remove("cloud_cluster_id"));
+        }
+        if (displayTagMap.containsKey("cloud_cluster_name")) {
+            displayTagMap.put("compute_group_name", displayTagMap.remove("cloud_cluster_name"));
+        }
+
+        return "{" + new PrintableMap<>(displayTagMap, ":", true, false).toString() + "}";
     }
 
     public Long getPublishTaskLastTimeAccumulated() {

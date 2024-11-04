@@ -19,7 +19,6 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
@@ -118,11 +116,6 @@ public class RuntimeFilterContext {
 
     private final Map<Plan, EffectiveSrcType> effectiveSrcNodes = Maps.newHashMap();
 
-    private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newLinkedHashMap();
-
-    // cte whose runtime filter has been extracted
-    private final Set<CTEId> processedCTE = Sets.newHashSet();
-
     private final SessionVariable sessionVariable;
 
     private final FilterSizeLimits limits;
@@ -152,16 +145,13 @@ public class RuntimeFilterContext {
             this.srcNode = srcNode;
             this.target1 = target1;
             this.target2 = target2;
+            this.equal = equal;
         }
     }
 
     public RuntimeFilterContext(SessionVariable sessionVariable) {
         this.sessionVariable = sessionVariable;
         this.limits = new FilterSizeLimits(sessionVariable);
-    }
-
-    public void setRelationsUsedByPlan(Plan plan, Set<PhysicalRelation> relations) {
-        relationsUsedByPlan.put(plan, relations);
     }
 
     /**
@@ -183,14 +173,6 @@ public class RuntimeFilterContext {
 
     public FilterSizeLimits getLimits() {
         return limits;
-    }
-
-    public Map<CTEId, PhysicalCTEProducer> getCteProduceMap() {
-        return cteProducerMap;
-    }
-
-    public Set<CTEId> getProcessedCTE() {
-        return processedCTE;
     }
 
     public void setTargetExprIdToFilter(ExprId id, RuntimeFilter filter) {
