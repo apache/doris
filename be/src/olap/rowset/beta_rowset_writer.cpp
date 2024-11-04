@@ -956,7 +956,7 @@ Status BaseBetaRowsetWriter::create_inverted_index_file_writer(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
+Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end) {
     DCHECK(begin >= 0 && end >= 0);
     std::string path = BetaRowset::local_segment_path_segcompacted(_context.tablet_path,
