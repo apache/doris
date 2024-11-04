@@ -205,8 +205,7 @@ import org.apache.doris.nereids.DorisParser.StringLiteralContext;
 import org.apache.doris.nereids.DorisParser.StructLiteralContext;
 import org.apache.doris.nereids.DorisParser.SubqueryContext;
 import org.apache.doris.nereids.DorisParser.SubqueryExpressionContext;
-import org.apache.doris.nereids.DorisParser.SupportedUnsetDefaultStorageVaultStatementContext;
-import org.apache.doris.nereids.DorisParser.SupportedUnsetVariableStatementContext;
+import org.apache.doris.nereids.DorisParser.SupportedUnsetStatementContext;
 import org.apache.doris.nereids.DorisParser.SystemVariableContext;
 import org.apache.doris.nereids.DorisParser.TableAliasContext;
 import org.apache.doris.nereids.DorisParser.TableNameContext;
@@ -3828,7 +3827,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public LogicalPlan visitSupportedUnsetVariableStatement(SupportedUnsetVariableStatementContext ctx) {
+    public LogicalPlan visitSupportedUnsetStatement(SupportedUnsetStatementContext ctx) {
+        if (ctx.DEFAULT() != null && ctx.STORAGE() != null && ctx.VAULT() != null) {
+            return new UnsetDefaultStorageVaultCommand();
+        }
         SetType type = SetType.DEFAULT;
         if (ctx.GLOBAL() != null) {
             type = SetType.GLOBAL;
@@ -3841,12 +3843,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new UnsetVariableCommand(type, ctx.identifier().getText());
         }
         throw new AnalysisException("Should add 'ALL' or variable name");
-    }
-
-    @Override
-    public LogicalPlan visitSupportedUnsetDefaultStorageVaultStatement(
-            SupportedUnsetDefaultStorageVaultStatementContext ctx) {
-        return new UnsetDefaultStorageVaultCommand();
     }
 
     @Override

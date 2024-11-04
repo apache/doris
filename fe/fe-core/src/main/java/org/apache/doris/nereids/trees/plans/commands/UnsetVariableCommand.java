@@ -46,7 +46,7 @@ public class UnsetVariableCommand extends Command implements Forward {
 
     private SetType setType;
 
-    // variables to restore
+    // variable to restore
     private String variable = null;
 
     private boolean applyToAll = false;

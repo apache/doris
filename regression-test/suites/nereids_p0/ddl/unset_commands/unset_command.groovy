@@ -19,81 +19,26 @@ suite("unset_command") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
 
-    profile("sql_unset_1") {
-        run {
-            sql """
-                -- sql_unset_1
-                UNSET VARIABLE ALL"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
-    profile("sql_unset_2") {
-        run {
-            sql """
-                -- sql_unset_2
-                UNSET global VARIABLE ALL"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
+    checkNereidsExecute("UNSET VARIABLE ALL")
+    checkNereidsExecute("UNSET global VARIABLE ALL")
 
     qt_cmd """set wait_timeout = 1000"""
     qt_cmd """show variables like 'wait_timeout'"""
 
-    profile("sql_unset_3") {
-        run {
-            sql """
-                -- sql_unset_3
-                UNSET VARIABLE wait_timeout"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
+    checkNereidsExecute("UNSET VARIABLE wait_timeout")
     qt_cmd """show variables like 'wait_timeout'"""
 
     qt_cmd """set runtime_filter_type='BLOOM_FILTER'"""
     qt_cmd """show session variables like 'runtime_filter_type'"""
     qt_cmd """show global variables like 'runtime_filter_type'"""
-    profile("sql_unset_4") {
-        run {
-            sql """
-                -- sql_unset_4
-                UNSET VARIABLE runtime_filter_type"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
+    checkNereidsExecute("UNSET VARIABLE runtime_filter_type")
     qt_cmd """show session variables like 'runtime_filter_type'"""
     qt_cmd """show global variables like 'runtime_filter_type'"""
 
     qt_cmd """set global runtime_filter_type='BLOOM_FILTER'"""
     qt_cmd """show session variables like 'runtime_filter_type'"""
     qt_cmd """show global variables like 'runtime_filter_type'"""
-    profile("sql_unset_5") {
-        run {
-            sql """
-                -- sql_unset_5
-                UNSET global VARIABLE runtime_filter_type"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
+    checkNereidsExecute("UNSET global VARIABLE runtime_filter_type")
     qt_cmd """show session variables like 'runtime_filter_type'"""
     qt_cmd """show global variables like 'runtime_filter_type'"""
 
@@ -101,18 +46,7 @@ suite("unset_command") {
     qt_cmd """set experimental_enable_agg_state='true'"""
     qt_cmd """show session variables like 'experimental_enable_agg_state'"""
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
-    profile("sql_unset_6") {
-        run {
-            sql """
-                -- sql_unset_6
-                UNSET VARIABLE experimental_enable_agg_state"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
+    checkNereidsExecute("UNSET VARIABLE experimental_enable_agg_state")
     qt_cmd """show session variables like 'experimental_enable_agg_state'"""
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
 
@@ -120,18 +54,7 @@ suite("unset_command") {
     qt_cmd """set global experimental_enable_agg_state='true'"""
     qt_cmd """show session variables like 'experimental_enable_agg_state'"""
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
-    profile("sql_unset_7") {
-        run {
-            sql """
-                -- sql_unset_7
-                UNSET global VARIABLE experimental_enable_agg_state"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
+    checkNereidsExecute("UNSET global VARIABLE experimental_enable_agg_state")
     qt_cmd """show session variables like 'experimental_enable_agg_state'"""
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
 
@@ -139,18 +62,7 @@ suite("unset_command") {
     qt_cmd """set deprecated_enable_local_exchange = false"""
     qt_cmd """show session variables like 'deprecated_enable_local_exchange'"""
     qt_cmd """show global variables like 'deprecated_enable_local_exchange'"""
-    profile("sql_unset_8") {
-        run {
-            sql """
-                -- sql_unset_8
-                UNSET global VARIABLE deprecated_enable_local_exchange"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
+    checkNereidsExecute("UNSET global VARIABLE deprecated_enable_local_exchange")
     qt_cmd """show session variables like 'deprecated_enable_local_exchange'"""
     qt_cmd """show global variables like 'deprecated_enable_local_exchange'"""
 
@@ -159,18 +71,7 @@ suite("unset_command") {
     qt_cmd """set experimental_enable_agg_state='true'"""
     qt_cmd """set deprecated_enable_local_exchange = false"""
     qt_cmd """set show_hidden_columns=true"""
-    profile("sql_unset_9") {
-        run {
-            sql """
-                -- sql_unset_9
-                UNSET VARIABLE ALL"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
+    checkNereidsExecute("UNSET VARIABLE ALL")
     qt_cmd """show session variables like 'runtime_filter_type'"""
     qt_cmd """show session variables like 'experimental_enable_agg_state'"""
     qt_cmd """show session variables like 'deprecated_enable_local_exchange'"""
@@ -183,18 +84,7 @@ suite("unset_command") {
     qt_cmd """set global experimental_enable_agg_state='true'"""
     qt_cmd """set global deprecated_enable_local_exchange = false"""
     qt_cmd """set show_hidden_columns=true"""
-    profile("sql_unset_10") {
-        run {
-            sql """
-                -- sql_unset_10
-                UNSET global VARIABLE ALL"""
-        }
-
-        check { profileString, exception ->
-            log.info(profileString)
-            assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
-        }
-    }
+    checkNereidsExecute("UNSET global VARIABLE ALL")
     qt_cmd """show global variables like 'runtime_filter_type'"""
     qt_cmd """show global variables like 'experimental_enable_agg_state'"""
     qt_cmd """show global variables like 'deprecated_enable_local_exchange'"""
