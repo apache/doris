@@ -466,4 +466,56 @@ suite("test_pull_up_predicate_set_op") {
     qt_union_child_and_const_exprs_orpredicates_res """
     select t.a,t3.b from      (select a,b from test_pull_up_predicate_set_op1 where a in (1,2) or b in ('2d','3') union select 2,'2d' union select 2,'3') t inner join test_pull_up_predicate_set_op3 t3
     on t3.a=t.a and t3.b=t.b order by 1,2;"""
+
+
+    sql """
+        drop table if exists table_1_undef_partitions2_keys3_properties4_distributed_by52;
+    """
+    sql """
+        create table table_1_undef_partitions2_keys3_properties4_distributed_by52 (
+        pk int,
+        col_int_undef_signed int  null ,
+        col_int_undef_signed_not_null int  not null ,
+        col_date_undef_signed date  null ,
+        col_date_undef_signed_not_null date  not null ,
+        col_varchar_10__undef_signed varchar(10)  null ,
+        col_varchar_10__undef_signed_not_null varchar(10)  not null ,
+        col_varchar_1024__undef_signed varchar(1024)  null ,
+        col_varchar_1024__undef_signed_not_null varchar(1024)  not null 
+        ) engine=olap
+        DUPLICATE KEY(pk)
+        distributed by hash(pk) buckets 10
+        properties("replication_num" = "1");
+    """
+    sql """
+        insert into table_1_undef_partitions2_keys3_properties4_distributed_by52(pk,col_int_undef_signed,col_int_undef_signed_not_null,col_date_undef_signed,col_date_undef_signed_not_null,col_varchar_10__undef_signed,col_varchar_10__undef_signed_not_null,col_varchar_1024__undef_signed,col_varchar_1024__undef_signed_not_null) values (0,null,2,'2023-12-17','2023-12-14','w','e','k','e');
+    """
+
+    sql """
+        drop table if exists table_3_undef_partitions2_keys3_properties4_distributed_by53;
+    """
+    sql """
+        create table table_3_undef_partitions2_keys3_properties4_distributed_by53 (
+        col_int_undef_signed_not_null int  not null ,
+        col_date_undef_signed_not_null date  not null ,
+        pk int,
+        col_int_undef_signed int  null ,
+        col_date_undef_signed date  null ,
+        col_varchar_10__undef_signed varchar(10)  null ,
+        col_varchar_10__undef_signed_not_null varchar(10)  not null ,
+        col_varchar_1024__undef_signed varchar(1024)  null ,
+        col_varchar_1024__undef_signed_not_null varchar(1024)  not null 
+        ) engine=olap
+        DUPLICATE KEY(col_int_undef_signed_not_null, col_date_undef_signed_not_null, pk)
+        PARTITION BY RANGE(col_int_undef_signed_not_null, col_date_undef_signed_not_null) (PARTITION p0 VALUES [('-10000', '2023-12-01'), ('3', '2023-12-10')), PARTITION p1 VALUES [('3', '2023-12-10'), ('6', '2023-12-15')), PARTITION p2 VALUES [('6', '2023-12-15'), ('10000', '2023-12-21')))
+        distributed by hash(pk) buckets 10
+        properties("replication_num" = "1");
+    """
+    sql """
+       insert into table_3_undef_partitions2_keys3_properties4_distributed_by53(pk,col_int_undef_signed,col_int_undef_signed_not_null,col_date_undef_signed,col_date_undef_signed_not_null,col_varchar_10__undef_signed,col_varchar_10__undef_signed_not_null,col_varchar_1024__undef_signed,col_varchar_1024__undef_signed_not_null) values (0,null,5,'2023-12-18','2023-12-17','n','q','something','w'),(1,null,4,'2023-12-15','2023-12-09','they','l','come','e'),(2,null,5,'2023-12-10','2023-12-17','m','g','not','h');
+    """
+
+    qt_test"""
+    SELECT subq1.`pk` AS pk1 FROM ( (  SELECT t1.`pk`  FROM table_1_undef_partitions2_keys3_properties4_distributed_by52 AS t1 RIGHT OUTER JOIN table_3_undef_partitions2_keys3_properties4_distributed_by53 AS alias1 ON t1 . `pk` = alias1 . `pk` ORDER BY t1.pk LIMIT 2 OFFSET 0  ) INTERSECT (  SELECT t1.`pk`  FROM table_1_undef_partitions2_keys3_properties4_distributed_by52 AS t1    ) ) subq1  LIMIT 66666666 ;
+    """
 }
