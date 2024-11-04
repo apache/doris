@@ -1393,6 +1393,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         if (children.isEmpty()) {
             return false;
         }
-        return children.stream().allMatch(PlanNode::hasSerialScanChildren);
+        return children.stream().anyMatch(PlanNode::hasSerialScanChildren);
     }
 }
