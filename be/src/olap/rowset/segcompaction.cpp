@@ -232,7 +232,7 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
 
 Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end) {
-    return _writer->_create_segment_writer_for_segcompaction(writer, begin, end);
+    return _writer->create_segment_writer_for_segcompaction(writer, begin, end);
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
