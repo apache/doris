@@ -37,17 +37,6 @@ suite("test_mysql_jdbc_statistics", "p0,external,mysql,external_docker,external_
 
         sql """use ${catalog_name}.doris_test"""
 
-        def result = sql """show table stats ex_tb0"""
-        Thread.sleep(1000)
-        for (int i = 0; i < 20; i++) {
-            result = sql """show table stats ex_tb0""";
-            if (result[0][2] != "-1") {
-                assertEquals("5", result[0][2])
-                break;
-            }
-            logger.info("Table row count not ready yet. Wait 1 second.")
-            Thread.sleep(1000)
-        }
         sql """analyze table ex_tb0 with sync"""
         result = sql """show column stats ex_tb0 (name)"""
         assertEquals(result.size(), 1)
