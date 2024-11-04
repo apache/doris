@@ -654,6 +654,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         qt_sql """desc ctas_partition_text_4"""
 
         sql """drop catalog if exists mysql_conjuncts;"""
+        sql """set enable_nereids_planner=true"""
     }
 }
 
