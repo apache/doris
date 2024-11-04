@@ -62,8 +62,8 @@ constexpr std::string_view TABLET_ID = "tablet_id";
 
 template <typename T>
 concept CompactionScoreAccessble = requires(T t) {
-    { t.get_real_compaction_score() } -> std::same_as<uint32_t>;
-};
+                                       { t.get_real_compaction_score() } -> std::same_as<uint32_t>;
+                                   };
 
 template <CompactionScoreAccessble T>
 std::vector<CompactionScoreResult> calculate_compaction_scores(

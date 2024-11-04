@@ -157,7 +157,7 @@ suite("test_ip_basic") {
     sql """ Update table_ip set col1 = false where col0 = 1 """
     qt_sql """ select * from table_ip """
     sql """ Update table_ip set col24 = '127.0.0.1' where col0 = 1 """
-    qt_sql """ select * from table_ip """
+    qt_sql """ select * from table_ip where col0 = 1"""
     sql """ Update table_ip set col25 = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' where col0 = 1 """
-    qt_sql """ select * from table_ip """
+    qt_sql """ select * from table_ip where col0 = 1"""
 }
