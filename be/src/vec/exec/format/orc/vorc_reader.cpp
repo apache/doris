@@ -724,6 +724,11 @@ bool OrcReader::_init_search_argument(
     if (predicates.empty()) {
         return false;
     }
+
+    if (_is_hive1_orc_or_use_idx) {
+        for (OrcPredicate& it : predicates) it.col_name = _col_name_to_file_col_name[it.col_name];
+    }
+
     std::unique_ptr<orc::SearchArgumentBuilder> builder = orc::SearchArgumentFactory::newBuilder();
     if (build_search_argument(predicates, 0, builder)) {
         std::unique_ptr<orc::SearchArgument> sargs = builder->build();
