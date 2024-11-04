@@ -445,7 +445,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         checkIfNeedCancel();
 
         if (status.ok()) {
-            if ((state != RestoreJobState.PENDING || state != RestoreJobState.CREATING)
+            if (state != RestoreJobState.PENDING && state != RestoreJobState.CREATING
                     && label.equals(DebugPointUtil.getDebugParamOrDefault("FE.PAUSE_NON_PENDING_RESTORE_JOB", ""))) {
                 LOG.info("pause restore job by debug point: {}", this);
                 return;
