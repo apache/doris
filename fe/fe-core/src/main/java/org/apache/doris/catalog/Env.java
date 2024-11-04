@@ -4691,13 +4691,13 @@ public class Env {
 
         if (clusterColumns.size() > 0 && shortKeyColumnCount < clusterColumns.size()) {
             boolean sameKey = true;
-            for (int i = 0; i < shortKeyColumnCount; i++) {
+            for (int i = 0; i < shortKeyColumnCount && i < indexColumns.size(); i++) {
                 if (!clusterColumns.get(i).getName().equals(indexColumns.get(i).getName())) {
                     sameKey = false;
                     break;
                 }
             }
-            if (sameKey) {
+            if (sameKey && !Config.random_add_cluster_keys_for_mow) {
                 throw new DdlException(shortKeyColumnCount + " short keys is a part of unique keys");
             }
         }
