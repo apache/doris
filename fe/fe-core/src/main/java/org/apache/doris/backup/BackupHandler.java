@@ -25,6 +25,7 @@ import org.apache.doris.analysis.BackupStmt.BackupType;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CreateRepositoryStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
+import org.apache.doris.analysis.DropSnapshotStmt;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.StorageBackend;
@@ -48,6 +49,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.AzureFileSystem;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -73,6 +75,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -830,6 +833,40 @@ public class BackupHandler extends MasterDaemon implements Writable {
             localSnapshotsLock.readLock().unlock();
         }
     }
+
+    public void dropSnapshot(DropSnapshotStmt stmt) throws DdlException {
+        Repository repo = getRepoMgr().getRepo(stmt.getRepoName());
+        if (repo == null) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                           "Repository " + stmt.getRepoName() + " does not exist");
+        }
+        if (repo.isReadOnly()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                           "Repository " + repo.getName() + " is read only");
+        }
+        List<String> snapshotNames = new ArrayList<>();
+        Status status = repo.listSnapshots(snapshotNames);
+        if (!status.ok()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                           "Failed to list snapshot from " + repo.getName() + ". "
+                                               + status.getErrMsg());
+        }
+        if (!snapshotNames.contains(stmt.getSnapshotName())) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                           "Snapshot " + stmt.getSnapshotName()
+                                               + " not exists on " + repo.getName());
+        }
+        FileSystem fileSystem = repo.getRemoteFileSystem();
+        String snapshotDir = repo.assembleSnapshotPath(stmt.getSnapshotName());
+        status = fileSystem.deleteDirectory(snapshotDir);
+        if (!status.ok()) {
+            ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                           "Failed to drop snapshot " + stmt.getSnapshotName()
+                                               + " from " + repo.getName() + ". "
+                                               + status.getErrMsg());
+        }
+    }
+
 
     public static BackupHandler read(DataInput in) throws IOException {
         BackupHandler backupHandler = new BackupHandler();

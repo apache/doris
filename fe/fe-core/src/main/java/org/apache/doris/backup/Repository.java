@@ -380,6 +380,12 @@ public class Repository implements Writable, GsonPostProcessable {
         }
     }
 
+    // eg: location/__palo_repository_repo_name/__my_sp1
+    public String assembleSnapshotPath(String label) {
+        return Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
+            joinPrefix(PREFIX_SNAPSHOT_DIR, label));
+    }
+
     public String getRepoPath(String label, String childPath) {
         String path = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name),
                 joinPrefix(PREFIX_SNAPSHOT_DIR, label),

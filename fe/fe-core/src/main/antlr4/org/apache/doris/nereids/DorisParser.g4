@@ -666,6 +666,7 @@ unsupportedDropStatement
         (FOR (userIdentify | ROLE roleName=identifier))?                        #dropRowPolicy
     | DROP STORAGE POLICY (IF EXISTS)? name=identifier                          #dropStoragePolicy
     | DROP STAGE (IF EXISTS)? name=identifier                                   #dropStage
+    | DROP SNAPSHOT (IF EXISTS)? label=multipartIdentifier FROM repo=identifier #dropSnapshot
     ;
 
 unsupportedStatsStatement

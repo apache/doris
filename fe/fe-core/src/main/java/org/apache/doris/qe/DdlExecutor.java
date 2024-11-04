@@ -98,6 +98,7 @@ import org.apache.doris.analysis.DropPolicyStmt;
 import org.apache.doris.analysis.DropRepositoryStmt;
 import org.apache.doris.analysis.DropResourceStmt;
 import org.apache.doris.analysis.DropRoleStmt;
+import org.apache.doris.analysis.DropSnapshotStmt;
 import org.apache.doris.analysis.DropSqlBlockRuleStmt;
 import org.apache.doris.analysis.DropStageStmt;
 import org.apache.doris.analysis.DropStatsStmt;
@@ -448,6 +449,8 @@ public class DdlExecutor {
             env.getStorageVaultMgr().setDefaultStorageVault((SetDefaultStorageVaultStmt) ddlStmt);
         } else if (ddlStmt instanceof UnsetDefaultStorageVaultStmt) {
             env.getStorageVaultMgr().unsetDefaultStorageVault();
+        } else if (ddlStmt instanceof DropSnapshotStmt) {
+            env.getBackupHandler().dropSnapshot((DropSnapshotStmt) ddlStmt);
         } else {
             LOG.warn("Unkown statement " + ddlStmt.getClass());
             throw new DdlException("Unknown statement.");
