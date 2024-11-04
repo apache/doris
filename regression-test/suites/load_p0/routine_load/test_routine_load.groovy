@@ -227,8 +227,7 @@ suite("test_routine_load","p0") {
                         "send_batch_parallelism" = "2",
                         "max_batch_interval" = "5",
                         "max_batch_rows" = "300000",
-                        "max_batch_size" = "209715200",
-                        "workload_group" = "create_routine_load_group"
+                        "max_batch_size" = "209715200"
                     )
                     FROM KAFKA
                     (
@@ -1835,7 +1834,6 @@ suite("test_routine_load","p0") {
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"timezone\" = \"Asia/Shanghai\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"num_as_string\" = \"true\");"
                 sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"fuzzy_parse\" = \"true\");"
-                sql "ALTER ROUTINE LOAD FOR ${jobs[i]} PROPERTIES(\"workload_group\" = \"alter_routine_load_group\");"
                 res = sql "show routine load for ${jobs[i]}"
                 log.info("routine load job properties: ${res[0][11].toString()}".toString())
 
