@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/exprs/table_function/vpose_explode.h"
+#include "vec/exprs/table_function/vposexplode.h"
 
 #include <glog/logging.h>
 
@@ -35,13 +35,13 @@
 
 namespace doris::vectorized {
 
-VPoseExplodeTableFunction::VPoseExplodeTableFunction() {
-    _fn_name = "pose_explode";
+VPosExplodeTableFunction::VPosExplodeTableFunction() {
+    _fn_name = "posexplode";
 }
 
-Status VPoseExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
+Status VPosExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
     CHECK(_expr_context->root()->children().size() == 1)
-            << "VPoseExplodeTableFunction only support 1 child but has "
+            << "VPosExplodeTableFunction only support 1 child but has "
             << _expr_context->root()->children().size();
 
     int value_column_idx = -1;
@@ -66,7 +66,7 @@ Status VPoseExplodeTableFunction::process_init(Block* block, RuntimeState* state
     return Status::OK();
 }
 
-void VPoseExplodeTableFunction::process_row(size_t row_idx) {
+void VPosExplodeTableFunction::process_row(size_t row_idx) {
     DCHECK(row_idx < _collection_column->size());
     TableFunction::process_row(row_idx);
 
@@ -76,13 +76,13 @@ void VPoseExplodeTableFunction::process_row(size_t row_idx) {
     }
 }
 
-void VPoseExplodeTableFunction::process_close() {
+void VPosExplodeTableFunction::process_close() {
     _collection_column = nullptr;
     _array_detail.reset();
     _collection_offset = 0;
 }
 
-void VPoseExplodeTableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
+void VPosExplodeTableFunction::get_same_many_values(MutableColumnPtr& column, int length) {
     // now we only support array column explode to struct column
     size_t pos = _collection_offset + _cur_offset;
     // if current is empty array row, also append a default value
@@ -117,7 +117,7 @@ void VPoseExplodeTableFunction::get_same_many_values(MutableColumnPtr& column, i
     ret->get_column(1).insert_range_from(*_array_data_column, pos, length);
 }
 
-int VPoseExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) {
+int VPosExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) {
     max_step = std::min(max_step, (int)(_cur_size - _cur_offset));
     size_t pos = _collection_offset + _cur_offset;
     if (current_empty()) {

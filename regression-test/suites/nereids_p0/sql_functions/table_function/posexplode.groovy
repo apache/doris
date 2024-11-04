@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("pose_explode") {
+suite("posexplode") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -40,15 +40,15 @@ suite("pose_explode") {
     sql """ insert into table_test values (4, "amory", NULL); """
 
     qt_sql """ select * from table_test order by id; """
-    order_qt_explode_sql """ select id,name,score, k,v from table_test lateral view pose_explode(score) tmp as k,v order by id;"""
-    order_qt_explode_outer_sql """ select id,name,score, k,v from table_test lateral view pose_explode_outer(score) tmp as k,v order by id; """
+    order_qt_explode_sql """ select id,name,score, k,v from table_test lateral view posexplode(score) tmp as k,v order by id;"""
+    order_qt_explode_outer_sql """ select id,name,score, k,v from table_test lateral view posexplode_outer(score) tmp as k,v order by id; """
 
     // multi lateral view
-    order_qt_explode_sql_multi """ select id,name,score, k,v,k1,v1 from table_test lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k1,v1 order by id;"""
+    order_qt_explode_sql_multi """ select id,name,score, k,v,k1,v1 from table_test lateral view posexplode_outer(score) tmp as k,v lateral view posexplode(score) tmp2 as k1,v1 order by id;"""
 
     // test with alias
-    order_qt_explode_sql_alias """ select id,name,score, tmp.k, tmp.v from table_test lateral view pose_explode(score) tmp as k,v order by id;"""
-    order_qt_explode_outer_sql_alias """ select id,name,score, tmp.k, tmp.v from table_test lateral view pose_explode_outer(score) tmp as k,v order by id; """
+    order_qt_explode_sql_alias """ select id,name,score, tmp.k, tmp.v from table_test lateral view posexplode(score) tmp as k,v order by id;"""
+    order_qt_explode_outer_sql_alias """ select id,name,score, tmp.k, tmp.v from table_test lateral view posexplode_outer(score) tmp as k,v order by id; """
 
-    order_qt_explode_sql_alias_multi """ select id,name,score, tmp.k, tmp.v, tmp2.k, tmp2.v from table_test lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k,v order by id;"""
+    order_qt_explode_sql_alias_multi """ select id,name,score, tmp.k, tmp.v, tmp2.k, tmp2.v from table_test lateral view posexplode_outer(score) tmp as k,v lateral view posexplode(score) tmp2 as k,v order by id;"""
 }

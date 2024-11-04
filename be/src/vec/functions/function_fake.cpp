@@ -184,8 +184,8 @@ void register_function_fake(SimpleFunctionFactory& factory) {
     register_table_function_expand_outer_default<DataTypeFloat64, false>(
             factory, "explode_json_array_double");
     register_table_function_expand_outer_default<DataTypeInt64, false>(factory, "explode_bitmap");
-    register_table_function_with_impl<FunctionPoseExplode<false>>(factory, "pose_explode");
-    register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "pose_explode",
+    register_table_function_with_impl<FunctionPoseExplode<false>>(factory, "posexplode");
+    register_table_function_with_impl<FunctionPoseExplode<true>>(factory, "posexplode",
                                                                  COMBINATOR_SUFFIX_OUTER);
     register_table_function_expand_outer_default<DataTypeObject, false>(factory,
                                                                         "explode_variant_array");

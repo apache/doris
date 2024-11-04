@@ -38,8 +38,8 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOut
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplitOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeVariantArray;
-import org.apache.doris.nereids.trees.expressions.functions.generator.PoseExplode;
-import org.apache.doris.nereids.trees.expressions.functions.generator.PoseExplodeOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 
 import com.google.common.collect.ImmutableList;
 
@@ -74,8 +74,8 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             tableGenerating(ExplodeJsonArrayJson.class, "explode_json_array_json"),
             tableGenerating(ExplodeJsonArrayJsonOuter.class, "explode_json_array_json_outer"),
             tableGenerating(ExplodeVariantArray.class, "explode_variant_array"),
-            tableGenerating(PoseExplode.class, "pose_explode"),
-            tableGenerating(PoseExplodeOuter.class, "pose_explode_outer")
+            tableGenerating(PosExplode.class, "posexplode"),
+            tableGenerating(PosExplodeOuter.class, "posexplode_outer")
     );
 
     public static final BuiltinTableGeneratingFunctions INSTANCE = new BuiltinTableGeneratingFunctions();

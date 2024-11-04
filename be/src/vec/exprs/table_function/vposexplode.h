@@ -26,13 +26,13 @@
 
 namespace doris::vectorized {
 
-class VPoseExplodeTableFunction : public TableFunction {
-    ENABLE_FACTORY_CREATOR(VPoseExplodeTableFunction);
+class VPosExplodeTableFunction : public TableFunction {
+    ENABLE_FACTORY_CREATOR(VPosExplodeTableFunction);
 
 public:
-    VPoseExplodeTableFunction();
+    VPosExplodeTableFunction();
 
-    ~VPoseExplodeTableFunction() override = default;
+    ~VPosExplodeTableFunction() override = default;
 
     Status process_init(Block* block, RuntimeState* state) override;
     void process_row(size_t row_idx) override;

@@ -34,32 +34,32 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * PoseExplode(array('a','b','c')) generate two column and two lines with:
+ * PosExplode(array('a','b','c')) generate two column and two lines with:
  * pose column: 0, 1, 2
  * value column: 'a', 'b', 'c'
  */
-public class PoseExplode extends TableGeneratingFunction implements UnaryExpression, PropagateNullable {
+public class PosExplode extends TableGeneratingFunction implements UnaryExpression, PropagateNullable {
 
     /**
      * constructor with 1 argument.
      */
-    public PoseExplode(Expression arg) {
-        super("pose_explode", arg);
+    public PosExplode(Expression arg) {
+        super("posexplode", arg);
     }
 
     /**
      * withChildren.
      */
     @Override
-    public PoseExplode withChildren(List<Expression> children) {
+    public PosExplode withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PoseExplode(children.get(0));
+        return new PosExplode(children.get(0));
     }
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         if (!(child().getDataType() instanceof ArrayType)) {
-            throw new AnalysisException("only support array type for pose_explode function but got "
+            throw new AnalysisException("only support array type for posexplode function but got "
                     + child().getDataType());
         }
     }
@@ -75,6 +75,6 @@ public class PoseExplode extends TableGeneratingFunction implements UnaryExpress
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitPoseExplode(this, context);
+        return visitor.visitPosExplode(this, context);
     }
 }
