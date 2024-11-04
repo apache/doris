@@ -40,15 +40,15 @@ suite("pose_explode") {
     sql """ insert into sdu values (4, "amory", NULL); """
 
     qt_sql """ select * from sdu order by id; """
-    order_qt_explode_sql """ select name, k,v from sdu lateral view pose_explode(score) tmp as k,v order by id;"""
-    order_qt_explode_outer_sql """ select name, k,v from sdu lateral view pose_explode_outer(score) tmp as k,v order by id; """
+    order_qt_explode_sql """ select id,name,score, k,v from sdu lateral view pose_explode(score) tmp as k,v order by id;"""
+    order_qt_explode_outer_sql """ select id,name,score, k,v from sdu lateral view pose_explode_outer(score) tmp as k,v order by id; """
 
     // multi lateral view
-    order_qt_explode_sql_multi """ select name, k,v,k1,v1 from sdu lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k1,v1 order by id;"""
+    order_qt_explode_sql_multi """ select id,name,score, k,v,k1,v1 from sdu lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k1,v1 order by id;"""
 
     // test with alias
-    order_qt_explode_sql_alias """ select name, tmp.k, tmp.v from sdu lateral view pose_explode(score) tmp as k,v order by id;"""
-    order_qt_explode_outer_sql_alias """ select name, tmp.k, tmp.v from sdu lateral view pose_explode_outer(score) tmp as k,v order by id; """
+    order_qt_explode_sql_alias """ select id,name,score, tmp.k, tmp.v from sdu lateral view pose_explode(score) tmp as k,v order by id;"""
+    order_qt_explode_outer_sql_alias """ select id,name,score, tmp.k, tmp.v from sdu lateral view pose_explode_outer(score) tmp as k,v order by id; """
 
-    order_qt_explode_sql_alias_multi """ select name, tmp.k, tmp.v, tmp2.k, tmp2.v from sdu lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k,v order by id;"""
+    order_qt_explode_sql_alias_multi """ select id,name,score, tmp.k, tmp.v, tmp2.k, tmp2.v from sdu lateral view pose_explode_outer(score) tmp as k,v lateral view pose_explode(score) tmp2 as k,v order by id;"""
 }

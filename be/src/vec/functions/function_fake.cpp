@@ -21,7 +21,6 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <boost/mpl/bool_fwd.hpp>
 #include <memory>
 #include <ostream>
 #include <string>
