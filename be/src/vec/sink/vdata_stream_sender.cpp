@@ -21,6 +21,7 @@
 #include <fmt/ranges.h> // IWYU pragma: keep
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Types_types.h>
 #include <gen_cpp/data.pb.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
@@ -72,8 +73,16 @@ Status Channel::init(RuntimeState* state) {
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
                 "127.0.0.1", _brpc_dest_addr.port);
+        auto network_address = _brpc_dest_addr;
+        network_address.hostname = "127.0.0.1";
+        if (config::enable_brpc_connection_check) {
+            state->get_query_ctx()->add_using_brpc_stub(network_address, _brpc_stub);
+        }
     } else {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
+        if (config::enable_brpc_connection_check) {
+            state->get_query_ctx()->add_using_brpc_stub(_brpc_dest_addr, _brpc_stub);
+        }
     }
 
     if (!_brpc_stub) {
