@@ -40,7 +40,6 @@ import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -112,10 +111,8 @@ public class IcebergMetadataCache {
         } else {
             throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
         }
-        Table icebergTable = HiveMetaStoreClientHelper.ugiDoAs(((ExternalCatalog) key.catalog).getConfiguration(),
+        return HiveMetaStoreClientHelper.ugiDoAs(((ExternalCatalog) key.catalog).getConfiguration(),
                 () -> icebergCatalog.loadTable(TableIdentifier.of(key.dbName, key.tableName)));
-        initIcebergTableFileIO(icebergTable, key.catalog.getProperties());
-        return icebergTable;
     }
 
     public void invalidateCatalogCache(long catalogId) {
@@ -163,20 +160,6 @@ public class IcebergMetadataCache {
                     ManifestFiles.dropCache(entry.getValue().io());
                     tableCache.invalidate(entry.getKey());
                 });
-    }
-
-    private static void initIcebergTableFileIO(Table table, Map<String, String> props) {
-        Map<String, String> ioConf = new HashMap<>();
-        table.properties().forEach((key, value) -> {
-            if (key.startsWith("io.")) {
-                ioConf.put(key, value);
-            }
-        });
-
-        // This `initialize` method will directly override the properties as a whole,
-        // so we need to merge the table's io-related properties with the doris's catalog-related properties
-        props.putAll(ioConf);
-        table.io().initialize(props);
     }
 
     static class IcebergMetadataCacheKey {
