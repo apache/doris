@@ -38,6 +38,13 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * This class is used to manage the token for internal authentication.
+ * It will generate a new token every 12 hours(Config.token_generate_period_hour)
+ * and keep at most 6 tokens(Config.token_queue_size).
+ * So each token will be valid for 3 days.
+ * Only Master FE can generate a new token.
+ */
 public class TokenManager {
     private static final Logger LOG = LogManager.getLogger(TokenManager.class);
 
