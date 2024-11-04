@@ -394,7 +394,7 @@ suite("test_routine_load","p0") {
                 """
                 }catch (Exception e) {
                     log.info("exception: ${e.toString()}".toString())
-                    assertEquals(e.toString().contains("desired_concurrent_number must be greater than 0"), true)
+                    assertEquals(e.toString().contains("desired_concurrent_number should > 0"), true)
                 }
                 sql "sync"
                 i++
@@ -435,7 +435,7 @@ suite("test_routine_load","p0") {
                 """
                 }catch (Exception e) {
                     log.info("exception: ${e.toString()}".toString())
-                    assertEquals(e.toString().contains("desired_concurrent_number must be greater than 0"), true)
+                    assertEquals(e.toString().contains("desired_concurrent_number should > 0"), true)
                 }
                 sql "sync"
                 i++
