@@ -133,7 +133,8 @@ public:
 
     Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
                           bool with_rowid, RowLocation* row_location,
-                          std::string* encoded_seq_value = nullptr);
+                          std::string* encoded_seq_value = nullptr,
+                          OlapReaderStatistics* stats = nullptr);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
@@ -143,7 +144,7 @@ public:
 
     Status load_index();
 
-    Status load_pk_index_and_bf();
+    Status load_pk_index_and_bf(OlapReaderStatistics* index_load_stats = nullptr);
 
     void update_healthy_status(Status new_status) { _healthy_status.update(new_status); }
     // The segment is loaded into SegmentCache and then will load indices, if there are something wrong
@@ -301,6 +302,7 @@ private:
     InvertedIndexFileInfo _idx_file_info;
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
+    OlapReaderStatistics* _pk_index_load_stats = nullptr;
 };
 
 } // namespace segment_v2
