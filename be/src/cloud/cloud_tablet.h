@@ -196,9 +196,12 @@ public:
     int64_t last_base_compaction_success_time_ms = 0;
     int64_t last_cumu_compaction_success_time_ms = 0;
     int64_t last_cumu_no_suitable_version_ms = 0;
+    int64_t last_access_time_ms = 0;
 
     // Return merged extended schema
     TabletSchemaSPtr merged_tablet_schema() const override;
+
+    void build_tablet_report_info(TTabletInfo* tablet_info);
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version

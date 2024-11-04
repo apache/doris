@@ -284,6 +284,9 @@ public:
 
     Status show_nested_index_file(std::string* json_meta);
 
+    TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
+    TabletInfo get_tablet_info() const { return TabletInfo(tablet_id(), tablet_uid()); }
+
 protected:
     // Find the missed versions until the spec_version.
     //
