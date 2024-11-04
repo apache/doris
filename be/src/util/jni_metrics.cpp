@@ -53,7 +53,7 @@ Status JniMetrics::_init() {
     if (!st.ok()) {
         LOG(WARNING) << "class org/apachhe/doris/jdbc/JdbcDataSource not find in jvm."
                      << st.to_string();
-        return;
+        return Status::OK();
     }
     JNI_CALL_METHOD_CHECK_EXCEPTION(
          , _get_connection_percent_id, env,
