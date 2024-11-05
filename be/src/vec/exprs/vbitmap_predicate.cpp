@@ -94,7 +94,7 @@ doris::Status vectorized::VBitmapPredicate::execute(vectorized::VExprContext* co
             block->get_by_position(arguments[0]).column->convert_to_full_column_if_const();
     size_t sz = argument_column->size();
     res_data_column->resize(sz);
-    auto* ptr = ((ColumnVector<UInt8>*)res_data_column.get())->get_data().data();
+    auto* ptr = res_data_column->get_data().data();
 
     if (argument_column->is_nullable()) {
         auto column_nested = reinterpret_cast<const ColumnNullable*>(argument_column.get())

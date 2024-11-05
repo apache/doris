@@ -17,6 +17,8 @@
 
 #include "vec/exprs/vmatch_predicate.h"
 
+#include <cstdint>
+
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
@@ -183,9 +185,9 @@ const std::string& VMatchPredicate::function_name() const {
 std::string VMatchPredicate::debug_string() const {
     std::stringstream out;
     out << "MatchPredicate(" << children()[0]->debug_string() << ",[";
-    size_t num_children = get_num_children();
+    uint16_t num_children = get_num_children();
 
-    for (size_t i = 1; i < num_children; ++i) {
+    for (uint16_t i = 1; i < num_children; ++i) {
         out << (i == 1 ? "" : " ") << children()[i]->debug_string();
     }
 

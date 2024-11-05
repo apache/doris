@@ -29,6 +29,7 @@
 #include "udf/udf.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -150,7 +151,7 @@ Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block*
         return Status::OK();
     }
 
-    std::vector<uint32_t> columns_to_filter(column_to_keep);
+    ColumnNumbers columns_to_filter(column_to_keep);
     std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
 
     return execute_conjuncts_and_filter_block(expr_contexts, block, columns_to_filter,
@@ -205,9 +206,8 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 }
 
                 size_t output_rows =
-                        rows - (is_rf_wrapper ? static_cast<int>(simd::count_zero_num(
-                                                        (int8*)result_filter_data, rows))
-                                              : 0);
+                        rows -
+                        (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
                 if (is_rf_wrapper) {
                     ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);
@@ -231,17 +231,17 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                     assert_cast<const ColumnUInt8&>(*filter_column).get_data();
             const auto* __restrict filter_data = filter.data();
 
-            size_t input_rows = rows - (is_rf_wrapper ? static_cast<int>(simd::count_zero_num(
-                                                                (int8*)result_filter_data, rows))
-                                                      : 0);
+            size_t input_rows =
+                    rows -
+                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
             for (size_t i = 0; i < rows; ++i) {
                 result_filter_data[i] &= filter_data[i];
             }
 
-            size_t output_rows = rows - (is_rf_wrapper ? static_cast<int>(simd::count_zero_num(
-                                                                 (int8*)result_filter_data, rows))
-                                                       : 0);
+            size_t output_rows =
+                    rows -
+                    (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
             if (is_rf_wrapper) {
                 ctx->root()->do_judge_selectivity(input_rows - output_rows, input_rows);

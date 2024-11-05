@@ -156,7 +156,8 @@ public:
 
     void add_child(const VExprSPtr& expr) { _children.push_back(expr); }
     VExprSPtr get_child(uint16_t i) const { return _children[i]; }
-    // expr's children number wont exceed a few hundred level
+    // Expr's children number is restricted by org.apache.doris.common.Config#expr_children_limit, 10000 default. and strongly not recommend to change.
+    // There's little to worry about it. uint16 is enough.
     uint16_t get_num_children() const { return static_cast<uint16_t>(_children.size()); }
 
     virtual bool is_rf_wrapper() const {
