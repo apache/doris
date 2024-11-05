@@ -23,7 +23,7 @@ suite("test_up_down_hive_auth","p0,mtmv,restart_fe,external,hive,external_docker
     }
     String suiteName = "auth_up_down_hive"
     String hivePrefix = "hive2";
-    String catalog_name = "${hivePrefix}_${suiteName}_catalog"
+    String catalogName = "${hivePrefix}_${suiteName}_catalog"
     String userName = "${hivePrefix}_${suiteName}_user"
 
     def res = sql """show grants for ${userName}"""
