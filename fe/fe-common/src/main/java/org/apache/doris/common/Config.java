@@ -2537,7 +2537,7 @@ public class Config extends ConfigBase {
                     + "disabled. in some scenarios it may be necessary to disable this configuration to prevent "
                     + "command injection attacks."
     })
-    public static boolean enable_java_udf = true;
+    public static boolean enable_java_udf = false;
 
     @ConfField(description = {
             "是否忽略 Image 文件中未知的模块。如果为 true，不在 PersistMetaModules.MODULE_NAMES 中的元数据模块将被忽略并跳过。"
