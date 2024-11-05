@@ -160,6 +160,17 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     int master_num = 0;
     int follower_num = 0;
     for (auto& n : cluster.nodes()) {
+        // check here cloud_unique_id
+        std::string cloud_unique_id = n.cloud_unique_id();
+        auto [is_degrade_format, instance_id] =
+                get_instance_id_by_degrade_unique_id(cloud_unique_id);
+        if (config::enable_check_cloud_unique_id_degrade_format && is_degrade_format &&
+            !check_degrade_instance_valid(instance_id)) {
+            ss << "node=" << n.DebugString()
+               << " cloud_unique_id use degrade format, but check instance failed";
+            *err = ss.str();
+            return false;
+        }
         if (ClusterPB::SQL == cluster.type() && n.has_edit_log_port() && n.edit_log_port() &&
             n.has_node_type() &&
             (n.node_type() == NodeInfoPB_NodeType_FE_MASTER ||

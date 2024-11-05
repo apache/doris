@@ -1922,8 +1922,17 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     RPC_PREPROCESS(alter_cluster);
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     instance_id = request->has_instance_id() ? request->instance_id() : "";
-    bool is_degrade_format = false;
     if (!cloud_unique_id.empty() && instance_id.empty()) {
+        auto [is_degraded_format, id] =
+                resource_mgr_->get_instance_id_by_degrade_unique_id(cloud_unique_id);
+        if (config::enable_check_cloud_unique_id_degrade_format && is_degraded_format &&
+            !resource_mgr_->check_degrade_instance_valid(id)) {
+            msg = "use degrade cloud_unique_id, but instance_id invalid, cloud_unique_id=" +
+                  cloud_unique_id;
+            LOG(WARNING) << msg;
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            return;
+        }
         instance_id = get_instance_id(resource_mgr_, cloud_unique_id);
         if (instance_id.empty()) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -1931,16 +1940,6 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
             LOG(INFO) << msg << ", cloud_unique_id=" << cloud_unique_id;
             return;
         }
-        auto [is_degrade, _] = resource_mgr_->get_instance_id_by_degrade_unique_id(cloud_unique_id);
-        is_degrade_format = is_degrade;
-    }
-
-    if (config::enable_check_cloud_unique_id_degrade_format && is_degrade_format &&
-        !resource_mgr_->check_degrade_instance_valid(instance_id)) {
-        msg = "use degrade cloud_unique_id, but instance_id invalid, cloud_unique_id=" +
-              cloud_unique_id;
-        LOG(WARNING) << msg;
-        code = MetaServiceCode::INVALID_ARGUMENT;
     }
 
     if (instance_id.empty() || !request->has_cluster()) {
@@ -1983,7 +1982,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::ADD_NODE: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
         std::vector<NodeInfo> to_add;
@@ -2007,7 +2006,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::DROP_NODE: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
         std::vector<NodeInfo> to_add;
@@ -2030,7 +2029,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::DECOMMISSION_NODE: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
 
@@ -2092,7 +2091,7 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     case AlterClusterRequest::NOTIFY_DECOMMISSIONED: {
         resource_mgr_->check_cluster_params_valid(request->cluster(), &msg, false);
         if (msg != "") {
-            LOG(INFO) << msg;
+            LOG(WARNING) << msg;
             break;
         }
 
