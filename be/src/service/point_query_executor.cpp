@@ -422,8 +422,8 @@ Status PointQueryExecutor::_lookup_row_key() {
         // Get rowlocation and rowset, ctx._rowset_ptr will acquire wrap this ptr
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
         st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, nullptr, false,
-                                      specified_rowsets, &location, INT32_MAX /*rethink?*/,
-                                      nullptr, segment_caches, rowset_ptr.get(), false, nullptr,
+                                      specified_rowsets, &location, INT32_MAX /*rethink?*/, nullptr,
+                                      segment_caches, rowset_ptr.get(), false, nullptr,
                                       &_profile_metrics.read_stats));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
