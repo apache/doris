@@ -303,32 +303,34 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * 2. col stats ndv=0 but minExpr or maxExpr is not null
      * 3. ndv > 10 * rowCount
      */
-    public static Optional<String> disableJoinReorderIfStatsInvalid(List<LogicalOlapScan> scans,
+    public static Optional<String> disableJoinReorderIfStatsInvalid(List<CatalogRelation> scans,
             CascadesContext context) {
         StatsCalculator calculator = new StatsCalculator(context);
         if (ConnectContext.get() == null) {
             // ut case
             return Optional.empty();
         }
-        for (LogicalOlapScan scan : scans) {
-            double rowCount = calculator.getOlapTableRowCount(scan);
+        for (CatalogRelation scan : scans) {
+            double rowCount = calculator.getTableRowCount(scan);
             // row count not available
             if (rowCount == -1) {
                 LOG.info("disable join reorder since row count not available: "
                         + scan.getTable().getNameWithFullQualifiers());
                 return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
             }
-            // ndv abnormal
-            Optional<String> reason = calculator.checkNdvValidation(scan, rowCount);
-            if (reason.isPresent()) {
-                try {
-                    ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
-                    LOG.info("disable join reorder since col stats invalid: "
-                            + reason.get());
-                } catch (Exception e) {
-                    LOG.info("disableNereidsJoinReorderOnce failed");
+            if (scan instanceof OlapScan) {
+                // ndv abnormal
+                Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
+                if (reason.isPresent()) {
+                    try {
+                        ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
+                        LOG.info("disable join reorder since col stats invalid: "
+                                + reason.get());
+                    } catch (Exception e) {
+                        LOG.info("disableNereidsJoinReorderOnce failed");
+                    }
+                    return reason;
                 }
-                return reason;
             }
         }
         return Optional.empty();
