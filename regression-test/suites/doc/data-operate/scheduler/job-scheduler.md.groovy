@@ -69,17 +69,20 @@ suite("docs/data-operate/scheduler/job-scheduler.md", "p0,external,mysql,externa
             );
         """
 
-        def mysqlIp = context.config.otherConfigs.get("externalEnvIp")
-        def mysqlPort = context.config.otherConfigs.get("mysql_57_port")
+        def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+        def mysql_port = context.config.otherConfigs.get("mysql_57_port")
+        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+        String driver_class = "com.mysql.cj.jdbc.Driver"
+
         multi_sql """
             DROP CATALOG IF EXISTS activity;
             CREATE CATALOG activity PROPERTIES (
                 "type"="jdbc",
                 "user"="root",
                 "password"="123456",
-                "jdbc_url" = "jdbc:mysql://${mysqlIp}:${ mysqlPort}?useSSL=false",
-                "driver_url" = "${getS3Url()}/regression/jdbc_driver/mysql-connector-java-5.1.49.jar",
-                "driver_class" = "com.mysql.jdbc.Driver"
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "${driver_class}"
             );
             CALL EXECUTE_STMT("activity", "CREATE DATABASE IF NOT EXISTS user");
             CALL EXECUTE_STMT("activity", "DROP TABLE IF EXISTS user.activity");
