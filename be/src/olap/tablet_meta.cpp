@@ -1259,14 +1259,38 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
             handle == nullptr
                     ? nullptr
                     : reinterpret_cast<AggCache::Value*>(_agg_cache->repr()->value(handle));
+    int64_t get_agg_time_ns = 0;
+    int64_t total_merged_versions = 0;
     // FIXME: do we need a mutex here to get rid of duplicated initializations
     //        of cache entries in some cases?
     if (val == nullptr) { // Renew if needed, put a new Value to cache
+        SCOPED_RAW_TIMER(&get_agg_time_ns);
+        // since the union operation of roaring bitmap is quite costive, we should try
+        // our best to reduce the bitmap count we need to union.
+        // usually the previous version aggregated result can be found in the agg_cache
+        // we can leverage the cached result to reduce union cost
+        BitmapKey bmk_pre_version {std::get<0>(bmk), std::get<1>(bmk), std::get<2>(bmk) - 1};
+        CacheKey key_pre_version(agg_cache_key(_tablet_id, bmk_pre_version));
+        Cache::Handle* handle_pre_version = _agg_cache->repr()->lookup(key_pre_version);
         val = new AggCache::Value();
-        {
+        // leverage the cached result
+        if (handle_pre_version != nullptr) {
+            AggCache::Value* val_pre_version = reinterpret_cast<AggCache::Value*>(
+                    _agg_cache->repr()->value(handle_pre_version));
+            // copy the delete bitmap
+            val->bitmap = val_pre_version->bitmap;
+            std::shared_lock l(lock);
+            auto it = delete_bitmap.find(bmk);
+            if (it != delete_bitmap.end()) {
+                val->bitmap |= it->second;
+            }
+            total_merged_versions = 1;
+        } else {
+            // union all versions delete bitmaps
             std::shared_lock l(lock);
             DeleteBitmap::BitmapKey start {std::get<0>(bmk), std::get<1>(bmk), 0};
             for (auto it = delete_bitmap.lower_bound(start); it != delete_bitmap.end(); ++it) {
+                total_merged_versions++;
                 auto& [k, bm] = *it;
                 if (std::get<0>(k) != std::get<0>(bmk) || std::get<1>(k) != std::get<1>(bmk) ||
                     std::get<2>(k) > std::get<2>(bmk)) {
@@ -1279,6 +1303,12 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
         handle = _agg_cache->repr()->insert(key, val, charge, charge, CachePriority::NORMAL);
     }
 
+    if (get_agg_time_ns / 1000 > 100) {
+        LOG(INFO) << "get_agg cache miss on tablet: " << _tablet_id
+                  << ", rowset: " << std::get<0>(bmk) << ",version: " << std::get<2>(bmk)
+                  << ", cost: " << get_agg_time_ns / 1000
+                  << " us, merged versions: " << total_merged_versions;
+    }
     // It is natural for the cache to reclaim the underlying memory
     return std::shared_ptr<roaring::Roaring>(
             &val->bitmap, [this, handle](...) { _agg_cache->repr()->release(handle); });
