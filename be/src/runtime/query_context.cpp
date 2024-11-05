@@ -20,6 +20,7 @@
 #include <exception>
 #include <memory>
 
+#include "common/logging.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
 #include "runtime/runtime_query_statistics_mgr.h"
@@ -185,7 +186,8 @@ QueryContext::~QueryContext() {
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
-    LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
+    // the only one msg shows query's end. any other msg should append to it if need.
+    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {

@@ -698,12 +698,13 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 }
 
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
+    TUniqueId query_id;
+    query_id.__set_hi(request->query_id().hi());
+    query_id.__set_lo(request->query_id().lo());
     std::shared_ptr<QueryContext> q_ctx = nullptr;
     {
         std::lock_guard<std::mutex> lock(_lock);
-        TUniqueId query_id;
-        query_id.__set_hi(request->query_id().hi());
-        query_id.__set_lo(request->query_id().lo());
+
         auto search = _query_ctx_map.find(query_id);
         if (search == _query_ctx_map.end()) {
             return Status::InternalError(
@@ -714,6 +715,7 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
         q_ctx = search->second;
     }
     q_ctx->set_ready_to_execute(false);
+    LOG_INFO("Query {} start execution", print_id(query_id));
     return Status::OK();
 }
 
