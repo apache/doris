@@ -113,8 +113,8 @@ void VPosExplodeTableFunction::get_same_many_values(MutableColumnPtr& column, in
     auto& pose_column_nullable = assert_cast<ColumnNullable&>(ret->get_column(0));
     pose_column_nullable.get_null_map_column().insert_many_defaults(length);
     assert_cast<ColumnInt32&>(pose_column_nullable.get_nested_column())
-            .insert_range_of_integer(0, length);
-    ret->get_column(1).insert_range_from(*_array_data_column, pos, length);
+            .insert_many_vals(_cur_offset, length);
+    ret->get_column(1).insert_many_from(*_array_data_column, pos, length);
 }
 
 int VPosExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) {
@@ -146,7 +146,7 @@ int VPosExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) 
         auto& pose_column_nullable = assert_cast<ColumnNullable&>(struct_column->get_column(0));
         pose_column_nullable.get_null_map_column().insert_many_defaults(max_step);
         assert_cast<ColumnInt32&>(pose_column_nullable.get_nested_column())
-                .insert_range_of_integer(0, max_step);
+                .insert_range_of_integer(_cur_offset, _cur_offset + max_step);
         struct_column->get_column(1).insert_range_from(*_array_data_column, pos, max_step);
     }
     forward(max_step);

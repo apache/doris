@@ -75,5 +75,8 @@ suite("posexplode") {
     qt_sql """ select * from table_test_not order by id; """
     order_qt_explode_sql_not """ select id,name,score, k,v from table_test_not lateral view posexplode(score) tmp as k,v order by id;"""
     order_qt_explode_outer_sql_not """ select id,name,score, k,v from table_test_not lateral view posexplode_outer(score) tmp as k,v order by id; """
+    order_qt_explode_sql_alias_multi2 """ select * from table_test_not lateral view posexplode(score) tmp as e1 lateral view posexplode(score) tmp2 as e2 order by id;"""
+    sql """ set batch_size = 1; """
+    order_qt_explode_sql_alias_multi3 """ select * from table_test_not lateral view posexplode(score) tmp as e1 lateral view posexplode(score) tmp2 as e2 order by id;"""
 
 }
