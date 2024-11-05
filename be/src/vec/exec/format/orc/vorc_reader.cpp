@@ -234,10 +234,10 @@ void OrcReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", orc_profile, 1);
         _orc_profile.filter_block_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FilterBlockTime", orc_profile, 1);
-        _orc_profile.selected_row_group_count = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "SelectedRowGroupCount", TUnit::UNIT, orc_profile, 1);
-        _orc_profile.evaluated_row_group_count = ADD_CHILD_COUNTER_WITH_LEVEL(
-                _profile, "EvaluatedRowGroupCount", TUnit::UNIT, orc_profile, 1);
+        _orc_profile.selected_row_group_count =
+                ADD_COUNTER_WITH_LEVEL(_profile, "SelectedRowGroupCount", TUnit::UNIT, 1);
+        _orc_profile.evaluated_row_group_count =
+                ADD_COUNTER_WITH_LEVEL(_profile, "EvaluatedRowGroupCount", TUnit::UNIT, 1);
     }
 }
 
