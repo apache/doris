@@ -288,15 +288,13 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                     auto schema_ptr = rowset_meta->tablet_schema();
                     auto idx_version = schema_ptr->get_inverted_index_storage_format();
                     if (idx_version == InvertedIndexStorageFormatPB::V1) {
-                        for (const auto& index : schema_ptr->indexes()) {
-                            if (index.index_type() == IndexType::INVERTED) {
-                                auto idx_path = storage_resource.value()->remote_idx_v1_path(
-                                        *rowset_meta, seg_id, index.index_id(),
-                                        index.get_index_suffix());
-                                download_idx_file(idx_path);
-                            }
+                        for (const auto& index : schema_ptr->inverted_indexes()) {
+                            auto idx_path = storage_resource.value()->remote_idx_v1_path(
+                                    *rowset_meta, seg_id, index->index_id(),
+                                    index->get_index_suffix());
+                            download_idx_file(idx_path);
                         }
-                    } else if (idx_version == InvertedIndexStorageFormatPB::V2) {
+                    } else {
                         if (schema_ptr->has_inverted_index()) {
                             auto idx_path = storage_resource.value()->remote_idx_v2_path(
                                     *rowset_meta, seg_id);
