@@ -60,7 +60,6 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -130,7 +129,8 @@ public class RestoreJob extends AbstractJob {
     public enum RestoreJobState {
         PENDING, // Job is newly created. Check and prepare meta in catalog. Create replica if necessary.
                  // Waiting for replica creation finished synchronously, then sending snapshot tasks.
-                 // then transfer to SNAPSHOTING
+                 // then transfer to CREATING.
+        CREATING, // Creating replica on BE. Transfer to SNAPSHOTING after all replicas created.
         SNAPSHOTING, // Waiting for snapshot finished. Than transfer to DOWNLOAD.
         DOWNLOAD, // Send download tasks.
         DOWNLOADING, // Waiting for download finished.
@@ -147,7 +147,7 @@ public class RestoreJob extends AbstractJob {
     private BackupJobInfo jobInfo;
     private boolean allowLoad;
 
-    private RestoreJobState state;
+    private volatile RestoreJobState state;
 
     private BackupMeta backupMeta;
 
@@ -196,6 +196,8 @@ public class RestoreJob extends AbstractJob {
 
     // restore properties
     private Map<String, String> properties = Maps.newHashMap();
+
+    private MarkedCountDownLatch<Long, Long> createReplicaTasksLatch = null;
 
     public RestoreJob() {
         super(JobType.RESTORE);
@@ -251,10 +253,6 @@ public class RestoreJob extends AbstractJob {
 
     public RestoreJobState getState() {
         return state;
-    }
-
-    public RestoreFileMapping getFileMapping() {
-        return fileMapping;
     }
 
     public int getMetaVersion() {
@@ -380,7 +378,7 @@ public class RestoreJob extends AbstractJob {
     }
 
     @Override
-    public void run() {
+    public synchronized void run() {
         if (state == RestoreJobState.FINISHED || state == RestoreJobState.CANCELLED) {
             return;
         }
@@ -406,8 +404,8 @@ public class RestoreJob extends AbstractJob {
         checkIfNeedCancel();
 
         if (status.ok()) {
-            if (state != RestoreJobState.PENDING && label.equals(
-                    DebugPointUtil.getDebugParamOrDefault("FE.PAUSE_NON_PENDING_RESTORE_JOB", ""))) {
+            if (state != RestoreJobState.PENDING && state != RestoreJobState.CREATING
+                    && label.equals(DebugPointUtil.getDebugParamOrDefault("FE.PAUSE_NON_PENDING_RESTORE_JOB", ""))) {
                 LOG.info("pause restore job by debug point: {}", this);
                 return;
             }
@@ -415,6 +413,9 @@ public class RestoreJob extends AbstractJob {
             switch (state) {
                 case PENDING:
                     checkAndPrepareMeta();
+                    break;
+                case CREATING:
+                    waitingAllReplicasCreated();
                     break;
                 case SNAPSHOTING:
                     waitingAllSnapshotsFinished();
@@ -445,7 +446,7 @@ public class RestoreJob extends AbstractJob {
      * return true if some restored objs have been dropped.
      */
     private void checkIfNeedCancel() {
-        if (state == RestoreJobState.PENDING) {
+        if (state == RestoreJobState.PENDING || state == RestoreJobState.CREATING) {
             return;
         }
 
@@ -910,121 +911,122 @@ public class RestoreJob extends AbstractJob {
         LOG.debug("finished to restore resources. {}", this.jobId);
 
         // Send create replica task to BE outside the db lock
-        boolean ok = false;
         int numBatchTasks = batchTaskPerTable.values()
                 .stream()
                 .mapToInt(AgentBatchTask::getTaskNum)
                 .sum();
-        MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(numBatchTasks);
-        if (batchTaskPerTable.size() > 0) {
+        createReplicaTasksLatch = new MarkedCountDownLatch<>(numBatchTasks);
+        if (numBatchTasks > 0) {
+            LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. {}", numBatchTasks, this);
             for (AgentBatchTask batchTask : batchTaskPerTable.values()) {
                 for (AgentTask task : batchTask.getAllTasks()) {
-                    latch.addMark(task.getBackendId(), task.getTabletId());
-                    ((CreateReplicaTask) task).setLatch(latch);
+                    createReplicaTasksLatch.addMark(task.getBackendId(), task.getTabletId());
+                    ((CreateReplicaTask) task).setLatch(createReplicaTasksLatch);
                     AgentTaskQueue.addTask(task);
                 }
                 AgentTaskExecutor.submit(batchTask);
             }
-
-            // estimate timeout
-            long timeout = DbUtil.getCreateReplicasTimeoutMs(numBatchTasks) / 1000;
-            try {
-                LOG.info("begin to send create replica tasks to BE for restore. total {} tasks. timeout: {}s",
-                        numBatchTasks, timeout);
-                for (long elapsed = 0; elapsed <= timeout; elapsed++) {
-                    if (latch.await(1, TimeUnit.SECONDS)) {
-                        ok = true;
-                        break;
-                    }
-                    if (state != RestoreJobState.PENDING) {  // user cancelled
-                        return;
-                    }
-                    if (elapsed % 5 == 0) {
-                        LOG.info("waiting {} create replica tasks for restore to finish, total {} tasks, elapsed {}s",
-                                latch.getCount(), numBatchTasks, elapsed);
-                    }
-                }
-            } catch (InterruptedException e) {
-                LOG.warn("InterruptedException: ", e);
-                ok = false;
-            }
-        } else {
-            ok = true;
         }
 
-        if (ok && latch.getStatus().ok()) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("finished to create all restored replicas. {}", this);
-            }
-            // add restored partitions.
-            // table should be in State RESTORE, so no other partitions can be
-            // added to or removed from this table during the restore process.
-            for (Pair<String, Partition> entry : restoredPartitions) {
-                OlapTable localTbl = (OlapTable) db.getTableNullable(entry.first);
-                localTbl.writeLock();
-                try {
-                    Partition restoredPart = entry.second;
-                    OlapTable remoteTbl = (OlapTable) backupMeta.getTable(entry.first);
-                    if (localTbl.getPartitionInfo().getType() == PartitionType.RANGE
-                            || localTbl.getPartitionInfo().getType() == PartitionType.LIST) {
+        // No log here, PENDING state restore job will redo this method
+        state = RestoreJobState.CREATING;
+    }
 
-                        PartitionInfo remotePartitionInfo = remoteTbl.getPartitionInfo();
-                        PartitionInfo localPartitionInfo = localTbl.getPartitionInfo();
-                        BackupPartitionInfo backupPartitionInfo
-                                = jobInfo.getOlapTableInfo(entry.first).getPartInfo(restoredPart.getName());
-                        long remotePartId = backupPartitionInfo.id;
-                        PartitionItem remoteItem = remoteTbl.getPartitionInfo().getItem(remotePartId);
-                        DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
-                        ReplicaAllocation restoreReplicaAlloc = replicaAlloc;
-                        if (reserveReplica) {
-                            restoreReplicaAlloc = remotePartitionInfo.getReplicaAllocation(remotePartId);
-                        }
-                        localPartitionInfo.addPartition(restoredPart.getId(), false, remoteItem,
-                                remoteDataProperty, restoreReplicaAlloc,
-                                remotePartitionInfo.getIsInMemory(remotePartId),
-                                remotePartitionInfo.getIsMutable(remotePartId));
-                    }
-                    localTbl.addPartition(restoredPart);
-                } finally {
-                    localTbl.writeUnlock();
-                }
-
+    private void waitingAllReplicasCreated() {
+        boolean ok = true;
+        try {
+            if (!createReplicaTasksLatch.await(0, TimeUnit.SECONDS)) {
+                LOG.info("waiting {} create replica tasks for restore to finish. {}",
+                        createReplicaTasksLatch.getCount(), this);
+                return;
             }
+        } catch (InterruptedException e) {
+            LOG.warn("InterruptedException, {}", this, e);
+            ok = false;
+        }
 
-            // add restored tables
-            for (Table tbl : restoredTbls) {
-                if (!db.writeLockIfExist()) {
-                    status = new Status(ErrCode.COMMON_ERROR, "Database " + db.getFullName()
-                            + " has been dropped");
-                    return;
-                }
-                tbl.writeLock();
-                try {
-                    if (!db.createTable(tbl)) {
-                        status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
-                                + " already exist in db: " + db.getFullName());
-                        return;
-                    }
-                } finally {
-                    tbl.writeUnlock();
-                    db.writeUnlock();
-                }
-            }
-        } else {
+        if (!(ok && createReplicaTasksLatch.getStatus().ok())) {
             // only show at most 10 results
-            List<String> subList = latch.getLeftMarks().stream().limit(10)
+            List<String> subList = createReplicaTasksLatch.getLeftMarks().stream().limit(10)
                     .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
                     .collect(Collectors.toList());
             String idStr = Joiner.on(", ").join(subList);
             String reason = "TIMEDOUT";
-            if (!latch.getStatus().ok()) {
-                reason = latch.getStatus().getErrorMsg();
+            if (!createReplicaTasksLatch.getStatus().ok()) {
+                reason = createReplicaTasksLatch.getStatus().getErrorMsg();
             }
             String errMsg = String.format(
                     "Failed to create replicas for restore: %s, unfinished marks: %s", reason, idStr);
             status = new Status(ErrCode.COMMON_ERROR, errMsg);
             return;
         }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("finished to create all restored replicas. {}", this);
+        }
+        allReplicasCreated();
+    }
+
+    private void allReplicasCreated() {
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            status = new Status(ErrCode.NOT_FOUND, "database " + dbId + " does not exist");
+            return;
+        }
+
+        // add restored partitions.
+        // table should be in State RESTORE, so no other partitions can be
+        // added to or removed from this table during the restore process.
+        for (Pair<String, Partition> entry : restoredPartitions) {
+            OlapTable localTbl = (OlapTable) db.getTableNullable(entry.first);
+            localTbl.writeLock();
+            try {
+                Partition restoredPart = entry.second;
+                OlapTable remoteTbl = (OlapTable) backupMeta.getTable(entry.first);
+                if (localTbl.getPartitionInfo().getType() == PartitionType.RANGE
+                        || localTbl.getPartitionInfo().getType() == PartitionType.LIST) {
+
+                    PartitionInfo remotePartitionInfo = remoteTbl.getPartitionInfo();
+                    PartitionInfo localPartitionInfo = localTbl.getPartitionInfo();
+                    BackupPartitionInfo backupPartitionInfo
+                            = jobInfo.getOlapTableInfo(entry.first).getPartInfo(restoredPart.getName());
+                    long remotePartId = backupPartitionInfo.id;
+                    PartitionItem remoteItem = remoteTbl.getPartitionInfo().getItem(remotePartId);
+                    DataProperty remoteDataProperty = remotePartitionInfo.getDataProperty(remotePartId);
+                    ReplicaAllocation restoreReplicaAlloc = replicaAlloc;
+                    if (reserveReplica) {
+                        restoreReplicaAlloc = remotePartitionInfo.getReplicaAllocation(remotePartId);
+                    }
+                    localPartitionInfo.addPartition(restoredPart.getId(), false, remoteItem,
+                            remoteDataProperty, restoreReplicaAlloc,
+                            remotePartitionInfo.getIsInMemory(remotePartId),
+                            remotePartitionInfo.getIsMutable(remotePartId));
+                }
+                localTbl.addPartition(restoredPart);
+            } finally {
+                localTbl.writeUnlock();
+            }
+        }
+
+        // add restored tables
+        for (Table tbl : restoredTbls) {
+            if (!db.writeLockIfExist()) {
+                status = new Status(ErrCode.COMMON_ERROR, "Database " + db.getFullName() + " has been dropped");
+                return;
+            }
+            tbl.writeLock();
+            try {
+                if (!db.registerTable(tbl)) {
+                    status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
+                            + " already exist in db: " + db.getFullName());
+                    return;
+                }
+            } finally {
+                tbl.writeUnlock();
+                db.writeUnlock();
+            }
+        }
+
         LOG.info("finished to prepare meta. {}", this);
 
         if (jobInfo.content == null || jobInfo.content == BackupContent.ALL) {
@@ -2133,7 +2135,7 @@ public class RestoreJob extends AbstractJob {
         return getInfo(false);
     }
 
-    public List<String> getInfo(boolean isBrief) {
+    public synchronized List<String> getInfo(boolean isBrief) {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(label);
@@ -2192,7 +2194,7 @@ public class RestoreJob extends AbstractJob {
         return Status.OK;
     }
 
-    public void cancelInternal(boolean isReplay) {
+    private void cancelInternal(boolean isReplay) {
         // We need to clean the residual due to current state
         if (!isReplay) {
             switch (state) {

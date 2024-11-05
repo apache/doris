@@ -100,7 +100,7 @@ public class BackupJob extends AbstractJob {
     // all objects which need backup
     private List<TableRef> tableRefs = Lists.newArrayList();
 
-    private BackupJobState state;
+    private volatile BackupJobState state;
 
     private long snapshotFinishedTime = -1;
     private long snapshotUploadFinishedTime = -1;
@@ -976,7 +976,7 @@ public class BackupJob extends AbstractJob {
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
     }
 
-    public List<String> getInfo() {
+    public synchronized List<String> getInfo() {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(label);
