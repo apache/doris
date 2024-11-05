@@ -59,6 +59,12 @@ public class MTMVPlanUtil {
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
         ctx.getSessionVariable().allowModifyMaterializedViewData = true;
+        // Debug session variable should be disabled when refreshed
+        ctx.getSessionVariable().skipDeletePredicate = false;
+        ctx.getSessionVariable().skipDeleteBitmap = false;
+        ctx.getSessionVariable().skipDeleteSign = false;
+        ctx.getSessionVariable().skipStorageEngineMerge = false;
+        ctx.getSessionVariable().showHiddenColumns = false;
         // Disable add default limit rule to avoid refresh data wrong
         ctx.getSessionVariable().setDisableNereidsRules(
                 String.join(",", ImmutableSet.of(RuleType.ADD_DEFAULT_LIMIT.name())));
