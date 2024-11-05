@@ -681,7 +681,9 @@ public class Auth implements Writable {
             throws DdlException {
         writeLock();
         try {
-            checkTablePatternExist(tblPattern);
+            if (!isReplay) {
+                checkTablePatternExist(tblPattern);
+            }
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
                     throw new DdlException("user " + userIdent + " does not exist");
