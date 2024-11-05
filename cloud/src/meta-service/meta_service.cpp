@@ -1640,8 +1640,8 @@ void MetaServiceImpl::get_tablet_stats(::google::protobuf::RpcController* contro
 
 static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, std::stringstream& ss,
                                      std::unique_ptr<Transaction>& txn, std::string& instance_id,
-                                     int64_t table_id, int64_t lock_id, int64_t lock_initiator) {
-    std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+                                     int64_t lock_id, int64_t lock_initiator,
+                                     std::string& lock_key) {
     std::string lock_val;
     DeleteBitmapUpdateLockPB lock_info;
     auto err = txn->get(lock_key, &lock_val);
@@ -1677,6 +1677,29 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
     if (!found) {
         msg = "lock initiator not exist";
         code = MetaServiceCode::LOCK_EXPIRED;
+        return false;
+    }
+    return true;
+}
+
+static bool check_and_remove_delete_bitmap_update_lock(
+        MetaServiceCode& code, std::string& msg, std::stringstream& ss,
+        std::unique_ptr<Transaction>& txn, std::string& instance_id, int64_t table_id,
+        int64_t tablet_id, int64_t lock_id, int64_t lock_initiator, std::string& lock_key) {
+    if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, lock_id, lock_initiator,
+                                  lock_key)) {
+        LOG(WARNING) << "failed to check delete bitmap tablet lock"
+                     << " table_id=" << table_id << " tablet_id=" << tablet_id
+                     << " request lock_id=" << lock_id << " request initiator=" << lock_initiator
+                     << " msg " << msg;
+        return false;
+    }
+    txn->remove(lock_key);
+    TxnErrorCode err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to remove delete bitmap tablet lock , err=" << err;
+        msg = ss.str();
         return false;
     }
     return true;
@@ -1753,14 +1776,31 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     bool unlock = request->has_unlock() ? request->unlock() : false;
+    bool is_load = request->has_is_load() ? request->is_load() : false;
     if (!unlock) {
         // 1. Check whether the lock expires
-        if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, request->lock_id(),
-                                      request->initiator())) {
-            LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
-                         << " request lock_id=" << request->lock_id()
-                         << " request initiator=" << request->initiator() << " msg " << msg;
+        std::string tablet_lock_key =
+                meta_delete_bitmap_update_lock_key({instance_id, tablet_id, -1});
+        if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->lock_id(),
+                                      request->initiator(), tablet_lock_key)) {
+            LOG(WARNING) << "failed to check delete bitmap tablet lock, table_id=" << table_id
+                         << " tablet_id=" << tablet_id << " request lock_id=" << request->lock_id()
+                         << " request initiator=" << request->initiator()
+                         << " key=" << hex(tablet_lock_key) << " msg=" << msg;
             return;
+        }
+        if (is_load) {
+            std::string table_lock_key =
+                    meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+            if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->lock_id(),
+                                          request->initiator(), table_lock_key)) {
+                LOG(WARNING) << "failed to check delete bitmap table lock, table_id=" << table_id
+                             << ", tablet_id=" << tablet_id
+                             << " request lock_id=" << request->lock_id()
+                             << " request initiator=" << request->initiator()
+                             << " key=" << hex(table_lock_key) << " msg=" << msg;
+                return;
+            }
         }
         // 2. Process pending delete bitmap
         if (!process_pending_delete_bitmap(code, msg, ss, txn, instance_id, tablet_id)) {
@@ -1823,12 +1863,32 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
                 return;
             }
             if (!unlock) {
-                if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id,
-                                              request->lock_id(), request->initiator())) {
-                    LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
+                std::string tablet_lock_key =
+                        meta_delete_bitmap_update_lock_key({instance_id, tablet_id, -1});
+                if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->lock_id(),
+                                              request->initiator(), tablet_lock_key)) {
+                    LOG(WARNING) << "failed to check delete bitmap tablet lock, table_id="
+                                 << table_id << " tablet_id=" << tablet_id
                                  << " request lock_id=" << request->lock_id()
-                                 << " request initiator=" << request->initiator() << " msg" << msg;
+                                 << " request initiator=" << request->initiator()
+                                 << " key=" << hex(tablet_lock_key) << " msg=" << msg;
                     return;
+                }
+                bool is_load = request->has_is_load() ? request->is_load() : false;
+                if (is_load) {
+                    std::string table_lock_key =
+                            meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+                    if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id,
+                                                  request->lock_id(), request->initiator(),
+                                                  table_lock_key)) {
+                        LOG(WARNING)
+                                << "failed to check delete bitmap table lock, table_id=" << table_id
+                                << ", tablet_id=" << tablet_id
+                                << " request lock_id=" << request->lock_id()
+                                << " request initiator=" << request->initiator()
+                                << " key=" << hex(table_lock_key) << " msg=" << msg;
+                        return;
+                    }
                 }
             }
         }
@@ -1850,7 +1910,7 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
     LOG(INFO) << "update_delete_bitmap tablet_id=" << tablet_id << " lock_id=" << request->lock_id()
               << " rowset_num=" << request->rowset_ids_size() << " total_key=" << total_key
-              << " total_size=" << total_size << " unlock=" << unlock;
+              << " total_size=" << total_size << " unlock=" << unlock << " is_load=" << is_load;
 }
 
 void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* controller,
@@ -2004,14 +2064,19 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         msg = "failed to init txn";
         return;
     }
-    auto table_id = request->table_id();
-    std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+    auto table_or_tablet_id = request->has_table_id() ? request->table_id() : request->tablet_id();
+    LOG(INFO) << "get_delete_bitmap_update_lock,table_id=" << request->table_id()
+              << ",tablet_id=" << request->tablet_id()
+              << ",table_or_tablet_id=" << table_or_tablet_id;
+    std::string lock_key =
+            meta_delete_bitmap_update_lock_key({instance_id, table_or_tablet_id, -1});
     std::string lock_val;
     DeleteBitmapUpdateLockPB lock_info;
     err = txn->get(lock_key, &lock_val);
     if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
         ss << "failed to get delete bitmap update lock, instance_id=" << instance_id
-           << " table_id=" << table_id << " key=" << hex(lock_key) << " err=" << err;
+           << " table_id=" << request->table_id() << " tablet_id=" << request->tablet_id()
+           << " key=" << hex(lock_key) << " err=" << err;
         msg = ss.str();
         code = MetaServiceCode::KV_TXN_GET_ERR;
         return;
@@ -2026,11 +2091,13 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
         }
         if (lock_info.expiration() > 0 && lock_info.expiration() < now) {
             LOG(INFO) << "delete bitmap lock expired, continue to process. lock_id="
-                      << lock_info.lock_id() << " table_id=" << table_id << " now=" << now;
+                      << lock_info.lock_id() << " table_id=" << request->table_id()
+                      << " tablet_id=" << request->tablet_id() << " now=" << now;
             lock_info.clear_initiators();
         } else if (lock_info.lock_id() != request->lock_id()) {
             ss << "already be locked. request lock_id=" << request->lock_id()
-               << " locked by lock_id=" << lock_info.lock_id() << " table_id=" << table_id
+               << " locked by lock_id=" << lock_info.lock_id()
+               << " table_id=" << request->table_id() << " tablet_id=" << request->tablet_id()
                << " now=" << now << " expiration=" << lock_info.expiration();
             msg = ss.str();
             code = MetaServiceCode::LOCK_CONFLICT;
@@ -2084,7 +2151,8 @@ void MetaServiceImpl::get_delete_bitmap_update_lock(google::protobuf::RpcControl
     }
     txn->put(lock_key, lock_val);
     LOG(INFO) << "xxx put lock_key=" << hex(lock_key) << " lock_id=" << request->lock_id()
-              << " initiators_size: " << lock_info.initiators_size();
+              << " initiators_size: " << lock_info.initiators_size()
+              << " table_id=" << request->table_id() << " tablet_id=" << request->tablet_id();
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -2123,28 +2191,21 @@ void MetaServiceImpl::remove_delete_bitmap_update_lock(
         msg = "failed to init txn";
         return;
     }
-    if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, request->table_id(),
-                                  request->lock_id(), request->initiator())) {
-        LOG(WARNING) << "failed to check delete bitmap tablet lock"
-                     << " table_id=" << request->table_id() << " tablet_id=" << request->tablet_id()
-                     << " request lock_id=" << request->lock_id()
-                     << " request initiator=" << request->initiator() << " msg " << msg;
-        return;
-    }
+    auto table_or_tablet_id = request->table_id() > 0 ? request->table_id() : request->tablet_id();
     std::string lock_key =
-            meta_delete_bitmap_update_lock_key({instance_id, request->table_id(), -1});
-    txn->remove(lock_key);
-    err = txn->commit();
-    if (err != TxnErrorCode::TXN_OK) {
-        code = cast_as<ErrCategory::COMMIT>(err);
-        ss << "failed to remove delete bitmap tablet lock , err=" << err;
-        msg = ss.str();
-        return;
+            meta_delete_bitmap_update_lock_key({instance_id, table_or_tablet_id, -1});
+    bool success = check_and_remove_delete_bitmap_update_lock(
+            code, msg, ss, txn, instance_id, request->table_id(), request->tablet_id(),
+            request->lock_id(), request->initiator(), lock_key);
+    if (success) {
+        LOG(INFO) << "remove delete bitmap table lock table_id=" << request->table_id()
+                  << " tablet_id=" << request->tablet_id() << " lock_id=" << request->lock_id()
+                  << ", key=" << hex(lock_key) << ", initiator=" << request->initiator();
+    } else {
+        LOG(WARNING) << "fail to remove delete bitmap table lock table_id=" << request->table_id()
+                     << " tablet_id=" << request->tablet_id() << " lock_id=" << request->lock_id()
+                     << ", key=" << hex(lock_key) << ", initiator=" << request->initiator();
     }
-
-    LOG(INFO) << "remove delete bitmap table lock table_id=" << request->table_id()
-              << " tablet_id=" << request->tablet_id() << " lock_id=" << request->lock_id()
-              << ", key=" << hex(lock_key) << ", initiator=" << request->initiator();
 }
 
 void MetaServiceImpl::remove_delete_bitmap(google::protobuf::RpcController* controller,

@@ -673,6 +673,7 @@ message CommitTxnRequest {
     optional bool is_txn_load = 9;
     repeated SubTxnInfo sub_txn_infos = 10;
     optional bool enable_txn_lazy_commit = 11;
+    repeated int64 mow_tablet_ids = 12;
 }
 
 message SubTxnInfo {
@@ -1395,6 +1396,7 @@ message UpdateDeleteBitmapRequest {
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 10;
     optional bool unlock = 11;
+    optional bool is_load = 12;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1453,6 +1455,7 @@ message GetDeleteBitmapUpdateLockRequest {
     optional int64 expiration = 6;
     optional bool require_compaction_stats = 7 [default = false];
     repeated TabletIndexPB tablet_indexes = 8;
+    optional int64 tablet_id = 9;
 }
 
 message GetDeleteBitmapUpdateLockResponse {

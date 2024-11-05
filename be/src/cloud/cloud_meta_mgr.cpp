@@ -420,7 +420,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
         if (config::variant_use_cloud_schema_dict) {
             req.set_schema_op(GetRowsetRequest::RETURN_DICT);
         }
-        VLOG_DEBUG << "send GetRowsetRequest: " << req.ShortDebugString();
+        LOG(INFO) << "send GetRowsetRequest: " << req.ShortDebugString();
 
         stub->get_rowset(&cntl, &req, &resp, nullptr);
         int64_t latency = cntl.latency_us();
@@ -484,7 +484,23 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                         .error(st);
                 return st;
             }
+            LOG(INFO) << "tablet=" << tablet->tablet_id() << "sync rowset get delete_bitmap size="
+                      << delete_bitmap.delete_bitmap.size();
+            for (auto it = delete_bitmap.delete_bitmap.begin();
+                 it != delete_bitmap.delete_bitmap.end(); it++) {
+                LOG(INFO) << "tablet=" << tablet->tablet_id() << "key=" << std::get<0>(it->first)
+                          << "|" << std::get<1>(it->first) << "|" << std::get<2>(it->first)
+                          << ",size=" << it->second.cardinality();
+            }
             tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
+            LOG(INFO) << "tablet=" << tablet->tablet_id() << "after merge delete_bitmap size="
+                      << tablet->tablet_meta()->delete_bitmap().delete_bitmap.size();
+            for (auto it = tablet->tablet_meta()->delete_bitmap().delete_bitmap.begin();
+                 it != tablet->tablet_meta()->delete_bitmap().delete_bitmap.end(); it++) {
+                LOG(INFO) << "tablet=" << tablet->tablet_id() << "key=" << std::get<0>(it->first)
+                          << "|" << std::get<1>(it->first) << "|" << std::get<2>(it->first)
+                          << ",size=" << it->second.cardinality();
+            }
         }
         {
             const auto& stats = resp.stats();
@@ -573,6 +589,7 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
     std::set<int64_t> txn_processed;
     for (auto& rs_meta : rs_metas) {
         auto txn_id = rs_meta.txn_id();
+        LOG(INFO) << "rowset=" << rs_meta.rowset_id() << ",txn_id=" << txn_id;
         if (txn_processed.find(txn_id) != txn_processed.end()) {
             continue;
         }
@@ -601,8 +618,8 @@ bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64
                                          bitmap_value);
                 }
             }
-            engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
-                                                                           tablet->tablet_id());
+//            engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id,
+//                                                                           tablet->tablet_id());
         } else {
             LOG(WARNING) << "failed to get tablet txn info. tablet_id=" << tablet->tablet_id()
                          << ", txn_id=" << txn_id << ", status=" << status;
@@ -664,7 +681,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
         }
     }
 
-    VLOG_DEBUG << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
+    LOG(INFO) << "send GetDeleteBitmapRequest: " << req.ShortDebugString();
     stub->get_delete_bitmap(&cntl, &req, &res, nullptr);
     if (cntl.Failed()) {
         return Status::RpcError("failed to get delete bitmap: {}", cntl.ErrorText());
@@ -1032,8 +1049,9 @@ Status CloudMetaMgr::update_tablet_schema(int64_t tablet_id, const TabletSchema&
 }
 
 Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id,
-                                          int64_t initiator, DeleteBitmap* delete_bitmap) {
-    VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
+                                          int64_t initiator, DeleteBitmap* delete_bitmap,
+                                          bool is_load) {
+    LOG(INFO) << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -1042,6 +1060,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     req.set_tablet_id(tablet.tablet_id());
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
+    req.set_is_load(is_load);
     for (auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
         req.add_rowset_ids(std::get<0>(key).to_string());
         req.add_segment_ids(std::get<1>(key));
@@ -1089,12 +1108,13 @@ Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet
 
 Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                                    int64_t initiator) {
-    VLOG_DEBUG << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
-               << ",lock_id:" << lock_id;
+    OlapStopWatch watch;
+    LOG(INFO) << "get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
+              << ",lock_id:" << lock_id;
     GetDeleteBitmapUpdateLockRequest req;
     GetDeleteBitmapUpdateLockResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
-    req.set_table_id(tablet.table_id());
+    req.set_tablet_id(tablet.tablet_id());
     req.set_lock_id(lock_id);
     req.set_initiator(initiator);
     // set expiration time for compaction and schema_change
@@ -1116,6 +1136,8 @@ Status CloudMetaMgr::get_delete_bitmap_update_lock(const CloudTablet& tablet, in
                      << "ms : " << res.status().msg();
         bthread_usleep(duration_ms * 1000);
     } while (++retry_times <= 100);
+    LOG(INFO) << "finish to get_delete_bitmap_update_lock , tablet_id: " << tablet.tablet_id()
+              << ",lock_id:" << lock_id << ", cost(us): " << watch.get_elapse_time_us();
     return st;
 }
 

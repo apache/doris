@@ -474,8 +474,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
+        Map<Long, List<Long>> tableToTabletList = Maps.newHashMap();
+        Map<Long, Set<Long>> tableToPartitions = Maps.newHashMap();
+        List<Long> sucessTabletList = new ArrayList<>();
         if (!mowTableList.isEmpty()) {
-            calcDeleteBitmapForMow(dbId, mowTableList, transactionId, tabletCommitInfos);
+            try {
+                calcDeleteBitmapForMow(dbId, mowTableList, transactionId, tabletCommitInfos, tableToTabletList,
+                        sucessTabletList, tableToPartitions);
+            } catch (Exception e) {
+                LOG.warn("failed to calcDeleteBitmapForMow for txn=" + transactionId + ",exception=" + e);
+                removeTabletDeleteBitmapUpdateLock(sucessTabletList, transactionId);
+                removeDeleteBitmapUpdateLock(tableToPartitions, transactionId);
+                throw e;
+            }
         }
 
         CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder();
@@ -487,6 +498,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setEnableTxnLazyCommit(Config.enable_cloud_txn_lazy_commit);
         for (OlapTable olapTable : mowTableList) {
             builder.addMowTableIds(olapTable.getId());
+        }
+        for (Long tabletId : sucessTabletList) {
+            LOG.info("add tabletId=" + tabletId + " to release lock");
+            builder.addMowTabletIds(tabletId);
         }
 
         if (txnCommitAttachment != null) {
@@ -519,7 +534,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             txnState = commitTxn(commitTxnRequest, transactionId, is2PC, dbId, tableList);
             txnOperated = true;
-        } finally {
+        } catch (Exception e) {
+            LOG.warn("failed to commitTxn for txn=" + transactionId + ",exception=" + e);
+            removeTabletDeleteBitmapUpdateLock(sucessTabletList, transactionId);
+            removeDeleteBitmapUpdateLock(tableToPartitions, transactionId);
+            throw e;
+        }
+        finally {
             if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
                 RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
                 callbackId = rlTaskTxnCommitAttachment.getJobId();
@@ -627,12 +648,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void calcDeleteBitmapForMow(long dbId, List<OlapTable> tableList, long transactionId,
-            List<TabletCommitInfo> tabletCommitInfos)
+            List<TabletCommitInfo> tabletCommitInfos, Map<Long, List<Long>> tableToTabletList,
+            List<Long> sucessTabletList, Map<Long, Set<Long>> tableToPartitions)
             throws UserException {
         Map<Long, Map<Long, List<Long>>> backendToPartitionTablets = Maps.newHashMap();
         Map<Long, Partition> partitions = Maps.newHashMap();
-        Map<Long, Set<Long>> tableToPartitions = Maps.newHashMap();
-        Map<Long, List<Long>> tableToTabletList = Maps.newHashMap();
+        // Map<Long, Set<Long>> tableToPartitions = Maps.newHashMap();
+        // Map<Long, List<Long>> tableToTabletList = Maps.newHashMap();
         Map<Long, TabletMeta> tabletToTabletMeta = Maps.newHashMap();
         getPartitionInfo(tableList, tabletCommitInfos, tableToPartitions, partitions, backendToPartitionTablets,
                 tableToTabletList, tabletToTabletMeta);
@@ -643,8 +665,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         Map<Long, Long> baseCompactionCnts = Maps.newHashMap();
         Map<Long, Long> cumulativeCompactionCnts = Maps.newHashMap();
         Map<Long, Long> cumulativePoints = Maps.newHashMap();
-        getDeleteBitmapUpdateLock(tableToPartitions, transactionId, tableToTabletList, tabletToTabletMeta,
+        getTableDeleteBitmapUpdateLock(tableToPartitions, transactionId, tableToTabletList, tabletToTabletMeta,
                 baseCompactionCnts, cumulativeCompactionCnts, cumulativePoints);
+        getTabletDeleteBitmapUpdateLock(tableToTabletList, transactionId, sucessTabletList);
         Map<Long, Long> partitionVersions = getPartitionVersions(partitions);
 
         Map<Long, List<TCalcDeleteBitmapPartitionInfo>> backendToPartitionInfos = getCalcDeleteBitmapInfo(
@@ -753,10 +776,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         return backendToPartitionInfos;
     }
 
-    private void getDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId,
+    private void getTableDeleteBitmapUpdateLock(Map<Long, Set<Long>> tableToParttions, long transactionId,
             Map<Long, List<Long>> tableToTabletList, Map<Long, TabletMeta> tabletToTabletMeta,
-                    Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
-                            Map<Long, Long> cumulativePoints) throws UserException {
+            Map<Long, Long> baseCompactionCnts, Map<Long, Long> cumulativeCompactionCnts,
+            Map<Long, Long> cumulativePoints) throws UserException {
         if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep")) {
             DebugPoint debugPoint = DebugPointUtil.getDebugPoint(
                     "CloudGlobalTransactionMgr.getDeleteBitmapUpdateLock.sleep");
@@ -820,7 +843,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                 transactionId, request, response);
                     }
                     if (response.getStatus().getCode() != MetaServiceCode.LOCK_CONFLICT
-                            && response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                            && response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT
+                            && response.getStatus().getCode()
+                            != MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
                         break;
                     }
                 } catch (Exception e) {
@@ -844,7 +869,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 LOG.warn("get delete bitmap lock failed, transactionId={}, for {} times, response:{}",
                         transactionId, retryTime, response);
                 if (response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT
-                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT) {
+                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT
+                        || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
                     // DELETE_BITMAP_LOCK_ERR will be retried on be
                     throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
                             "Failed to get delete bitmap lock due to confilct");
@@ -874,6 +900,107 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                     "get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
                             + "partitionSize: {}. time cost: {} ms.",
                     transactionId, totalRetryTime, tableToParttions.size(), stopWatch.getTime());
+        }
+    }
+
+    private void getTabletDeleteBitmapUpdateLock(Map<Long, List<Long>> tableToTabletList, long transactionId,
+            List<Long> sucessTabletList) throws UserException {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+        int totalRetryTime = 0;
+        for (Map.Entry<Long, List<Long>> entry : tableToTabletList.entrySet()) {
+            LOG.info("start get tablet delete bitmap lock for table " + entry.getKey());
+            for (long tabletId : entry.getValue()) {
+                GetDeleteBitmapUpdateLockRequest.Builder builder = GetDeleteBitmapUpdateLockRequest.newBuilder();
+                builder.setTabletId(tabletId)
+                        .setLockId(transactionId)
+                        .setInitiator(-1)
+                        .setExpiration(Config.delete_bitmap_lock_expiration_seconds);
+                final GetDeleteBitmapUpdateLockRequest request = builder.build();
+                GetDeleteBitmapUpdateLockResponse response = null;
+
+                int retryTime = 0;
+                while (retryTime++ < Config.metaServiceRpcRetryTimes()) {
+                    try {
+                        response = MetaServiceProxy.getInstance().getDeleteBitmapUpdateLock(request);
+                        // if (LOG.isDebugEnabled()) {
+                        LOG.info(
+                                "get tablet delete bitmap lock, transactionId={}, tablet={}, Request: {}, Response: {}",
+                                transactionId, tabletId, request, response);
+                        // }
+                        if (response.getStatus().getCode() != MetaServiceCode.LOCK_CONFLICT
+                                && response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT
+                                && response.getStatus().getCode()
+                                != MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+                            break;
+                        }
+                    } catch (Exception e) {
+                        LOG.warn("ignore get delete bitmap lock exception, transactionId={}, retryTime={}",
+                                transactionId, retryTime, e);
+                    }
+                    // sleep random millis [20, 300] ms, avoid txn conflict
+                    int randomMillis = 20 + (int) (Math.random() * (300 - 20));
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("randomMillis:{}", randomMillis);
+                    }
+                    try {
+                        Thread.sleep(randomMillis);
+                    } catch (InterruptedException e) {
+                        LOG.info("InterruptedException: ", e);
+                    }
+                }
+                Preconditions.checkNotNull(response);
+                Preconditions.checkNotNull(response.getStatus());
+                if (response.getStatus().getCode() != MetaServiceCode.OK) {
+                    LOG.warn("get delete bitmap lock failed, transactionId={}, for {} times, response:{}",
+                            transactionId, retryTime, response);
+                    if (response.getStatus().getCode() == MetaServiceCode.LOCK_CONFLICT
+                            || response.getStatus().getCode() == MetaServiceCode.KV_TXN_CONFLICT
+                            || response.getStatus().getCode()
+                            == MetaServiceCode.KV_TXN_CONFLICT_RETRY_EXCEEDED_MAX_TIMES) {
+                        // DELETE_BITMAP_LOCK_ERR will be retried on be
+                        throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                                "Failed to get delete bitmap lock due to confilct");
+                    }
+                    throw new UserException(
+                            "Failed to get delete bitmap lock, code: " + response.getStatus().getCode());
+                }
+                sucessTabletList.add(tabletId);
+                totalRetryTime += retryTime;
+            }
+        }
+        if (totalRetryTime > 0 || stopWatch.getTime() > 20) {
+            LOG.info(
+                    "get delete bitmap lock successfully. txns: {}. totalRetryTime: {}. "
+                            + "tabletSize: {}. time cost: {} ms.",
+                    transactionId, totalRetryTime, sucessTabletList.size(), stopWatch.getTime());
+        }
+    }
+
+    private void removeTabletDeleteBitmapUpdateLock(List<Long> sucessTabletList, long transactionId) {
+        for (Long tablet : sucessTabletList) {
+            RemoveDeleteBitmapUpdateLockRequest.Builder builder = RemoveDeleteBitmapUpdateLockRequest.newBuilder();
+            builder.setTabletId(tablet)
+                    .setLockId(transactionId)
+                    .setInitiator(-1);
+            final RemoveDeleteBitmapUpdateLockRequest request = builder.build();
+            RemoveDeleteBitmapUpdateLockResponse response = null;
+            try {
+                response = MetaServiceProxy.getInstance().removeDeleteBitmapUpdateLock(request);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("remove tablet delete bitmap lock, transactionId={}, Request: {}, Response: {}",
+                            transactionId, request, response);
+                }
+            } catch (Exception e) {
+                LOG.warn("ignore get delete bitmap lock exception, transactionId={}, exception={}",
+                        transactionId, e);
+            }
+            Preconditions.checkNotNull(response);
+            Preconditions.checkNotNull(response.getStatus());
+            if (response.getStatus().getCode() != MetaServiceCode.OK) {
+                LOG.warn("remove tablet delete bitmap lock failed, transactionId={}, response:{}",
+                        transactionId, response);
+            }
         }
     }
 
