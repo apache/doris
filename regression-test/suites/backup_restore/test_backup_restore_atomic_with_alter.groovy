@@ -112,7 +112,7 @@ suite("test_backup_restore_atomic_with_alter", "backup_restore") {
     boolean restore_paused = false
     for (int k = 0; k < 60; k++) {
         def records = sql_return_maparray """ SHOW RESTORE FROM ${dbName} WHERE Label = "${snapshotName}" """
-        if (records.size() == 1 && records[0].State != 'PENDING') {
+        if (records.size() == 1 && (records[0].State != 'PENDING' && records[0].State != 'CREATING')) {
             restore_paused = true
             break
         }

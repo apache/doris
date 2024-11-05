@@ -690,6 +690,24 @@ class Suite implements GroovyInterceptable {
         runAction(new ProfileAction(context, tag), actionSupplier)
     }
 
+    void checkNereidsExecute(String sqlString) {
+        String tag = UUID.randomUUID().toString();
+        log.info("start check" + tag)
+        String finalSqlString = "--" + tag + "\n" + sqlString
+        ProfileAction profileAction = new ProfileAction(context, tag)
+        profileAction.run {
+            log.info("start profile run" + tag)
+            sql (finalSqlString)
+        }
+        profileAction.check {
+            profileString, exception ->
+                log.info("start profile check" + tag)
+                log.info(profileString)
+                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
+        }
+        profileAction.run()
+    }
+
     void createMV(String sql) {
         (new CreateMVAction(context, sql)).run()
     }
