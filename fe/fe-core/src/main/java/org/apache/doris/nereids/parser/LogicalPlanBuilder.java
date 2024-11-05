@@ -4014,22 +4014,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (ctx.LOCAL() != null || ctx.SESSION() != null) {
             type = SetType.SESSION;
         }
-        if (ctx.wildWhere().LIKE() != null) {
-            return new ShowVariablesCommand(type, stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()));
-        } else {
-            StringBuilder sb = new StringBuilder();
-            sb.append("select VARIABLE_NAME as Variable_name, VARIABLE_VALUE as Value from ");
-            sb.append(InternalCatalog.INTERNAL_CATALOG_NAME);
-            sb.append(".");
-            sb.append(InfoSchemaDb.DATABASE_NAME);
-            sb.append(".");
-            if (type == SetType.GLOBAL) {
-                sb.append("GLOBAL_VARIABLES ");
+        if (ctx.wildWhere() != null) {
+            if (ctx.wildWhere().LIKE() != null) {
+                return new ShowVariablesCommand(type, stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()));
             } else {
-                sb.append("SESSION_VARIABLES ");
+                StringBuilder sb = new StringBuilder();
+                sb.append("select VARIABLE_NAME as Variable_name, VARIABLE_VALUE as Value from ");
+                sb.append(InternalCatalog.INTERNAL_CATALOG_NAME);
+                sb.append(".");
+                sb.append(InfoSchemaDb.DATABASE_NAME);
+                sb.append(".");
+                if (type == SetType.GLOBAL) {
+                    sb.append("GLOBAL_VARIABLES ");
+                } else {
+                    sb.append("SESSION_VARIABLES ");
+                }
+                sb.append(getOriginSql(ctx.wildWhere()));
+                return new NereidsParser().parseSingle(sb.toString());
             }
-            sb.append(getOriginSql(ctx.wildWhere()));
-            return new NereidsParser().parseSingle(sb.toString());
+        } else {
+            return new ShowVariablesCommand(type, null);
         }
     }
 
