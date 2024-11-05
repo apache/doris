@@ -27,5 +27,6 @@ sql_hash	varchar(128)	Yes	false	\N	NONE
 sql_digest	varchar(128)	Yes	false	\N	NONE
 peak_memory_bytes	bigint	Yes	false	\N	NONE
 workload_group	text	Yes	false	\N	NONE
+compute_group	text	Yes	false	\N	NONE
 stmt	text	Yes	false	\N	NONE
 
