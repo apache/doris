@@ -233,7 +233,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                         if constexpr (is_need_shrink_const) {
                                             if (!it->visited) {
                                                 tmp_hash_table->insert(iter->get_first(),
-                                                                   iter->get_second());
+                                                                       iter->get_second());
                                             }
                                         }
                                         ++iter;
