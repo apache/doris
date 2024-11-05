@@ -106,7 +106,10 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
     public static final ImmutableSet<WorkloadMetricType> BE_METRIC_SET
             = new ImmutableSet.Builder<WorkloadMetricType>().add(WorkloadMetricType.BE_SCAN_ROWS)
             .add(WorkloadMetricType.BE_SCAN_BYTES).add(WorkloadMetricType.QUERY_TIME)
-            .add(WorkloadMetricType.QUERY_BE_MEMORY_BYTES).build();
+            .add(WorkloadMetricType.QUERY_BE_MEMORY_BYTES)
+            .add(WorkloadMetricType.LAST_10S_CPU_USAGE_PERCENT)
+            .add(WorkloadMetricType.LAST_20S_CPU_USAGE_PERCENT)
+            .add(WorkloadMetricType.LAST_30S_CPU_USAGE_PERCENT).build();
 
     // used for convert fe type to thrift type
     public static final ImmutableMap<WorkloadMetricType, TWorkloadMetricType> METRIC_MAP
@@ -114,7 +117,10 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
             .put(WorkloadMetricType.QUERY_TIME, TWorkloadMetricType.QUERY_TIME)
             .put(WorkloadMetricType.BE_SCAN_ROWS, TWorkloadMetricType.BE_SCAN_ROWS)
             .put(WorkloadMetricType.BE_SCAN_BYTES, TWorkloadMetricType.BE_SCAN_BYTES)
-            .put(WorkloadMetricType.QUERY_BE_MEMORY_BYTES, TWorkloadMetricType.QUERY_BE_MEMORY_BYTES).build();
+            .put(WorkloadMetricType.QUERY_BE_MEMORY_BYTES, TWorkloadMetricType.QUERY_BE_MEMORY_BYTES)
+            .put(WorkloadMetricType.LAST_10S_CPU_USAGE_PERCENT, TWorkloadMetricType.LAST_10S_CPU_USAGE_PERCENT)
+            .put(WorkloadMetricType.LAST_20S_CPU_USAGE_PERCENT, TWorkloadMetricType.LAST_20S_CPU_USAGE_PERCENT)
+            .put(WorkloadMetricType.LAST_30S_CPU_USAGE_PERCENT, TWorkloadMetricType.LAST_30S_CPU_USAGE_PERCENT).build();
     public static final ImmutableMap<WorkloadActionType, TWorkloadActionType> ACTION_MAP
             = new ImmutableMap.Builder<WorkloadActionType, TWorkloadActionType>()
             .put(WorkloadActionType.MOVE_QUERY_TO_GROUP, TWorkloadActionType.MOVE_QUERY_TO_GROUP)
@@ -562,11 +568,6 @@ public class WorkloadSchedPolicyMgr extends MasterDaemon implements Writable, Gs
         } finally {
             writeUnlock();
         }
-    }
-
-    public List<List<String>> getShowPolicyInfo() {
-        UserIdentity currentUserIdentity = ConnectContext.get().getCurrentUserIdentity();
-        return policyProcNode.fetchResult(currentUserIdentity).getRows();
     }
 
     public List<List<String>> getWorkloadSchedPolicyTvfInfo(TUserIdentity tcurrentUserIdentity) {

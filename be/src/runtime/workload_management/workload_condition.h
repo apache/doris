@@ -23,7 +23,15 @@
 
 namespace doris {
 
-enum WorkloadMetricType { QUERY_TIME, SCAN_ROWS, SCAN_BYTES, QUERY_MEMORY_BYTES };
+enum WorkloadMetricType {
+    QUERY_TIME,
+    SCAN_ROWS,
+    SCAN_BYTES,
+    QUERY_MEMORY_BYTES,
+    LAST_10S_CPU_USAGE_PERCENT,
+    LAST_20S_CPU_USAGE_PERCENT,
+    LAST_30S_CPU_USAGE_PERCENT
+};
 
 class WorkloadCondition {
 public:
@@ -87,8 +95,25 @@ private:
     WorkloadCompareOperator _op;
 };
 
+class WorkloadConditionCpuUsage : public WorkloadCondition {
+public:
+    WorkloadConditionCpuUsage(WorkloadMetricType type, int window_size, WorkloadCompareOperator op,
+                              std::string str_val);
+    bool eval(std::string str_val) override;
+    WorkloadMetricType get_workload_metric_type() override { return _type; }
+
+private:
+    int _window_size;
+    WorkloadCompareOperator _op;
+    int64_t _last_max_cpu_time;
+    WorkloadMetricType _type;
+};
+
 class WorkloadConditionFactory {
 public:
+    static const std::map<TWorkloadMetricType::type, std::pair<WorkloadMetricType, int>>
+            CPU_USAGE_METRIC_MAP;
+
     static std::unique_ptr<WorkloadCondition> create_workload_condition(
             TWorkloadCondition* t_cond) {
         WorkloadCompareOperator op =
@@ -103,6 +128,10 @@ public:
             return std::make_unique<WorkloadConditionScanBytes>(op, str_val);
         } else if (TWorkloadMetricType::type::QUERY_BE_MEMORY_BYTES == metric_name) {
             return std::make_unique<WorkloadConditionQueryMemory>(op, str_val);
+        } else if (CPU_USAGE_METRIC_MAP.find(metric_name) != CPU_USAGE_METRIC_MAP.end()) {
+            auto& pair = CPU_USAGE_METRIC_MAP.at(metric_name);
+            return std::make_unique<WorkloadConditionCpuUsage>(pair.first, pair.second, op,
+                                                               str_val);
         }
         LOG(ERROR) << "not find a metric name " << metric_name;
         return nullptr;

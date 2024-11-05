@@ -22,3 +22,6 @@ test_alter_policy	username = test_alter_policy_user	set_session_variable "parall
 -- !select_alter_5 --
 test_alter_policy	username = test_alter_policy_user	set_session_variable "parallel_pipeline_task_num=0"	9	false	4	normal
 
+-- !select_cpu_policy --
+cpu_usage_limit_policy	last_10s_cpu_usage_percent > 5	cancel_query	0	false	0	
+

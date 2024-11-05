@@ -331,6 +331,16 @@ void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s) {
     tq_s->__set_workload_group_id(_wg_id);
 }
 
+void QueryStatisticsCtx::update_cpu_usage_sample(int64_t current_cpu_time) {
+    _cpu_sampler.update_sample(current_cpu_time);
+}
+
+int64_t QueryStatisticsCtx::get_last_10s_cpu_time() {
+    int64_t val = 0;
+    static_cast<void>(_cpu_sampler.get_window_value(val, 10));
+    return val;
+}
+
 void RuntimeQueryStatisticsMgr::register_query_statistics(std::string query_id,
                                                           std::shared_ptr<QueryStatistics> qs_ptr,
                                                           TNetworkAddress fe_addr,
@@ -363,6 +373,7 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
 
             TQueryStatistics ret_t_qs;
             qs_ctx_ptr->collect_query_statistics(&ret_t_qs);
+            qs_ctx_ptr->update_cpu_usage_sample(ret_t_qs.cpu_ms);
             fe_qs_map.at(qs_ctx_ptr->_fe_addr)[query_id] = ret_t_qs;
 
             bool is_query_finished = qs_ctx_ptr->_is_query_finished;
@@ -491,14 +502,24 @@ void RuntimeQueryStatisticsMgr::get_metric_map(
         std::string query_id, std::map<WorkloadMetricType, std::string>& metric_map) {
     QueryStatistics ret_qs;
     int64_t query_time_ms = 0;
+    int64_t last_10s_cpu_time = 0;
+    int64_t last_20s_cpu_time = 0;
+    int64_t last_30s_cpu_time = 0;
     {
         std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
         if (_query_statistics_ctx_map.find(query_id) != _query_statistics_ctx_map.end()) {
-            for (auto const& qs : _query_statistics_ctx_map[query_id]->_qs_list) {
+            auto* query_stats_ptr = _query_statistics_ctx_map[query_id].get();
+            for (auto const& qs : query_stats_ptr->_qs_list) {
                 ret_qs.merge(*qs);
             }
             query_time_ms =
                     MonotonicMillis() - _query_statistics_ctx_map.at(query_id)->_query_start_time;
+            static_cast<void>(
+                    query_stats_ptr->_cpu_sampler.get_window_value(last_10s_cpu_time, 10));
+            static_cast<void>(
+                    query_stats_ptr->_cpu_sampler.get_window_value(last_20s_cpu_time, 20));
+            static_cast<void>(
+                    query_stats_ptr->_cpu_sampler.get_window_value(last_30s_cpu_time, 30));
         }
     }
     metric_map.emplace(WorkloadMetricType::QUERY_TIME, std::to_string(query_time_ms));
@@ -506,6 +527,12 @@ void RuntimeQueryStatisticsMgr::get_metric_map(
     metric_map.emplace(WorkloadMetricType::SCAN_BYTES, std::to_string(ret_qs.get_scan_bytes()));
     metric_map.emplace(WorkloadMetricType::QUERY_MEMORY_BYTES,
                        std::to_string(ret_qs.get_current_used_memory_bytes()));
+    metric_map.emplace(WorkloadMetricType::LAST_10S_CPU_USAGE_PERCENT,
+                       std::to_string(last_10s_cpu_time));
+    metric_map.emplace(WorkloadMetricType::LAST_20S_CPU_USAGE_PERCENT,
+                       std::to_string(last_20s_cpu_time));
+    metric_map.emplace(WorkloadMetricType::LAST_30S_CPU_USAGE_PERCENT,
+                       std::to_string(last_30s_cpu_time));
 }
 
 void RuntimeQueryStatisticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
@@ -517,6 +544,10 @@ void RuntimeQueryStatisticsMgr::set_workload_group_id(std::string query_id, int6
 }
 
 void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
+    int cpu_num = CpuInfo::num_cores();
+    cpu_num = cpu_num <= 0 ? 1 : cpu_num;
+    uint64_t last_10s_total_cpu_time_ms = cpu_num * 1000ll * 10;
+
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
 
@@ -543,6 +574,13 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
         std::stringstream ss;
         ss << qs_ctx_ptr->_query_type;
         SchemaScannerHelper::insert_string_value(11, ss.str(), block);
+
+        int64_t last_10s_cpu_time_ms = qs_ctx_ptr->get_last_10s_cpu_time();
+
+        double cpu_usage_p =
+                (double)last_10s_cpu_time_ms / (double)last_10s_total_cpu_time_ms * 100;
+        cpu_usage_p = std::round(cpu_usage_p * 100.0) / 100.0;
+        SchemaScannerHelper::insert_double_value(12, cpu_usage_p, block);
     }
 }
 

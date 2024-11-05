@@ -34,6 +34,7 @@
 #include "runtime/query_statistics.h"
 #include "runtime/workload_management/workload_condition.h"
 #include "util/hash_util.hpp"
+#include "util/second_sampler.h"
 #include "util/time.h"
 
 namespace doris {
@@ -45,7 +46,11 @@ class Block;
 class QueryStatisticsCtx {
 public:
     QueryStatisticsCtx(TNetworkAddress fe_addr, TQueryType::type query_type)
-            : _fe_addr(fe_addr), _query_type(query_type) {
+            : _fe_addr(fe_addr),
+              _query_type(query_type),
+              // currently _cpu_sampler is refreshed by report query statistics,
+              // so the interval should be same with report interval
+              _cpu_sampler(30, config::report_query_statistics_interval_ms / 1000) {
         this->_is_query_finished = false;
         this->_wg_id = -1;
         this->_query_start_time = MonotonicMillis();
@@ -53,6 +58,10 @@ public:
     ~QueryStatisticsCtx() = default;
 
     void collect_query_statistics(TQueryStatistics* tq_s);
+
+    void update_cpu_usage_sample(int64_t cpu_time);
+
+    int64_t get_last_10s_cpu_time();
 
 public:
     std::vector<std::shared_ptr<QueryStatistics>> _qs_list;
@@ -62,6 +71,7 @@ public:
     int64_t _query_finish_time;
     int64_t _wg_id;
     int64_t _query_start_time;
+    SecondSampler<int64_t> _cpu_sampler;
 };
 
 class RuntimeQueryStatisticsMgr {
