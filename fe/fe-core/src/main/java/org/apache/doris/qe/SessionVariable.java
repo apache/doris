@@ -1107,7 +1107,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableLocalShuffle = true;
 
     @VariableMgr.VarAttr(
-                name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
+                name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
                 description = {"是否在pipelineX引擎上强制开启local shuffle优化",
                         "Whether to force to local shuffle on pipelineX engine."})
     private boolean forceToLocalShuffle = false;
@@ -2285,7 +2285,6 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
-        this.forceToLocalShuffle = random.nextBoolean();
         this.useSerialExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
