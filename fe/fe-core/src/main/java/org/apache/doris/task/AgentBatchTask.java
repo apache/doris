@@ -20,6 +20,7 @@ package org.apache.doris.task;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.ThriftUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
@@ -208,6 +209,14 @@ public class AgentBatchTask implements Runnable {
     private static void submitTasks(long backendId,
             BackendService.Client client, List<TAgentTaskRequest> agentTaskRequests) throws TException {
         if (!agentTaskRequests.isEmpty()) {
+            if (LOG.isDebugEnabled()) {
+                long size = agentTaskRequests.stream()
+                        .map(ThriftUtils::getBinaryMessageSize)
+                        .reduce(0L, Long::sum);
+                TTaskType firstTaskType = agentTaskRequests.get(0).getTaskType();
+                LOG.debug("submit {} tasks to backend[{}], total size: {}, first task type: {}",
+                        agentTaskRequests.size(), backendId, size, firstTaskType);
+            }
             client.submitTasks(agentTaskRequests);
         }
         if (LOG.isDebugEnabled()) {
