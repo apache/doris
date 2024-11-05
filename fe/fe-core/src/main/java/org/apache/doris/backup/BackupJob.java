@@ -1066,11 +1066,15 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        if (Config.backup_job_compressed_serialization) {
+        // For a completed job, there's no need to save it with compressed serialization as it has
+        // no snapshot or backup meta info, making it small in size. This helps maintain compatibility
+        // more easily.
+        boolean shouldCompress = !isDone() && Config.backup_job_compressed_serialization;
+        if (shouldCompress) {
             type = JobType.BACKUP_COMPRESSED;
         }
         super.write(out);
-        if (Config.backup_job_compressed_serialization) {
+        if (shouldCompress) {
             type = JobType.BACKUP;
 
             int written = 0;
