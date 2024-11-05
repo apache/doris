@@ -560,7 +560,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
     }
 }
 
-std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_convert_slot_to_orc_leteral(
+std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_leteral(
         const VSlotRef* slot_ref, const VLiteral* literal) {
     const auto* value = literal->get_column_ptr()->get_data_at(0).data;
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
@@ -645,7 +645,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -660,7 +660,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -674,7 +674,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -687,7 +687,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -700,7 +700,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -714,7 +714,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -740,7 +740,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         for (size_t i = 1; i < expr->children().size(); ++i) {
             DCHECK(expr->children()[i]->is_literal());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
-            auto [valid, orc_literal, type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+            auto [valid, orc_literal, type] = _make_orc_leteral(slot_ref, literal);
             if (!valid) {
                 return false;
             }
@@ -760,7 +760,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         for (size_t i = 1; i < expr->children().size(); ++i) {
             DCHECK(expr->children()[i]->is_literal());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
-            auto [valid, orc_literal, type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+            auto [valid, orc_literal, type] = _make_orc_leteral(slot_ref, literal);
             if (!valid) {
                 return false;
             }
