@@ -701,11 +701,6 @@ public class Alter {
             view.writeLockOrDdlException();
             try {
                 view.setInlineViewDefWithSqlMode(inlineViewDef, sqlMode);
-                try {
-                    view.init();
-                } catch (UserException e) {
-                    throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-                }
                 view.setNewFullSchema(newFullSchema);
                 String viewName = view.getName();
                 db.unregisterTable(viewName);

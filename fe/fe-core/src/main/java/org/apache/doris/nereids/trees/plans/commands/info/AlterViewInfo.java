@@ -78,18 +78,16 @@ public class AlterViewInfo extends BaseViewInfo {
 
     /**translateToLegacyStmt*/
     public AlterViewStmt translateToLegacyStmt(ConnectContext ctx) {
+        // expand star(*) in project list and replace table name with qualifier
+        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
+        // rewrite project alias
+        rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
+        checkViewSql(rewrittenSql);
         List<ColWithComment> cols = Lists.newArrayList();
         for (SimpleColumnDefinition def : simpleColumnDefinitions) {
             cols.add(def.translateToColWithComment());
         }
-        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols,
-                null);
-        // expand star(*) in project list and replace table name with qualifier
-        String rewrittenSql = rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
-
-        // rewrite project alias
-        rewrittenSql = rewriteProjectsToUserDefineAlias(rewrittenSql);
-
+        AlterViewStmt alterViewStmt = new AlterViewStmt(viewName.transferToTableName(), cols, null);
         alterViewStmt.setInlineViewDef(rewrittenSql);
         alterViewStmt.setFinalColumns(finalCols);
         return alterViewStmt;
