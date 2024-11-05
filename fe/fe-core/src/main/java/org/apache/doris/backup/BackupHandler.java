@@ -566,7 +566,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             while (jobs.size() >= Config.max_backup_restore_job_num_per_db) {
                 AbstractJob removedJob = jobs.removeFirst();
                 if (removedJob instanceof BackupJob && ((BackupJob) removedJob).isLocalSnapshot()) {
-                    removedLabels.add(removedLabels.getLabel());
+                    removedLabels.add(removedJob.getLabel());
                 }
             }
             AbstractJob lastJob = jobs.peekLast();
