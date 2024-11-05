@@ -1016,7 +1016,7 @@ public class RestoreJob extends AbstractJob {
             }
             tbl.writeLock();
             try {
-                if (!db.registerTable(tbl)) {
+                if (!db.createTable(tbl)) {
                     status = new Status(ErrCode.COMMON_ERROR, "Table " + tbl.getName()
                             + " already exist in db: " + db.getFullName());
                     return;
