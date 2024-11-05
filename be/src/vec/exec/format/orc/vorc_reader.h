@@ -18,9 +18,9 @@
 #pragma once
 
 #include <cctz/time_zone.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <list>
 #include <memory>
 #include <orc/OrcFile.hh>
@@ -79,13 +79,6 @@ class DataBuffer;
 namespace doris::vectorized {
 
 class ORCFileInputStream;
-
-struct OrcPredicate {
-    std::string col_name;
-    orc::PredicateDataType data_type;
-    std::vector<orc::Literal> literals;
-    SQLFilterOp op;
-};
 
 struct LazyReadContext {
     VExprContextSPtrs conjuncts;
@@ -291,8 +284,7 @@ private:
                         bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
-    bool _init_search_argument(
-            std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+    bool _init_search_argument(const VExprContextSPtrs& conjuncts);
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
