@@ -722,16 +722,6 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         builder->end();
         break;
     }
-    case TExprOpcode::EQ_FOR_NULL: {
-        DCHECK(expr->children().size() == 1);
-        DCHECK(expr->children()[0]->is_slot_ref());
-        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-        auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
-        const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
-        const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
-        builder->isNull(slot_ref->expr_name(), predicate_type);
-        break;
-    }
     case TExprOpcode::FILTER_IN: {
         DCHECK(expr->children()[0]->is_slot_ref());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
@@ -771,6 +761,36 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
             builder->startNot();
             builder->in(slot_ref->expr_name(), predicate_type, literals);
             builder->end();
+        }
+        break;
+    }
+    // is null and is not null is represented as function call
+    case TExprOpcode::INVALID_OPCODE: {
+        DCHECK(expr->node_type() == TExprNodeType::FUNCTION_CALL);
+        DCHECK(expr->children().size() == 1);
+        DCHECK(expr->children()[0]->is_slot_ref());
+        if (expr->fn().name.function_name == "is_null_pred") {
+            DCHECK(expr->children().size() == 1);
+            DCHECK(expr->children()[0]->is_slot_ref());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
+            const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
+            const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
+            builder->isNull(slot_ref->expr_name(), predicate_type);
+        } else if (expr->fn().name.function_name == "is_not_null_pred") {
+            DCHECK(expr->children().size() == 1);
+            DCHECK(expr->children()[0]->is_slot_ref());
+            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+            auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
+            const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
+            const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
+            builder->startNot();
+            builder->isNull(slot_ref->expr_name(), predicate_type);
+            builder->end();
+        } else {
+            VLOG_CRITICAL << "Unsupported function [funciton=" << expr->fn().name.function_name
+                          << "]";
+            return false;
         }
         break;
     }
