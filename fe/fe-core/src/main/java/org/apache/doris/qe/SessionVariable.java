@@ -2173,6 +2173,15 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableSortSpill = false;
 
     @VariableMgr.VarAttr(
+            name = "ENABLE_COMPRESS_MATERIALIZE",
+            description = {"控制是否启用compress materialize。",
+                    "enable compress-materialize. "},
+            needForward = true, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL
+    )
+    public boolean enableCompressMaterialize = false;
+
+    @VariableMgr.VarAttr(
             name = ENABLE_AGG_SPILL,
             description = {"控制是否启用聚合算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk of aggregation operation. "

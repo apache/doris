@@ -34,7 +34,7 @@ import java.util.List;
  * ScalarFunction 'CompressAsSmallInt'.
  */
 public class EncodeAsSmallInt extends ScalarFunction
-        implements ExplicitlyCastableSignature, PropagateNullable {
+        implements ExplicitlyCastableSignature, PropagateNullable, EncodeStrToInteger {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(SmallIntType.INSTANCE).args(VarcharType.SYSTEM_DEFAULT)
