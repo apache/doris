@@ -19,6 +19,7 @@
 
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
@@ -131,13 +132,13 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
         const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
         // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
         if (((estimated_size_of_next_block + bytes) * 100 / allocated_bytes) >= 85) {
-            size_to_reserve += (size_t)(allocated_bytes * 1.15);
+            size_to_reserve += static_cast<size_t>(static_cast<double>(allocated_bytes) * 1.15);
         }
     }
 
     if (eos) {
         const size_t rows = build_block_rows + state->batch_size();
-        size_t bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
+        const auto bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
 
         size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
         size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next
@@ -187,7 +188,7 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                                                          raw_ptrs, block.rows(), true, true,
                                                          bucket_size);
                                              }},
-                       *_shared_state->hash_table_variants);
+                       _shared_state->hash_table_variants->method_variant);
         }
     }
     return size_to_reserve;

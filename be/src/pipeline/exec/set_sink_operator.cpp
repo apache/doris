@@ -223,7 +223,7 @@ size_t SetSinkOperatorX<is_intersect>::get_reserve_mem_size(RuntimeState* state,
                     return arg.hash_table->estimate_memory(state->batch_size());
                 }
             },
-            *local_state._shared_state->hash_table_variants);
+            local_state._shared_state->hash_table_variants->method_variant);
 
     size_to_reserve += local_state._mutable_block.allocated_bytes();
     for (auto& _child_expr : _child_exprs) {
