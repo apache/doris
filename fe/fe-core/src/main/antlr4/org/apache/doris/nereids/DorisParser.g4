@@ -55,6 +55,7 @@ statementBase
     | supportedDropStatement            #supportedDropStatementAlias
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
+    | supportedRefreshStatement       #supportedRefreshStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -74,7 +75,6 @@ unsupportedStatement
     | unsupportedCancelStatement
     | unsupportedJobStatement
     | unsupportedCleanStatement
-    | unsupportedRefreshStatement
     | unsupportedLoadStatement
     | unsupportedShowStatement
     | unsupportedOtherStatement
@@ -408,7 +408,7 @@ channelDescription
         partitionSpec? columnList=identifierList?
     ;
 
-unsupportedRefreshStatement
+supportedRefreshStatement
     : REFRESH TABLE name=multipartIdentifier                                        #refreshTable
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
     | REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
