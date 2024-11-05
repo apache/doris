@@ -213,6 +213,8 @@ private:
         RuntimeProfile::Counter* read_time = nullptr;
         RuntimeProfile::Counter* read_calls = nullptr;
         RuntimeProfile::Counter* read_bytes = nullptr;
+        RuntimeProfile::Counter* selected_row_group_count = nullptr;
+        RuntimeProfile::Counter* evaluated_row_group_count = nullptr;
         RuntimeProfile::Counter* column_read_time;
         RuntimeProfile::Counter* get_batch_time = nullptr;
         RuntimeProfile::Counter* create_reader_time = nullptr;
@@ -575,6 +577,7 @@ private:
     std::unique_ptr<ORCFileInputStream> _file_input_stream;
     Statistics _statistics;
     OrcProfile _orc_profile;
+    orc::ReaderMetrics _reader_metrics;
 
     std::unique_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader;

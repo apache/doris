@@ -219,6 +219,10 @@ void OrcReader::_init_profile() {
         _orc_profile.read_calls = ADD_COUNTER_WITH_LEVEL(_profile, "FileReadCalls", TUnit::UNIT, 1);
         _orc_profile.read_bytes =
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileReadBytes", TUnit::BYTES, 1);
+        _orc_profile.selected_row_group_count =
+                ADD_COUNTER_WITH_LEVEL(_profile, "SelectedRowGroupCount", TUnit::UNIT, 1);
+        _orc_profile.evaluated_row_group_count =
+                ADD_COUNTER_WITH_LEVEL(_profile, "EvaluatedRowGroupCount", TUnit::UNIT, 1);
         _orc_profile.column_read_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ColumnReadTime", orc_profile, 1);
         _orc_profile.get_batch_time =
@@ -257,6 +261,7 @@ Status OrcReader::_create_file_reader() {
     try {
         orc::ReaderOptions options;
         options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
+        options.setReaderMetrics(&_reader_metrics);
         _reader = orc::createReader(
                 std::unique_ptr<ORCFileInputStream>(_file_input_stream.release()), options);
     } catch (std::exception& e) {
@@ -803,6 +808,10 @@ bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
     }
     sargBuilder->end();
     std::unique_ptr<orc::SearchArgument> sargs = sargBuilder->build();
+    if (sargs == nullptr) {
+        return false;
+    }
+    _profile->add_info_string("OrcReader SearchArgument: ", sargs->toString());
     _row_reader_options.searchArgument(std::move(sargs));
     return true;
 }
@@ -1682,6 +1691,12 @@ std::string OrcReader::get_field_name_lower_case(const orc::Type* orc_type, int 
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(get_next_block_impl(block, read_rows, eof));
+    if (*eof) {
+        COUNTER_UPDATE(_orc_profile.selected_row_group_count,
+                       _reader_metrics.SelectedRowGroupCount);
+        COUNTER_UPDATE(_orc_profile.evaluated_row_group_count,
+                       _reader_metrics.EvaluatedRowGroupCount);
+    }
     if (_orc_filter) {
         RETURN_IF_ERROR(_orc_filter->get_status());
     }
