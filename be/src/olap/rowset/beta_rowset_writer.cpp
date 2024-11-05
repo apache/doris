@@ -517,6 +517,7 @@ Status BetaRowsetWriter::_rename_compacted_segment_plain(uint64_t seg_id) {
     return Status::OK();
 }
 
+// Variant columns don't participate in segment compaction; here, we can construct the file names.
 Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id) {
     int ret;
 
@@ -548,7 +549,7 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
         if (_context.tablet_schema->has_inverted_index(*column)) {
-            const auto* index_info = _context.tablet_schema->get_inverted_index(*column);
+            const auto* index_info = _context.tablet_schema->inverted_index(*column);
             auto index_id = index_info->index_id();
             if (_context.tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {

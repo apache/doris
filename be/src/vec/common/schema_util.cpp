@@ -360,6 +360,10 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema) {
+    DCHECK(target.is_extracted_column());
+    target.set_aggregation_method(source.aggregation());
+
+    // 1. bloom filter
     if (target.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
         target.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
         target.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
@@ -367,19 +371,35 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         // above types are not supported in bf
         target.set_is_bf_column(source.is_bf_column());
     }
-    target.set_aggregation_method(source.aggregation());
-    const auto* source_index_meta = target_schema->get_inverted_index(source.unique_id(), "");
-    if (source_index_meta != nullptr) {
+
+    // 2. inverted index
+    const auto* source_inverted_index_meta = target_schema->inverted_index(source.unique_id());
+    if (source_inverted_index_meta != nullptr) {
         // add index meta
-        TabletIndex index_info = *source_index_meta;
+        TabletIndex index_info = *source_inverted_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        // get_inverted_index: No need to check, just inherit directly
-        const auto* target_index_meta = target_schema->get_inverted_index(target, false);
-        if (target_index_meta != nullptr) {
+        const auto* target_inverted_index_meta = target_schema->inverted_index(
+                target.parent_unique_id(), target.path_info_ptr()->get_path());
+        if (target_inverted_index_meta != nullptr) {
             // already exist
-            target_schema->update_index(target, index_info);
+            target_schema->update_index(target, IndexType::INVERTED, std::move(index_info));
         } else {
-            target_schema->append_index(index_info);
+            target_schema->append_index(std::move(index_info));
+        }
+    }
+
+    // 3. gnragm bf index
+    const auto* source_ngram_bf_index_meta = target_schema->ngram_bf_index(source.unique_id());
+    // only string could create ngram bf index
+    if (source_ngram_bf_index_meta != nullptr) {
+        TabletIndex index_info = *source_ngram_bf_index_meta;
+        index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
+        const auto* target_ngram_bf_index_meta = target_schema->ngram_bf_index(
+                target.parent_unique_id(), target.path_info_ptr()->get_path());
+        if (target_ngram_bf_index_meta != nullptr) {
+            target_schema->update_index(target, IndexType::NGRAM_BF, std::move(index_info));
+        } else {
+            target_schema->append_index(std::move(index_info));
         }
     }
 }

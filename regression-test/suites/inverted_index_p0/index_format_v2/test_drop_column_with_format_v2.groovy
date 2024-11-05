@@ -86,7 +86,7 @@ suite("test_drop_column_with_format_v2", "inverted_index_format_v2"){
             "replication_allocation" = "tag.location.default: 1",
             "inverted_index_storage_format" = "V2",
             "disable_auto_compaction" = "true",
-            "light_schema_change" = "false"
+            "light_schema_change" = "true"
         );
     """
     sql """ INSERT INTO ${tableName} VALUES (1, "andy", 100); """

@@ -664,10 +664,14 @@ message PResetRPCChannelResponse {
 message PEmptyRequest {};
 
 message PTabletWriteSlaveRequest {
+    // IndexSize is used to represent information about the inverted index file,
+    // and the suffix path will be deprecated. 
+    // We now use the index file name to identify a file, and the indexId will always be set to -1.    
     message IndexSize {
         required int64 indexId = 1;
         required int64 size = 2;
-        optional string suffix_path = 3;
+        optional string suffix_path = 3; // deprecated
+        optional string index_file_name = 4;
     };
 
     message IndexSizeMap{
@@ -682,7 +686,10 @@ message PTabletWriteSlaveRequest {
     optional int32 brpc_port = 6;
     optional string token = 7;
     optional int32 node_id = 8;
-    map<int64, IndexSizeMap> inverted_indices_size = 9;
+    map<int64, IndexSizeMap> inverted_indices_size = 9; // deprecated
+
+    // all inverted index files in the current rowset
+    repeated IndexSize indeices_size = 10;
 };
 
 message PTabletWriteSlaveResult {
