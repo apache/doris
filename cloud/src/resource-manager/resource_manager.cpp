@@ -624,7 +624,7 @@ std::pair<TxnErrorCode, std::string> ResourceManager::get_instance(std::shared_p
         return ec;
     }
 
-    if (!inst_pb->ParseFromString(val)) {
+    if (inst_pb != nullptr && !inst_pb->ParseFromString(val)) {
         code = TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
         msg = "failed to parse InstanceInfoPB";
         return ec;
