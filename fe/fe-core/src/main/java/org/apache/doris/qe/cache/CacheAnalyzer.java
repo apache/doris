@@ -702,7 +702,7 @@ public class CacheAnalyzer {
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
             scanTable.addScanPartition(partitionId);
-            if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
+            if (partition != null && partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
                 cacheTable.latestPartitionId = partition.getId();
                 cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
                 cacheTable.latestPartitionVersion = partition.getVisibleVersion();
