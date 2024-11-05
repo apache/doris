@@ -34,7 +34,7 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 /**
- * PosExplode(array('a','b','c')) generate two column and two lines with:
+ * PosExplode(array('a','b','c')) generate two columns and three rows with:
  * pose column: 0, 1, 2
  * value column: 'a', 'b', 'c'
  */

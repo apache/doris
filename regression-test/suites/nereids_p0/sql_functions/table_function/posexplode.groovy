@@ -51,4 +51,29 @@ suite("posexplode") {
     order_qt_explode_outer_sql_alias """ select id,name,score, tmp.k, tmp.v from table_test lateral view posexplode_outer(score) tmp as k,v order by id; """
 
     order_qt_explode_sql_alias_multi """ select id,name,score, tmp.k, tmp.v, tmp2.k, tmp2.v from table_test lateral view posexplode_outer(score) tmp as k,v lateral view posexplode(score) tmp2 as k,v order by id;"""
+
+    sql """ DROP TABLE IF EXISTS table_test_not """
+    sql """
+        CREATE TABLE IF NOT EXISTS `table_test_not`(
+                   `id` INT NULL,
+                   `name` TEXT NULL,
+                   `score` array<string> not NULL
+                 ) ENGINE=OLAP
+                 DUPLICATE KEY(`id`)
+                 COMMENT 'OLAP'
+                 DISTRIBUTED BY HASH(`id`) BUCKETS 1
+                 PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
+    // insert values
+    sql """ insert into table_test_not values (0, "zhangsan", ["Chinese","Math","English"]); """
+    sql """ insert into table_test_not values (1, "lisi", ["null"]); """
+    sql """ insert into table_test_not values (2, "wangwu", ["88a","90b","96c"]); """
+    sql """ insert into table_test_not values (3, "lisi2", [null]); """
+    sql """ insert into table_test_not values (4, "liuba", []); """
+
+    qt_sql """ select * from table_test_not order by id; """
+    order_qt_explode_sql_not """ select id,name,score, k,v from table_test_not lateral view posexplode(score) tmp as k,v order by id;"""
+    order_qt_explode_outer_sql_not """ select id,name,score, k,v from table_test_not lateral view posexplode_outer(score) tmp as k,v order by id; """
+
 }

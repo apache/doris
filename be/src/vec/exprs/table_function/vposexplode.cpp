@@ -94,7 +94,6 @@ void VPosExplodeTableFunction::get_same_many_values(MutableColumnPtr& column, in
     ColumnStruct* ret = nullptr;
     // this _is_nullable is whole output column's nullable
     if (_is_nullable) {
-        // make map kv value into struct
         ret = assert_cast<ColumnStruct*>(
                 assert_cast<ColumnNullable*>(column.get())->get_nested_column_ptr().get());
         assert_cast<ColumnUInt8*>(
@@ -132,7 +131,7 @@ int VPosExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) 
                     assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
             auto* nullmap_column =
                     assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
-            // here nullmap_column insert max_step many defaults as if MAP[row_idx] is NULL
+            // here nullmap_column insert max_step many defaults as if array[row_idx] is NULL
             // will be not update value, _cur_size = 0, means current_empty;
             // so here could insert directly
             nullmap_column->insert_many_defaults(max_step);

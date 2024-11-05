@@ -34,7 +34,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * PosExplode(array('a','b','c')) generate two column and two lines with:
+ * PosExplode(array('a','b','c')) generate two columns and three rows with:
  * pose column: 0, 1, 2
  * value column: 'a', 'b', 'c'
  */
@@ -68,8 +68,8 @@ public class PosExplode extends TableGeneratingFunction implements UnaryExpressi
     public List<FunctionSignature> getSignatures() {
         return ImmutableList.of(
                 FunctionSignature.ret(new StructType(ImmutableList.of(
-                        new StructField("col1", IntegerType.INSTANCE, true, ""),
-                        new StructField("col2", ((ArrayType) child().getDataType()).getItemType(), true, ""))))
+                        new StructField("pos", IntegerType.INSTANCE, true, ""),
+                        new StructField("col", ((ArrayType) child().getDataType()).getItemType(), true, ""))))
                         .args(child().getDataType()));
     }
 
