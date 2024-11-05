@@ -57,6 +57,8 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.PriorityQueue;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 /**
  * FileTable encapsulates a set of files to be scanned into a Table like structure,
@@ -87,7 +89,7 @@ public class FileGroupInfo {
     private boolean strictMode;
     private int loadParallelism;
     // set by getFileStatusAndCalcInstance
-    private long numInstances = 1;
+    private int numInstances = 1;
     private long bytesPerInstance = 0;
     // used for stream load, FILE_LOCAL or FILE_STREAM
     private TFileType fileType;
@@ -249,25 +251,40 @@ public class FileGroupInfo {
                                                       FederationBackendPolicy backendPolicy,
                                                       List<TScanRangeLocations> scanRangeLocations)
                                                       throws UserException {
-        PriorityQueue<Pair<Long, TScanRangeLocations>> pq = new PriorityQueue<>(Comparator.comparingLong(Pair::key));
-        for (int i = 0; i < Math.min(fileStatuses.size(), numInstances); i++) {
-            pq.add(Pair.of(0L, newLocations(context.params, brokerDesc, backendPolicy)));
+        List<Long> fileSizes = fileStatuses.stream().map(x -> x.size).collect(Collectors.toList());
+        List<List<Integer>> groups = assignFilesToInstances(fileSizes, numInstances);
+        for (List<Integer> group : groups) {
+            TScanRangeLocations locations = newLocations(context.params, brokerDesc, backendPolicy);
+            for (int i : group) {
+                TBrokerFileStatus fileStatus = fileStatuses.get(i);
+                TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
+                context.params.setFormatType(formatType);
+                TFileCompressType compressType =
+                        Util.getOrInferCompressType(context.fileGroup.getCompressType(), fileStatus.path);
+                context.params.setCompressType(compressType);
+                List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
+                        context.fileGroup.getColumnNamesFromPath());
+                TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size, columnsFromPath);
+                locations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
+            }
+            scanRangeLocations.add(locations);
         }
-        fileStatuses.sort((a, b) -> Long.compare(b.size, a.size));
-        for (TBrokerFileStatus fileStatus : fileStatuses) {
-            TFileFormatType formatType = formatType(context.fileGroup.getFileFormat(), fileStatus.path);
-            context.params.setFormatType(formatType);
-            TFileCompressType compressType =
-                    Util.getOrInferCompressType(context.fileGroup.getCompressType(), fileStatus.path);
-            context.params.setCompressType(compressType);
-            List<String> columnsFromPath = BrokerUtil.parseColumnsFromPath(fileStatus.path,
-                    context.fileGroup.getColumnNamesFromPath());
-            Pair<Long, TScanRangeLocations> p = pq.poll();
-            TFileRangeDesc rangeDesc = createFileRangeDesc(0, fileStatus, fileStatus.size, columnsFromPath);
-            p.value().getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
-            pq.add(Pair.of(p.key() + fileStatus.size, p.value()));
+    }
+
+    public static List<List<Integer>> assignFilesToInstances(List<Long> fileSizes, int instances) {
+        int n = Math.min(fileSizes.size(), instances);
+        PriorityQueue<Pair<Long, List<Integer>>> pq = new PriorityQueue<>(n, Comparator.comparingLong(Pair::key));
+        for (int i = 0; i < n; i++) {
+            pq.add(Pair.of(0L, new ArrayList<>()));
         }
-        pq.stream().map(Pair::value).forEach(scanRangeLocations::add);
+        List<Integer> index = IntStream.range(0, fileSizes.size()).boxed().collect(Collectors.toList());
+        index.sort((i, j) -> Long.compare(fileSizes.get(j), fileSizes.get(i)));
+        for (int i : index) {
+            Pair<Long, List<Integer>> p = pq.poll();
+            p.value().add(i);
+            pq.add(Pair.of(p.key() + fileSizes.get(i), p.value()));
+        }
+        return pq.stream().map(Pair::value).collect(Collectors.toList());
     }
 
     public void createScanRangeLocationsSplittable(FileLoadScanNode.ParamCreateContext context,
