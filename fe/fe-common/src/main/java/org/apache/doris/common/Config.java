@@ -1507,7 +1507,7 @@ public class Config extends ConfigBase {
      * Whether to allow the outfile function to export the results to the local disk.
      */
     @ConfField
-    public static boolean enable_outfile_to_local = true;
+    public static boolean enable_outfile_to_local = false;
 
     /**
      * Used to set the initial flow window size of the GRPC client channel, and also used to max message size.
