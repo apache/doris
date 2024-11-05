@@ -608,7 +608,6 @@ public class ExpressionUtils {
                         new ExpressionRewriteContext(cascadesContext)
                 );
                 if (evalExpr.isNullLiteral() || BooleanLiteral.FALSE.equals(evalExpr)) {
-                    predicate.setInferNotNull(true);
                     notNullSlots.add(slot);
                 }
             }

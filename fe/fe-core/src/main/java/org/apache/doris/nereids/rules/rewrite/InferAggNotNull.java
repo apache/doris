@@ -73,6 +73,9 @@ public class InferAggNotNull extends OneRewriteRuleFactory {
                             }
                         }
                     }
+                    for (Expression predicate : predicates) {
+                        predicate.setInferNotNull(true);
+                    }
                     Set<Expression> needGenerateNotNulls = needGenerateNotNullsBuilder.build();
                     if (needGenerateNotNulls.isEmpty()) {
                         return null;
