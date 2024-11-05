@@ -498,7 +498,7 @@ protected:
 
         // read col key
         const auto& key = _tablet_schema->column_by_uid(0);
-        const auto* key_index = _tablet_schema->get_inverted_index(key);
+        const auto* key_index = _tablet_schema->inverted_index(key);
         EXPECT_TRUE(key_index != nullptr);
         std::vector<int> query_data {99, 66, 56, 87, 85, 96, 20000};
         std::vector<int> query_result {19, 21, 21, 16, 14, 18, 0};
@@ -506,7 +506,7 @@ protected:
 
         // read col v3
         const auto& v3_column = _tablet_schema->column_by_uid(3);
-        const auto* v3_index = _tablet_schema->get_inverted_index(v3_column);
+        const auto* v3_index = _tablet_schema->inverted_index(v3_column);
         EXPECT_TRUE(v3_index != nullptr);
         std::vector<int> query_data3 {99, 66, 56, 87, 85, 96, 10000};
         std::vector<int> query_result3 {12, 18, 22, 21, 16, 20, 0};
@@ -514,7 +514,7 @@ protected:
 
         // read col v1
         const auto& v1_column = _tablet_schema->column_by_uid(1);
-        const auto* v1_index = _tablet_schema->get_inverted_index(v1_column);
+        const auto* v1_index = _tablet_schema->inverted_index(v1_column);
         EXPECT_TRUE(v1_index != nullptr);
         std::vector<std::string> query_data1 {"good", "maybe", "great", "null"};
         std::vector<int> query_result1 {197, 191, 0, 0};
@@ -523,7 +523,7 @@ protected:
 
         // read col v2
         const auto& v2_column = _tablet_schema->column_by_uid(2);
-        const auto* v2_index = _tablet_schema->get_inverted_index(v2_column);
+        const auto* v2_index = _tablet_schema->inverted_index(v2_column);
         EXPECT_TRUE(v2_index != nullptr);
         std::vector<std::string> query_data2 {"musicstream.com", "http", "https", "null"};
         std::vector<int> query_result2 {176, 719, 1087, 0};
