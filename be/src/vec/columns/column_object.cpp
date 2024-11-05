@@ -428,8 +428,8 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     } else if (least_common_type.get_base_type_id() != base_type.idx && !base_type.is_nothing()) {
         if (schema_util::is_conversion_required_between_integers(
                     base_type.idx, least_common_type.get_base_type_id())) {
-            LOG_EVERY_N(INFO, 100) << "Conversion between " << getTypeName(base_type.idx) << " and "
-                                   << getTypeName(least_common_type.get_type_id());
+            VLOG_DEBUG << "Conversion between " << getTypeName(base_type.idx) << " and "
+                       << getTypeName(least_common_type.get_type_id());
             DataTypePtr base_data_type;
             TypeIndex base_data_type_id;
             get_least_supertype_jsonb(
@@ -1801,6 +1801,12 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
         num_rows = column->size();
     }
     add_sub_column({}, std::move(column), type);
+}
+
+DataTypePtr ColumnObject::get_most_common_type() const {
+    auto type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
+                            : std::make_shared<MostCommonType>();
+    return type;
 }
 
 bool ColumnObject::is_null_root() const {

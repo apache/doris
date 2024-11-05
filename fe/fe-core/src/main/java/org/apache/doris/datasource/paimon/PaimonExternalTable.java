@@ -165,8 +165,9 @@ public class PaimonExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
-        if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType()) || PaimonExternalCatalog.PAIMON_FILESYSTEM
-                .equals(getPaimonCatalogType())) {
+        if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_DLF.equals(getPaimonCatalogType())) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
@@ -192,12 +193,16 @@ public class PaimonExternalTable extends ExternalTable {
         Table paimonTable = schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable())
                 .orElse(null);
         if (paimonTable == null) {
-            return -1;
+            LOG.info("Paimon table {} is null.", name);
+            return UNKNOWN_ROW_COUNT;
         }
         List<Split> splits = paimonTable.newReadBuilder().newScan().plan().splits();
         for (Split split : splits) {
             rowCount += split.rowCount();
         }
-        return rowCount;
+        if (rowCount == 0) {
+            LOG.info("Paimon table {} row count is 0, return -1", name);
+        }
+        return rowCount > 0 ? rowCount : UNKNOWN_ROW_COUNT;
     }
 }

@@ -92,6 +92,8 @@ public abstract class JdbcClient {
                 return new JdbcTrinoClient(jdbcClientConfig);
             case JdbcResource.DB2:
                 return new JdbcDB2Client(jdbcClientConfig);
+            case JdbcResource.GBASE:
+                return new JdbcGbaseClient(jdbcClientConfig);
             default:
                 throw new IllegalArgumentException("Unsupported DB type: " + dbType);
         }
@@ -176,8 +178,9 @@ public abstract class JdbcClient {
             Thread.currentThread().setContextClassLoader(this.classLoader);
             conn = dataSource.getConnection();
         } catch (Exception e) {
-            String errorMessage = String.format("Can not connect to jdbc due to error: %s, Catalog name: %s",
-                    e.getMessage(), this.getCatalogName());
+            String errorMessage = String.format(
+                    "Catalog `%s` can not connect to jdbc due to error: %s",
+                    this.getCatalogName(), JdbcClientException.getAllExceptionMessages(e));
             throw new JdbcClientException(errorMessage, e);
         } finally {
             Thread.currentThread().setContextClassLoader(oldClassLoader);

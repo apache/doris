@@ -654,6 +654,9 @@ public:
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
 
 private:
+    Status _process_root_column(vectorized::MutableColumnPtr& dst,
+                                vectorized::MutableColumnPtr& root_column,
+                                const vectorized::DataTypePtr& most_common_type);
     std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 

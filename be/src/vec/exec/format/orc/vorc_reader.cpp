@@ -96,6 +96,11 @@ namespace doris::vectorized {
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
+// Because HIVE 0.11 & 0.12 does not support precision and scale for decimal
+// The decimal type of orc file produced by HIVE 0.11 & 0.12 are DECIMAL(0,0)
+// We should set a default precision and scale for these orc files.
+static constexpr int decimal_precision_for_hive11 = BeConsts::MAX_DECIMAL128_PRECISION;
+static constexpr int decimal_scale_for_hive11 = 10;
 
 #define FOR_FLAT_ORC_COLUMNS(M)                            \
     M(TypeIndex::Int8, Int8, orc::LongVectorBatch)         \
@@ -279,13 +284,15 @@ Status OrcReader::init_reader(
         const VExprContextSPtrs& conjuncts, bool is_acid, const TupleDescriptor* tuple_descriptor,
         const RowDescriptor* row_descriptor,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
+        const bool hive_use_column_names) {
     _column_names = column_names;
     _colname_to_value_range = colname_to_value_range;
     _lazy_read_ctx.conjuncts = conjuncts;
     _is_acid = is_acid;
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
+    _is_hive1_orc_or_use_idx = !hive_use_column_names;
     if (not_single_slot_filter_conjuncts != nullptr && !not_single_slot_filter_conjuncts->empty()) {
         _not_single_slot_filter_conjuncts.insert(_not_single_slot_filter_conjuncts.end(),
                                                  not_single_slot_filter_conjuncts->begin(),
@@ -337,10 +344,11 @@ Status OrcReader::_init_read_columns() {
 
     // In old version slot_name_to_schema_pos may not be set in _scan_params
     // TODO, should be removed in 2.2 or later
-    _is_hive1_orc = is_hive1_orc && _scan_params.__isset.slot_name_to_schema_pos;
+    _is_hive1_orc_or_use_idx = (is_hive1_orc || _is_hive1_orc_or_use_idx) &&
+                               _scan_params.__isset.slot_name_to_schema_pos;
     for (size_t i = 0; i < _column_names->size(); ++i) {
         auto& col_name = (*_column_names)[i];
-        if (_is_hive1_orc) {
+        if (_is_hive1_orc_or_use_idx) {
             auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
             if (iter != _scan_params.slot_name_to_schema_pos.end()) {
                 int pos = iter->second;
@@ -375,9 +383,10 @@ Status OrcReader::_init_read_columns() {
             _read_cols_lower_case.emplace_back(col_name);
             // For hive engine, store the orc column name to schema column name map.
             // This is for Hive 1.x orc file with internal column name _col0, _col1...
-            if (_is_hive1_orc) {
+            if (_is_hive1_orc_or_use_idx) {
                 _removed_acid_file_col_name_to_schema_col[orc_cols[pos]] = col_name;
             }
+
             _col_name_to_file_col_name[col_name] = read_col;
         }
     }
@@ -708,7 +717,7 @@ bool OrcReader::_init_search_argument(
         if (iter == colname_to_value_range->end()) {
             continue;
         }
-        auto type_it = type_map.find(col_name);
+        auto type_it = type_map.find(_col_name_to_file_col_name[col_name]);
         if (type_it == type_map.end()) {
             continue;
         }
@@ -913,7 +922,7 @@ Status OrcReader::_init_select_types(const orc::Type& type, int idx) {
         std::string name;
         // For hive engine, translate the column name in orc file to schema column name.
         // This is for Hive 1.x which use internal column name _col0, _col1...
-        if (_is_hive1_orc) {
+        if (_is_hive1_orc_or_use_idx) {
             name = _removed_acid_file_col_name_to_schema_col[type.getFieldName(i)];
         } else {
             name = get_field_name_lower_case(&type, i);
@@ -1046,6 +1055,10 @@ TypeDescriptor OrcReader::convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::TIMESTAMP:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::DECIMAL:
+        if (orc_type->getPrecision() == 0) {
+            return TypeDescriptor::create_decimalv3_type(decimal_precision_for_hive11,
+                                                         decimal_scale_for_hive11);
+        }
         return TypeDescriptor::create_decimalv3_type(orc_type->getPrecision(),
                                                      orc_type->getScale());
     case orc::TypeKind::DATE:
@@ -1171,7 +1184,9 @@ Status OrcReader::_decode_string_non_dict_encoded_column(const std::string& col_
             }
         }
     }
-    data_column->insert_many_strings(&string_values[0], num_values);
+    if (!string_values.empty()) {
+        data_column->insert_many_strings(&string_values[0], num_values);
+    }
     return Status::OK();
 }
 
@@ -1275,8 +1290,10 @@ Status OrcReader::_decode_string_dict_encoded_column(const std::string& col_name
             }
         }
     }
-    data_column->insert_many_strings_overflow(&string_values[0], string_values.size(),
-                                              max_value_length);
+    if (!string_values.empty()) {
+        data_column->insert_many_strings_overflow(&string_values[0], string_values.size(),
+                                                  max_value_length);
+    }
     return Status::OK();
 }
 
@@ -2005,9 +2022,9 @@ bool OrcReader::_can_filter_by_dict(int slot_id) {
         //  the implementation of NULL values because the dictionary itself does not contain
         //  NULL value encoding. As a result, many NULL-related functions or expressions
         //  cannot work properly, such as is null, is not null, coalesce, etc.
-        //  Here we first disable dictionary filtering when predicate contains functions.
+        //  Here we first disable dictionary filtering when predicate expr is not slot.
         //  Implementation of NULL value dictionary filtering will be carried out later.
-        if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
+        if (expr->node_type() != TExprNodeType::SLOT_REF) {
             return false;
         }
         for (auto& child : expr->children()) {
@@ -2389,7 +2406,9 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
             }
         }
     }
-    res->insert_many_strings_overflow(&string_values[0], num_values, max_value_length);
+    if (!string_values.empty()) {
+        res->insert_many_strings_overflow(&string_values[0], num_values, max_value_length);
+    }
     return res;
 }
 

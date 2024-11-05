@@ -50,6 +50,8 @@ public:
 
     WorkloadGroupPtr get_task_group_by_id(uint64_t tg_id);
 
+    void do_sweep();
+
     void stop();
 
     std::atomic<bool> _enable_cpu_hard_limit = false;

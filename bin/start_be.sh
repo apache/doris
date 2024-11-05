@@ -282,7 +282,7 @@ fi
 
 for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
     if [[ -n ${!var} ]]; then
-        log "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
         exit 1
     fi
 done
@@ -354,7 +354,7 @@ set_tcmalloc_heap_limit() {
     fi
 
     if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
-        log "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
+        echo "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
         return 1
     fi
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}

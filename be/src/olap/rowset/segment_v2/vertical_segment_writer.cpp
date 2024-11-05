@@ -200,8 +200,9 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     opts.need_bitmap_index = column.has_bitmap_index();
     bool skip_inverted_index = false;
     if (_opts.rowset_ctx != nullptr) {
-        // skip write inverted index for index compaction
-        skip_inverted_index = _opts.rowset_ctx->skip_inverted_index.contains(column.unique_id());
+        // skip write inverted index for index compaction column
+        skip_inverted_index =
+                _opts.rowset_ctx->columns_to_do_index_compaction.contains(column.unique_id());
     }
     // skip write inverted index on load if skip_write_index_on_load is true
     if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
@@ -665,8 +666,10 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
         _opts.rowset_ctx->merged_tablet_schema = _opts.rowset_ctx->tablet_schema;
     }
     TabletSchemaSPtr update_schema;
+    bool check_schema_size = true;
     RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
-            {_opts.rowset_ctx->merged_tablet_schema, _flush_schema}, nullptr, update_schema));
+            {_opts.rowset_ctx->merged_tablet_schema, _flush_schema}, nullptr, update_schema,
+            check_schema_size));
     CHECK_GE(update_schema->num_columns(), _flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()
             << ", but flush_schema is larger " << _flush_schema->num_columns()

@@ -372,11 +372,7 @@ public class HiveMetaStoreCache {
             for (RemoteFile remoteFile : remoteFiles) {
                 String srcPath = remoteFile.getPath().toString();
                 LocationPath locationPath = new LocationPath(srcPath, catalog.getProperties());
-                Path convertedPath = locationPath.toStorageLocation();
-                if (!convertedPath.toString().equals(srcPath)) {
-                    remoteFile.setPath(convertedPath);
-                }
-                result.addFile(remoteFile);
+                result.addFile(remoteFile, locationPath);
             }
         } else if (status.getErrCode().equals(ErrCode.NOT_FOUND)) {
             // User may manually remove partition under HDFS, in this case,
@@ -748,7 +744,7 @@ public class HiveMetaStoreCache {
     }
 
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
-            boolean isFullAcid, long tableId, String bindBrokerName) {
+            boolean isFullAcid, boolean skipCheckingAcidVersionFile, long tableId, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
         String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
         try {
@@ -782,25 +778,27 @@ public class HiveMetaStoreCache {
                     if (baseOrDeltaPath == null) {
                         return Collections.emptyList();
                     }
-                    String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
-                    RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                            new FileSystemCache.FileSystemCacheKey(
-                                    LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
-                                            bindBrokerName),
-                                            catalog.getCatalogProperty().getProperties(),
-                                            bindBrokerName, jobConf));
-                    Status status = fs.exists(acidVersionPath);
-                    if (status != Status.OK) {
-                        if (status.getErrCode() == ErrCode.NOT_FOUND) {
-                            acidVersion = 0;
-                        } else {
-                            throw new Exception(String.format("Failed to check remote path {} exists.",
-                                    acidVersionPath));
+                    if (!skipCheckingAcidVersionFile) {
+                        String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
+                        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
+                                new FileSystemCache.FileSystemCacheKey(
+                                        LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
+                                                bindBrokerName),
+                                        catalog.getCatalogProperty().getProperties(),
+                                        bindBrokerName, jobConf));
+                        Status status = fs.exists(acidVersionPath);
+                        if (status != Status.OK) {
+                            if (status.getErrCode() == ErrCode.NOT_FOUND) {
+                                acidVersion = 0;
+                            } else {
+                                throw new Exception(String.format("Failed to check remote path {} exists.",
+                                        acidVersionPath));
+                            }
                         }
-                    }
-                    if (acidVersion == 0 && !directory.getCurrentDirectories().isEmpty()) {
-                        throw new Exception(
-                                "Hive 2.x versioned full-acid tables need to run major compaction.");
+                        if (acidVersion == 0 && !directory.getCurrentDirectories().isEmpty()) {
+                            throw new Exception(
+                                    "Hive 2.x versioned full-acid tables need to run major compaction.");
+                        }
                     }
                 }
 
@@ -817,14 +815,17 @@ public class HiveMetaStoreCache {
                     if (status.ok()) {
                         if (delta.isDeleteDelta()) {
                             List<String> deleteDeltaFileNames = remoteFiles.stream().map(f -> f.getName()).filter(
-                                    name -> name.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                                            name -> name.startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
                                     .collect(Collectors.toList());
                             deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
                             continue;
                         }
                         remoteFiles.stream().filter(
-                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
-                            .forEach(fileCacheValue::addFile);
+                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX)).forEach(file -> {
+                                    LocationPath path = new LocationPath(file.getPath().toString(),
+                                            catalog.getProperties());
+                                    fileCacheValue.addFile(file, path);
+                                });
                     } else {
                         throw new RuntimeException(status.getErrMsg());
                     }
@@ -841,8 +842,12 @@ public class HiveMetaStoreCache {
                     Status status = fs.listFiles(location, false, remoteFiles);
                     if (status.ok()) {
                         remoteFiles.stream().filter(
-                                f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
-                                .forEach(fileCacheValue::addFile);
+                                        f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))
+                                .forEach(file -> {
+                                    LocationPath path = new LocationPath(file.getPath().toString(),
+                                            catalog.getProperties());
+                                    fileCacheValue.addFile(file, path);
+                                });
                     } else {
                         throw new RuntimeException(status.getErrMsg());
                     }
@@ -1013,11 +1018,11 @@ public class HiveMetaStoreCache {
 
         private AcidInfo acidInfo;
 
-        public void addFile(RemoteFile file) {
+        public void addFile(RemoteFile file, LocationPath locationPath) {
             if (isFileVisible(file.getPath())) {
                 HiveFileStatus status = new HiveFileStatus();
                 status.setBlockLocations(file.getBlockLocations());
-                status.setPath(file.getPath());
+                status.setPath(locationPath);
                 status.length = file.getSize();
                 status.blockSize = file.getBlockSize();
                 status.modificationTime = file.getModificationTime();
@@ -1028,7 +1033,6 @@ public class HiveMetaStoreCache {
         public int getValuesSize() {
             return partitionValues == null ? 0 : partitionValues.size();
         }
-
 
         public AcidInfo getAcidInfo() {
             return acidInfo;
@@ -1077,7 +1081,7 @@ public class HiveMetaStoreCache {
     @Data
     public static class HiveFileStatus {
         BlockLocation[] blockLocations;
-        Path path;
+        LocationPath path;
         long length;
         long blockSize;
         long modificationTime;

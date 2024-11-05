@@ -15,100 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/runtime/mem-tracker.cpp
-// and modified by Doris
 
 #include "runtime/memory/mem_tracker.h"
 
-#include <fmt/format.h>
-
-#include <mutex>
-
-#include "bvar/bvar.h"
-#include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/thread_context.h"
+#include <bvar/reducer.h>
 
 namespace doris {
 
+constexpr size_t MEM_TRACKERS_GROUP_NUM = 1000;
+std::atomic<long> mem_tracker_group_counter(0);
 bvar::Adder<int64_t> g_memtracker_cnt("memtracker_cnt");
 
-// Save all MemTrackers in use to maintain the weak relationship between MemTracker and MemTrackerLimiter.
-// When MemTrackerLimiter prints statistics, all MemTracker statistics with weak relationship will be printed together.
-// Each group corresponds to several MemTrackerLimiters and has a lock.
-// Multiple groups are used to reduce the impact of locks.
-std::vector<MemTracker::TrackerGroup> MemTracker::mem_tracker_pool(1000);
+std::vector<MemTracker::TrackersGroup> MemTracker::mem_tracker_pool(MEM_TRACKERS_GROUP_NUM);
 
-MemTracker::MemTracker(const std::string& label, MemTrackerLimiter* parent) : _label(label) {
-    _consumption = std::make_shared<MemCounter>();
-    bind_parent(parent);
-}
-
-void MemTracker::bind_parent(MemTrackerLimiter* parent) {
-    if (parent) {
-        _type = parent->type();
-        _parent_label = parent->label();
-        _parent_group_num = parent->group_num();
-    } else {
-        _type = thread_context()->thread_mem_tracker()->type();
-        _parent_label = thread_context()->thread_mem_tracker()->label();
-        _parent_group_num = thread_context()->thread_mem_tracker()->group_num();
-    }
+MemTracker::MemTracker(const std::string& label) {
+    _label = label;
+    _group_num = mem_tracker_group_counter.fetch_add(1) % MEM_TRACKERS_GROUP_NUM;
     {
-        std::lock_guard<std::mutex> l(mem_tracker_pool[_parent_group_num].group_lock);
-        _tracker_group_it = mem_tracker_pool[_parent_group_num].trackers.insert(
-                mem_tracker_pool[_parent_group_num].trackers.end(), this);
+        std::lock_guard<std::mutex> l(mem_tracker_pool[_group_num].group_lock);
+        _trackers_group_it = mem_tracker_pool[_group_num].trackers.insert(
+                mem_tracker_pool[_group_num].trackers.end(), this);
     }
     g_memtracker_cnt << 1;
 }
 
 MemTracker::~MemTracker() {
-    if (_parent_group_num != -1) {
-        std::lock_guard<std::mutex> l(mem_tracker_pool[_parent_group_num].group_lock);
-        if (_tracker_group_it != mem_tracker_pool[_parent_group_num].trackers.end()) {
-            mem_tracker_pool[_parent_group_num].trackers.erase(_tracker_group_it);
-            _tracker_group_it = mem_tracker_pool[_parent_group_num].trackers.end();
+    if (_group_num != -1) {
+        std::lock_guard<std::mutex> l(mem_tracker_pool[_group_num].group_lock);
+        if (_trackers_group_it != mem_tracker_pool[_group_num].trackers.end()) {
+            mem_tracker_pool[_group_num].trackers.erase(_trackers_group_it);
+            _trackers_group_it = mem_tracker_pool[_group_num].trackers.end();
         }
         g_memtracker_cnt << -1;
     }
-}
-
-MemTracker::Snapshot MemTracker::make_snapshot() const {
-    Snapshot snapshot;
-    snapshot.type = type_string(_type);
-    snapshot.label = _label;
-    snapshot.parent_label = _parent_label;
-    snapshot.limit = -1;
-    snapshot.cur_consumption = _consumption->current_value();
-    snapshot.peak_consumption = _consumption->peak_value();
-    return snapshot;
-}
-
-void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshots,
-                                     int64_t group_num, std::string parent_label) {
-    std::lock_guard<std::mutex> l(mem_tracker_pool[group_num].group_lock);
-    for (auto* tracker : mem_tracker_pool[group_num].trackers) {
-        if (tracker->parent_label() == parent_label && tracker->peak_consumption() != 0) {
-            snapshots->push_back(tracker->make_snapshot());
-        }
-    }
-}
-
-void MemTracker::make_all_trackers_snapshots(std::vector<Snapshot>* snapshots) {
-    for (auto& i : mem_tracker_pool) {
-        std::lock_guard<std::mutex> l(i.group_lock);
-        for (auto* tracker : i.trackers) {
-            if (tracker->peak_consumption() != 0) {
-                snapshots->push_back(tracker->make_snapshot());
-            }
-        }
-    }
-}
-
-std::string MemTracker::log_usage(MemTracker::Snapshot snapshot) {
-    return fmt::format("MemTracker Label={}, Parent Label={}, Used={}({} B), Peak={}({} B)",
-                       snapshot.label, snapshot.parent_label, print_bytes(snapshot.cur_consumption),
-                       snapshot.cur_consumption, print_bytes(snapshot.peak_consumption),
-                       snapshot.peak_consumption);
 }
 
 } // namespace doris

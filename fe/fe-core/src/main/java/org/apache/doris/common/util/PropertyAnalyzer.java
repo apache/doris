@@ -223,6 +223,11 @@ public class PropertyAnalyzer {
     public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
             = Config.enable_mow_light_delete;
 
+    public static final String PROPERTIES_AUTO_ANALYZE_POLICY = "auto_analyze_policy";
+    public static final String ENABLE_AUTO_ANALYZE_POLICY = "enable";
+    public static final String DISABLE_AUTO_ANALYZE_POLICY = "disable";
+    public static final String USE_CATALOG_AUTO_ANALYZE_POLICY = "base_on_catalog";
+
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
@@ -339,8 +344,13 @@ public class PropertyAnalyzer {
                     throw new AnalysisException("Invalid storage medium: " + value);
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
-                DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
-                cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                try {
+                    DateLiteral dateLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATETIME));
+                    cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                } catch (AnalysisException e) {
+                    LOG.warn("dateLiteral failed, use max cool down time", e);
+                    cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
+                }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_POLICY)) {
                 hasStoragePolicy = true;
                 newStoragePolicy = value;

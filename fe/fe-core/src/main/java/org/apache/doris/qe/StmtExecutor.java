@@ -283,6 +283,7 @@ public class StmtExecutor {
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
+    private Boolean isForwardedToMaster = null;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -423,6 +424,13 @@ public class StmtExecutor {
     }
 
     public boolean isForwardToMaster() {
+        if (isForwardedToMaster == null) {
+            isForwardedToMaster = shouldForwardToMaster();
+        }
+        return isForwardedToMaster;
+    }
+
+    private boolean shouldForwardToMaster() {
         if (Env.getCurrentEnv().isMaster()) {
             return false;
         }
@@ -433,7 +441,7 @@ public class StmtExecutor {
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries())) {
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries)) {
             return true;
         }
 
@@ -446,7 +454,7 @@ public class StmtExecutor {
 
     private boolean debugForwardAllQueries() {
         DebugPoint debugPoint = DebugPointUtil.getDebugPoint("StmtExecutor.forward_all_queries");
-        return debugPoint != null && debugPoint.param("forwardAllQueries", true);
+        return debugPoint != null && debugPoint.param("forwardAllQueries", false);
     }
 
     public ByteBuffer getOutputPacket() {
@@ -673,6 +681,8 @@ public class StmtExecutor {
         context.setQueryId(queryId);
         context.setStartTime();
         profile.getSummaryProfile().setQueryBeginTime();
+        List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
+        profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         parseByNereids();
@@ -709,7 +719,8 @@ public class StmtExecutor {
                     if (logicalPlan instanceof InsertIntoTableCommand) {
                         profileType = ProfileType.LOAD;
                     }
-                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE
+                            || context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
                     if (isProxy) {
@@ -985,7 +996,8 @@ public class StmtExecutor {
                             profileType = ProfileType.LOAD;
                         }
                     }
-                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+                    if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE
+                                || context.getCommand() == MysqlCommand.COM_STMT_EXECUTE) {
                         throw new UserException("Forward master command is not supported for prepare statement");
                     }
                     if (isProxy) {
@@ -1219,6 +1231,10 @@ public class StmtExecutor {
         // failed, the insert stmt should be success
         try {
             profile.updateSummary(getSummaryInfo(isFinished), isFinished, this.planner);
+            if (planner instanceof NereidsPlanner) {
+                NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
+                profile.setPhysicalPlan(nereidsPlanner.getPhysicalPlan());
+            }
         } catch (Throwable t) {
             LOG.warn("failed to update profile, ignore this error", t);
         }
@@ -1796,6 +1812,14 @@ public class StmtExecutor {
             return;
         }
 
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
+            LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+            if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache) {
+                isCached = true;
+            }
+        }
+
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
         // TODO FE not support doris field type conversion to arrow field type.
         if (!context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)
@@ -1882,6 +1906,7 @@ public class StmtExecutor {
                                 : new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
             coordBase = new PointQueryExecutor(shortCircuitQueryContext,
                         context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            context.getState().setIsQuery(true);
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
             coord = new NereidsCoordinator(context, analyzer,
                     planner, context.getStatsErrorEstimator(),
@@ -2930,6 +2955,28 @@ public class StmtExecutor {
         context.getState().setEof();
     }
 
+    public void handleReplayStmt(String result) throws IOException {
+        ShowResultSetMetaData metaData = ShowResultSetMetaData.builder()
+                .addColumn(new Column("Plan Replayer dump url",
+                ScalarType.createVarchar(20)))
+                .build();
+        if (context.getConnectType() == ConnectType.MYSQL) {
+            sendMetaData(metaData);
+
+            // Send result set.
+            for (String item : result.split("\n")) {
+                serializer.reset();
+                serializer.writeLenEncodedString(item);
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+            }
+        } else if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
+            context.getFlightSqlChannel()
+                    .addResult(DebugUtil.printId(context.queryId()), context.getRunningQuery(), metaData, result);
+            context.setReturnResultFromLocal(true);
+        }
+        context.getState().setEof();
+    }
+
     private void handleLoadStmt() {
         try {
             LoadStmt loadStmt = (LoadStmt) parsedStmt;
@@ -3580,17 +3627,13 @@ public class StmtExecutor {
         return ((ProxyMysqlChannel) context.getMysqlChannel()).getProxyResultBufferList();
     }
 
-    public boolean sendProxyQueryResult() throws IOException {
+    public void sendProxyQueryResult() throws IOException {
         if (masterOpExecutor == null) {
-            return false;
+            return;
         }
         List<ByteBuffer> queryResultBufList = masterOpExecutor.getQueryResultBufList();
-        if (queryResultBufList.isEmpty()) {
-            return false;
-        }
         for (ByteBuffer byteBuffer : queryResultBufList) {
             context.getMysqlChannel().sendOnePacket(byteBuffer);
         }
-        return true;
     }
 }

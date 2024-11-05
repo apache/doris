@@ -32,6 +32,7 @@ Status UnionSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) 
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    _expr_timer = ADD_TIMER(_profile, "ExprTime");
     auto& p = _parent->cast<Parent>();
     _shared_state->data_queue.set_sink_dependency(_dependency, p._cur_child_id);
     return Status::OK();
@@ -72,13 +73,10 @@ Status UnionSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     return Status::OK();
 }
 
-Status UnionSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child_x->row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _row_descriptor));
-    return Status::OK();
-}
-
 Status UnionSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<UnionSinkLocalState>::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_expr, state, _child->row_desc()));
+    RETURN_IF_ERROR(vectorized::VExpr::check_expr_output_type(_child_expr, _row_descriptor));
     // open const expr lists.
     RETURN_IF_ERROR(vectorized::VExpr::open(_const_expr, state));
 

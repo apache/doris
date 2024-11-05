@@ -518,6 +518,13 @@ class Config {
         // mainly auth_xxx cases use defaultDb, these suites better not use defaultDb
         config.createDefaultDb()
 
+        try {
+            config.fetchCloudMode()
+        } catch (Exception e) {
+            // docker suite no need external cluster.
+            // so can ignore error here.
+        }
+
         return config
     }
 
@@ -1127,6 +1134,14 @@ class Config {
         urlWithDb = addTimeoutUrl(urlWithDb);
 
         return urlWithDb
+    }
+
+    public static String buildUrlWithDb(String host, int queryPort, String dbName) {
+        def url = String.format(
+            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+            host, queryPort)
+        url = buildUrlWithDb(url, dbName)
+        return url
     }
 
     private static String addSslUrl(String url) {

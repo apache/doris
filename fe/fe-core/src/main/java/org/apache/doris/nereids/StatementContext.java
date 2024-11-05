@@ -169,6 +169,8 @@ public class StatementContext implements Closeable {
 
     private List<PlannerHook> plannerHooks = new ArrayList<>();
 
+    private String disableJoinReorderReason;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -441,7 +443,8 @@ public class StatementContext implements Closeable {
         String fullTableName = tableIf.getNameWithFullQualifiers();
         String resourceName = "tableReadLock(" + fullTableName + ")";
         plannerResources.push(new CloseableResource(
-                resourceName, Thread.currentThread().getName(), originStatement.originStmt, tableIf::readUnlock));
+                resourceName, Thread.currentThread().getName(),
+                originStatement == null ? null : originStatement.originStmt, tableIf::readUnlock));
     }
 
     /** releasePlannerResources */
@@ -556,5 +559,13 @@ public class StatementContext implements Closeable {
         tableId = StatementScopeIdGenerator.newTableId();
         this.tableIdMapping.put(tableIdentifier, tableId);
         return tableId;
+    }
+
+    public Optional<String> getDisableJoinReorderReason() {
+        return Optional.ofNullable(disableJoinReorderReason);
+    }
+
+    public void setDisableJoinReorderReason(String disableJoinReorderReason) {
+        this.disableJoinReorderReason = disableJoinReorderReason;
     }
 }

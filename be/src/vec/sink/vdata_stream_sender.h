@@ -89,6 +89,7 @@ public:
     void reset_block() { _mutable_block.reset(); }
 
     void set_is_local(bool is_local) { _is_local = is_local; }
+    bool is_local() const { return _is_local; }
 
 private:
     Parent* _parent;
@@ -156,7 +157,7 @@ public:
 
     Status send_local_block(Status exec_status, bool eos = false);
 
-    Status send_local_block(Block* block);
+    Status send_local_block(Block* block, bool can_be_moved);
     // Flush buffered rows and close channel. This function don't wait the response
     // of close operation, client should call close_wait() to finish channel's close.
     // We split one close operation into two phases in order to make multiple channels
@@ -183,6 +184,8 @@ public:
 
     void set_receiver_eof(Status st) { _receiver_status = st; }
 
+    int64_t mem_usage() const;
+
 protected:
     bool _recvr_is_valid() {
         if (_local_recvr && !_local_recvr->is_closed()) {
@@ -194,7 +197,6 @@ protected:
     }
 
     Status _wait_last_brpc() {
-        SCOPED_TIMER(_parent->brpc_wait_timer());
         if (_send_remote_block_callback == nullptr) {
             return Status::OK();
         }

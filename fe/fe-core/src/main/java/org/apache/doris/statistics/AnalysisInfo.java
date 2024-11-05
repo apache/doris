@@ -198,7 +198,6 @@ public class AnalysisInfo implements Writable {
     public final boolean enablePartition;
 
     public final ConcurrentMap<Long, Long> indexesRowCount = new ConcurrentHashMap<>();
-    public final ConcurrentMap<Long, Long> indexesRowCountUpdateTime = new ConcurrentHashMap<>();
 
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Set<Pair<String, String>> jobColumns, Set<String> partitionNames, String colName, Long indexId,
@@ -357,9 +356,5 @@ public class AnalysisInfo implements Writable {
 
     public void addIndexRowCount(long indexId, long rowCount) {
         indexesRowCount.put(indexId, rowCount);
-    }
-
-    public void addIndexUpdateRowCountTime(long indexId, long time) {
-        indexesRowCountUpdateTime.put(indexId, time);
     }
 }

@@ -163,8 +163,7 @@ Status convert_to_arrow_field(SlotDescriptor* desc, std::shared_ptr<arrow::Field
     return Status::OK();
 }
 
-Status convert_block_arrow_schema(const vectorized::Block& block,
-                                  std::shared_ptr<arrow::Schema>* result) {
+Status get_arrow_schema(const vectorized::Block& block, std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
@@ -172,20 +171,6 @@ Status convert_block_arrow_schema(const vectorized::Block& block,
                                               &arrow_type));
         fields.push_back(std::make_shared<arrow::Field>(type_and_name.name, arrow_type,
                                                         type_and_name.type->is_nullable()));
-    }
-    *result = arrow::schema(std::move(fields));
-    return Status::OK();
-}
-
-Status convert_to_arrow_schema(const RowDescriptor& row_desc,
-                               std::shared_ptr<arrow::Schema>* result) {
-    std::vector<std::shared_ptr<arrow::Field>> fields;
-    for (auto tuple_desc : row_desc.tuple_descriptors()) {
-        for (auto desc : tuple_desc->slots()) {
-            std::shared_ptr<arrow::Field> field;
-            RETURN_IF_ERROR(convert_to_arrow_field(desc, &field));
-            fields.push_back(field);
-        }
     }
     *result = arrow::schema(std::move(fields));
     return Status::OK();

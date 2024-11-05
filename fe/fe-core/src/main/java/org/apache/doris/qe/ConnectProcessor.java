@@ -151,11 +151,13 @@ public abstract class ConnectProcessor {
         if (catalogName != null) {
             CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
             if (catalogIf == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
             if (catalogIf.getDbNullable(dbName) == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
         }
@@ -249,7 +251,7 @@ public abstract class ConnectProcessor {
     }
 
     public void executeQuery(String originStmt) throws Exception {
-        if (MetricRepo.isInit) {
+        if (MetricRepo.isInit && !ctx.getSessionVariable().internalSession) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
             if (Config.isCloudMode()) {
                 try {
@@ -558,11 +560,8 @@ public abstract class ConnectProcessor {
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
-                if (executor.sendProxyQueryResult()) {
-                    packet = getResultPacket();
-                } else {
-                    packet = executor.getOutputPacket();
-                }
+                executor.sendProxyQueryResult();
+                packet = executor.getOutputPacket();
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
@@ -721,16 +720,21 @@ public abstract class ConnectProcessor {
         result.setStatus(ctx.getState().toString());
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
-            if (request.isSetTxnLoadInfo()) {
-                TransactionEntry transactionEntry = ConnectContext.get().getTxnEntry();
-                // null if this is a commit or rollback command
-                if (transactionEntry != null) {
-                    result.setTxnLoadInfo(transactionEntry.getTxnInfoInMaster());
-                }
-            }
         } else {
-            result.setStatusCode(ctx.getState().getErrorCode().getCode());
+            ErrorCode errorCode = ctx.getState().getErrorCode();
+            if (errorCode != null) {
+                result.setStatusCode(errorCode.getCode());
+            } else {
+                result.setStatusCode(ErrorCode.ERR_UNKNOWN_ERROR.getCode());
+            }
             result.setErrMessage(ctx.getState().getErrorMessage());
+        }
+        if (request.isSetTxnLoadInfo()) {
+            TransactionEntry transactionEntry = ConnectContext.get().getTxnEntry();
+            // null if this is a commit or rollback command
+            if (transactionEntry != null) {
+                result.setTxnLoadInfo(transactionEntry.getTxnInfoInMaster());
+            }
         }
         if (executor != null) {
             if (executor.getProxyShowResultSet() != null) {

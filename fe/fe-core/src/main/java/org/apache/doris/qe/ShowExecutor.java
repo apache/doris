@@ -2231,7 +2231,9 @@ public class ShowExecutor {
     private void handleShowExport() throws AnalysisException {
         ShowExportStmt showExportStmt = (ShowExportStmt) stmt;
         Env env = Env.getCurrentEnv();
-        DatabaseIf db = env.getCurrentCatalog().getDbOrAnalysisException(showExportStmt.getDbName());
+        CatalogIf catalog = env.getCatalogMgr()
+                .getCatalogOrAnalysisException(showExportStmt.getCtlName());
+        DatabaseIf db = catalog.getDbOrAnalysisException(showExportStmt.getDbName());
         long dbId = db.getId();
 
         ExportMgr exportMgr = env.getExportMgr();
@@ -2733,19 +2735,12 @@ public class ShowExecutor {
             if (tableStats == null) {
                 resultSet = showTableStatsStmt.constructEmptyResultSet();
             } else {
-                resultSet = showTableStatsStmt.constructResultSet(tableStats);
+                resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
             }
             return;
         }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(tableIf.getId());
-        /*
-           tableStats == null means it's not analyzed, in this case show the estimated row count.
-         */
-        if (tableStats == null) {
-            resultSet = showTableStatsStmt.constructResultSet(tableIf.getCachedRowCount());
-        } else {
-            resultSet = showTableStatsStmt.constructResultSet(tableStats);
-        }
+        resultSet = showTableStatsStmt.constructResultSet(tableStats, tableIf);
     }
 
     private void handleShowColumnStats() throws AnalysisException {

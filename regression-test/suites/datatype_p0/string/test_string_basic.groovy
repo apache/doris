@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_string_basic") {
+    sql """set enable_fallback_to_original_planner=false"""
     sql """ DROP TABLE IF EXISTS test_str_column_max_len """
     sql """
             CREATE TABLE IF NOT EXISTS `test_str_column_max_len` (

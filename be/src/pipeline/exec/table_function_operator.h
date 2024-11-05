@@ -37,6 +37,7 @@ public:
     TableFunctionLocalState(RuntimeState* state, OperatorXBase* parent);
     ~TableFunctionLocalState() override = default;
 
+    Status init(RuntimeState* state, LocalStateInfo& infos) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override {
         for (auto* fn : _fns) {
@@ -67,6 +68,12 @@ private:
     std::unique_ptr<vectorized::Block> _child_block;
     int _current_row_insert_times = 0;
     bool _child_eos = false;
+
+    RuntimeProfile::Counter* _init_function_timer = nullptr;
+    RuntimeProfile::Counter* _process_rows_timer = nullptr;
+    RuntimeProfile::Counter* _copy_data_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
+    RuntimeProfile::Counter* _repeat_data_timer = nullptr;
 };
 
 class TableFunctionOperatorX final : public StatefulOperatorX<TableFunctionLocalState> {
@@ -75,7 +82,6 @@ public:
     TableFunctionOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                            const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(doris::RuntimeState* state) override;
     Status open(doris::RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override {
@@ -94,6 +100,7 @@ public:
         }
 
         for (auto* fn : local_state._fns) {
+            SCOPED_TIMER(local_state._init_function_timer);
             RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
         local_state.process_next_child_row();

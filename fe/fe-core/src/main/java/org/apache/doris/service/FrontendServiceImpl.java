@@ -2232,7 +2232,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TFrontendPingFrontendResult ping(TFrontendPingFrontendRequest request) throws TException {
         boolean isReady = Env.getCurrentEnv().isReady();
         TFrontendPingFrontendResult result = new TFrontendPingFrontendResult();
+        // The following fields are required in thrift.
+        // So must give them a default value to avoid "Required field xx was not present" error.
         result.setStatus(TFrontendPingFrontendStatusCode.OK);
+        result.setMsg("");
+        result.setQueryPort(0);
+        result.setRpcPort(0);
+        result.setReplayedJournalId(0);
+        result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
         if (isReady) {
             if (request.getClusterId() != Env.getCurrentEnv().getClusterId()) {
                 result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
@@ -3307,9 +3314,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
-        if (tableStats == null) {
-            return new TStatus(TStatusCode.OK);
-        }
         PartitionNames partitionNames = null;
         if (target.partitions != null) {
             partitionNames = new PartitionNames(false, new ArrayList<>(target.partitions));

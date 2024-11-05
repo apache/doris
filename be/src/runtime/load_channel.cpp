@@ -64,7 +64,6 @@ LoadChannel::LoadChannel(const UniqueId& load_id, int64_t timeout_s, bool is_hig
             if (workload_group_ptr) {
                 wg_ptr = workload_group_ptr;
                 wg_ptr->add_mem_tracker_limiter(mem_tracker);
-                _need_release_memtracker = true;
             }
         }
     }
@@ -84,12 +83,6 @@ LoadChannel::~LoadChannel() {
     for (const auto& entry : _tablets_channels_rows) {
         rows_str << ", index id: " << entry.first << ", total_received_rows: " << entry.second.first
                  << ", num_rows_filtered: " << entry.second.second;
-    }
-    if (_need_release_memtracker) {
-        WorkloadGroupPtr wg_ptr = _query_thread_context.get_workload_group_ptr();
-        if (wg_ptr) {
-            wg_ptr->remove_mem_tracker_limiter(_query_thread_context.get_memory_tracker());
-        }
     }
     LOG(INFO) << "load channel removed"
               << " load_id=" << _load_id << ", is high priority=" << _is_high_priority

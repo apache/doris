@@ -17,28 +17,25 @@
 
 #pragma once
 
-#include <limits.h>
-#include <stdlib.h>
-#include <string.h>
 #include <sys/types.h>
 
 #include <algorithm>
 #include <array>
 #include <boost/iterator/iterator_facade.hpp>
+#include <climits>
 #include <cmath>
 #include <codecvt>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <iomanip>
-#include <limits>
 #include <memory>
 #include <ostream>
 #include <random>
-#include <regex>
 #include <sstream>
-#include <stdexcept>
 #include <tuple>
 #include <type_traits>
+#include <unordered_map>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -49,7 +46,6 @@
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/runtime_state.h"
 #include "runtime/string_search.hpp"
 #include "util/sha.h"
 #include "util/string_util.h"
@@ -64,17 +60,11 @@
 #include "vec/common/memcpy_small.h"
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
-#include "vec/common/string_utils/string_utils.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
-#include "vec/functions/function_binary_arithmetic.h"
-#include "vec/functions/round.h"
-#include "vec/io/io_helper.h"
 #include "vec/utils/template_helpers.hpp"
 
 #ifndef USE_LIBCPP
@@ -1706,14 +1696,13 @@ public:
         }
 
         fmt::memory_buffer buffer;
-        buffer.reserve(strcol_chars.size());
+        buffer.resize(strcol_chars.size());
         size_t buffer_len = 0;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!pad_const) {
                 pad_index.clear();
             }
-            buffer.clear();
             const auto len = col_len_data[index_check_const<len_const>(i)];
             if (len < 0) {
                 // return NULL when input length is invalid number
@@ -1732,7 +1721,7 @@ public:
                                 (const char*)str_data, (const char*)str_data + str_len, len);
                 // If iterate_char_len equals len, it indicates that the str length is greater than or equal to len
                 if (iterate_char_len == len) {
-                    buffer.reserve(buffer_len + iterate_byte_len);
+                    buffer.resize(buffer_len + iterate_byte_len);
                     memcpy(buffer.data() + buffer_len, str_data, iterate_byte_len);
                     buffer_len += iterate_byte_len;
                     res_offsets[i] = buffer_len;
@@ -1756,7 +1745,7 @@ public:
                 const size_t pad_remainder_len = pad_index[(len - str_char_size) % pad_char_size];
                 const size_t new_capacity = str_len + size_t(pad_times + 1) * pad_len;
                 ColumnString::check_chars_length(buffer_len + new_capacity, i);
-                buffer.reserve(buffer_len + new_capacity);
+                buffer.resize(buffer_len + new_capacity);
                 if constexpr (!Impl::is_lpad) {
                     memcpy(buffer.data() + buffer_len, str_data, str_len);
                     buffer_len += str_len;
@@ -2729,43 +2718,60 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionUrlDecode>(); }
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 1; }
-    bool is_variadic() const override { return false; }
-
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeString>();
     }
 
-    Status execute_impl(FunctionContext* context, Block& block,
-
-                        const ColumnNumbers& arguments, size_t result,
-                        size_t input_rows_count) const override {
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
         auto res = ColumnString::create();
-        auto& res_offsets = res->get_offsets();
-        auto& res_chars = res->get_chars();
-        res_offsets.resize(input_rows_count);
+        res->get_offsets().reserve(input_rows_count);
 
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        const auto* url_col = check_and_get_column<ColumnString>(argument_column.get());
-
-        if (!url_col) {
-            return Status::InternalError("Not supported input argument type");
-        }
+        const auto* url_col =
+                assert_cast<const ColumnString*>(block.get_by_position(arguments[0]).column.get());
 
         std::string decoded_url;
-
         for (size_t i = 0; i < input_rows_count; ++i) {
-            auto source = url_col->get_data_at(i);
-            StringRef url_val(const_cast<char*>(source.data), source.size);
-
-            url_decode(url_val.to_string(), &decoded_url);
-
-            StringOP::push_value_string(decoded_url, i, res_chars, res_offsets);
+            auto url = url_col->get_data_at(i);
+            if (!url_decode(url.to_string(), &decoded_url)) {
+                return Status::InternalError("Decode url failed");
+            }
+            res->insert_data(decoded_url.data(), decoded_url.size());
             decoded_url.clear();
         }
 
         block.get_by_position(result).column = std::move(res);
+        return Status::OK();
+    }
+};
 
+class FunctionUrlEncode : public IFunction {
+public:
+    static constexpr auto name = "url_encode";
+    static FunctionPtr create() { return std::make_shared<FunctionUrlEncode>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 1; }
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        auto res = ColumnString::create();
+        res->get_offsets().reserve(input_rows_count);
+
+        const auto* url_col =
+                assert_cast<const ColumnString*>(block.get_by_position(arguments[0]).column.get());
+
+        std::string encoded_url;
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto url = url_col->get_data_at(i);
+            url_encode(url.to_string_view(), &encoded_url);
+            res->insert_data(encoded_url.data(), encoded_url.size());
+            encoded_url.clear();
+        }
+
+        block.get_by_position(result).column = std::move(res);
         return Status::OK();
     }
 };
@@ -4256,6 +4262,174 @@ private:
         }
 
         return {text_count, intersection_count};
+    }
+};
+
+class FunctionTranslate : public IFunction {
+public:
+    static constexpr auto name = "translate";
+    static FunctionPtr create() { return std::make_shared<FunctionTranslate>(); }
+    String get_name() const override { return name; }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeString>();
+    };
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>(),
+                std::make_shared<DataTypeString>()};
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        CHECK_EQ(arguments.size(), 3);
+        auto col_res = ColumnString::create();
+        bool col_const[3];
+        ColumnPtr argument_columns[3];
+        for (int i = 0; i < 3; ++i) {
+            col_const[i] = is_column_const(*block.get_by_position(arguments[i]).column);
+        }
+        argument_columns[0] = col_const[0] ? static_cast<const ColumnConst&>(
+                                                     *block.get_by_position(arguments[0]).column)
+                                                     .convert_to_full_column()
+                                           : block.get_by_position(arguments[0]).column;
+        default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
+
+        const auto* col_source = assert_cast<const ColumnString*>(argument_columns[0].get());
+        const auto* col_from = assert_cast<const ColumnString*>(argument_columns[1].get());
+        const auto* col_to = assert_cast<const ColumnString*>(argument_columns[2].get());
+
+        bool is_ascii = simd::VStringFunctions::is_ascii(
+                                {col_source->get_chars().data(), col_source->get_chars().size()}) &&
+                        simd::VStringFunctions::is_ascii(
+                                {col_from->get_chars().data(), col_from->get_chars().size()}) &&
+                        simd::VStringFunctions::is_ascii(
+                                {col_to->get_chars().data(), col_to->get_chars().size()});
+        auto impl_vectors = impl_vectors_utf8<false>;
+        if (col_const[1] && col_const[2] && is_ascii) {
+            impl_vectors = impl_vectors_ascii<true>;
+        } else if (col_const[1] && col_const[2]) {
+            impl_vectors = impl_vectors_utf8<true>;
+        } else if (is_ascii) {
+            impl_vectors = impl_vectors_ascii<false>;
+        }
+        impl_vectors(col_source, col_from, col_to, col_res);
+        block.get_by_position(result).column = std::move(col_res);
+        return Status::OK();
+    }
+
+private:
+    template <bool IsConst>
+    static void impl_vectors_ascii(const ColumnString* col_source, const ColumnString* col_from,
+                                   const ColumnString* col_to, ColumnString* col_res) {
+        col_res->get_chars().reserve(col_source->get_chars().size());
+        col_res->get_offsets().reserve(col_source->get_offsets().size());
+        std::unordered_map<char, char> translate_map;
+        if (IsConst) {
+            const auto& from_str = col_from->get_data_at(0);
+            const auto& to_str = col_to->get_data_at(0);
+            translate_map =
+                    build_translate_map_ascii(from_str.to_string_view(), to_str.to_string_view());
+        }
+        for (size_t i = 0; i < col_source->size(); ++i) {
+            const auto& source_str = col_source->get_data_at(i);
+            if (!IsConst) {
+                const auto& from_str = col_from->get_data_at(i);
+                const auto& to_str = col_to->get_data_at(i);
+                translate_map = build_translate_map_ascii(from_str.to_string_view(),
+                                                          to_str.to_string_view());
+            }
+            auto translated_str = translate_ascii(source_str.to_string_view(), translate_map);
+            col_res->insert_data(translated_str.data(), translated_str.size());
+        }
+    }
+
+    static std::unordered_map<char, char> build_translate_map_ascii(
+            const std::string_view& from_str, const std::string_view& to_str) {
+        std::unordered_map<char, char> translate_map;
+        for (size_t i = 0; i < from_str.size(); ++i) {
+            if (translate_map.find(from_str[i]) == translate_map.end()) {
+                translate_map[from_str[i]] = i < to_str.size() ? to_str[i] : 0;
+            }
+        }
+        return translate_map;
+    }
+
+    static std::string translate_ascii(const std::string_view& source_str,
+                                       std::unordered_map<char, char>& translate_map) {
+        std::string result;
+        result.reserve(source_str.size());
+        for (auto const& c : source_str) {
+            if (translate_map.find(c) != translate_map.end()) {
+                if (translate_map[c]) {
+                    result.push_back(translate_map[c]);
+                }
+            } else {
+                result.push_back(c);
+            }
+        }
+        return result;
+    }
+
+    template <bool IsConst>
+    static void impl_vectors_utf8(const ColumnString* col_source, const ColumnString* col_from,
+                                  const ColumnString* col_to, ColumnString* col_res) {
+        col_res->get_chars().reserve(col_source->get_chars().size());
+        col_res->get_offsets().reserve(col_source->get_offsets().size());
+        std::unordered_map<std::string_view, std::string_view> translate_map;
+        if (IsConst) {
+            const auto& from_str = col_from->get_data_at(0);
+            const auto& to_str = col_to->get_data_at(0);
+            translate_map =
+                    build_translate_map_utf8(from_str.to_string_view(), to_str.to_string_view());
+        }
+        for (size_t i = 0; i < col_source->size(); ++i) {
+            const auto& source_str = col_source->get_data_at(i);
+            if (!IsConst) {
+                const auto& from_str = col_from->get_data_at(i);
+                const auto& to_str = col_to->get_data_at(i);
+                translate_map = build_translate_map_utf8(from_str.to_string_view(),
+                                                         to_str.to_string_view());
+            }
+            auto translated_str = translate_utf8(source_str.to_string_view(), translate_map);
+            col_res->insert_data(translated_str.data(), translated_str.size());
+        }
+    }
+
+    static std::unordered_map<std::string_view, std::string_view> build_translate_map_utf8(
+            const std::string_view& from_str, const std::string_view& to_str) {
+        std::unordered_map<std::string_view, std::string_view> translate_map;
+        for (size_t i = 0, from_char_size = 0, j = 0, to_char_size = 0; i < from_str.size();
+             i += from_char_size, j += to_char_size) {
+            from_char_size = get_utf8_byte_length(from_str[i]);
+            to_char_size = j < to_str.size() ? get_utf8_byte_length(to_str[j]) : 0;
+            auto from_char = from_str.substr(i, from_char_size);
+            if (translate_map.find(from_char) == translate_map.end()) {
+                translate_map[from_char] =
+                        j < to_str.size() ? to_str.substr(j, to_char_size) : std::string_view();
+            }
+        }
+        return translate_map;
+    }
+
+    static std::string translate_utf8(
+            const std::string_view& source_str,
+            std::unordered_map<std::string_view, std::string_view>& translate_map) {
+        std::string result;
+        result.reserve(source_str.size());
+        for (size_t i = 0, char_size = 0; i < source_str.size(); i += char_size) {
+            char_size = get_utf8_byte_length(source_str[i]);
+            auto c = source_str.substr(i, char_size);
+            if (translate_map.find(c) != translate_map.end()) {
+                if (!translate_map[c].empty()) {
+                    result.append(translate_map[c]);
+                }
+            } else {
+                result.append(c);
+            }
+        }
+        return result;
     }
 };
 

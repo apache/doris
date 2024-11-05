@@ -31,6 +31,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.VariableAnnotation;
+import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 
@@ -40,7 +41,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.commons.lang3.SerializationUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.similarity.JaroWinklerDistance;
 import org.apache.logging.log4j.LogManager;
@@ -797,6 +797,42 @@ public class VariableMgr {
         });
 
         changedRows.addAll(defaultRows);
+        return changedRows;
+    }
+
+    public static List<List<String>> dumpChangedVars(SessionVariable sessionVar) {
+        // Hold the read lock when session dump, because this option need to access global variable.
+        rlock.lock();
+        List<List<String>> changedRows = Lists.newArrayList();
+        try {
+            for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+                VarContext ctx = entry.getValue();
+                List<String> row = Lists.newArrayList();
+                String varName = entry.getKey();
+                String curValue = getValue(sessionVar, ctx.getField());
+                String defaultValue = ctx.getDefaultValue();
+                if (VariableVarConverters.hasConverter(varName)) {
+                    try {
+                        defaultValue = VariableVarConverters.decode(varName, Long.valueOf(defaultValue));
+                        curValue = VariableVarConverters.decode(varName, Long.valueOf(curValue));
+                    } catch (DdlException e) {
+                        LOG.warn("Decode session variable {} failed, reason: {}", varName, e.getMessage());
+                    }
+                }
+
+                if (curValue.equals(defaultValue)) {
+                    continue;
+                }
+
+                row.add(varName);
+                row.add(curValue);
+                row.add(defaultValue);
+                changedRows.add(row);
+            }
+        } finally {
+            rlock.unlock();
+        }
+
         return changedRows;
     }
 

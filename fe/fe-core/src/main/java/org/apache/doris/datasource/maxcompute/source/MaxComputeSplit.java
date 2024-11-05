@@ -17,10 +17,10 @@
 
 package org.apache.doris.datasource.maxcompute.source;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileSplit;
 
 import lombok.Getter;
-import org.apache.hadoop.fs.Path;
 
 import java.util.List;
 
@@ -36,7 +36,7 @@ public class MaxComputeSplit extends FileSplit {
 
     public SplitType splitType;
 
-    public MaxComputeSplit(Path path, long start, long length, long fileLength,
+    public MaxComputeSplit(LocationPath path, long start, long length, long fileLength,
             long modificationTime, String[] hosts, List<String> partitionValues) {
         super(path, start, length, fileLength, modificationTime, hosts, partitionValues);
     }

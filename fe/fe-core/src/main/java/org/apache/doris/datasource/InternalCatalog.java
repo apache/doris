@@ -132,13 +132,13 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -221,7 +221,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
 
-    private QueryableReentrantLock lock = new QueryableReentrantLock(true);
+    private MonitoredReentrantLock lock = new MonitoredReentrantLock(true);
     private transient ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
     private transient ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
 
@@ -3698,8 +3698,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                            newPartitions,
-                            truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
+                            newPartitions, truncateEntireTable, truncateTableStmt.toSqlWithoutTable(), oldPartitions);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();

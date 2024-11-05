@@ -481,10 +481,14 @@ public abstract class BaseAnalysisTask {
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         String queryId = "";
-        try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
+        try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
-            long analyzeTimestamp = System.currentTimeMillis();
+            if (!colStatsData.isValid()) {
+                String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
+                LOG.warn(message);
+                throw new RuntimeException(message);
+            }
             // Update index row count after analyze.
             if (this instanceof OlapAnalysisTask) {
                 AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);
@@ -492,7 +496,6 @@ public abstract class BaseAnalysisTask {
                 jobInfo = jobInfo == null ? job.jobInfo : jobInfo;
                 long indexId = info.indexId == -1 ? ((OlapTable) tbl).getBaseIndexId() : info.indexId;
                 jobInfo.addIndexRowCount(indexId, colStatsData.count);
-                jobInfo.addIndexUpdateRowCountTime(indexId, analyzeTimestamp);
             }
             Env.getCurrentEnv().getStatisticsCache().syncColStats(colStatsData);
             queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
@@ -511,7 +514,7 @@ public abstract class BaseAnalysisTask {
     }
 
     protected void runInsert(String sql) throws Exception {
-        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext()) {
+        try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
             try {
                 stmtExecutor.execute();

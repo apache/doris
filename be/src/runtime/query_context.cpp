@@ -150,17 +150,15 @@ QueryContext::~QueryContext() {
     std::string mem_tracker_msg;
     if (query_mem_tracker->peak_consumption() != 0) {
         mem_tracker_msg = fmt::format(
-                ", deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
+                "deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
                 "PeakUsed={}",
-                print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
-                MemTracker::print_bytes(query_mem_tracker->consumption()),
-                MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
+                print_id(_query_id), MemCounter::print_bytes(query_mem_tracker->limit()),
+                MemCounter::print_bytes(query_mem_tracker->consumption()),
+                MemCounter::print_bytes(query_mem_tracker->peak_consumption()));
     }
     uint64_t group_id = 0;
     if (_workload_group) {
         group_id = _workload_group->id(); // before remove
-        _workload_group->remove_mem_tracker_limiter(query_mem_tracker);
-        _workload_group->remove_query(_query_id);
     }
 
     _exec_env->runtime_query_statistics_mgr()->set_query_finished(print_id(_query_id));
@@ -402,7 +400,7 @@ QueryContext::_collect_realtime_query_profile() const {
                 continue;
             }
 
-            auto profile = fragment_ctx->collect_realtime_profile_x();
+            auto profile = fragment_ctx->collect_realtime_profile();
 
             if (profile.empty()) {
                 std::string err_msg = fmt::format(

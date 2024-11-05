@@ -435,8 +435,6 @@ public class SessionVariable implements Serializable, Writable {
     public static final String JOIN_REORDER_TIME_LIMIT = "join_order_time_limit";
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
-    public static final String ENABLE_MINIDUMP = "enable_minidump";
-
     public static final String ENABLE_PAGE_CACHE = "enable_page_cache";
 
     public static final String MINIDUMP_PATH = "minidump_path";
@@ -505,6 +503,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_DELETE_SUB_PREDICATE_V2 = "enable_delete_sub_predicate_v2";
 
     public static final String JDBC_CLICKHOUSE_QUERY_FINAL = "jdbc_clickhouse_query_final";
+
+    public static final String JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN = "jdbc_oracle_null_predicate_pushdown";
 
     public static final String ENABLE_MEMTABLE_ON_SINK_NODE =
             "enable_memtable_on_sink_node";
@@ -604,6 +604,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PUSHDOWN_MINMAX_ON_UNIQUE = "enable_pushdown_minmax_on_unique";
 
+    public static final String HIVE_PARQUET_USE_COLUMN_NAMES = "hive_parquet_use_column_names";
+
+    public static final String HIVE_ORC_USE_COLUMN_NAMES = "hive_orc_use_column_names";
+
     public static final String KEEP_CARRIAGE_RETURN = "keep_carriage_return";
 
     public static final String ENABLE_PUSHDOWN_STRING_MINMAX = "enable_pushdown_string_minmax";
@@ -656,6 +660,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
 
+    public static final String REQUIRE_SEQUENCE_IN_INSERT = "require_sequence_in_insert";
+
+    public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -679,6 +687,11 @@ public class SessionVariable implements Serializable, Writable {
                     "Whether to add the FINAL keyword to the query SQL when querying ClickHouse JDBC external tables."})
     public boolean jdbcClickhouseQueryFinal = false;
 
+    @VariableMgr.VarAttr(name = JDBC_ORACLE_NULL_PREDICATE_PUSHDOWN, needForward = true,
+            description = {"是否允许将 NULL 谓词下推到 Oracle JDBC 外部表。",
+                    "Whether to allow NULL predicates to be pushed down to Oracle JDBC external tables."})
+    public boolean jdbcOracleNullPredicatePushdown = false;
+
     @VariableMgr.VarAttr(name = ROUND_PRECISE_DECIMALV2_VALUE)
     public boolean roundPreciseDecimalV2Value = false;
 
@@ -689,7 +702,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
     public long maxExecMemByte = 2147483648L;
 
-    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT)
+    @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT,
+            description = {"每个 Scan Instance 的 block queue 能够保存多少字节的 block",
+                    "How many bytes of block can be saved in the block queue of each Scan Instance"})
+    // 100MB
     public long maxScanQueueMemByte = 2147483648L / 20;
 
     @VariableMgr.VarAttr(name = NUM_SCANNER_THREADS, needForward = true, description = {
@@ -1137,7 +1153,7 @@ public class SessionVariable implements Serializable, Writable {
     public int sortPhaseNum = 0;
 
     @VariableMgr.VarAttr(name = HIVE_TEXT_COMPRESSION, needForward = true)
-    private String hiveTextCompression = "uncompressed";
+    private String hiveTextCompression = "plain";
 
     @VariableMgr.VarAttr(name = READ_CSV_EMPTY_LINE_AS_NULL, needForward = true,
             description = {"在读取csv文件时是否读取csv的空行为null",
@@ -1605,9 +1621,6 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DPHYPER_LIMIT)
     public int dphyperLimit = 1000;
 
-    @VariableMgr.VarAttr(name = ENABLE_MINIDUMP)
-    public boolean enableMinidump = false;
-
 
     @VariableMgr.VarAttr(
             name = ENABLE_PAGE_CACHE,
@@ -1619,9 +1632,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_FOLD_NONDETERMINISTIC_FN)
     public boolean enableFoldNondeterministicFn = false;
-
-    @VariableMgr.VarAttr(name = MINIDUMP_PATH)
-    public String minidumpPath = "";
 
     @VariableMgr.VarAttr(name = TRACE_NEREIDS)
     public boolean traceNereids = false;
@@ -1937,10 +1947,24 @@ public class SessionVariable implements Serializable, Writable {
     public int createTablePartitionMaxNum = 10000;
 
 
+    @VariableMgr.VarAttr(name = HIVE_PARQUET_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Parquet 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveParquetUseColumnNames = true;
+
+
+    @VariableMgr.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES,
+            description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
+                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
+                            + "by their ordinal position in the Hive table definition."})
+    public boolean hiveOrcUseColumnNames = true;
+
     @VariableMgr.VarAttr(name = KEEP_CARRIAGE_RETURN,
             description = {"在同时处理\r和\r\n作为CSV的行分隔符时，是否保留\r",
                     "When processing both \\n and \\r\\n as CSV line separators, should \\r be retained?"})
     public boolean keepCarriageReturn = false;
+
 
     @VariableMgr.VarAttr(name = FORCE_JNI_SCANNER,
             description = {"强制使用jni方式读取外表", "Force the use of jni mode to read external table"})
@@ -2136,6 +2160,20 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableFallbackOnMissingInvertedIndex = true;
 
+    @VariableMgr.VarAttr(name = REQUIRE_SEQUENCE_IN_INSERT, needForward = true, description = {
+            "该变量用于控制，使用了sequence列的unique key表，insert into操作是否要求必须提供每一行的sequence列的值",
+            "This variable controls whether the INSERT INTO operation on unique key tables with a sequence"
+                    + " column requires a sequence column to be provided for each row"
+    })
+    public boolean requireSequenceInInsert = true;
+
+
+    @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, description = {
+            "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
+            "Skip checking transactional hive version file '_orc_acid_version.'"
+    })
+    public boolean skipCheckingAcidVersionFile = false;
+
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
     }
@@ -2283,6 +2321,8 @@ public class SessionVariable implements Serializable, Writable {
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
 
         // for spill to disk
+        /*
+        // disable fuzzy spill for now since it's in progress of refactoring
         if (Config.pull_request_id > 10000) {
             if (Config.pull_request_id % 2 == 0) {
                 this.enableJoinSpill = true;
@@ -2310,6 +2350,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.enableAggSpill = false;
             }
         }
+        */
     }
 
     public String printFuzzyVariables() {
@@ -3589,6 +3630,14 @@ public class SessionVariable implements Serializable, Writable {
         return this.enableSegmentCache;
     }
 
+    public void setRequireSequenceInInsert(boolean value) {
+        this.requireSequenceInInsert = value;
+    }
+
+    public boolean isRequireSequenceInInsert() {
+        return this.requireSequenceInInsert;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -3731,6 +3780,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
 
         tResult.setEnableSegmentCache(enableSegmentCache);
+        tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
+        tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setKeepCarriageReturn(keepCarriageReturn);
         return tResult;
     }
@@ -3957,22 +4008,6 @@ public class SessionVariable implements Serializable, Writable {
         return "";
     }
 
-    public boolean isEnableMinidump() {
-        return enableMinidump;
-    }
-
-    public void setEnableMinidump(boolean enableMinidump) {
-        this.enableMinidump = enableMinidump;
-    }
-
-    public String getMinidumpPath() {
-        return minidumpPath;
-    }
-
-    public void setMinidumpPath(String minidumpPath) {
-        this.minidumpPath = minidumpPath;
-    }
-
     public boolean isTraceNereids() {
         return traceNereids;
     }
@@ -4065,6 +4100,10 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public String hiveTextCompression() {
+        if (hiveTextCompression.equals("uncompressed")) {
+            // This is for compatibility.
+            return "plain";
+        }
         return hiveTextCompression;
     }
 
@@ -4255,7 +4294,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isIgnoreStorageDataDistribution() {
-        return ignoreStorageDataDistribution && enableLocalShuffle;
+        return ignoreStorageDataDistribution && enableLocalShuffle && enableNereidsPlanner;
     }
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
@@ -4293,7 +4332,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isForceToLocalShuffle() {
-        return enableLocalShuffle && forceToLocalShuffle;
+        return enableLocalShuffle && forceToLocalShuffle && enableNereidsPlanner;
     }
 
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {

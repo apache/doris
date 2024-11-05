@@ -171,14 +171,12 @@ private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _open_reader_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
-    RuntimeProfile::Counter* _fill_path_columns_timer = nullptr;
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _not_found_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
-    RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
     const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     // single slot filter conjuncts
@@ -207,7 +205,6 @@ private:
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
     Status _generate_fill_columns();
-    Status _handle_dynamic_block(Block* block);
     Status _process_conjuncts_for_dict_filter();
     Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
@@ -225,7 +222,7 @@ private:
     // 1. max_external_file_meta_cache_num is > 0
     // 2. the file number is less than 1/3 of cache's capacibility
     // Otherwise, the cache miss rate will be high
-    bool _shoudl_enable_file_meta_cache() {
+    bool _should_enable_file_meta_cache() {
         return config::max_external_file_meta_cache_num > 0 &&
                _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }

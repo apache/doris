@@ -194,10 +194,14 @@ DECLARE_mBool(enable_stacktrace);
 // if alloc failed using Doris Allocator, will print stacktrace in error log.
 // if is -1, disable print stacktrace when alloc large memory.
 DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
+
 // when alloc memory larger than crash_in_alloc_large_memory_bytes will crash, default -1 means disabled.
 // if you need a core dump to analyze large memory allocation,
 // modify this parameter to crash when large memory allocation occur will help
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
+
+// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+DECLARE_mBool(crash_in_memory_tracker_inaccurate);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
 // !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
@@ -664,14 +668,6 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
-// percent of (active memtables size / all memtables size) when reach hard limit
-DECLARE_mInt32(memtable_hard_limit_active_percent);
-
-// percent of (active memtables size / all memtables size) when reach soft limit
-DECLARE_mInt32(memtable_soft_limit_active_percent);
-
-// memtable insert memory tracker will multiply input block size with this ratio
-DECLARE_mDouble(memtable_insert_memory_ratio);
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -1203,6 +1199,7 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
+DECLARE_mBool(variant_use_cloud_schema_dict);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
@@ -1457,6 +1454,9 @@ DECLARE_mInt32(snappy_compression_block_size);
 DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
+
+// MB
+DECLARE_Int32(query_cache_size);
 
 #ifdef BE_TEST
 // test s3

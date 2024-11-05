@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayZip;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
@@ -427,12 +428,14 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlEncode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
@@ -692,6 +695,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitAsin(Asin asin, C context) {
         return visitScalarFunction(asin, context);
+    }
+
+    default R visitAssertTrue(AssertTrue assertTrue, C context) {
+        return visitScalarFunction(assertTrue, context);
     }
 
     default R visitAtan(Atan atan, C context) {
@@ -1658,6 +1665,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(urlDecode, context);
     }
 
+    default R visitUrlEncode(UrlEncode urlEncode, C context) {
+        return visitScalarFunction(urlEncode, context);
+    }
+
     default R visitRandomBytes(RandomBytes randomBytes, C context) {
         return visitScalarFunction(randomBytes, context);
     }
@@ -2056,6 +2067,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitToQuantileState(ToQuantileState toQuantileState, C context) {
         return visitScalarFunction(toQuantileState, context);
+    }
+
+    default R visitTranslate(Translate translate, C context) {
+        return visitScalarFunction(translate, context);
     }
 
     default R visitTrim(Trim trim, C context) {

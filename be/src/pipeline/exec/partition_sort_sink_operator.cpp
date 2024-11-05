@@ -124,7 +124,7 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
             ADD_COUNTER(_profile, "SortedPartitionInputRows", TUnit::UNIT);
     _partition_sort_info = std::make_shared<PartitionSortInfo>(
             &_vsort_exec_exprs, p._limit, 0, p._pool, p._is_asc_order, p._nulls_first,
-            p._child_x->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
+            p._child->row_desc(), state, _profile, p._has_global_limit, p._partition_inner_limit,
             p._top_n_algorithm, p._topn_phase);
     _profile->add_info_string("PartitionTopNPhase", to_string(p._topn_phase));
     _profile->add_info_string("PartitionTopNLimit", std::to_string(p._partition_inner_limit));
@@ -163,13 +163,10 @@ Status PartitionSortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     return Status::OK();
 }
 
-Status PartitionSortSinkOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child_x->row_desc(), _row_descriptor));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_partition_expr_ctxs, state, _child_x->row_desc()));
-    return Status::OK();
-}
-
 Status PartitionSortSinkOperatorX::open(RuntimeState* state) {
+    RETURN_IF_ERROR(DataSinkOperatorX<PartitionSortSinkLocalState>::open(state));
+    RETURN_IF_ERROR(_vsort_exec_exprs.prepare(state, _child->row_desc(), _row_descriptor));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_partition_expr_ctxs, state, _child->row_desc()));
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_ERROR(vectorized::VExpr::open(_partition_expr_ctxs, state));
     return Status::OK();
@@ -187,7 +184,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                 local_state._value_places.push_back(_pool->add(new PartitionBlocks(
                         local_state._partition_sort_info, local_state._value_places.empty())));
             }
-            local_state._value_places[0]->append_whole_block(input_block, _child_x->row_desc());
+            local_state._value_places[0]->append_whole_block(input_block, _child->row_desc());
         } else {
             if (local_state._is_need_passthrough) {
                 {

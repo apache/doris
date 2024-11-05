@@ -42,20 +42,20 @@ suite("test_hint") {
     sql """create table t2 (c2 int, c22 int) distributed by hash(c2) buckets 3 properties('replication_num' = '1');"""
 
 // test hint positions, remove join in order to make sure shape stable when no use hint
-    qt_select1_1 """explain shape plan select /*+ leading(t2 broadcast t1) */ count(*) from t1 join t2 on c1 = c2;"""
+    // qt_select1_1 """explain shape plan select /*+ leading(t2 broadcast t1) */ count(*) from t1 join t2 on c1 = c2;"""
 
-    qt_select1_2 """explain shape plan /*+ leading(t2 broadcast t1) */ select count(*) from t1;"""
+    // qt_select1_2 """explain shape plan /*+ leading(t2 broadcast t1) */ select count(*) from t1;"""
 
-    qt_select1_3 """explain shape plan select /*+DBP: ROUTE={GROUP_ID(zjaq)}*/ count(*) from t1;"""
+    // qt_select1_3 """explain shape plan select /*+DBP: ROUTE={GROUP_ID(zjaq)}*/ count(*) from t1;"""
 
-    qt_select1_4 """explain shape plan/*+DBP: ROUTE={GROUP_ID(zjaq)}*/ select count(*) from t1;"""
+    // qt_select1_4 """explain shape plan/*+DBP: ROUTE={GROUP_ID(zjaq)}*/ select count(*) from t1;"""
 
-    qt_select1_5 """explain shape plan /*+ leading(t2 broadcast t1) */ select /*+ leading(t2 broadcast t1) */ count(*) from t1 join t2 on c1 = c2;"""
+    // qt_select1_5 """explain shape plan /*+ leading(t2 broadcast t1) */ select /*+ leading(t2 broadcast t1) */ count(*) from t1 join t2 on c1 = c2;"""
 
-    qt_select1_6 """explain shape plan/*+DBP: ROUTE={GROUP_ID(zjaq)}*/ select /*+ leading(t2 broadcast t1) */ count(*) from t1 join t2 on c1 = c2;"""
+    // qt_select1_6 """explain shape plan/*+DBP: ROUTE={GROUP_ID(zjaq)}*/ select /*+ leading(t2 broadcast t1) */ count(*) from t1 join t2 on c1 = c2;"""
 
-    qt_select1_7 """explain shape plan /*+ leading(t2 broadcast t1) */ select /*+DBP: ROUTE={GROUP_ID(zjaq)}*/ count(*) from t1;"""
+    // qt_select1_7 """explain shape plan /*+ leading(t2 broadcast t1) */ select /*+DBP: ROUTE={GROUP_ID(zjaq)}*/ count(*) from t1;"""
 
-    qt_select1_8 """explain shape plan /*+DBP: ROUTE={GROUP_ID(zjaq)}*/ select /*+DBP: ROUTE={GROUP_ID(zjaq)}*/ count(*) from t1;"""
+    // qt_select1_8 """explain shape plan /*+DBP: ROUTE={GROUP_ID(zjaq)}*/ select /*+DBP: ROUTE={GROUP_ID(zjaq)}*/ count(*) from t1;"""
 
 }

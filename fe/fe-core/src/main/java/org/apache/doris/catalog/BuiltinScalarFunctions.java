@@ -71,6 +71,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayZip;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraysOverlap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ascii;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Asin;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.AssertTrue;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Atan2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.AutoPartitionName;
@@ -430,12 +431,14 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToIso8601;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnixTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Upper;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlDecode;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.UrlEncode;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UtcTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
@@ -526,6 +529,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArraysOverlap.class, "arrays_overlap"),
             scalar(Ascii.class, "ascii"),
             scalar(Asin.class, "asin"),
+            scalar(AssertTrue.class, "assert_true"),
             scalar(Atan.class, "atan"),
             scalar(Atan2.class, "atan2"),
             scalar(AutoPartitionName.class, "auto_partition_name"),
@@ -904,6 +908,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Tokenize.class, "tokenize"),
             scalar(ToMonday.class, "to_monday"),
             scalar(ToQuantileState.class, "to_quantile_state"),
+            scalar(Translate.class, "translate"),
             scalar(Trim.class, "trim"),
             scalar(Truncate.class, "truncate"),
             scalar(Unhex.class, "unhex"),
@@ -911,6 +916,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Upper.class, "ucase", "upper"),
             scalar(Quote.class, "quote"),
             scalar(UrlDecode.class, "url_decode"),
+            scalar(UrlEncode.class, "url_encode"),
             scalar(User.class, "user"),
             scalar(UtcTimestamp.class, "utc_timestamp"),
             scalar(Uuid.class, "uuid"),

@@ -27,7 +27,9 @@ import org.apache.doris.nereids.trees.expressions.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -43,6 +45,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,7 +88,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         Preconditions.checkArgument(!projects.isEmpty() || !(child instanceof Unbound),
                 "projects can not be empty when child plan is unbound");
         this.projects = projects.isEmpty()
-                ? ImmutableList.of(ExpressionUtils.selectMinimumColumn(child.get(0).getOutput()))
+                ? ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)))
                 : projects;
         this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
         this.excepts = Utils.fastToImmutableList(excepts);
@@ -201,7 +204,15 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
 
     @Override
     public Plan pruneOutputs(List<NamedExpression> prunedOutputs) {
-        return withProjects(prunedOutputs);
+        List<NamedExpression> allProjects = new ArrayList<>(prunedOutputs);
+        for (NamedExpression expression : projects) {
+            if (expression.containsType(NoneMovableFunction.class)) {
+                if (!prunedOutputs.contains(expression)) {
+                    allProjects.add(expression);
+                }
+            }
+        }
+        return withProjects(allProjects);
     }
 
     @Override

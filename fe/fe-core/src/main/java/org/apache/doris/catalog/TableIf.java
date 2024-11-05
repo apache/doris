@@ -55,6 +55,8 @@ import java.util.stream.Collectors;
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
 
+    long UNKNOWN_ROW_COUNT = -1;
+
     default void readLock() {
     }
 
@@ -559,4 +561,8 @@ public interface TableIf {
     default boolean isPartitionedTable() {
         return false;
     }
+
+    boolean autoAnalyzeEnabled();
+
+    TableIndexes getTableIndexes();
 }

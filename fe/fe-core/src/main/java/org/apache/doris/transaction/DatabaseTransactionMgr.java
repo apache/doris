@@ -36,8 +36,6 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -45,16 +43,14 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.InternalDatabaseUtil;
 import org.apache.doris.common.util.MetaLockUtils;
-import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BatchRemoveTransactionsOperationV2;
 import org.apache.doris.persist.CleanLabelOperationLog;
 import org.apache.doris.persist.EditLog;
@@ -94,7 +90,6 @@ import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -123,7 +118,7 @@ public class DatabaseTransactionMgr {
 
     // the lock is used to control the access to transaction states
     // no other locks should be inside this lock
-    private final ReentrantReadWriteLock transactionLock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock transactionLock = new MonitoredReentrantReadWriteLock(true);
 
     // transactionId -> running TransactionState
     private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
@@ -249,9 +244,7 @@ public class DatabaseTransactionMgr {
                     .sorted(TransactionState.TXN_ID_COMPARATOR)
                     .limit(limit)
                     .forEach(t -> {
-                        List<String> info = Lists.newArrayList();
-                        getTxnStateInfo(t, info);
-                        infos.add(info);
+                        infos.add(TransactionUtil.getTxnStateInfo(t, Lists.newArrayList()));
                     });
         } finally {
             readUnlock();
@@ -287,9 +280,7 @@ public class DatabaseTransactionMgr {
                     .filter(transactionState -> (transactionState.getTransactionStatus() == status))
                     .sorted(TransactionState.TXN_ID_COMPARATOR)
                     .forEach(t -> {
-                        List<String> info = Lists.newArrayList();
-                        getTxnStateInfo(t, info);
-                        infos.add(info);
+                        infos.add(TransactionUtil.getTxnStateInfo(t, Lists.newArrayList()));
                     });
         } finally {
             readUnlock();
@@ -309,9 +300,7 @@ public class DatabaseTransactionMgr {
                     .filter(transactionState -> (transactionState.getLabel().matches(labelRegex)))
                     .sorted(TransactionState.TXN_ID_COMPARATOR)
                     .forEach(t -> {
-                        List<String> info = Lists.newArrayList();
-                        getTxnStateInfo(t, info);
-                        infos.add(info);
+                        infos.add(TransactionUtil.getTxnStateInfo(t, Lists.newArrayList()));
                     });
         } finally {
             readUnlock();
@@ -319,23 +308,6 @@ public class DatabaseTransactionMgr {
         return infos;
     }
 
-    private void getTxnStateInfo(TransactionState txnState, List<String> info) {
-        info.add(String.valueOf(txnState.getTransactionId()));
-        info.add(txnState.getLabel());
-        info.add(txnState.getCoordinator().toString());
-        info.add(txnState.getTransactionStatus().name());
-        info.add(txnState.getSourceType().name());
-        info.add(TimeUtils.longToTimeString(txnState.getPrepareTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getPreCommitTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getCommitTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getLastPublishVersionTime()));
-        info.add(TimeUtils.longToTimeString(txnState.getFinishTime()));
-        info.add(txnState.getReason());
-        info.add(String.valueOf(txnState.getErrorReplicas().size()));
-        info.add(String.valueOf(txnState.getCallbackId()));
-        info.add(String.valueOf(txnState.getTimeoutMs()));
-        info.add(txnState.getErrMsg());
-    }
 
     public long beginTransaction(List<Long> tableIdList, String label, TUniqueId requestId,
             TransactionState.TxnCoordinator coordinator, TransactionState.LoadJobSourceType sourceType,
@@ -2069,35 +2041,12 @@ public class DatabaseTransactionMgr {
         List<List<String>> infos = new ArrayList<List<String>>();
         readLock();
         try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbId);
             TransactionState txnState = unprotectedGetTransactionState(txnId);
             if (txnState == null) {
                 throw new AnalysisException("transaction with id " + txnId + " does not exist");
             }
-
-            if (ConnectContext.get() != null) {
-                // check auth
-                Set<Long> tblIds = txnState.getIdToTableCommitInfos().keySet();
-                for (Long tblId : tblIds) {
-                    Table tbl = db.getTableNullable(tblId);
-                    if (tbl != null) {
-                        if (!Env.getCurrentEnv().getAccessManager()
-                                .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
-                                        db.getFullName(),
-                                        tbl.getName(), PrivPredicate.SHOW)) {
-                            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
-                                    "SHOW TRANSACTION",
-                                    ConnectContext.get().getQualifiedUser(),
-                                    ConnectContext.get().getRemoteIP(),
-                                    db.getFullName() + ": " + tbl.getName());
-                        }
-                    }
-                }
-            }
-
-            List<String> info = Lists.newArrayList();
-            getTxnStateInfo(txnState, info);
-            infos.add(info);
+            TransactionUtil.checkAuth(dbId, txnState);
+            infos.add(TransactionUtil.getTxnStateInfo(txnState, Lists.newArrayList()));
         } finally {
             readUnlock();
         }
@@ -2295,6 +2244,9 @@ public class DatabaseTransactionMgr {
                                         replica.getId(), newVersion, lastFailedVersion, lastSuccessVersion);
                             }
                             replica.updateVersionWithFailed(newVersion, lastFailedVersion, lastSuccessVersion);
+                            if (newVersion == Partition.PARTITION_INIT_VERSION + 1) {
+                                index.setRowCountReported(false);
+                            }
                             Set<Long> partitionIds = backendPartitions.get(replica.getBackendIdWithoutException());
                             if (partitionIds == null) {
                                 partitionIds = Sets.newHashSet();

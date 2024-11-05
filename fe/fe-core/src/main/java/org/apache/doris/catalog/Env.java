@@ -113,6 +113,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.lock.MonitoredReentrantLock;
 import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
@@ -124,7 +125,6 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
-import org.apache.doris.common.util.QueryableReentrantLock;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -132,6 +132,7 @@ import org.apache.doris.consistency.ConsistencyChecker;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.ExternalMetaIdMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -369,7 +370,7 @@ public class Env {
     // We use fair ReentrantLock to avoid starvation. Do not use this lock in critical code pass
     // because fair lock has poor performance.
     // Using QueryableReentrantLock to print owner thread in debug mode.
-    private QueryableReentrantLock lock;
+    private MonitoredReentrantLock lock;
 
     private CatalogMgr catalogMgr;
     private GlobalFunctionMgr globalFunctionMgr;
@@ -693,7 +694,7 @@ public class Env {
         this.syncJobManager = new SyncJobManager();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
-        this.lock = new QueryableReentrantLock(true);
+        this.lock = new MonitoredReentrantLock(true);
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
@@ -2987,8 +2988,8 @@ public class Env {
             }
         }
         long cost = System.currentTimeMillis() - startTime;
-        if (cost >= 1000) {
-            LOG.warn("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
+        if (LOG.isDebugEnabled() && cost >= 1000) {
+            LOG.debug("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
         }
 
         return hasLog;
@@ -5158,11 +5159,7 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
-            try {
-                Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
-            } catch (Exception e) {
-                LOG.info("Failed to drop stats after rename column. Reason: {}", e.getMessage());
-            }
+            Env.getCurrentEnv().getAnalysisManager().dropStats(table, null);
         }
     }
 
@@ -5335,7 +5332,8 @@ public class Env {
                 .buildEnableSingleReplicaCompaction()
                 .buildTimeSeriesCompactionEmptyRowsetsThreshold()
                 .buildTimeSeriesCompactionLevelThreshold()
-                .buildTTLSeconds();
+                .buildTTLSeconds()
+                .buildAutoAnalyzeProperty();
 
         // need to update partition info meta
         for (Partition partition : table.getPartitions()) {
@@ -5362,9 +5360,16 @@ public class Env {
 
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
             throws MetaNotFoundException {
+        String ctlName = info.getCtlName();
         long dbId = info.getDbId();
         long tableId = info.getTableId();
         Map<String, String> properties = info.getProperties();
+
+        // Handle HMSExternalTable set auto analyze policy.
+        if (ctlName != null && !(InternalCatalog.INTERNAL_CATALOG_NAME.equalsIgnoreCase(ctlName))) {
+            setExternalTableAutoAnalyze(properties, info);
+            return;
+        }
 
         Database db = getInternalCatalog().getDbOrMetaException(dbId);
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
@@ -5402,6 +5407,33 @@ public class Env {
             }
         } finally {
             olapTable.writeUnlock();
+        }
+    }
+
+    private void setExternalTableAutoAnalyze(Map<String, String> properties, ModifyTablePropertyOperationLog info) {
+        if (properties.size() != 1) {
+            LOG.warn("External table property should contain exactly 1 entry.");
+            return;
+        }
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)) {
+            LOG.warn("External table property should only contain auto_analyze_policy");
+            return;
+        }
+        String value = properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY);
+        if (!PropertyAnalyzer.ENABLE_AUTO_ANALYZE_POLICY.equalsIgnoreCase(value)
+                && !PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY.equalsIgnoreCase(value)
+                && !PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY.equalsIgnoreCase(value)) {
+            LOG.warn("External table property should be 'enable', 'disable' or 'base_on_catalog'");
+            return;
+        }
+        try {
+            CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr()
+                    .getCatalogOrException(info.getCtlName(),
+                        ctlName -> new DdlException("Unknown catalog " + ctlName));
+            value = value.equalsIgnoreCase(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY) ? null : value;
+            ((ExternalCatalog) catalog).setAutoAnalyzePolicy(info.getDbName(), info.getTableName(), value);
+        } catch (Exception e) {
+            LOG.warn("Failed to replay external table set property.", e);
         }
     }
 
@@ -5801,8 +5833,9 @@ public class Env {
         ConfigBase.setMutableConfig(key, value);
         if (configtoThreads.get(key) != null) {
             try {
+                // not atomic. maybe delay to aware. but acceptable.
                 configtoThreads.get(key).get().setInterval(Config.getField(key).getLong(null) * 1000L);
-                configtoThreads.get(key).get().interrupt();
+                // shouldn't interrupt to keep possible bdbje writing safe.
                 LOG.info("set config " + key + " to " + value);
             } catch (IllegalAccessException e) {
                 LOG.warn("set config " + key + " failed: " + e.getMessage());

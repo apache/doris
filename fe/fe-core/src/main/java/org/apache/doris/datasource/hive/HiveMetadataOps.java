@@ -40,6 +40,7 @@ import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
 import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -172,6 +173,12 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         }
         try {
             Map<String, String> props = stmt.getProperties();
+            // set default owner
+            if (!props.containsKey("owner")) {
+                if (ConnectContext.get() != null) {
+                    props.put("owner", ConnectContext.get().getUserIdentity().getUser());
+                }
+            }
             String fileFormat = props.getOrDefault(FILE_FORMAT_KEY, Config.hive_default_file_format);
             Map<String, String> ddlProps = new HashMap<>();
             for (Map.Entry<String, String> entry : props.entrySet()) {
@@ -248,20 +255,26 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
+        String tblName = stmt.getTableName();
         ExternalDatabase<?> db = catalog.getDbNullable(stmt.getDbName());
         if (db == null) {
-            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + catalog.getName());
+            if (stmt.isSetIfExists()) {
+                LOG.info("database [{}] does not exist when drop table[{}]", dbName, tblName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_BAD_DB_ERROR, dbName);
+            }
         }
-        if (!tableExist(dbName, stmt.getTableName())) {
+        if (!tableExist(dbName, tblName)) {
             if (stmt.isSetIfExists()) {
                 LOG.info("drop table[{}] which does not exist", dbName);
                 return;
             } else {
-                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, stmt.getTableName(), dbName);
+                ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tblName, dbName);
             }
         }
         try {
-            client.dropTable(dbName, stmt.getTableName());
+            client.dropTable(dbName, tblName);
             db.setUnInitialized(true);
         } catch (Exception e) {
             throw new DdlException(e.getMessage(), e);

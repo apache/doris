@@ -33,6 +33,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
@@ -45,7 +46,6 @@ import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
-import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TMaxComputeFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -58,8 +58,8 @@ import com.aliyun.odps.table.read.TableBatchReadSession;
 import com.aliyun.odps.table.read.TableReadSessionBuilder;
 import com.aliyun.odps.table.read.split.InputSplitAssigner;
 import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
+import com.google.common.collect.Maps;
 import jline.internal.Log;
-import org.apache.hadoop.fs.Path;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -81,7 +81,10 @@ import java.util.stream.Collectors;
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
-    TableBatchReadSession tableBatchReadSession;
+    private TableBatchReadSession tableBatchReadSession;
+    private Predicate filterPredicate;
+    private static final LocationPath ROW_OFFSET_PATH = new LocationPath("/row_offset", Maps.newHashMap());
+    private static final LocationPath BYTE_SIZE_PATH = new LocationPath("/byte_size", Maps.newHashMap());
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
@@ -100,7 +103,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
     }
 
-    public void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
+    private void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(TableFormatType.MAX_COMPUTE.value());
         TMaxComputeFileDesc fileDesc = new TMaxComputeFileDesc();
@@ -115,8 +118,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     }
 
     void createTableBatchReadSession() throws UserException {
-        Predicate filterPredicate = convertPredicate();
-
         List<String> requiredPartitionColumns = new ArrayList<>();
         List<String> orderedRequiredDataColumns = new ArrayList<>();
 
@@ -164,9 +165,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     }
 
-    protected Predicate convertPredicate() {
+    @Override
+    protected void convertPredicate() {
         if (conjuncts.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         }
 
         List<Predicate> odpsPredicates = new ArrayList<>();
@@ -180,9 +182,9 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
 
         if (odpsPredicates.isEmpty()) {
-            return Predicate.NO_PREDICATE;
+            this.filterPredicate = Predicate.NO_PREDICATE;
         } else if (odpsPredicates.size() == 1) {
-            return odpsPredicates.get(0);
+            this.filterPredicate = odpsPredicates.get(0);
         } else {
             com.aliyun.odps.table.optimizer.predicate.CompoundPredicate
                     filterPredicate = new com.aliyun.odps.table.optimizer.predicate.CompoundPredicate(
@@ -191,7 +193,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             for (Predicate odpsPredicate : odpsPredicates) {
                 filterPredicate.addPredicate(odpsPredicate);
             }
-            return filterPredicate;
+            this.filterPredicate = filterPredicate;
         }
     }
 
@@ -402,16 +404,6 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
 
     @Override
-    protected TFileType getLocationType() throws UserException {
-        return getLocationType(null);
-    }
-
-    @Override
-    protected TFileType getLocationType(String location) throws UserException {
-        return TFileType.FILE_NET;
-    }
-
-    @Override
     public TFileFormatType getFileFormatType() {
         return TFileFormatType.FORMAT_JNI;
     }
@@ -451,7 +443,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
                 for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
                     MaxComputeSplit maxComputeSplit =
-                            new MaxComputeSplit(new Path("/row_offset"),
+                            new MaxComputeSplit(BYTE_SIZE_PATH,
                                     ((IndexedInputSplit) split).getSplitIndex(), -1,
                                     mcCatalog.getSplitByteSize(),
                                     modificationTime, null,
@@ -474,7 +466,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                             assigner.getSplitByRowOffset(offset, recordsPerSplit);
 
                     MaxComputeSplit maxComputeSplit =
-                            new MaxComputeSplit(new Path("/row_offset"),
+                            new MaxComputeSplit(ROW_OFFSET_PATH,
                             offset, recordsPerSplit, totalRowCount, modificationTime, null,
                             Collections.emptyList());
 

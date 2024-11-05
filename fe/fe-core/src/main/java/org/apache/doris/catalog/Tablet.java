@@ -27,6 +27,7 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -51,7 +52,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 
@@ -128,7 +128,7 @@ public class Tablet extends MetaObject {
     private long cooldownReplicaId = -1;
     @SerializedName(value = "ctm", alternate = {"cooldownTerm"})
     private long cooldownTerm = -1;
-    private ReentrantReadWriteLock cooldownConfLock = new ReentrantReadWriteLock();
+    private MonitoredReentrantReadWriteLock cooldownConfLock = new MonitoredReentrantReadWriteLock();
 
     // last time that the tablet checker checks this tablet.
     // no need to persist
@@ -526,6 +526,23 @@ public class Tablet extends MetaObject {
         LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
                 .mapToLong(Replica::getRowCount);
         return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+    }
+
+    // Get the least row count among all valid replicas.
+    // The replica with the least row count is the most accurate one. Because it performs most compaction.
+    public long getMinReplicaRowCount(long version) {
+        long minRowCount = Long.MAX_VALUE;
+        long maxReplicaVersion = 0;
+        for (Replica r : replicas) {
+            if (r.isAlive()
+                    && r.checkVersionCatchUp(version, false)
+                    && (r.getVersion() > maxReplicaVersion
+                        || r.getVersion() == maxReplicaVersion && r.getRowCount() < minRowCount)) {
+                minRowCount = r.getRowCount();
+                maxReplicaVersion = r.getVersion();
+            }
+        }
+        return minRowCount == Long.MAX_VALUE ? 0 : minRowCount;
     }
 
     /**

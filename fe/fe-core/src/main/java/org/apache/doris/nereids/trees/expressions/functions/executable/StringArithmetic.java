@@ -44,6 +44,7 @@ import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URLDecoder;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -67,7 +68,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions concat
      */
-    @ExecFunction(name = "concat", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "concat")
     public static Expression concatVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
         String result = first.getValue() + second.getValue();
         return castStringLikeLiteral(first, result);
@@ -102,7 +103,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions substring
      */
-    @ExecFunction(name = "substring", argTypes = {"VARCHAR", "INT", "INT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "substring")
     public static Expression substringVarcharIntInt(StringLikeLiteral first,
                                                         IntegerLiteral second, IntegerLiteral third) {
         return castStringLikeLiteral(first, substringImpl(first.getValue(), second.getValue(), third.getValue()));
@@ -111,7 +112,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions length
      */
-    @ExecFunction(name = "length", argTypes = {"VARCHAR"}, returnType = "INT")
+    @ExecFunction(name = "length")
     public static Expression lengthVarchar(StringLikeLiteral first) {
         return new IntegerLiteral(first.getValue().length());
     }
@@ -119,7 +120,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Lower
      */
-    @ExecFunction(name = "lower", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "lower")
     public static Expression lowerVarchar(StringLikeLiteral first) {
         return castStringLikeLiteral(first, first.getValue().toLowerCase());
     }
@@ -127,7 +128,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Upper
      */
-    @ExecFunction(name = "upper", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "upper")
     public static Expression upperVarchar(StringLikeLiteral first) {
         return castStringLikeLiteral(first, first.getValue().toUpperCase());
     }
@@ -153,7 +154,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Trim
      */
-    @ExecFunction(name = "trim", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "trim")
     public static Expression trimVarchar(StringLikeLiteral first) {
         return castStringLikeLiteral(first, trimImpl(first.getValue(), " ", true, true));
     }
@@ -161,7 +162,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Trim
      */
-    @ExecFunction(name = "trim", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "trim")
     public static Expression trimVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
         return castStringLikeLiteral(first, trimImpl(first.getValue(), second.getValue(), true, true));
     }
@@ -169,7 +170,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions ltrim
      */
-    @ExecFunction(name = "ltrim", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "ltrim")
     public static Expression ltrimVarchar(StringLikeLiteral first) {
         return castStringLikeLiteral(first, trimImpl(first.getValue(), " ", true, false));
     }
@@ -177,7 +178,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions ltrim
      */
-    @ExecFunction(name = "ltrim", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "ltrim")
     public static Expression ltrimVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
         return castStringLikeLiteral(first, trimImpl(first.getValue(), second.getValue(), true, false));
     }
@@ -185,7 +186,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions rtrim
      */
-    @ExecFunction(name = "rtrim", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "rtrim")
     public static Expression rtrimVarchar(StringLikeLiteral first) {
         return castStringLikeLiteral(first, trimImpl(first.getValue(), " ", false, true));
     }
@@ -193,7 +194,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions rtrim
      */
-    @ExecFunction(name = "rtrim", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "rtrim")
     public static Expression rtrimVarcharVarchar(StringLikeLiteral first, StringLikeLiteral second) {
         return castStringLikeLiteral(first, trimImpl(first.getValue(), second.getValue(), false, true));
     }
@@ -201,7 +202,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Replace
      */
-    @ExecFunction(name = "replace", argTypes = {"VARCHAR", "VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "replace")
     public static Expression replace(StringLikeLiteral first, StringLikeLiteral second, StringLikeLiteral third) {
         if (second.getValue().length() == 0) {
             return castStringLikeLiteral(first, first.getValue());
@@ -212,7 +213,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Left
      */
-    @ExecFunction(name = "left", argTypes = {"VARCHAR", "INT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "left")
     public static Expression left(StringLikeLiteral first, IntegerLiteral second) {
         if (second.getValue() <= 0) {
             return castStringLikeLiteral(first, "");
@@ -226,7 +227,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Right
      */
-    @ExecFunction(name = "right", argTypes = {"VARCHAR", "INT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "right")
     public static Expression right(StringLikeLiteral first, IntegerLiteral second) {
         if (second.getValue() < (- first.getValue().length()) || Math.abs(second.getValue()) == 0) {
             return castStringLikeLiteral(first, "");
@@ -246,7 +247,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Locate
      */
-    @ExecFunction(name = "locate", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "INT")
+    @ExecFunction(name = "locate")
     public static Expression locate(StringLikeLiteral first, StringLikeLiteral second) {
         return new IntegerLiteral(second.getValue().trim().indexOf(first.getValue()) + 1);
     }
@@ -254,7 +255,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Instr
      */
-    @ExecFunction(name = "instr", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "INT")
+    @ExecFunction(name = "instr")
     public static Expression instr(StringLikeLiteral first, StringLikeLiteral second) {
         return new IntegerLiteral(first.getValue().indexOf(second.getValue()) + 1);
     }
@@ -262,7 +263,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Ascii
      */
-    @ExecFunction(name = "ascii", argTypes = {"VARCHAR"}, returnType = "INT")
+    @ExecFunction(name = "ascii")
     public static Expression ascii(StringLikeLiteral first) {
         if (first.getValue().length() == 0) {
             return new IntegerLiteral(0);
@@ -274,7 +275,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions Bin
      */
-    @ExecFunction(name = "bin", argTypes = {"BIGINT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "bin")
     public static Expression bin(BigIntLiteral first) {
         return new VarcharLiteral(Long.toBinaryString(first.getValue()));
     }
@@ -282,7 +283,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions ConcatWs
      */
-    @ExecFunction(name = "concat_ws", argTypes = {"VARCHAR", "ARRAY<VARCHAR>"}, returnType = "VARCHAR")
+    @ExecFunction(name = "concat_ws")
     public static Expression concatWsVarcharArray(StringLikeLiteral first, ArrayLiteral second) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.getValue().size() - 1; i++) {
@@ -298,7 +299,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions ConcatWs
      */
-    @ExecFunction(varArgs = true, name = "concat_ws", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "concat_ws")
     public static Expression concatWsVarcharVarchar(StringLikeLiteral first, VarcharLiteral... second) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.length - 1; i++) {
@@ -312,7 +313,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions CharacterLength
      */
-    @ExecFunction(name = "character_length", argTypes = {"VARCHAR"}, returnType = "INT")
+    @ExecFunction(name = "character_length")
     public static Expression characterLength(StringLikeLiteral first) {
         return new IntegerLiteral(first.getValue().length());
     }
@@ -328,7 +329,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions initCap
      */
-    @ExecFunction(name = "initcap", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "initcap")
     public static Expression initCap(StringLikeLiteral first) {
         StringBuilder result = new StringBuilder(first.getValue().length());
         boolean capitalizeNext = true;
@@ -350,7 +351,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions md5
      */
-    @ExecFunction(name = "md5", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "md5")
     public static Expression md5(StringLikeLiteral first) {
         try {
             MessageDigest md = MessageDigest.getInstance("MD5");
@@ -365,7 +366,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions md5
      */
-    @ExecFunction(varArgs = true, name = "md5sum", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "md5sum")
     public static Expression md5Sum(VarcharLiteral... first) {
         try {
             // Step 1: Create a MessageDigest instance for MD5
@@ -419,7 +420,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"INT", "INT"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldInt(IntegerLiteral first, IntegerLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -427,7 +428,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"TINYINT", "TINYINT"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldTinyInt(TinyIntLiteral first, TinyIntLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -435,7 +436,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"SMALLINT", "SMALLINT"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldSmallInt(SmallIntLiteral first, SmallIntLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -443,7 +444,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"BIGINT", "BIGINT"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldBigInt(BigIntLiteral first, BigIntLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -451,7 +452,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"LARGEINT", "LARGEINT"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldLargeInt(LargeIntLiteral first, LargeIntLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -459,7 +460,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"FLOAT", "FLOAT"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldFloat(FloatLiteral first, FloatLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -467,7 +468,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"DOUBLE", "DOUBLE"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldDouble(DoubleLiteral first, DoubleLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -475,7 +476,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldDecimalV2(DecimalLiteral first, DecimalLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -483,7 +484,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"DECIMALV3", "DECIMALV3"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldDecimalV3(DecimalV3Literal first, DecimalV3Literal... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -491,7 +492,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"DATETIME", "DATETIME"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldDateTime(DateTimeLiteral first, DateTimeLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -499,7 +500,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"DATETIMEV2", "DATETIMEV2"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldDateTimeV2(DateTimeV2Literal first, DateTimeV2Literal... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -507,7 +508,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions field
      */
-    @ExecFunction(varArgs = true, name = "field", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "INT")
+    @ExecFunction(name = "field")
     public static Expression fieldVarchar(StringLikeLiteral first, VarcharLiteral... second) {
         return new IntegerLiteral(compareLiteral(first, second));
     }
@@ -525,7 +526,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions find_in_set
      */
-    @ExecFunction(name = "find_in_set", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "INT")
+    @ExecFunction(name = "find_in_set")
     public static Expression findInSetVarchar(StringLikeLiteral first, StringLikeLiteral second) {
         return new IntegerLiteral(findStringInSet(first.getValue(), second.getValue()));
     }
@@ -533,7 +534,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions repeat
      */
-    @ExecFunction(name = "repeat", argTypes = {"VARCHAR", "INT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "repeat")
     public static Expression repeat(StringLikeLiteral first, IntegerLiteral second) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < second.getValue(); i++) {
@@ -545,7 +546,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions reverse
      */
-    @ExecFunction(name = "reverse", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "reverse")
     public static Expression reverseVarchar(StringLikeLiteral first) {
         StringBuilder sb = new StringBuilder();
         sb.append(first.getValue());
@@ -555,7 +556,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions space
      */
-    @ExecFunction(name = "space", argTypes = {"INT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "space")
     public static Expression space(IntegerLiteral first) {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < first.getValue(); i++) {
@@ -567,7 +568,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions split_by_char
      */
-    @ExecFunction(name = "split_by_char", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "ARRAY<VARCHAR>")
+    @ExecFunction(name = "split_by_char")
     public static Expression splitByChar(StringLikeLiteral first, StringLikeLiteral second) {
         String[] result = first.getValue().split(second.getValue());
         List<Literal> items = new ArrayList<>();
@@ -580,7 +581,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions split_part
      */
-    @ExecFunction(name = "split_part", argTypes = {"VARCHAR", "VARCHAR", "INT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "split_part")
     public static Expression splitPart(StringLikeLiteral first, StringLikeLiteral chr, IntegerLiteral number) {
         if (first.getValue().equals(chr.getValue())) {
             if (Math.abs(number.getValue()) == 1 || Math.abs(number.getValue()) == 2) {
@@ -623,7 +624,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions substring_index
      */
-    @ExecFunction(name = "substring_index", argTypes = {"VARCHAR", "VARCHAR", "INT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "substring_index")
     public static Expression substringIndex(StringLikeLiteral first, StringLikeLiteral chr, IntegerLiteral number) {
         String[] parts = first.getValue().split(chr.getValue());
         if (Math.abs(number.getValue()) >= parts.length) {
@@ -652,7 +653,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions strcmp
      */
-    @ExecFunction(name = "strcmp", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "TINYINT")
+    @ExecFunction(name = "strcmp")
     public static Expression strcmp(StringLikeLiteral first, StringLikeLiteral second) {
         int result = first.getValue().compareTo(second.getValue());
         if (result == 0) {
@@ -667,7 +668,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions strLeft
      */
-    @ExecFunction(name = "strleft", argTypes = {"VARCHAR", "INT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "strleft")
     public static Expression strLeft(StringLikeLiteral first, IntegerLiteral second) {
         if (second.getValue() <= 0) {
             return castStringLikeLiteral(first, "");
@@ -681,7 +682,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions strRight
      */
-    @ExecFunction(name = "strright", argTypes = {"VARCHAR", "INT"}, returnType = "VARCHAR")
+    @ExecFunction(name = "strright")
     public static Expression strRight(StringLikeLiteral first, IntegerLiteral second) {
         if (second.getValue() < (- first.getValue().length()) || Math.abs(second.getValue()) == 0) {
             return castStringLikeLiteral(first, "");
@@ -701,7 +702,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions overlay
      */
-    @ExecFunction(name = "overlay", argTypes = {"VARCHAR", "INT", "INT", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "overlay")
     public static Expression overlay(StringLikeLiteral first,
                                         IntegerLiteral second, IntegerLiteral third, StringLikeLiteral four) {
         StringBuilder sb = new StringBuilder();
@@ -725,7 +726,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions parseurl
      */
-    @ExecFunction(name = "parse_url", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "parse_url")
     public static Expression parseurl(StringLikeLiteral first, StringLikeLiteral second) {
         URI uri = null;
         try {
@@ -780,7 +781,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions urldecode
      */
-    @ExecFunction(name = "url_decode", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "url_decode")
     public static Expression urlDecode(StringLikeLiteral first) {
         try {
             return castStringLikeLiteral(first, URLDecoder.decode(first.getValue(), StandardCharsets.UTF_8.name()));
@@ -790,9 +791,21 @@ public class StringArithmetic {
     }
 
     /**
+     * Executable arithmetic functions urlencode
+     */
+    @ExecFunction(name = "url_encode")
+    public static Expression urlEncode(StringLikeLiteral first) {
+        try {
+            return castStringLikeLiteral(first, URLEncoder.encode(first.getValue(), StandardCharsets.UTF_8.name()));
+        } catch (UnsupportedEncodingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
      * Executable arithmetic functions append_trailing_char_if_absent
      */
-    @ExecFunction(name = "append_trailing_char_if_absent", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "append_trailing_char_if_absent")
     public static Expression appendTrailingCharIfAbsent(StringLikeLiteral first, StringLikeLiteral second) {
         if (first.getValue().endsWith(second.getValue())) {
             return first;
@@ -804,7 +817,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions endsWith
      */
-    @ExecFunction(name = "ends_with", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "BOOLEAN")
+    @ExecFunction(name = "ends_with")
     public static Expression endsWith(StringLikeLiteral first, StringLikeLiteral second) {
         if (first.getValue().endsWith(second.getValue())) {
             return BooleanLiteral.TRUE;
@@ -816,7 +829,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions extractUrlParameter
      */
-    @ExecFunction(name = "extract_url_parameter", argTypes = {"VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "extract_url_parameter")
     public static Expression extractUrlParameter(StringLikeLiteral first, StringLikeLiteral second) {
         if (first.getValue() == null || first.getValue().indexOf('?') == -1) {
             return castStringLikeLiteral(first, "");
@@ -840,7 +853,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions quote
      */
-    @ExecFunction(name = "quote", argTypes = {"VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "quote")
     public static Expression quote(StringLikeLiteral first) {
         return castStringLikeLiteral(first, "\'" + first.getValue() + "\'");
     }
@@ -848,7 +861,7 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions replaceEmpty
      */
-    @ExecFunction(name = "replace_empty", argTypes = {"VARCHAR", "VARCHAR", "VARCHAR"}, returnType = "VARCHAR")
+    @ExecFunction(name = "replace_empty")
     public static Expression replaceEmpty(StringLikeLiteral first, StringLikeLiteral second, StringLikeLiteral third) {
         return castStringLikeLiteral(first, first.getValue().replace(second.getValue(), third.getValue()));
     }

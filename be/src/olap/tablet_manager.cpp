@@ -90,8 +90,7 @@ bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_colu
 
 TabletManager::TabletManager(StorageEngine& engine, int32_t tablet_map_lock_shard_size)
         : _engine(engine),
-          _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
-                  "TabletMeta(experimental)", ExecEnv::GetInstance()->details_mem_tracker_set())),
+          _tablet_meta_mem_tracker(std::make_shared<MemTracker>("TabletMeta(experimental)")),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
@@ -1075,6 +1074,7 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
         t_tablet_stat.__set_row_count(tablet_info.row_count);
         t_tablet_stat.__set_total_version_count(tablet_info.total_version_count);
         t_tablet_stat.__set_visible_version_count(tablet_info.visible_version_count);
+        t_tablet_stat.__set_visible_version(tablet_info.version);
     };
     for_each_tablet(handler, filter_all_tablets);
 

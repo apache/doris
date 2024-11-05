@@ -39,8 +39,10 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
 
     if (in_block->rows() != 0) {
-        RETURN_IF_ERROR(local_state._mutable_block.merge(*in_block));
-
+        {
+            SCOPED_TIMER(local_state._merge_block_timer);
+            RETURN_IF_ERROR(local_state._mutable_block.merge(*in_block));
+        }
         if (local_state._mutable_block.rows() > std::numeric_limits<uint32_t>::max()) {
             return Status::NotSupported("set operator do not support build table rows over:" +
                                         std::to_string(std::numeric_limits<uint32_t>::max()));
@@ -48,6 +50,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     }
 
     if (eos || local_state._mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
+        SCOPED_TIMER(local_state._build_timer);
         build_block = local_state._mutable_block.to_block();
         RETURN_IF_ERROR(_process_build_block(local_state, build_block, state));
         local_state._mutable_block.clear();
@@ -151,6 +154,7 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
     RETURN_IF_ERROR(PipelineXSinkLocalState<SetSharedState>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    _merge_block_timer = ADD_TIMER(_profile, "MergeBlocksTime");
     _build_timer = ADD_TIMER(_profile, "BuildTime");
     auto& parent = _parent->cast<Parent>();
     _shared_state->probe_finished_children_dependency[parent._cur_child_id] = _dependency;
@@ -212,14 +216,9 @@ Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState
 }
 
 template <bool is_intersect>
-Status SetSinkOperatorX<is_intersect>::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(Base::prepare(state));
-    return vectorized::VExpr::prepare(_child_exprs, state, _child_x->row_desc());
-}
-
-template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
+    RETURN_IF_ERROR(vectorized::VExpr::prepare(_child_exprs, state, _child->row_desc()));
     return vectorized::VExpr::open(_child_exprs, state);
 }
 

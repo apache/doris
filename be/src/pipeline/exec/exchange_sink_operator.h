@@ -78,27 +78,13 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* finishdependency() override { return _finish_dependency.get(); }
-    Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer* buffer);
 
-    RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
-    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
     RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
     RuntimeProfile::Counter* local_bytes_send_counter() { return _local_bytes_send_counter; }
     RuntimeProfile::Counter* local_sent_rows() { return _local_sent_rows; }
-    RuntimeProfile::Counter* brpc_send_timer() { return _brpc_send_timer; }
-    RuntimeProfile::Counter* serialize_batch_timer() { return _serialize_batch_timer; }
-    RuntimeProfile::Counter* split_block_distribute_by_channel_timer() {
-        return _split_block_distribute_by_channel_timer;
-    }
-    RuntimeProfile::Counter* bytes_sent_counter() { return _bytes_sent_counter; }
-    RuntimeProfile::Counter* split_block_hash_compute_timer() {
-        return _split_block_hash_compute_timer;
-    }
     RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
-    RuntimeProfile::Counter* compress_timer() { return _compress_timer; }
-    RuntimeProfile::Counter* uncompressed_bytes_counter() { return _uncompressed_bytes_counter; }
     [[nodiscard]] bool transfer_large_data_by_brpc() const;
     bool is_finished() const override { return _reach_limit.load(); }
     void set_reach_limit() { _reach_limit = true; };
@@ -130,16 +116,13 @@ private:
     std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _compress_timer = nullptr;
-    RuntimeProfile::Counter* _brpc_send_timer = nullptr;
-    RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
     RuntimeProfile::Counter* _bytes_sent_counter = nullptr;
     RuntimeProfile::Counter* _uncompressed_bytes_counter = nullptr;
     RuntimeProfile::Counter* _local_sent_rows = nullptr;
     RuntimeProfile::Counter* _local_send_timer = nullptr;
     RuntimeProfile::Counter* _split_block_hash_compute_timer = nullptr;
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
+    RuntimeProfile::Counter* _distribute_rows_into_channels_timer = nullptr;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
-    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
     // Throughput per total time spent in sender
     RuntimeProfile::Counter* _overall_throughput = nullptr;
     // Used to counter send bytes under local data exchange
@@ -154,6 +137,7 @@ private:
     int _sender_id;
     std::shared_ptr<vectorized::BroadcastPBlockHolderMemLimiter> _broadcast_pb_mem_limiter;
 
+    size_t _rpc_channels_num = 0;
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
@@ -202,6 +186,7 @@ private:
     // for external table sink hash partition
     std::unique_ptr<HashPartitionFunction> _partition_function = nullptr;
     std::atomic<bool> _reach_limit = false;
+    int _last_local_channel_idx = -1;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {
@@ -213,14 +198,12 @@ public:
 
     RuntimeState* state() { return _state; }
 
-    Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
 
-    Status serialize_block(ExchangeSinkLocalState& stete, vectorized::Block* src, PBlock* dest,
-                           int num_receivers = 1);
     DataDistribution required_data_distribution() const override;
+    bool is_serial_operator() const override { return true; }
 
 private:
     friend class ExchangeSinkLocalState;

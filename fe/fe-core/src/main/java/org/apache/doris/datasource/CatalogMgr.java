@@ -43,6 +43,7 @@ import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
@@ -72,7 +73,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -90,7 +90,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public static final String METADATA_REFRESH_INTERVAL_SEC = "metadata_refresh_interval_sec";
     public static final String CATALOG_TYPE_PROP = "type";
 
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+    private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
     private final Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog = Maps.newConcurrentMap();

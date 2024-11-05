@@ -36,6 +36,7 @@
 #include "common/status.h"
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -80,14 +81,10 @@ Status VMatchPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
         argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());
     }
-    // result column always not null
-    if (_data_type->is_nullable()) {
-        _function = SimpleFunctionFactory::instance().get_function(
-                _fn.name.function_name, argument_template, remove_nullable(_data_type));
-    } else {
-        _function = SimpleFunctionFactory::instance().get_function(_fn.name.function_name,
-                                                                   argument_template, _data_type);
-    }
+
+    _function = SimpleFunctionFactory::instance().get_function(
+            _fn.name.function_name, argument_template, _data_type,
+            {.enable_decimal256 = state->enable_decimal256()});
     if (_function == nullptr) {
         std::string type_str;
         for (auto arg : argument_template) {
@@ -170,11 +167,6 @@ Status VMatchPredicate::execute(VExprContext* context, Block* block, int* result
     RETURN_IF_ERROR(_function->execute(context->fn_context(_fn_context_index), *block, arguments,
                                        num_columns_without_result, block->rows(), false));
     *result_column_id = num_columns_without_result;
-    if (_data_type->is_nullable()) {
-        auto nested = block->get_by_position(num_columns_without_result).column;
-        auto nullable = ColumnNullable::create(nested, ColumnUInt8::create(block->rows(), 0));
-        block->replace_by_position(num_columns_without_result, nullable);
-    }
     return Status::OK();
 }
 

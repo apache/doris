@@ -324,6 +324,7 @@ struct TQueryOptions {
 
   122: optional i32 runtime_bloom_filter_min_size = 1048576;
 
+  
   //Access Parquet/ORC columns by name by default. Set this property to `false` to access columns
   //by their ordinal position in the Hive table definition.  
   123: optional bool hive_parquet_use_column_names = true;
@@ -367,6 +368,7 @@ struct TRuntimeFilterTargetParamsV2 {
   1: required list<Types.TUniqueId> target_fragment_instance_ids
   // The address of the instance where the fragment is expected to run
   2: required Types.TNetworkAddress target_fragment_instance_addr
+  3: optional list<i32> target_fragment_ids
 }
 
 struct TRuntimeFilterParams {

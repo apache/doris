@@ -424,6 +424,8 @@ void ColumnArray::reserve(size_t n) {
 void ColumnArray::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
+    // make new size of data column
+    get_data().resize(get_offsets().back());
 }
 
 size_t ColumnArray::byte_size() const {
