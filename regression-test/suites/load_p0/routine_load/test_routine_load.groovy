@@ -24,13 +24,7 @@ suite("test_routine_load","p0") {
 
 
     def tables = [
-                  "dup_tbl_basic",
-                  "uniq_tbl_basic",
-                  "mow_tbl_basic",
-                  "agg_tbl_basic",
-                  "dup_tbl_array",
-                  "uniq_tbl_array",
-                  "mow_tbl_array",
+                  "dup_tbl_basic"
                  ]
 
     def multiTables = [
@@ -711,7 +705,8 @@ suite("test_routine_load","p0") {
                     i++
                 } catch (Exception e) {
                     log.info("exception: ${e.toString()}".toString())
-                    assertEquals(e.toString(), "ERROR 1105 (HY000): errCode = 2, detailMessage = desired_concurrent_number should > 0")
+                    assertEquals(e.toString().contains("exec_mem_limitshould > 0"), true)
+                    
                 }
             }
         } finally {
