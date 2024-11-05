@@ -82,7 +82,6 @@ public:
             pvalue->deserialize(Slice(pos, length));
         } else {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unexpected type in column complex");
-            __builtin_unreachable();
         }
     }
 
@@ -126,13 +125,11 @@ public:
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       IColumn::Permutation& res) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get_permutation not implemented");
-        __builtin_unreachable();
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get_int not implemented");
-        __builtin_unreachable();
     }
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
@@ -217,7 +214,6 @@ public:
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "deserialize_and_insert_from_arena not implemented");
         __builtin_unreachable();
-        LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
     }
 
     // maybe we do not need to impl the function
