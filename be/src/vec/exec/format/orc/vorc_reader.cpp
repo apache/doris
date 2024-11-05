@@ -53,6 +53,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
 #include "runtime/thread_context.h"
+#include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
 #include "vec/columns/column.h"
@@ -217,10 +218,6 @@ void OrcReader::_init_profile() {
         _orc_profile.read_calls = ADD_COUNTER_WITH_LEVEL(_profile, "FileReadCalls", TUnit::UNIT, 1);
         _orc_profile.read_bytes =
                 ADD_COUNTER_WITH_LEVEL(_profile, "FileReadBytes", TUnit::BYTES, 1);
-        _orc_profile.selected_row_group_count =
-                ADD_COUNTER_WITH_LEVEL(_profile, "SelectedRowGroupCount", TUnit::UNIT, 1);
-        _orc_profile.evaluated_row_group_count =
-                ADD_COUNTER_WITH_LEVEL(_profile, "EvaluatedRowGroupCount", TUnit::UNIT, 1);
         _orc_profile.column_read_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "ColumnReadTime", orc_profile, 1);
         _orc_profile.get_batch_time =
@@ -237,6 +234,10 @@ void OrcReader::_init_profile() {
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "DecodeNullMapTime", orc_profile, 1);
         _orc_profile.filter_block_time =
                 ADD_CHILD_TIMER_WITH_LEVEL(_profile, "FilterBlockTime", orc_profile, 1);
+        _orc_profile.selected_row_group_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "SelectedRowGroupCount", TUnit::UNIT, orc_profile, 1);
+        _orc_profile.evaluated_row_group_count = ADD_CHILD_COUNTER_WITH_LEVEL(
+                _profile, "EvaluatedRowGroupCount", TUnit::UNIT, orc_profile, 1);
     }
 }
 
