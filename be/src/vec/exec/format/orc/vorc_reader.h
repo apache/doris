@@ -51,6 +51,8 @@
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/table/transactional_hive_reader.h"
+#include "vec/exprs/vliteral.h"
+#include "vec/exprs/vslot_ref.h"
 
 namespace doris {
 class RuntimeState;
@@ -286,6 +288,10 @@ private:
                         bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
+    std::tuple<bool, orc::Literal, orc::PredicateDataType> _convert_slot_to_orc_leteral(
+            const VSlotRef* slot_ref, const VLiteral* literal);
+    bool _build_search_argument(const VExprSPtr& expr,
+                                std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _init_search_argument(const VExprContextSPtrs& conjuncts);
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);

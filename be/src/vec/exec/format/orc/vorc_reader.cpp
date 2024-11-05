@@ -75,9 +75,7 @@
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/exprs/vin_predicate.h"
-#include "vec/exprs/vliteral.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
-#include "vec/exprs/vslot_ref.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -561,27 +559,14 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
     }
 }
 
-bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
-    if (!_enable_filter_by_min_max) {
-        return false;
-    }
-
-    std::unordered_map<std::string, uint64_t> col_name_to_id;
-    const auto& root_type = _reader->getType();
-    for (uint64_t i = 0; i < root_type.getSubtypeCount(); ++i) {
-        col_name_to_id.emplace(get_field_name_lower_case(&root_type, i),
-                               root_type.getSubtype(i)->getColumnId());
-    }
-
-    auto to_orc_literal =
-            [&](const VSlotRef* slot_ref,
-                const VLiteral* literal) -> std::tuple<bool, orc::Literal, orc::PredicateDataType> {
-        const auto* value = literal->get_column_ptr()->get_data_at(0).data;
-        auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
-        auto slot_type = slot->type();
-        const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
-        const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
-        switch (slot_type.type) {
+std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_convert_slot_to_orc_leteral(
+        const VSlotRef* slot_ref, const VLiteral* literal) {
+    const auto* value = literal->get_column_ptr()->get_data_at(0).data;
+    auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
+    auto slot_type = slot->type();
+    const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
+    const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
+    switch (slot_type.type) {
 #define M(NAME)                                                          \
     case TYPE_##NAME: {                                                  \
         auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>( \
@@ -610,199 +595,201 @@ bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
     M(BOOLEAN)                      \
     M(IPV4)                         \
     M(IPV6)
-            APPLY_FOR_PRIMITIVE_TYPE(M)
+        APPLY_FOR_PRIMITIVE_TYPE(M)
 #undef M
-        default: {
-            VLOG_CRITICAL << "Unsupported Convert Orc Literal [ColName=" << slot->col_name() << "]";
-            return std::make_tuple(false, orc::Literal(false), predicate_type);
+    default: {
+        VLOG_CRITICAL << "Unsupported Convert Orc Literal [ColName=" << slot->col_name() << "]";
+        return std::make_tuple(false, orc::Literal(false), predicate_type);
+    }
+    }
+}
+
+// convert expr to sargs recursively
+bool OrcReader::_build_search_argument(const VExprSPtr& expr,
+                                       std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
+    if (expr == nullptr) {
+        return false;
+    }
+    switch (expr->op()) {
+    case TExprOpcode::COMPOUND_AND:
+        builder->startAnd();
+        for (const auto& child : expr->children()) {
+            if (!_build_search_argument(child, builder)) {
+                return false;
+            }
         }
+        builder->end();
+        break;
+    case TExprOpcode::COMPOUND_OR:
+        builder->startOr();
+        for (const auto& child : expr->children()) {
+            if (!_build_search_argument(child, builder)) {
+                return false;
+            }
         }
-    };
+        builder->end();
+        break;
+    case TExprOpcode::COMPOUND_NOT:
+        builder->startNot();
+        DCHECK_EQ(expr->children().size(), 1);
+        if (!_build_search_argument(expr->children()[0], builder)) {
+            return false;
+        }
+        builder->end();
+        break;
+    case TExprOpcode::GE: {
+        builder->startNot();
+        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->children()[0]->is_slot_ref());
+        DCHECK(expr->children()[1]->is_literal());
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        if (!valid) {
+            return false;
+        }
+        builder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+        builder->end();
+        break;
+    }
+    case TExprOpcode::GT: {
+        builder->startNot();
+        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->children()[0]->is_slot_ref());
+        DCHECK(expr->children()[1]->is_literal());
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        if (!valid) {
+            return false;
+        }
+        builder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+        builder->end();
+        break;
+    }
+    case TExprOpcode::LE: {
+        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->children()[0]->is_slot_ref());
+        DCHECK(expr->children()[1]->is_literal());
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        if (!valid) {
+            return false;
+        }
+        builder->lessThanEquals(slot_ref->expr_name(), predicate_type, orc_literal);
+        break;
+    }
+    case TExprOpcode::LT: {
+        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->children()[0]->is_slot_ref());
+        DCHECK(expr->children()[1]->is_literal());
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        if (!valid) {
+            return false;
+        }
+        builder->lessThan(slot_ref->expr_name(), predicate_type, orc_literal);
+        break;
+    }
+    case TExprOpcode::EQ: {
+        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->children()[0]->is_slot_ref());
+        DCHECK(expr->children()[1]->is_literal());
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        if (!valid) {
+            return false;
+        }
+        builder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+        break;
+    }
+    case TExprOpcode::NE: {
+        builder->startNot();
+        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->children()[0]->is_slot_ref());
+        DCHECK(expr->children()[1]->is_literal());
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
+        auto [valid, orc_literal, predicate_type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+        if (!valid) {
+            return false;
+        }
+        builder->equals(slot_ref->expr_name(), predicate_type, orc_literal);
+        builder->end();
+        break;
+    }
+    case TExprOpcode::EQ_FOR_NULL: {
+        DCHECK(expr->children().size() == 1);
+        DCHECK(expr->children()[0]->is_slot_ref());
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
+        const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
+        const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
+        builder->isNull(slot_ref->expr_name(), predicate_type);
+        break;
+    }
+    case TExprOpcode::FILTER_IN: {
+        DCHECK(expr->children()[0]->is_slot_ref());
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        std::vector<orc::Literal> literals;
+        orc::PredicateDataType predicate_type;
+        for (size_t i = 1; i < expr->children().size(); ++i) {
+            DCHECK(expr->children()[i]->is_literal());
+            const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
+            auto [valid, orc_literal, type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+            if (!valid) {
+                return false;
+            }
+            literals.emplace_back(orc_literal);
+            predicate_type = type;
+        }
+        if (!literals.empty()) {
+            builder->in(slot_ref->expr_name(), predicate_type, literals);
+        }
+        break;
+    }
+    case TExprOpcode::FILTER_NOT_IN: {
+        DCHECK(expr->children()[0]->is_slot_ref());
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        std::vector<orc::Literal> literals;
+        orc::PredicateDataType predicate_type;
+        for (size_t i = 1; i < expr->children().size(); ++i) {
+            DCHECK(expr->children()[i]->is_literal());
+            const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
+            auto [valid, orc_literal, type] = _convert_slot_to_orc_leteral(slot_ref, literal);
+            if (!valid) {
+                return false;
+            }
+            literals.emplace_back(orc_literal);
+            predicate_type = type;
+        }
+        if (!literals.empty()) {
+            builder->startNot();
+            builder->in(slot_ref->expr_name(), predicate_type, literals);
+            builder->end();
+        }
+        break;
+    }
+    default: {
+        VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
+        return false;
+    }
+    }
+    return true;
+}
+
+bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
+    if (!_enable_filter_by_min_max) {
+        return false;
+    }
 
     auto sargBuilder = orc::SearchArgumentFactory::newBuilder();
-    // convert expr to sargs recursively
-    std::function<bool(const VExprSPtr&)> convert_expr_to_sargs = [&](const VExprSPtr& expr) {
-        if (expr == nullptr) {
-            return false;
-        }
-        switch (expr->op()) {
-        case TExprOpcode::COMPOUND_AND:
-            sargBuilder->startAnd();
-            for (const auto& child : expr->children()) {
-                if (!convert_expr_to_sargs(child)) {
-                    return false;
-                }
-            }
-            sargBuilder->end();
-            break;
-        case TExprOpcode::COMPOUND_OR:
-            sargBuilder->startOr();
-            for (const auto& child : expr->children()) {
-                if (!convert_expr_to_sargs(child)) {
-                    return false;
-                }
-            }
-            sargBuilder->end();
-            break;
-        case TExprOpcode::COMPOUND_NOT:
-            sargBuilder->startNot();
-            DCHECK_EQ(expr->children().size(), 1);
-            if (!convert_expr_to_sargs(expr->children()[0])) {
-                return false;
-            }
-            sargBuilder->end();
-            break;
-        case TExprOpcode::GE: {
-            sargBuilder->startNot();
-            DCHECK(expr->children().size() == 2);
-            DCHECK(expr->children()[0]->is_slot_ref());
-            DCHECK(expr->children()[1]->is_literal());
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (!valid) {
-                return false;
-            }
-            sargBuilder->lessThan(col_name_to_id[slot_ref->expr_name()], predicate_type,
-                                  orc_literal);
-            sargBuilder->end();
-            break;
-        }
-        case TExprOpcode::GT: {
-            sargBuilder->startNot();
-            DCHECK(expr->children().size() == 2);
-            DCHECK(expr->children()[0]->is_slot_ref());
-            DCHECK(expr->children()[1]->is_literal());
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (!valid) {
-                return false;
-            }
-            sargBuilder->lessThanEquals(col_name_to_id[slot_ref->expr_name()], predicate_type,
-                                        orc_literal);
-            sargBuilder->end();
-            break;
-        }
-        case TExprOpcode::LE: {
-            DCHECK(expr->children().size() == 2);
-            DCHECK(expr->children()[0]->is_slot_ref());
-            DCHECK(expr->children()[1]->is_literal());
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (!valid) {
-                return false;
-            }
-            sargBuilder->lessThanEquals(col_name_to_id[slot_ref->expr_name()], predicate_type,
-                                        orc_literal);
-            break;
-        }
-        case TExprOpcode::LT: {
-            DCHECK(expr->children().size() == 2);
-            DCHECK(expr->children()[0]->is_slot_ref());
-            DCHECK(expr->children()[1]->is_literal());
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (!valid) {
-                return false;
-            }
-            sargBuilder->lessThan(col_name_to_id[slot_ref->expr_name()], predicate_type,
-                                  orc_literal);
-            break;
-        }
-        case TExprOpcode::EQ: {
-            DCHECK(expr->children().size() == 2);
-            DCHECK(expr->children()[0]->is_slot_ref());
-            DCHECK(expr->children()[1]->is_literal());
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (!valid) {
-                return false;
-            }
-            sargBuilder->equals(col_name_to_id[slot_ref->expr_name()], predicate_type, orc_literal);
-            break;
-        }
-        case TExprOpcode::NE: {
-            sargBuilder->startNot();
-            DCHECK(expr->children().size() == 2);
-            DCHECK(expr->children()[0]->is_slot_ref());
-            DCHECK(expr->children()[1]->is_literal());
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-            auto [valid, orc_literal, predicate_type] = to_orc_literal(slot_ref, literal);
-            if (!valid) {
-                return false;
-            }
-            sargBuilder->equals(col_name_to_id[slot_ref->expr_name()], predicate_type, orc_literal);
-            sargBuilder->end();
-            break;
-        }
-        case TExprOpcode::EQ_FOR_NULL: {
-            DCHECK(expr->children().size() == 1);
-            DCHECK(expr->children()[0]->is_slot_ref());
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
-            const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
-            const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
-            sargBuilder->isNull(col_name_to_id[slot_ref->expr_name()], predicate_type);
-            break;
-        }
-        case TExprOpcode::FILTER_IN: {
-            DCHECK(expr->children()[0]->is_slot_ref());
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            std::vector<orc::Literal> literals;
-            orc::PredicateDataType predicate_type;
-            for (size_t i = 1; i < expr->children().size(); ++i) {
-                DCHECK(expr->children()[i]->is_literal());
-                const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
-                auto [valid, orc_literal, type] = to_orc_literal(slot_ref, literal);
-                if (!valid) {
-                    return false;
-                }
-                literals.emplace_back(orc_literal);
-                predicate_type = type;
-            }
-            if (!literals.empty()) {
-                sargBuilder->in(col_name_to_id[slot_ref->expr_name()], predicate_type, literals);
-            }
-            break;
-        }
-        case TExprOpcode::FILTER_NOT_IN: {
-            DCHECK(expr->children()[0]->is_slot_ref());
-            const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            std::vector<orc::Literal> literals;
-            orc::PredicateDataType predicate_type;
-            for (size_t i = 1; i < expr->children().size(); ++i) {
-                DCHECK(expr->children()[i]->is_literal());
-                const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
-                auto [valid, orc_literal, type] = to_orc_literal(slot_ref, literal);
-                if (!valid) {
-                    return false;
-                }
-                literals.emplace_back(orc_literal);
-                predicate_type = type;
-            }
-            if (!literals.empty()) {
-                sargBuilder->startNot();
-                sargBuilder->in(col_name_to_id[slot_ref->expr_name()], predicate_type, literals);
-                sargBuilder->end();
-            }
-            break;
-        }
-        default: {
-            VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
-            return false;
-        }
-        }
-        return true;
-    };
-
     sargBuilder->startAnd();
     for (const auto& expr_ctx : conjuncts) {
-        if (!convert_expr_to_sargs(expr_ctx->root())) {
+        if (!_build_search_argument(expr_ctx->root(), sargBuilder)) {
             return false;
         }
     }
