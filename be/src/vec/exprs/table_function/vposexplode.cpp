@@ -78,6 +78,7 @@ void VPosExplodeTableFunction::process_row(size_t row_idx) {
 
 void VPosExplodeTableFunction::process_close() {
     _collection_column = nullptr;
+    _array_data_column = nullptr;
     _array_detail.reset();
     _collection_offset = 0;
 }
@@ -103,7 +104,7 @@ void VPosExplodeTableFunction::get_same_many_values(MutableColumnPtr& column, in
         ret = assert_cast<ColumnStruct*>(column.get());
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "only support map column explode to struct column");
+                        "only support array column explode to struct column");
     }
     if (!ret || ret->tuple_size() != 2) {
         throw Exception(
@@ -140,7 +141,7 @@ int VPosExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) 
         }
         if (!struct_column || struct_column->tuple_size() != 2) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "only support map column explode to two column, but given:  ",
+                            "only support array column explode to two column, but given:  ",
                             struct_column->tuple_size());
         }
         auto& pose_column_nullable = assert_cast<ColumnNullable&>(struct_column->get_column(0));
