@@ -1538,8 +1538,8 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getMVJobState = { tableName, rollUpName  ->
-        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' and IndexName = '${rollUpName}' ORDER BY CreateTime DESC limit 1"""
+    def getMVJobState = { tableName  ->
+        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit 1"""
         if (jobStateResult == null || jobStateResult.isEmpty()) {
             logger.info("show alter table roll is empty" + jobStateResult)
             return "NOT_READY"
@@ -1550,14 +1550,14 @@ class Suite implements GroovyInterceptable {
         }
         return "FINISHED";
     }
-    def waitForRollUpJob =  (tbName, rollUpName, timeoutMillisecond) -> {
+    def waitForRollUpJob =  (tbName, timeoutMillisecond) -> {
 
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + timeoutMillisecond
 
         String result
         while (timeoutTimestamp > System.currentTimeMillis()){
-            result = getMVJobState(tbName, rollUpName)
+            result = getMVJobState(tbName)
             if (result == "FINISHED") {
                 sleep(200)
                 return
@@ -1566,6 +1566,35 @@ class Suite implements GroovyInterceptable {
             }
         }
         Assert.assertEquals("FINISHED", result)
+    }
+
+    def waitIndexVisible = (tbName, indexNames, timeoutMillisecond) -> {
+        def descAllResult = sql """ desc ${tbName} all"""
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + timeoutMillisecond
+        if (descAllResult == null || descAllResult.isEmpty()) {
+            logger.info("waitIndexVisible descAllResult is null")
+            Assert.assertTrue(false)
+        }
+        logger.info("waitIndexVisible descAllResult " + descAllResult)
+        Set<String> currentIndexSet = null;
+        while (timeoutTimestamp > System.currentTimeMillis()) {
+            currentIndexSet = new HashSet<>();
+            for (List<Object> row : descAllResult) {
+                if (row.size() < 1 || row.get(0) == null || row.get(0).toString().trim().size() == 0
+                || Objects.equals(tbName, row.get(0).toString())) {
+                    continue
+                }
+                currentIndexSet.add(String.valueOf(row.get(0)));
+            }
+            if (!Objects.equals(currentIndexSet, new HashSet(indexNames))) {
+                logger.info("waitIndexVisible currentIndexSet " + currentIndexSet)
+                sleep(200)
+            } else {
+                return
+            }
+        }
+        Assert.assertTrue(Objects.equals(currentIndexSet, new HashSet(indexNames)))
     }
 
     void testFoldConst(String foldSql) {
