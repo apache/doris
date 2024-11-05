@@ -60,10 +60,10 @@ public class ProgressManager {
         }
     }
 
-    public void setTotalScanNums(String id, int num) {
+    public void addTotalScanNums(String id, int num) {
         Progress progress = idToProgress.get(id);
         if (progress != null) {
-            progress.setTotalScanNums(num);
+            progress.addTotalScanNums(num);
         }
     }
 
@@ -87,8 +87,8 @@ public class ProgressManager {
         private Table<TUniqueId, TUniqueId, Integer> finishedScanNums = HashBasedTable.create();
         private int totalScanNums = 0;
 
-        public synchronized void setTotalScanNums(int num) {
-            totalScanNums = num;
+        public synchronized void addTotalScanNums(int num) {
+            totalScanNums += num;
         }
 
         public synchronized void updateFinishedScanNums(TUniqueId queryId, TUniqueId fragmentId, int finishedScanNum) {
