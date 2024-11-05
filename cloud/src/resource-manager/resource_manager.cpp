@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
@@ -197,6 +198,28 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
         *err = ss.str();
     }
     return no_err;
+}
+
+std::pair<bool, std::string> ResourceManager::get_instance_id_by_degrade_unique_id(
+        const std::string& cloud_unique_id) {
+    auto v = split(cloud_unique_id, ':');
+    if (v.size() != 3) return {false, ""};
+    // degraded format check it
+    int version = std::atoi(v[0].c_str());
+    if (version != 1) return {false, ""};
+    return {true, v[1]};
+}
+
+bool ResourceManager::check_degrade_instance_valid(const std::string& instance_id) {
+    // check kv
+    auto [c0, m0] = get_instance(nullptr, instance_id, nullptr);
+    { TEST_SYNC_POINT_CALLBACK("check_degrade_instance_valid", &c0); }
+    if (c0 != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "check instance instance_id=" << instance_id
+                     << " failed, code=" << format_as(c0) << ", info=" + m0;
+        return false;
+    }
+    return true;
 }
 
 std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::string& instance_id,

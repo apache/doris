@@ -93,39 +93,19 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
         // cloud_unique_id encode: ${version}:${instance_id}:${unique_id}
         // check it split by ':' c
-        auto vec = split(cloud_unique_id, ':');
-        std::stringstream ss;
-        for (int i = 0; i < vec.size(); ++i) {
-            ss << "idx " << i << "= [" << vec[i] << "] ";
-        }
-        LOG_EVERY_N(INFO, 100) << "degraded to get instance_id, cloud_unique_id: "
-                               << cloud_unique_id << "after split: " << ss.str();
-        if (vec.size() != 3) {
-            LOG(WARNING) << "cloud unique id is not degraded format, failed to check instance "
-                            "info, cloud_unique_id="
-                         << cloud_unique_id << " , err=" << err;
+        auto [valid, instance_id] = rc_mgr->get_instance_id_by_degrade_unique_id(cloud_unique_id);
+        if (!valid) {
+            LOG(WARNING) << "use degraded format cloud_unique_id, but cloud_unique_id not degrade "
+                            "format, cloud_unique_id="
+                         << cloud_unique_id;
             return "";
         }
-        // version: vec[0], instance_id: vec[1], unique_id: vec[2]
-        int version = std::atoi(vec[0].c_str());
-        if (version != 1) {
-            LOG(WARNING) << "cloud unique id degraded state, but version not eq configure, "
-                            "cloud_unique_id="
-                         << cloud_unique_id << ", err=" << err;
-            return "";
-        }
-        instance_id = vec[1];
-        LOG_EVERY_N(INFO, 100) << "use degraded to get instance_id, instance_id=" << instance_id;
+
         // check instance_id valid by get fdb
-        if (config::enable_check_cloud_unique_id_degrade_format) {
-            // check kv
-            auto [c0, m0] = rc_mgr->get_instance(nullptr, instance_id, nullptr);
-            { TEST_SYNC_POINT_CALLBACK("get_instance", &c0); }
-            if (c0 != TxnErrorCode::TXN_OK) {
-                LOG(WARNING) << "check instance instance_id=" << instance_id
-                             << " failed, code=" << format_as(c0) << ", info=" + m0;
-                return "";
-            }
+        if (config::enable_check_cloud_unique_id_degrade_format &&
+            !rc_mgr->check_degrade_instance_valid(instance_id)) {
+            LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed";
+            return "";
         }
         return instance_id;
     }
@@ -140,11 +120,12 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
         instance_id = node.instance_id; // The last wins
         // check cache unique_id
         std::string cloud_unique_id_in_cache = node.node_info.cloud_unique_id();
-        auto v = split(cloud_unique_id, ':');
-        if (v.size() != 3) continue;
-        // degraded format check it
-        int version = std::atoi(v[0].c_str());
-        if (version != 1 || v[1] != node.instance_id || v[1] != instance_id) {
+        auto [valid, id] = rc_mgr->get_instance_id_by_degrade_unique_id(cloud_unique_id_in_cache);
+        if (!valid) {
+            continue;
+        }
+
+        if (id != node.instance_id || id != instance_id) {
             LOG(WARNING) << "in cache, node=" << node.node_info.DebugString()
                          << ", cloud_unique_id=" << cloud_unique_id
                          << " current_instance_id=" << instance_id

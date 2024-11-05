@@ -271,7 +271,7 @@ TEST(MetaServiceTest, GetInstanceIdTest) {
             get_instance_id(ms->resource_mgr(), "1:ALBJLH4Q-check-invalid:m-n3qdpyal27rh8iprxx");
     ASSERT_EQ(instance_id, "");
 
-    sp->set_call_back("get_instance", [&](auto&& args) {
+    sp->set_call_back("check_degrade_instance_valid", [&](auto&& args) {
         TxnErrorCode* c0 = try_any_cast<TxnErrorCode*>(args[0]);
         *c0 = TxnErrorCode::TXN_OK;
     });
