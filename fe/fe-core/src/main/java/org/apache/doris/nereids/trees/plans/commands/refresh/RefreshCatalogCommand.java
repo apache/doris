@@ -23,14 +23,21 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogLog;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.persist.OperationType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
@@ -38,35 +45,68 @@ import java.util.Map;
  * Manually refresh the catalog metadata.
  */
 public class RefreshCatalogCommand extends Command implements ForwardWithSync {
-
+    private static final Logger LOG = LogManager.getLogger(RefreshCatalogCommand.class);
     private static final String INVALID_CACHE = "invalid_cache";
     private final String catalogName;
     private Map<String, String> properties;
     private boolean invalidCache = true;
 
-    protected RefreshCatalogCommand(String catalogName, Map<String, String> properties) {
+    public RefreshCatalogCommand(String catalogName, Map<String, String> properties) {
         super(PlanType.REFRESH_CATALOG_COMMAND);
         this.catalogName = catalogName;
         this.properties = properties;
     }
 
-    @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-
+    private void checkCatalogRules() throws AnalysisException {
         Util.checkCatalogAllRules(catalogName);
         if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             throw new AnalysisException("Internal catalog name can't be refresh.");
         }
+    }
 
+    private void checkCatalogAccess() throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED_ERROR,
                     PrivPredicate.SHOW.getPrivs().toString(), catalogName);
         }
+    }
 
-        // Set to false only if user set the property "invalid_cache"="false"
-        invalidCache = !(properties.get(INVALID_CACHE) != null && properties.get(INVALID_CACHE)
-                .equalsIgnoreCase("false"));
+    private void setInvalidCache() {
+        if (properties != null) {
+            // Set to false only if user set the property "invalid_cache"="false"
+            invalidCache = !(properties.get(INVALID_CACHE) != null && properties.get(INVALID_CACHE)
+                    .equalsIgnoreCase("false"));
+        }
+
+    }
+
+    private void refreshCatalogInternal(CatalogIf catalog) {
+
+        if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+            ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
+            LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
+        }
+    }
+
+    /**
+     * refresh catalog
+     */
+    public void handleRefreshCatalog() throws AnalysisException {
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
+        CatalogLog log = new CatalogLog();
+        log.setCatalogId(catalog.getId());
+        log.setInvalidCache(isInvalidCache());
+        refreshCatalogInternal(catalog);
+        Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_REFRESH_CATALOG, log);
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        checkCatalogRules();
+        checkCatalogAccess();
+        setInvalidCache();
+        handleRefreshCatalog();
     }
 
     @Override

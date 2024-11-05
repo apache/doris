@@ -55,7 +55,7 @@ statementBase
     | supportedDropStatement            #supportedDropStatementAlias
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
-    | supportedRefreshStatement       #supportedRefreshStatementAlias
+    | supportedRefreshStatement         #supportedRefreshStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -75,6 +75,7 @@ unsupportedStatement
     | unsupportedCancelStatement
     | unsupportedJobStatement
     | unsupportedCleanStatement
+    | unsupportedRefreshStatement
     | unsupportedLoadStatement
     | unsupportedShowStatement
     | unsupportedOtherStatement
@@ -409,9 +410,12 @@ channelDescription
     ;
 
 supportedRefreshStatement
+    : REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
+    ;
+
+unsupportedRefreshStatement
     : REFRESH TABLE name=multipartIdentifier                                        #refreshTable
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
-    | REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
     | REFRESH LDAP (ALL | (FOR user=identifierOrText))                              #refreshLdap
     ;
 
