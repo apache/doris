@@ -359,6 +359,14 @@ Status FixedReadPlan::fill_missing_columns(
     auto mutable_full_columns = full_block.mutate_columns();
     // create old value columns
     const auto& missing_cids = rowset_ctx->partial_update_info->missing_cids;
+    bool have_input_seq_column = false;
+    if (tablet_schema.has_sequence_col()) {
+        const std::vector<uint32_t>& including_cids = rowset_ctx->partial_update_info->update_cids;
+        have_input_seq_column =
+                (std::find(including_cids.cbegin(), including_cids.cend(),
+                           tablet_schema.sequence_col_idx()) != including_cids.cend());
+    }
+
     auto old_value_block = tablet_schema.create_block_by_cids(missing_cids);
     CHECK_EQ(missing_cids.size(), old_value_block.columns());
 
@@ -386,8 +394,19 @@ Status FixedReadPlan::fill_missing_columns(
         // to check if a row REALLY exists in the table.
         auto segment_pos = idx + segment_start_pos;
         auto pos_in_old_block = read_index[segment_pos];
-        if (use_default_or_null_flag[idx] ||
-            (old_delete_signs != nullptr && old_delete_signs[pos_in_old_block] != 0)) {
+
+        bool should_use_default = use_default_or_null_flag[idx];
+        if (!should_use_default) {
+            if ((delete_sign_column_data != nullptr &&
+                 delete_sign_column_data[pos_in_old_block] != 0) &&
+                !(tablet_schema.has_sequence_col() && !have_input_seq_column)) {
+                // we should read values from old rows even if it's deleted when the input don't dpecify the sequence column
+                // to keep the sequence column value increasing, otherwise it may cause the merge-on-read based compaction
+                // to produce incorrect results
+                should_use_default = true;
+            }
+        }
+        if (should_use_default) {
             for (auto i = 0; i < missing_cids.size(); ++i) {
                 // if the column has default value, fill it with default value
                 // otherwise, if the column is nullable, fill it with null value
@@ -420,8 +439,14 @@ Status FixedReadPlan::fill_missing_columns(
             continue;
         }
         for (auto i = 0; i < missing_cids.size(); ++i) {
-            mutable_full_columns[missing_cids[i]]->insert_from(
-                    *old_value_block.get_by_position(i).column, pos_in_old_block);
+            auto cid = missing_cids[i];
+            if (cid == tablet_schema.delete_sign_idx()) {
+                // delete sign column should always be 0 when it's not specified in load
+                mutable_full_columns[cid]->insert_default();
+            } else {
+                mutable_full_columns[cid]->insert_from(*old_value_block.get_by_position(i).column,
+                                                       pos_in_old_block);
+            }
         }
     }
     full_block.set_columns(std::move(mutable_full_columns));
@@ -546,6 +571,10 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const std::size_t segment_start_pos, const std::size_t block_start_pos,
         const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
+    int32_t seq_col_unique_id = -1;
+    if (tablet_schema.has_sequence_col()) {
+        seq_col_unique_id = tablet_schema.column(tablet_schema.sequence_col_idx()).unique_id();
+    }
     // cid -> segment pos to write -> rowid to read in old_value_block
     std::map<uint32_t, std::map<uint32_t, uint32_t>> read_index;
     RETURN_IF_ERROR(
@@ -567,24 +596,29 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                                  const vectorized::IColumn& default_value_col,
                                  const vectorized::IColumn& old_value_col,
                                  const vectorized::IColumn& cur_col, std::size_t block_pos,
-                                 std::size_t segment_pos, bool skipped, bool use_default,
-                                 const signed char* delete_sign_column_data) {
+                                 std::size_t segment_pos, bool skipped, bool row_has_sequence_col,
+                                 bool use_default, const signed char* delete_sign_column_data) {
         if (skipped) {
             DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
             DCHECK(cid != tablet_schema.version_col_idx());
             DCHECK(!tablet_column.is_row_store_column());
 
-            bool should_use_default = use_default;
-            if (!should_use_default && delete_sign_column_data != nullptr) {
-                auto it = read_index[tablet_schema.delete_sign_idx()].find(segment_pos);
-                if (it != read_index[tablet_schema.delete_sign_idx()].end()) {
-                    should_use_default = (delete_sign_column_data[it->second] != 0);
+            if (!use_default) {
+                if (delete_sign_column_data != nullptr) {
+                    auto it = read_index[tablet_schema.delete_sign_idx()].find(segment_pos);
+                    if (it != read_index[tablet_schema.delete_sign_idx()].end()) {
+                        if ((delete_sign_column_data[it->second] != 0) &&
+                            !(tablet_schema.has_sequence_col() && !row_has_sequence_col)) {
+                            use_default = true;
+                        }
+                    }
                 }
             }
-            if (!should_use_default && tablet_column.is_on_update_current_timestamp()) {
-                should_use_default = true;
+            if (!use_default && (tablet_column.is_on_update_current_timestamp() ||
+                                 cid == tablet_schema.delete_sign_idx())) {
+                use_default = true;
             }
-            if (should_use_default) {
+            if (use_default) {
                 if (tablet_column.has_default_value()) {
                     new_col->insert_from(default_value_col, 0);
                 } else if (tablet_column.is_nullable()) {
@@ -623,6 +657,9 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_column_store(
                           *old_value_block.get_by_position(i).column,
                           *block->get_by_position(cid).column, block_pos, segment_pos,
                           skip_bitmaps->at(block_pos).contains(col_uid),
+                          tablet_schema.has_sequence_col()
+                                  ? !skip_bitmaps->at(block_pos).contains(seq_col_unique_id)
+                                  : false,
                           use_default_or_null_flag[idx], delete_sign_column_data);
         }
     }
@@ -636,6 +673,10 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const std::size_t segment_start_pos, const std::size_t block_start_pos,
         const vectorized::Block* block, std::vector<BitmapValue>* skip_bitmaps) const {
+    int32_t seq_col_unique_id = -1;
+    if (tablet_schema.has_sequence_col()) {
+        seq_col_unique_id = tablet_schema.column(tablet_schema.sequence_col_idx()).unique_id();
+    }
     // segment pos to write -> rowid to read in old_value_block
     std::map<uint32_t, uint32_t> read_index;
     RETURN_IF_ERROR(read_columns_by_plan(tablet_schema, non_sort_key_cids, rsid_to_rowset,
@@ -655,18 +696,28 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
                                           const vectorized::IColumn& default_value_col,
                                           const vectorized::IColumn& old_value_col,
                                           const vectorized::IColumn& cur_col, std::size_t block_pos,
-                                          bool skipped, bool use_default,
+                                          bool skipped, bool row_has_sequence_col, bool use_default,
                                           const signed char* delete_sign_column_data,
                                           uint32_t pos_in_old_block) {
         if (skipped) {
             DCHECK(cid != tablet_schema.skip_bitmap_col_idx());
             DCHECK(cid != tablet_schema.version_col_idx());
             DCHECK(!tablet_column.is_row_store_column());
-            if (!use_default && tablet_column.is_on_update_current_timestamp()) {
+            if (!use_default) {
+                if ((delete_sign_column_data != nullptr &&
+                     delete_sign_column_data[pos_in_old_block] != 0) &&
+                    !(tablet_schema.has_sequence_col() && !row_has_sequence_col)) {
+                    // we should read values from old rows even if it's deleted when the input don't dpecify the sequence column
+                    // to keep the sequence column value increasing, otherwise it may cause the merge-on-read based compaction
+                    // to produce incorrect results
+                    use_default = true;
+                }
+            }
+            if (!use_default && (tablet_column.is_on_update_current_timestamp() ||
+                                 cid == tablet_schema.delete_sign_idx())) {
                 use_default = true;
             }
-            if (use_default || (delete_sign_column_data != nullptr &&
-                                delete_sign_column_data[pos_in_old_block] != 0)) {
+            if (use_default) {
                 if (tablet_column.has_default_value()) {
                     new_col->insert_from(default_value_col, 0);
                 } else if (tablet_column.is_nullable()) {
@@ -705,6 +756,9 @@ Status FlexibleReadPlan::fill_non_primary_key_columns_for_row_store(
                           *old_value_block.get_by_position(i).column,
                           *block->get_by_position(cid).column, block_pos,
                           skip_bitmaps->at(block_pos).contains(col_uid),
+                          tablet_schema.has_sequence_col()
+                                  ? !skip_bitmaps->at(block_pos).contains(seq_col_unique_id)
+                                  : false,
                           use_default_or_null_flag[idx], delete_sign_column_data, pos_in_old_block);
         }
     }

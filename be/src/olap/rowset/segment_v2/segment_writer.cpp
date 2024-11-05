@@ -529,7 +529,7 @@ Status SegmentWriter::probe_key_for_mow(
     // partial update and flexible partial update
 
     // TODO(bobhan1): handle sequence column here
-    if (have_delete_sign && !_tablet_schema->has_sequence_col()) {
+    if (st.is<KEY_ALREADY_EXISTS>() || (have_delete_sign && !_tablet_schema->has_sequence_col())) {
         has_default_or_nullable = true;
         use_default_or_null_flag.emplace_back(true);
     } else {

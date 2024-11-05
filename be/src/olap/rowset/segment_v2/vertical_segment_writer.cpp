@@ -406,7 +406,7 @@ Status VerticalSegmentWriter::_probe_key_for_mow(
     //    insert after delete in one load. In this case, the insert should also be treated
     //    as newly inserted rows, note that the sequence column value is filled in
     //    BlockAggregator::aggregate_for_insert_after_delete() if this row doesn't specify the sequence column
-    if ((have_delete_sign && !_tablet_schema->has_sequence_col()) ||
+    if (st.is<KEY_ALREADY_EXISTS>() || (have_delete_sign && !_tablet_schema->has_sequence_col()) ||
         (_opts.rowset_ctx->partial_update_info->is_flexible_partial_update() &&
          _mow_context->delete_bitmap->contains(
                  {loc.rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON}, loc.row_id))) {
