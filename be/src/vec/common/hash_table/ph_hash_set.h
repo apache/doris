@@ -36,6 +36,7 @@ public:
     using key_type = Key;
     using mapped_type = void;
     using value_type = void;
+    using Value = void*;
 
     using LookupResult = void*;
 

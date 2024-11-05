@@ -18,6 +18,7 @@
 #include "set_source_operator.h"
 
 #include <memory>
+#include <type_traits>
 
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
@@ -137,6 +138,22 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         } else {
             if (!it->visited) { //except: haven't visited values it's the needed result
                 _add_result_columns(local_state, value, block_size);
+            }
+        }
+    }
+
+    if (hash_table_ctx.hash_table->has_null_key_data()) {
+        auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefListWithFlags>();
+        if constexpr (std::is_same_v<RowRefListWithFlags, std::decay_t<decltype(value)>>) {
+            auto it = value.begin();
+            if constexpr (is_intersect) {
+                if (it->visited) { //intersected: have done probe, so visited values it's the result
+                    _add_result_columns(local_state, value, block_size);
+                }
+            } else {
+                if (!it->visited) { //except: haven't visited values it's the needed result
+                    _add_result_columns(local_state, value, block_size);
+                }
             }
         }
     }

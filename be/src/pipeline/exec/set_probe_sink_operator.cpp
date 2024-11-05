@@ -204,7 +204,6 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
 template <bool is_intersect>
 void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
         SetProbeSinkLocalState<is_intersect>& local_state) {
-    auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
     auto& hash_table_variants = local_state._shared_state->hash_table_variants;
     std::visit(
             [&](auto&& arg) {
@@ -212,13 +211,8 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     auto tmp_hash_table =
                             std::make_shared<typename HashTableCtxType::HashMapType>();
-                    bool is_need_shrink =
-                            arg.hash_table->should_be_shrink(valid_element_in_hash_tbl);
-                    if (is_intersect || is_need_shrink) {
-                        tmp_hash_table->init_buf_size(size_t(
-                                valid_element_in_hash_tbl / arg.hash_table->get_factor() + 1));
-                    }
 
+                    bool is_need_shrink = false;
                     arg.init_iterator();
                     auto& iter = arg.iterator;
                     auto iter_end = arg.hash_table->end();
@@ -231,13 +225,15 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                                     if constexpr (is_intersect) { //intersected
                                         if (it->visited) {
                                             it->visited = false;
-                                            tmp_hash_table->insert(iter->get_value());
+                                            tmp_hash_table->insert(iter->get_first(),
+                                                                   iter->get_second());
                                         }
                                         ++iter;
                                     } else { //except
                                         if constexpr (is_need_shrink_const) {
                                             if (!it->visited) {
-                                                tmp_hash_table->insert(iter->get_value());
+                                                tmp_hash_table->insert(iter->get_first(),
+                                                                   iter->get_second());
                                             }
                                         }
                                         ++iter;

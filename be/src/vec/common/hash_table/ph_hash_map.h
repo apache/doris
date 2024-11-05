@@ -40,6 +40,7 @@ public:
 
     using key_type = Key;
     using mapped_type = Mapped;
+    using Value = Mapped;
     using value_type = std::pair<const Key, Mapped>;
 
     using LookupResult = std::pair<const Key, Mapped>*;
@@ -154,10 +155,8 @@ public:
                                                 [&](const auto& ctor) { f(ctor, key, key); });
     }
 
-    void ALWAYS_INLINE insert(const Key& key, size_t hash_value, const Mapped& value) {
-        auto it = &*_hash_map.lazy_emplace_with_hash(key, hash_value,
-                                                     [&](const auto& ctor) { ctor(key, value); });
-        it->second = value;
+    void ALWAYS_INLINE insert(const Key& key, const Mapped& value) {
+        _hash_map.lazy_emplace(key, [&](const auto& ctor) { ctor(key, value); });
     }
 
     template <typename KeyHolder>
