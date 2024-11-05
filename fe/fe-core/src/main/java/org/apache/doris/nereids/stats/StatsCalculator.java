@@ -655,10 +655,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 idxId = olapScan.getSelectedIndexId();
             }
         }
-        // if (deltaRowCount > 0 && LOG.isDebugEnabled()) {
-        //     LOG.debug("{} is partially analyzed, clear min/max values in column stats",
-        //             catalogRelation.getTable().getName());
-        // }
         for (SlotReference slotReference : slotSet) {
             String colName = slotReference.getColumn().isPresent()
                     ? slotReference.getColumn().get().getName()
@@ -692,14 +688,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 hasUnknownCol = true;
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
-                // if (deltaRowCount > 0) {
-                //     // clear min-max to avoid error estimation
-                //     // for example, after yesterday data loaded, user send query about yesterday immediately.
-                //     // since yesterday data are not analyzed, the max date is before yesterday, and hence optimizer
-                //     // estimates the filter result is zero
-                //     colStatsBuilder.setMinExpr(null).setMinValue(Double.NEGATIVE_INFINITY)
-                //             .setMaxExpr(null).setMaxValue(Double.POSITIVE_INFINITY);
-                // }
                 columnStatisticBuilderMap.put(slotReference, colStatsBuilder);
             } else {
                 columnStatisticBuilderMap.put(slotReference, new ColumnStatisticBuilder(ColumnStatistic.UNKNOWN));
@@ -1201,34 +1189,44 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * 2. col stats ndv=0 but minExpr or maxExpr is not null
      * 3. ndv > 10 * rowCount
      */
-    public static Optional<String> disableJoinReorderIfStatsInvalid(List<LogicalOlapScan> scans,
+    public static Optional<String> disableJoinReorderIfStatsInvalid(List<CatalogRelation> scans,
             CascadesContext context) {
         StatsCalculator calculator = new StatsCalculator(context);
         if (ConnectContext.get() == null) {
             // ut case
             return Optional.empty();
         }
-        for (LogicalOlapScan scan : scans) {
-            double rowCount = calculator.getOlapTableRowCount(scan);
+        for (CatalogRelation scan : scans) {
+            double rowCount = calculator.getTableRowCount(scan);
             // row count not available
             if (rowCount == -1) {
                 LOG.info("disable join reorder since row count not available: "
                         + scan.getTable().getNameWithFullQualifiers());
                 return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
             }
-            // ndv abnormal
-            Optional<String> reason = calculator.checkNdvValidation(scan, rowCount);
-            if (reason.isPresent()) {
-                try {
-                    ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
-                    LOG.info("disable join reorder since col stats invalid: "
-                            + reason.get());
-                } catch (Exception e) {
-                    LOG.info("disableNereidsJoinReorderOnce failed");
+            if (scan instanceof OlapScan) {
+                // ndv abnormal
+                Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
+                if (reason.isPresent()) {
+                    try {
+                        ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
+                        LOG.info("disable join reorder since col stats invalid: "
+                                + reason.get());
+                    } catch (Exception e) {
+                        LOG.info("disableNereidsJoinReorderOnce failed");
+                    }
+                    return reason;
                 }
-                return reason;
             }
         }
         return Optional.empty();
+    }
+
+    private double getTableRowCount(CatalogRelation scan) {
+        if (scan instanceof OlapScan) {
+            return getOlapTableRowCount((OlapScan) scan);
+        } else {
+            return scan.getTable().getRowCount();
+        }
     }
 }
