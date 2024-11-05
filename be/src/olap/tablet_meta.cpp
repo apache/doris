@@ -1270,7 +1270,8 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
         // usually the previous version aggregated result can be found in the agg_cache
         // we can leverage the cached result to reduce union cost
         BitmapKey bmk_pre_version {std::get<0>(bmk), std::get<1>(bmk), std::get<2>(bmk) - 1};
-        CacheKey key_pre_version(agg_cache_key(_tablet_id, bmk_pre_version));
+        std::string tmp_key = agg_cache_key(_tablet_id, bmk_pre_version);
+        CacheKey key_pre_version(tmp_key);
         Cache::Handle* handle_pre_version = _agg_cache->repr()->lookup(key_pre_version);
         val = new AggCache::Value();
         // leverage the cached result
