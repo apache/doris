@@ -170,6 +170,8 @@ public abstract class AbstractJob implements Writable {
 
     public abstract boolean isCancelled();
 
+    public abstract boolean isFinished();
+
     public abstract Status updateRepo(Repository repo);
 
     public static AbstractJob read(DataInput in) throws IOException {
