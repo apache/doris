@@ -33,8 +33,8 @@ import org.apache.http.entity.StringEntity
 import org.apache.http.client.methods.CloseableHttpResponse
 import org.apache.http.util.EntityUtils
 
-suite("test_schema_change_unique_ck", "p0") {
-    def tableName3 = "test_all_unique_ck"
+suite("test_schema_change_unique", "p0") {
+    def tableName3 = "test_all_unique"
 
     def getJobState = { tableName ->
         def jobStateResult = sql """ SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
@@ -69,8 +69,17 @@ suite("test_schema_change_unique_ck", "p0") {
     }
 
     def checkNoDuplicatedKeys = { tableName ->
+        def res = sql """ show tablets from ${tableName}; """
+        log.info("tablets: " + res)
+
+        def rowCount = sql """ select count() from ${tableName}; """
+        log.info("rowCount: " + rowCount)
+
         List<List<Object>> cnt = sql """ select k1,k2,k3,count(*) a  from ${tableName} group by k1,k2,k3 having a > 1; """
         log.info("ensure there are no duplicated keys")
+        if (cnt.size() > 0) {
+            log.info("find duplicated keys: " + cnt.get(0))
+        }
         assertEquals(0, cnt.size())
     }
 
