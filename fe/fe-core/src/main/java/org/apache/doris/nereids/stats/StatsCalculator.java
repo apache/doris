@@ -375,16 +375,23 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId, partitionNames);
     }
 
-    private long getSelectedPartitionRowCount(OlapScan olapScan) {
-        long partRowCountSum = 0;
+    private double getSelectedPartitionRowCount(OlapScan olapScan, double tableRowCount) {
+        // the number of partitions whose row count is not available
+        double unknownPartitionCount = 0;
+        double partRowCountSum = 0;
         for (long id : olapScan.getSelectedPartitionIds()) {
             long partRowCount = olapScan.getTable()
                     .getRowCountForPartitionIndex(id, olapScan.getSelectedIndexId(), true);
-            // if we cannot get any partition's rowCount, return -1 to fallback to table level stats
             if (partRowCount == -1) {
-                return -1;
+                unknownPartitionCount++;
             }
             partRowCountSum += partRowCount;
+        }
+        // estimate row count for unknownPartitionCount
+        if (unknownPartitionCount > 0) {
+            // each selected partition has at least one row
+            partRowCountSum += Math.max(unknownPartitionCount,
+                    tableRowCount * unknownPartitionCount / olapScan.getTable().getPartitionNum());
         }
         return partRowCountSum;
     }
@@ -464,10 +471,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             Optional<Statistics> optStats = cascadesContext.getStatementContext()
                     .getStatistics(((Relation) olapScan).getRelationId());
             if (optStats.isPresent()) {
-                double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan);
-                if (selectedPartitionsRowCount == -1) {
-                    selectedPartitionsRowCount = tableRowCount;
-                }
+                double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
                 // if estimated mv rowCount is more than actual row count, fall back to base table stats
                 if (selectedPartitionsRowCount >= optStats.get().getRowCount()) {
                     Statistics derivedStats = optStats.get();
@@ -525,30 +529,24 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         if (olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
-            double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan);
-            if (selectedPartitionsRowCount >= 0) {
-                useTableLevelStats = false;
-                List<String> selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
-                olapScan.getSelectedPartitionIds().forEach(id -> {
-                    selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
-                });
-                for (SlotReference slot : visibleOutputSlots) {
-                    ColumnStatistic cache = getColumnStatsFromPartitionCache(olapScan, slot, selectedPartitionNames);
-                    if (slot.getColumn().isPresent()) {
-                        cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
-                    }
-                    ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
-                            selectedPartitionsRowCount);
-                    colStatsBuilder.normalizeAvgSizeByte(slot);
-                    builder.putColumnStatistics(slot, colStatsBuilder.build());
+            double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
+            useTableLevelStats = false;
+            List<String> selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
+            olapScan.getSelectedPartitionIds().forEach(id -> {
+                selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
+            });
+            for (SlotReference slot : visibleOutputSlots) {
+                ColumnStatistic cache = getColumnStatsFromPartitionCache(olapScan, slot, selectedPartitionNames);
+                if (slot.getColumn().isPresent()) {
+                    cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
                 }
-                checkIfUnknownStatsUsedAsKey(builder);
-                builder.setRowCount(selectedPartitionsRowCount);
-            } else {
-                // estimate table rowCount according to pruned partition num
-                tableRowCount = tableRowCount * olapScan.getSelectedPartitionIds().size()
-                        / olapScan.getTable().getPartitionNum();
+                ColumnStatisticBuilder colStatsBuilder = new ColumnStatisticBuilder(cache,
+                        selectedPartitionsRowCount);
+                colStatsBuilder.normalizeAvgSizeByte(slot);
+                builder.putColumnStatistics(slot, colStatsBuilder.build());
             }
+            checkIfUnknownStatsUsedAsKey(builder);
+            builder.setRowCount(selectedPartitionsRowCount);
         }
         // 1. no partition is pruned, or
         // 2. fall back to table stats
