@@ -189,8 +189,6 @@ public:
         return capacity * sizeof(typename HashMapImpl::slot_type);
     }
 
-    size_t get_buffer_size_in_cells() const { return _hash_map.capacity(); }
-
     bool add_elem_size_overflow(size_t row) const {
         const auto capacity = _hash_map.capacity();
         // phmap use 7/8th as maximum load factor.
@@ -208,7 +206,7 @@ public:
 
     void clear_and_shrink() { _hash_map.clear(); }
 
-    void expanse_for_add_elem(size_t num_elem) { _hash_map.reserve(num_elem); }
+    void reserve(size_t num_elem) { _hash_map.reserve(num_elem); }
 
 private:
     HashMapImpl _hash_map;

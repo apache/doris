@@ -105,7 +105,7 @@ public:
 
     void clear_and_shrink() { _hash_set.clear(); }
 
-    void expanse_for_add_elem(size_t num_elem) { _hash_set.reserve(num_elem); }
+    void reserve(size_t num_elem) { _hash_set.reserve(num_elem); }
 
 private:
     HashSetImpl _hash_set;
