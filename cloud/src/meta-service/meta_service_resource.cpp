@@ -701,6 +701,9 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     new_vault.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
     new_vault.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
     new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
+    if (obj_info.has_use_path_style()) {
+        new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
+    }
 
     auto new_vault_info = new_vault.DebugString();
     val = new_vault.SerializeAsString();
@@ -989,6 +992,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(vault.id());
             instance.set_default_storage_vault_name(vault.name());
         }
+        response->set_storage_vault_id(vault.id());
         LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault.id(),
                  vault.name(), hex(vault_key));
     } break;
@@ -1006,6 +1010,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(*instance.resource_ids().rbegin());
             instance.set_default_storage_vault_name(*instance.storage_vault_names().rbegin());
         }
+        response->set_storage_vault_id(request->vault().id());
         break;
     }
     case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {

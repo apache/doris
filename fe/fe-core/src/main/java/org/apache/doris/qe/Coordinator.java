@@ -1783,8 +1783,7 @@ public class Coordinator implements CoordInterface {
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
                 // shuffled to only 1 exchange operator) and then splitted by followed local exchanger
                 int expectedInstanceNum = fragment.getParallelExecNum();
-                boolean useSerialSource = fragment.useSerialSource(context) && useNereids
-                        && fragment.queryCacheParam == null;
+                boolean useSerialSource = fragment.useSerialSource(context);
                 if (useSerialSource) {
                     for (int j = 1; j < expectedInstanceNum; j++) {
                         params.instanceExecParams.add(new FInstanceExecParam(
@@ -1824,8 +1823,7 @@ public class Coordinator implements CoordInterface {
                 }
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
                 // shuffled to only 1 exchange operator) and then splitted by followed local exchanger
-                boolean useSerialSource = fragment.useSerialSource(context) && useNereids
-                        && fragment.queryCacheParam == null;
+                boolean useSerialSource = fragment.useSerialSource(context);
                 if (exchangeInstances > 0 && fragmentExecParamsMap.get(inputFragmentId)
                         .instanceExecParams.size() > exchangeInstances) {
                     // random select some instance
@@ -1890,21 +1888,11 @@ public class Coordinator implements CoordInterface {
                             return scanNode.getId().asInt() == planNodeId;
                         }).findFirst();
 
-                        /**
-                         * Ignore storage data distribution iff:
-                         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
-                         * 2. Use Nereids planner.
-                         */
                         boolean sharedScan = true;
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
-                        boolean forceToLocalShuffle = context != null
-                                && context.getSessionVariable().isForceToLocalShuffle()
-                                && !fragment.hasNullAwareLeftAntiJoin() && useNereids;
-                        boolean ignoreStorageDataDistribution = (forceToLocalShuffle || (node.isPresent()
-                                && node.get().ignoreStorageDataDistribution(context, addressToBackendID.size())
-                                && useNereids)) && fragment.queryCacheParam == null;
-                        if (node.isPresent() && ignoreStorageDataDistribution) {
+                        boolean ignoreStorageDataDistribution = fragment.useSerialSource(context);
+                        if (ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource
@@ -2750,14 +2738,7 @@ public class Coordinator implements CoordInterface {
          * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
          * 2. Use Nereids planner.
          */
-        boolean forceToLocalShuffle = context != null
-                && context.getSessionVariable().isForceToLocalShuffle() && !hasNullAwareLeftAntiJoin && useNereids;
-        boolean ignoreStorageDataDistribution = (forceToLocalShuffle || (scanNodes.stream()
-                .allMatch(node -> node.ignoreStorageDataDistribution(context,
-                        addressToBackendID.size()))
-                && addressToScanRanges.entrySet().stream().allMatch(addressScanRange -> {
-                    return addressScanRange.getValue().size() < parallelExecInstanceNum;
-                }) && useNereids)) && params.fragment.queryCacheParam == null;
+        boolean ignoreStorageDataDistribution = params.fragment != null && params.fragment.useSerialSource(context);
 
         FragmentScanRangeAssignment assignment = params.scanRangeAssignment;
         for (Map.Entry<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressScanRange

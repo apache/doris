@@ -51,6 +51,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class FunctionContext;
 
 namespace vectorized {
@@ -73,7 +74,7 @@ struct YearFloor;
 
 namespace doris::vectorized {
 
-template <typename Impl, typename DateValueType, typename DeltaValueType, int ArgNum, bool UseDelta>
+template <typename Impl, typename DateValueType, int ArgNum, bool UseDelta>
 class FunctionDateTimeFloorCeil : public IFunction {
 public:
     using ReturnDataType = std::conditional_t<
@@ -84,7 +85,7 @@ public:
             std::is_same_v<DateValueType, VecDateTimeValue>, Int64,
             std::conditional_t<std::is_same_v<DateValueType, DateV2Value<DateV2ValueType>>, UInt32,
                                UInt64>>;
-    using DeltaDataType = DataTypeNumber<DeltaValueType>; // int32/64
+    using DeltaDataType = DataTypeNumber<Int32>; // int32/64
     static constexpr auto name = Impl::name;
 
     static FunctionPtr create() { return std::make_shared<FunctionDateTimeFloorCeil>(); }
@@ -166,7 +167,7 @@ public:
                                 col_to->get_data(), null_map->get_data());
                     } else {
                         // time_round(datetime,const(period))
-                        Impl::template vector_constant_delta<NativeType, DeltaValueType>(
+                        Impl::template vector_constant_delta<NativeType>(
                                 sources->get_data(), delta_const_column->get_field().get<Int32>(),
                                 col_to->get_data(), null_map->get_data());
                     }
@@ -178,7 +179,7 @@ public:
                                             col_to->get_data(), null_map->get_data());
                     } else {
                         const auto* delta_vec_column1 =
-                                check_and_get_column<ColumnVector<DeltaValueType>>(delta_column);
+                                check_and_get_column<ColumnVector<Int32>>(delta_column);
                         DCHECK(delta_vec_column1 != nullptr);
                         // time_round(datetime, period)
                         Impl::vector_vector(sources->get_data(), delta_vec_column1->get_data(),
@@ -197,7 +198,7 @@ public:
                     arg1_col->get(0, arg1);
                     arg2_col->get(0, arg2);
                     // time_round(datetime,const(period) , const(origin))
-                    Impl::template vector_const_const<NativeType, DeltaValueType>(
+                    Impl::template vector_const_const<NativeType>(
                             sources->get_data(), arg1.get<Int32>(), arg2.get<NativeType>(),
                             col_to->get_data(), null_map->get_data());
 
@@ -207,27 +208,25 @@ public:
                     const auto arg2_column =
                             check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
                     // time_round(datetime,const(period) , origin)
-                    Impl::template vector_const_vector<NativeType, DeltaValueType>(
+                    Impl::template vector_const_vector<NativeType>(
                             sources->get_data(), arg1.get<Int32>(), arg2_column->get_data(),
                             col_to->get_data(), null_map->get_data());
                 } else if (!arg1_const && arg2_const) {
                     Field arg2;
                     arg2_col->get(0, arg2);
-                    const auto arg1_column =
-                            check_and_get_column<ColumnVector<DeltaValueType>>(*arg1_col);
+                    const auto arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
                     // time_round(datetime, period , const(origin))
-                    Impl::template vector_vector_const<NativeType, DeltaValueType>(
+                    Impl::template vector_vector_const<NativeType, Int32>(
                             sources->get_data(), arg1_column->get_data(), arg2.get<NativeType>(),
                             col_to->get_data(), null_map->get_data());
                 } else {
-                    const auto arg1_column =
-                            check_and_get_column<ColumnVector<DeltaValueType>>(*arg1_col);
+                    const auto arg1_column = check_and_get_column<ColumnVector<Int32>>(*arg1_col);
                     const auto arg2_column =
                             check_and_get_column<ColumnVector<NativeType>>(*arg2_col);
                     DCHECK(arg1_column != nullptr);
                     DCHECK(arg2_column != nullptr);
                     // time_round(datetime, period, origin)
-                    Impl::template vector_vector<NativeType, DeltaValueType>(
+                    Impl::template vector_vector<NativeType>(
                             sources->get_data(), arg1_column->get_data(), arg2_column->get_data(),
                             col_to->get_data(), null_map->get_data());
                 }
@@ -289,8 +288,8 @@ struct FloorCeilImpl {
         }
     }
 
-    template <typename NativeType, typename DeltaType>
-    static void vector_constant_delta(const PaddedPODArray<NativeType>& dates, DeltaType period,
+    template <typename NativeType>
+    static void vector_constant_delta(const PaddedPODArray<NativeType>& dates, Int32 period,
                                       PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime,const(period))
         if (period < 1) {
@@ -313,7 +312,7 @@ struct FloorCeilImpl {
         }
     }
 
-    template <typename NativeType, typename DeltaType, UInt32 period>
+    template <typename NativeType, UInt32 period>
     static void vector_const_const_with_constant_optimization(
             const PaddedPODArray<NativeType>& dates, NativeType origin_date,
             PaddedPODArray<NativeType>& res, NullMap& null_map) {
@@ -333,8 +332,8 @@ struct FloorCeilImpl {
             }
         }
     }
-    template <typename NativeType, typename DeltaType>
-    static void vector_const_const(const PaddedPODArray<NativeType>& dates, const DeltaType period,
+    template <typename NativeType>
+    static void vector_const_const(const PaddedPODArray<NativeType>& dates, const Int32 period,
                                    NativeType origin_date, PaddedPODArray<NativeType>& res,
                                    NullMap& null_map) {
         if (period < 1) {
@@ -343,63 +342,63 @@ struct FloorCeilImpl {
         }
         switch (period) {
         case 1: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 1>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 1>(dates, origin_date, res,
+                                                                         null_map);
             break;
         }
         case 2: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 2>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 2>(dates, origin_date, res,
+                                                                         null_map);
             break;
         }
         case 3: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 3>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 3>(dates, origin_date, res,
+                                                                         null_map);
             break;
         }
         case 4: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 4>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 4>(dates, origin_date, res,
+                                                                         null_map);
             break;
         }
         case 5: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 5>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 5>(dates, origin_date, res,
+                                                                         null_map);
             break;
         }
         case 6: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 6>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 6>(dates, origin_date, res,
+                                                                         null_map);
             break;
         }
         case 7: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 7>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 7>(dates, origin_date, res,
+                                                                         null_map);
             break;
         }
         case 8: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 8>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 8>(dates, origin_date, res,
+                                                                         null_map);
             break;
         }
         case 9: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 9>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 9>(dates, origin_date, res,
+                                                                         null_map);
             break;
         }
         case 10: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 10>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 10>(dates, origin_date, res,
+                                                                          null_map);
             break;
         }
         case 11: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 11>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 11>(dates, origin_date, res,
+                                                                          null_map);
             break;
         }
         case 12: {
-            vector_const_const_with_constant_optimization<NativeType, DeltaType, 12>(
-                    dates, origin_date, res, null_map);
+            vector_const_const_with_constant_optimization<NativeType, 12>(dates, origin_date, res,
+                                                                          null_map);
             break;
         }
         default:
@@ -420,8 +419,8 @@ struct FloorCeilImpl {
         }
     }
 
-    template <typename NativeType, typename DeltaType>
-    static void vector_const_vector(const PaddedPODArray<NativeType>& dates, const DeltaType period,
+    template <typename NativeType>
+    static void vector_const_vector(const PaddedPODArray<NativeType>& dates, const Int32 period,
                                     const PaddedPODArray<NativeType>& origin_dates,
                                     PaddedPODArray<NativeType>& res, NullMap& null_map) {
         if (period < 1) {
@@ -492,10 +491,10 @@ struct FloorCeilImpl {
         }
     }
 
-    template <typename NativeType, typename DeltaType>
+    template <typename NativeType>
     static void vector_vector(const PaddedPODArray<NativeType>& dates,
-                              const PaddedPODArray<DeltaType>& periods,
-                              PaddedPODArray<NativeType>& res, NullMap& null_map) {
+                              const PaddedPODArray<Int32>& periods, PaddedPODArray<NativeType>& res,
+                              NullMap& null_map) {
         // time_round(datetime, period)
         for (int i = 0; i < dates.size(); ++i) {
             if (periods[i] < 1) {
@@ -517,9 +516,9 @@ struct FloorCeilImpl {
         }
     }
 
-    template <typename NativeType, typename DeltaType>
+    template <typename NativeType>
     static void vector_vector(const PaddedPODArray<NativeType>& dates,
-                              const PaddedPODArray<DeltaType>& periods,
+                              const PaddedPODArray<Int32>& periods,
                               const PaddedPODArray<NativeType>& origin_dates,
                               PaddedPODArray<NativeType>& res, NullMap& null_map) {
         // time_round(datetime, period, origin)
@@ -931,53 +930,51 @@ struct TimeRound {
     }
 };
 
-#define TIME_ROUND_WITH_DELTA_TYPE(CLASS, NAME, UNIT, TYPE, DELTA)                                 \
-    using FunctionOneArg##CLASS##DELTA =                                                           \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, DELTA, 1, \
-                                      false>;                                                      \
-    using FunctionTwoArg##CLASS##DELTA =                                                           \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, DELTA, 2, \
-                                      false>;                                                      \
-    using FunctionThreeArg##CLASS##DELTA =                                                         \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, DELTA, 3, \
-                                      false>;                                                      \
-    using FunctionDateV2OneArg##CLASS##DELTA =                                                     \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                             \
-                                      DateV2Value<DateV2ValueType>, DELTA, 1, false>;              \
-    using FunctionDateV2TwoArg##CLASS##DELTA =                                                     \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                             \
-                                      DateV2Value<DateV2ValueType>, DELTA, 2, false>;              \
-    using FunctionDateV2ThreeArg##CLASS##DELTA =                                                   \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                             \
-                                      DateV2Value<DateV2ValueType>, DELTA, 3, false>;              \
-    using FunctionDateTimeV2OneArg##CLASS##DELTA =                                                 \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                             \
-                                      DateV2Value<DateTimeV2ValueType>, DELTA, 1, false>;          \
-    using FunctionDateTimeV2TwoArg##CLASS##DELTA =                                                 \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                             \
-                                      DateV2Value<DateTimeV2ValueType>, DELTA, 2, false>;          \
-    using FunctionDateTimeV2ThreeArg##CLASS##DELTA =                                               \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                             \
-                                      DateV2Value<DateTimeV2ValueType>, DELTA, 3, false>;
+#define TIME_ROUND_WITH_DELTA_TYPE(CLASS, NAME, UNIT, TYPE, DELTA)                          \
+    using FunctionOneArg##CLASS##DELTA =                                                    \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, 1, \
+                                      false>;                                               \
+    using FunctionTwoArg##CLASS##DELTA =                                                    \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, 2, \
+                                      false>;                                               \
+    using FunctionThreeArg##CLASS##DELTA =                                                  \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, 3, \
+                                      false>;                                               \
+    using FunctionDateV2OneArg##CLASS##DELTA =                                              \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
+                                      DateV2Value<DateV2ValueType>, 1, false>;              \
+    using FunctionDateV2TwoArg##CLASS##DELTA =                                              \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
+                                      DateV2Value<DateV2ValueType>, 2, false>;              \
+    using FunctionDateV2ThreeArg##CLASS##DELTA =                                            \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
+                                      DateV2Value<DateV2ValueType>, 3, false>;              \
+    using FunctionDateTimeV2OneArg##CLASS##DELTA =                                          \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
+                                      DateV2Value<DateTimeV2ValueType>, 1, false>;          \
+    using FunctionDateTimeV2TwoArg##CLASS##DELTA =                                          \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
+                                      DateV2Value<DateTimeV2ValueType>, 2, false>;          \
+    using FunctionDateTimeV2ThreeArg##CLASS##DELTA =                                        \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                      \
+                                      DateV2Value<DateTimeV2ValueType>, 3, false>;
 
-#define TIME_ROUND(CLASS, NAME, UNIT, TYPE)                                                        \
-    struct CLASS {                                                                                 \
-        static constexpr auto name = #NAME;                                                        \
-        static constexpr TimeUnit Unit = UNIT;                                                     \
-        static constexpr auto Type = TYPE;                                                         \
-    };                                                                                             \
-                                                                                                   \
-    TIME_ROUND_WITH_DELTA_TYPE(CLASS, NAME, UNIT, TYPE, Int32)                                     \
-    TIME_ROUND_WITH_DELTA_TYPE(CLASS, NAME, UNIT, TYPE, Int64)                                     \
-    using FunctionDateTimeV2TwoArg##CLASS =                                                        \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                             \
-                                      DateV2Value<DateTimeV2ValueType>, Int32, 2, true>;           \
-    using FunctionDateV2TwoArg##CLASS =                                                            \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,                             \
-                                      DateV2Value<DateV2ValueType>, Int32, 2, true>;               \
-    using FunctionDateTimeTwoArg##CLASS =                                                          \
-            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, Int32, 2, \
-                                      true>;
+#define TIME_ROUND(CLASS, NAME, UNIT, TYPE)                                       \
+    struct CLASS {                                                                \
+        static constexpr auto name = #NAME;                                       \
+        static constexpr TimeUnit Unit = UNIT;                                    \
+        static constexpr auto Type = TYPE;                                        \
+    };                                                                            \
+                                                                                  \
+    TIME_ROUND_WITH_DELTA_TYPE(CLASS, NAME, UNIT, TYPE, Int32)                    \
+    using FunctionDateTimeV2TwoArg##CLASS =                                       \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,            \
+                                      DateV2Value<DateTimeV2ValueType>, 2, true>; \
+    using FunctionDateV2TwoArg##CLASS =                                           \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>,            \
+                                      DateV2Value<DateV2ValueType>, 2, true>;     \
+    using FunctionDateTimeTwoArg##CLASS =                                         \
+            FunctionDateTimeFloorCeil<FloorCeilImpl<TimeRound<CLASS>>, VecDateTimeValue, 2, true>;
 
 TIME_ROUND(YearFloor, year_floor, YEAR, FLOOR);
 TIME_ROUND(MonthFloor, month_floor, MONTH, FLOOR);
@@ -1010,9 +1007,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDateTimeTwoArg##CLASS>();            \
     factory.register_function<FunctionDateV2TwoArg##CLASS>();
 
-#define REGISTER_FUNC(CLASS)                    \
-    REGISTER_FUNC_WITH_DELTA_TYPE(CLASS, Int32) \
-    REGISTER_FUNC_WITH_DELTA_TYPE(CLASS, Int64)
+#define REGISTER_FUNC(CLASS) REGISTER_FUNC_WITH_DELTA_TYPE(CLASS, Int32)
 
     REGISTER_FUNC(YearFloor);
     REGISTER_FUNC(MonthFloor);

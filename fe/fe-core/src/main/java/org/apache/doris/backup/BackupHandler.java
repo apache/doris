@@ -110,10 +110,10 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
     private Env env;
 
-    // map to store backup info, key is label name, value is Pair<meta, info>, meta && info is bytes
-    // this map not present in persist && only in fe master memory
+    // map to store backup info, key is label name, value is the BackupJob
+    // this map not present in persist && only in fe memory
     // one table only keep one snapshot info, only keep last
-    private final Map<String, Snapshot> localSnapshots = new HashMap<>();
+    private final Map<String, BackupJob> localSnapshots = new HashMap<>();
     private ReadWriteLock localSnapshotsLock = new ReentrantReadWriteLock();
 
     public BackupHandler() {
@@ -168,6 +168,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 return false;
             }
         }
+
         isInit = true;
         return true;
     }
@@ -421,14 +422,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
             try {
                 if (olapTbl.existTempPartitions()) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                            "Do not support backup table with temp partitions");
+                            "Do not support backup table " + olapTbl.getName() + " with temp partitions");
                 }
 
                 PartitionNames partitionNames = tblRef.getPartitionNames();
                 if (partitionNames != null) {
                     if (partitionNames.isTemp()) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                                "Do not support backup temp partitions");
+                                "Do not support backup temp partitions in table " + tblRef.getName());
                     }
 
                     for (String partName : partitionNames.getPartitionNames()) {
@@ -558,11 +559,15 @@ public class BackupHandler extends MasterDaemon implements Writable {
             return;
         }
 
+        List<String> removedLabels = Lists.newArrayList();
         jobLock.lock();
         try {
             Deque<AbstractJob> jobs = dbIdToBackupOrRestoreJobs.computeIfAbsent(dbId, k -> Lists.newLinkedList());
             while (jobs.size() >= Config.max_backup_restore_job_num_per_db) {
-                jobs.removeFirst();
+                AbstractJob removedJob = jobs.removeFirst();
+                if (removedJob instanceof BackupJob && ((BackupJob) removedJob).isLocalSnapshot()) {
+                    removedLabels.add(removedJob.getLabel());
+                }
             }
             AbstractJob lastJob = jobs.peekLast();
 
@@ -574,6 +579,17 @@ public class BackupHandler extends MasterDaemon implements Writable {
             jobs.addLast(job);
         } finally {
             jobLock.unlock();
+        }
+
+        if (job.isFinished() && job instanceof BackupJob) {
+            // Save snapshot to local repo, when reload backupHandler from image.
+            BackupJob backupJob = (BackupJob) job;
+            if (backupJob.isLocalSnapshot()) {
+                addSnapshot(backupJob.getLabel(), backupJob);
+            }
+        }
+        for (String label : removedLabels) {
+            removeSnapshot(label);
         }
     }
 
@@ -669,7 +685,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (partitionNames != null) {
             if (partitionNames.isTemp()) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
-                        "Do not support restoring temporary partitions");
+                        "Do not support restoring temporary partitions in table " + tblName);
             }
             // check the selected partitions
             for (String partName : partitionNames.getPartitionNames()) {
@@ -813,22 +829,42 @@ public class BackupHandler extends MasterDaemon implements Writable {
         return false;
     }
 
-    public void addSnapshot(String labelName, Snapshot snapshot) {
+    public void addSnapshot(String labelName, BackupJob backupJob) {
+        assert backupJob.isFinished();
+
+        LOG.info("add snapshot {} to local repo", labelName);
         localSnapshotsLock.writeLock().lock();
         try {
-            localSnapshots.put(labelName, snapshot);
+            localSnapshots.put(labelName, backupJob);
+        } finally {
+            localSnapshotsLock.writeLock().unlock();
+        }
+    }
+
+    public void removeSnapshot(String labelName) {
+        LOG.info("remove snapshot {} from local repo", labelName);
+        localSnapshotsLock.writeLock().lock();
+        try {
+            localSnapshots.remove(labelName);
         } finally {
             localSnapshotsLock.writeLock().unlock();
         }
     }
 
     public Snapshot getSnapshot(String labelName) {
+        BackupJob backupJob;
         localSnapshotsLock.readLock().lock();
         try {
-            return localSnapshots.get(labelName);
+            backupJob = localSnapshots.get(labelName);
         } finally {
             localSnapshotsLock.readLock().unlock();
         }
+
+        if (backupJob == null) {
+            return null;
+        }
+
+        return backupJob.getSnapshot();
     }
 
     public static BackupHandler read(DataInput in) throws IOException {

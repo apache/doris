@@ -79,8 +79,8 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
-                 TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids,
-                 TNetworkAddress current_connect_fe, QuerySource query_type);
+                 TNetworkAddress coord_addr, bool is_nereids, TNetworkAddress current_connect_fe,
+                 QuerySource query_type);
 
     ~QueryContext();
 
@@ -246,7 +246,6 @@ private:
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
     int64_t _bytes_limit = 0;
-    bool _is_pipeline = false;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
 

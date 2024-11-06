@@ -221,24 +221,42 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     /**
-     * disable join reorder if any table row count is not available.
+     * disable join reorder if
+     * 1. any table rowCount is not available, or
+     * 2. col stats ndv=0 but minExpr or maxExpr is not null
+     * 3. ndv > 10 * rowCount
      */
-    public static void disableJoinReorderIfTableRowCountNotAvailable(
-            List<LogicalOlapScan> scans, CascadesContext context) {
+    public static Optional<String> disableJoinReorderIfStatsInvalid(List<CatalogRelation> scans,
+            CascadesContext context) {
         StatsCalculator calculator = new StatsCalculator(context);
-        for (LogicalOlapScan scan : scans) {
-            double rowCount = calculator.getOlapTableRowCount(scan);
-            if (rowCount == -1 && ConnectContext.get() != null) {
-                try {
-                    ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
-                    LOG.info("disable join reorder since row count not available: "
-                            + scan.getTable().getNameWithFullQualifiers());
-                } catch (Exception e) {
-                    LOG.info("disableNereidsJoinReorderOnce failed");
+        if (ConnectContext.get() == null) {
+            // ut case
+            return Optional.empty();
+        }
+        for (CatalogRelation scan : scans) {
+            double rowCount = calculator.getTableRowCount(scan);
+            // row count not available
+            if (rowCount == -1) {
+                LOG.info("disable join reorder since row count not available: "
+                        + scan.getTable().getNameWithFullQualifiers());
+                return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
+            }
+            if (scan instanceof OlapScan) {
+                // ndv abnormal
+                Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
+                if (reason.isPresent()) {
+                    try {
+                        ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
+                        LOG.info("disable join reorder since col stats invalid: "
+                                + reason.get());
+                    } catch (Exception e) {
+                        LOG.info("disableNereidsJoinReorderOnce failed");
+                    }
+                    return reason;
                 }
-                return;
             }
         }
+        return Optional.empty();
     }
 
     /**
@@ -391,6 +409,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
+    private double getTableRowCount(CatalogRelation scan) {
+        if (scan instanceof OlapScan) {
+            return getOlapTableRowCount((OlapScan) scan);
+        } else {
+            return scan.getTable().getRowCount();
+        }
+    }
+
     /**
      * if the table is not analyzed and BE does not report row count, return -1
      */
@@ -410,6 +436,22 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         return rowCount;
+    }
+
+    // check validation of ndv.
+    private Optional<String> checkNdvValidation(OlapScan olapScan, double rowCount) {
+        for (Slot slot : ((Plan) olapScan).getOutput()) {
+            if (isVisibleSlotReference(slot)) {
+                ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, (SlotReference) slot);
+                if (!cache.isUnKnown) {
+                    if ((cache.ndv == 0 && (cache.minExpr != null || cache.maxExpr != null))
+                            || cache.ndv > rowCount * 10) {
+                        return Optional.of("slot " + slot.getName() + " has invalid column stats: " + cache);
+                    }
+                }
+            }
+        }
+        return Optional.empty();
     }
 
     private Statistics computeOlapScan(OlapScan olapScan) {
@@ -502,6 +544,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
                 checkIfUnknownStatsUsedAsKey(builder);
                 builder.setRowCount(selectedPartitionsRowCount);
+            } else {
+                // estimate table rowCount according to pruned partition num
+                tableRowCount = tableRowCount * olapScan.getSelectedPartitionIds().size()
+                        / olapScan.getTable().getPartitionNum();
             }
         }
         // 1. no partition is pruned, or
@@ -1176,11 +1222,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
         StatisticsBuilder builder = new StatisticsBuilder();
+        double tableRowCount = catalogRelation.getTable().getRowCount();
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable().internalSession) {
-            builder.setRowCount(catalogRelation.getTable().getRowCountForNereids());
+            builder.setRowCount(Math.max(1, tableRowCount));
             for (Slot slot : catalogRelation.getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
@@ -1196,8 +1243,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
-        double tableRowCount = catalogRelation.getTable().getRowCount();
         if (tableRowCount <= 0) {
+            tableRowCount = 1;
             // try to get row count from col stats
             for (SlotReference slot : slotSet) {
                 ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);

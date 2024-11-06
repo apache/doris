@@ -2908,15 +2908,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 3: get snapshot
+        String label = request.getLabelName();
         TGetSnapshotResult result = new TGetSnapshotResult();
         result.setStatus(new TStatus(TStatusCode.OK));
-        Snapshot snapshot = Env.getCurrentEnv().getBackupHandler().getSnapshot(request.getLabelName());
+        Snapshot snapshot = Env.getCurrentEnv().getBackupHandler().getSnapshot(label);
         if (snapshot == null) {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_NOT_EXIST);
-            result.getStatus().addToErrorMsgs("snapshot not exist");
+            result.getStatus().addToErrorMsgs(String.format("snapshot %s not exist", label));
         } else {
             result.setMeta(snapshot.getMeta());
             result.setJobInfo(snapshot.getJobInfo());
+            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}",
+                    label, snapshot.getMeta().length, snapshot.getJobInfo().length);
         }
 
         return result;
@@ -3026,7 +3029,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         RestoreStmt restoreStmt = new RestoreStmt(label, repoName, restoreTableRefClause, properties, request.getMeta(),
                 request.getJobInfo());
         restoreStmt.setIsBeingSynced();
-        LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
+        LOG.debug("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setQualifiedUser(request.getUser());
@@ -3037,13 +3040,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             restoreStmt.analyze(analyzer);
             DdlExecutor.execute(Env.getCurrentEnv(), restoreStmt);
         } catch (UserException e) {
-            LOG.warn("failed to restore: {}", e.getMessage(), e);
+            LOG.warn("failed to restore: {}, stmt: {}", e.getMessage(), restoreStmt, e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
+            status.addToErrorMsgs(e.getMessage() + ", stmt: " + restoreStmt.toString());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.warn("catch unknown result. stmt: {}", restoreStmt, e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()) + ", stmt: " + restoreStmt.toString());
         } finally {
             ConnectContext.remove();
         }
@@ -3495,7 +3498,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(false)) {
+        for (Long id : systemInfoService.getAllBackendByCurrentCluster(false)) {
             Backend backend = systemInfoService.getBackend(id);
             nodeInfos.add(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
@@ -3704,7 +3707,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(false)) {
+        for (Long id : systemInfoService.getAllBackendByCurrentCluster(false)) {
             Backend backend = systemInfoService.getBackend(id);
             nodeInfos.add(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }

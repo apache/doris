@@ -35,7 +35,6 @@ public class JdbcDataSourceConfig {
     private int connectionPoolMaxWaitTime = 5000;
     private int connectionPoolMaxLifeTime = 1800000;
     private boolean connectionPoolKeepAlive = false;
-    private boolean enableConnectionPool = false;
 
     public String createCacheKey() {
         return catalogId + jdbcUrl + jdbcUser + jdbcPassword + jdbcDriverUrl + jdbcDriverClass
@@ -166,15 +165,6 @@ public class JdbcDataSourceConfig {
 
     public JdbcDataSourceConfig setConnectionPoolKeepAlive(boolean connectionPoolKeepAlive) {
         this.connectionPoolKeepAlive = connectionPoolKeepAlive;
-        return this;
-    }
-
-    public boolean isEnableConnectionPool() {
-        return enableConnectionPool;
-    }
-
-    public JdbcDataSourceConfig setEnableConnectionPool(boolean enableConnectionPool) {
-        this.enableConnectionPool = enableConnectionPool;
         return this;
     }
 }

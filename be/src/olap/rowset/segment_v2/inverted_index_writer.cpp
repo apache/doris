@@ -75,6 +75,23 @@ const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
 
+bool InvertedIndexColumnWriter::check_support_inverted_index(const TabletColumn& column) {
+    // bellow types are not supported in inverted index for extracted columns
+    static std::set<FieldType> invalid_types = {
+            FieldType::OLAP_FIELD_TYPE_DOUBLE,
+            FieldType::OLAP_FIELD_TYPE_JSONB,
+            FieldType::OLAP_FIELD_TYPE_ARRAY,
+            FieldType::OLAP_FIELD_TYPE_FLOAT,
+    };
+    if (column.is_extracted_column() && (invalid_types.contains(column.type()))) {
+        return false;
+    }
+    if (column.is_variant_type()) {
+        return false;
+    }
+    return true;
+}
+
 template <FieldType field_type>
 class InvertedIndexColumnWriterImpl : public InvertedIndexColumnWriter {
 public:

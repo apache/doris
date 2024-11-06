@@ -360,6 +360,7 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema) {
+    DCHECK(target.is_extracted_column());
     if (target.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
         target.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
         target.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
@@ -368,18 +369,18 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         target.set_is_bf_column(source.is_bf_column());
     }
     target.set_aggregation_method(source.aggregation());
-    const auto* source_index_meta = target_schema->get_inverted_index(source.unique_id(), "");
+    const auto* source_index_meta = target_schema->inverted_index(source.unique_id());
     if (source_index_meta != nullptr) {
         // add index meta
         TabletIndex index_info = *source_index_meta;
         index_info.set_escaped_escaped_index_suffix_path(target.path_info_ptr()->get_path());
-        // get_inverted_index: No need to check, just inherit directly
-        const auto* target_index_meta = target_schema->get_inverted_index(target, false);
+        const auto* target_index_meta = target_schema->inverted_index(
+                target.parent_unique_id(), target.path_info_ptr()->get_path());
         if (target_index_meta != nullptr) {
             // already exist
             target_schema->update_index(target, index_info);
         } else {
-            target_schema->append_index(index_info);
+            target_schema->append_index(std::move(index_info));
         }
     }
 }
@@ -589,6 +590,22 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
                   .column->convert_to_full_column_if_const()
                   ->assume_mutable();
     return Status::OK();
+}
+
+bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
+                           int32_t new_col_idx, int32_t old_col_idx) {
+    const auto& column_new = new_schema->column(new_col_idx);
+    const auto& column_old = old_schema->column(old_col_idx);
+
+    if (column_new.is_bf_column() != column_old.is_bf_column() ||
+        column_new.has_bitmap_index() != column_old.has_bitmap_index()) {
+        return true;
+    }
+
+    bool new_schema_has_inverted_index = new_schema->inverted_index(column_new);
+    bool old_schema_has_inverted_index = old_schema->inverted_index(column_old);
+
+    return new_schema_has_inverted_index != old_schema_has_inverted_index;
 }
 
 } // namespace doris::vectorized::schema_util

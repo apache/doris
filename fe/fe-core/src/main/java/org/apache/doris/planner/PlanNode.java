@@ -41,6 +41,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.planner.normalize.Normalizer;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.PlanStats;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -277,10 +278,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public boolean isNullAwareLeftAntiJoin() {
         return children.stream().anyMatch(PlanNode::isNullAwareLeftAntiJoin);
-    }
-
-    public boolean isMerging() {
-        return children.stream().anyMatch(PlanNode::isMerging);
     }
 
     public PlanFragment getFragment() {
@@ -643,7 +640,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         TPlanNode msg = new TPlanNode();
         msg.node_id = id.asInt();
         msg.setNereidsId(nereidsId);
-        msg.setIsSerialOperator(isSerialOperator());
+        msg.setIsSerialOperator(isSerialOperator() && fragment.useSerialSource(ConnectContext.get()));
         msg.num_children = children.size();
         msg.limit = limit;
         for (TupleId tid : tupleIds) {
@@ -1383,5 +1380,19 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     // Operators need to be executed serially. (e.g. finalized agg without key)
     public boolean isSerialOperator() {
         return false;
+    }
+
+    public boolean hasSerialChildren() {
+        if (children.isEmpty()) {
+            return isSerialOperator();
+        }
+        return children.stream().allMatch(PlanNode::hasSerialChildren);
+    }
+
+    public boolean hasSerialScanChildren() {
+        if (children.isEmpty()) {
+            return false;
+        }
+        return children.stream().anyMatch(PlanNode::hasSerialScanChildren);
     }
 }

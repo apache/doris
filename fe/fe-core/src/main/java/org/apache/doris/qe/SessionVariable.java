@@ -264,6 +264,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
 
+    public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
+
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
 
     // Limit the max count of scanners to prevent generate too many scanners.
@@ -676,6 +678,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
 
     /**
+     * Inserting overwrite for auto partition table allows creating partition for
+     * datas which cannot find partition to overwrite.
+     */
+    public static final String ENABLE_AUTO_CREATE_WHEN_OVERWRITE = "enable_auto_create_when_overwrite";
+
+    /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
     @VariableMgr.VarAttr(name = ENABLE_STATS)
@@ -952,6 +960,26 @@ public class SessionVariable implements Serializable, Writable {
                         setter = "setPipelineTaskNum")
     public int parallelPipelineTaskNum = 0;
 
+
+    public enum IgnoreSplitType {
+        NONE,
+        IGNORE_JNI,
+        IGNORE_NATIVE
+    }
+
+    public static final String IGNORE_SPLIT_TYPE = "ignore_split_type";
+    @VariableMgr.VarAttr(name = IGNORE_SPLIT_TYPE,
+            checker = "checkIgnoreSplitType",
+            options = {"NONE", "IGNORE_JNI", "IGNORE_NATIVE"},
+            description = {"忽略指定类型的split", "Ignore splits of the specified type"})
+    public String ignoreSplitType = IgnoreSplitType.NONE.toString();
+
+    public static final String USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN = "use_consistent_hash_for_external_scan";
+    @VariableMgr.VarAttr(name = USE_CONSISTENT_HASHING_FOR_EXTERNAL_SCAN,
+            description = {"对外表采用一致性hash的方式做split的分发",
+                    "Use consistent hashing to split the appearance for external scan"})
+    public boolean useConsistentHashForExternalScan = false;
+
     @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
     public int profileLevel = 1;
 
@@ -1067,6 +1095,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
     private boolean ignoreStorageDataDistribution = true;
+
+    @VariableMgr.VarAttr(name = USE_SERIAL_EXCHANGE, fuzzy = true,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private boolean useSerialExchange = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
@@ -2170,7 +2202,6 @@ public class SessionVariable implements Serializable, Writable {
     })
     public boolean enableFallbackOnMissingInvertedIndex = true;
 
-
     @VariableMgr.VarAttr(name = IN_LIST_VALUE_COUNT_THRESHOLD, description = {
         "in条件value数量大于这个threshold后将不会走fast_execute",
         "When the number of values in the IN condition exceeds this threshold,"
@@ -2210,6 +2241,14 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
     public boolean enableCooldownReplicaAffinity = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_AUTO_CREATE_WHEN_OVERWRITE, description = {
+        "开启后对自动分区表的 insert overwrite 操作会对没有找到分区的插入数据按自动分区规则创建分区，默认关闭",
+        "The insert overwrite operation on an auto-partitioned table will create partitions for inserted data"
+                + " for which no partition is found according to the auto-partitioning rules, which is turned off"
+                + " by default."
+    })
+    public boolean enableAutoCreateWhenOverwrite = false;
+
     @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, description = {
             "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
             "Skip checking transactional hive version file '_orc_acid_version.'"
@@ -2246,6 +2285,7 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
         this.enableLocalExchange = random.nextBoolean();
+        this.useSerialExchange = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();
@@ -3826,6 +3866,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setAdaptivePipelineTaskSerialReadOnLimit(adaptivePipelineTaskSerialReadOnLimit);
         tResult.setInListValueCountThreshold(inListValueCountThreshold);
         tResult.setEnablePhraseQuerySequentialOpt(enablePhraseQuerySequentialOpt);
+        tResult.setEnableAutoCreateWhenOverwrite(enableAutoCreateWhenOverwrite);
         return tResult;
     }
 
@@ -4337,7 +4378,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isIgnoreStorageDataDistribution() {
-        return ignoreStorageDataDistribution && enableLocalShuffle;
+        return ignoreStorageDataDistribution && enableLocalShuffle && enableNereidsPlanner;
     }
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
@@ -4366,6 +4407,22 @@ public class SessionVariable implements Serializable, Writable {
         return forceJniScanner;
     }
 
+    public String getIgnoreSplitType() {
+        return ignoreSplitType;
+    }
+
+    public void checkIgnoreSplitType(String value) {
+        try {
+            IgnoreSplitType.valueOf(value);
+        } catch (Exception e) {
+            throw new UnsupportedOperationException("We only support `NONE`, `IGNORE_JNI` and `IGNORE_NATIVE`");
+        }
+    }
+
+    public boolean getUseConsistentHashForExternalScan() {
+        return useConsistentHashForExternalScan;
+    }
+
     public void setForceJniScanner(boolean force) {
         forceJniScanner = force;
     }
@@ -4375,7 +4432,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isForceToLocalShuffle() {
-        return enableLocalShuffle && forceToLocalShuffle;
+        return enableLocalShuffle && forceToLocalShuffle && enableNereidsPlanner;
     }
 
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {
@@ -4388,6 +4445,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getMaxMsgSizeOfResultReceiver() {
         return this.maxMsgSizeOfResultReceiver;
+    }
+
+    public boolean isEnableAutoCreateWhenOverwrite() {
+        return this.enableAutoCreateWhenOverwrite;
     }
 
     public TSerdeDialect getSerdeDialect() {
@@ -4404,5 +4465,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableCooldownReplicaAffinity() {
         return enableCooldownReplicaAffinity;
+    }
+
+    public boolean isUseSerialExchange() {
+        return useSerialExchange && getEnableLocalExchange();
     }
 }
