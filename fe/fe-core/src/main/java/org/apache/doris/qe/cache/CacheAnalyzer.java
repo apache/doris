@@ -522,13 +522,18 @@ public class CacheAnalyzer {
     }
 
     public InternalService.PFetchCacheResult getCacheData() throws UserException {
-        if (parsedStmt instanceof LogicalPlanAdapter) {
-            cacheMode = innerCheckCacheModeForNereids(0);
-        } else if (parsedStmt instanceof SelectStmt) {
-            cacheMode = innerCheckCacheMode(0);
-        } else if (parsedStmt instanceof SetOperationStmt) {
-            cacheMode = innerCheckCacheModeSetOperation(0);
-        } else {
+        try {
+            if (parsedStmt instanceof LogicalPlanAdapter) {
+                cacheMode = innerCheckCacheModeForNereids(0);
+            } else if (parsedStmt instanceof SelectStmt) {
+                cacheMode = innerCheckCacheMode(0);
+            } else if (parsedStmt instanceof SetOperationStmt) {
+                cacheMode = innerCheckCacheModeSetOperation(0);
+            } else {
+                return null;
+            }
+        } catch (NullPointerException e) {
+            LOG.error("getCacheData error", e);
             return null;
         }
 
@@ -702,7 +707,7 @@ public class CacheAnalyzer {
         for (Long partitionId : node.getSelectedPartitionIds()) {
             Partition partition = olapTable.getPartition(partitionId);
             scanTable.addScanPartition(partitionId);
-            if (partition != null && partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
+            if (partition.getVisibleVersionTime() >= cacheTable.latestPartitionTime) {
                 cacheTable.latestPartitionId = partition.getId();
                 cacheTable.latestPartitionTime = partition.getVisibleVersionTime();
                 cacheTable.latestPartitionVersion = partition.getVisibleVersion();
