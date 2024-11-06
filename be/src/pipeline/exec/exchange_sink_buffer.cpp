@@ -508,10 +508,10 @@ void ExchangeSinkBuffer::update_rpc_time(InstanceLoId id, int64_t start_rpc_time
 }
 
 void ExchangeSinkBuffer::update_profile(RuntimeProfile* profile) {
-    auto* _max_rpc_timer = ADD_TIMER(profile, "RpcMaxTime");
+    auto* _max_rpc_timer = ADD_TIMER_WITH_LEVEL(profile, "RpcMaxTime", 1);
     auto* _min_rpc_timer = ADD_TIMER(profile, "RpcMinTime");
     auto* _sum_rpc_timer = ADD_TIMER(profile, "RpcSumTime");
-    auto* _count_rpc = ADD_COUNTER(profile, "RpcCount", TUnit::UNIT);
+    auto* _count_rpc = ADD_COUNTER_WITH_LEVEL(profile, "RpcCount", TUnit::UNIT, 1);
     auto* _avg_rpc_timer = ADD_TIMER(profile, "RpcAvgTime");
 
     int64_t max_rpc_time = 0, min_rpc_time = 0;
