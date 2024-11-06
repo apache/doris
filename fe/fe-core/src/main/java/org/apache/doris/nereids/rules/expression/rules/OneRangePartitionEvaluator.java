@@ -174,6 +174,7 @@ public class OneRangePartitionEvaluator
 
     @Override
     public Expression evaluate(Expression expression, Map<Slot, PartitionSlotInput> currentInputs) {
+        rangeMap.clear();
         Map<Expression, ColumnRange> defaultColumnRanges = currentInputs.values().iterator().next().columnRanges;
         rangeMap.putAll(defaultColumnRanges);
         EvaluateRangeResult result = expression.accept(this, new EvaluateRangeInput(currentInputs));
