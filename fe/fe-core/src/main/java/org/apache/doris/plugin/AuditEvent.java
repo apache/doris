@@ -60,6 +60,8 @@ public class AuditEvent {
     public String ctl = "";
     @AuditField(value = "Db")
     public String db = "";
+    @AuditField(value = "CommandType")
+    public String commandType = "";
     @AuditField(value = "State")
     public String state = "";
     @AuditField(value = "ErrorCode")
@@ -239,6 +241,11 @@ public class AuditEvent {
 
         public AuditEventBuilder setWorkloadGroup(String workloadGroup) {
             auditEvent.workloadGroup = workloadGroup;
+            return this;
+        }
+
+        public AuditEventBuilder setCommandType(String commandType) {
+            auditEvent.commandType = commandType;
             return this;
         }
 
