@@ -263,10 +263,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
-            {
-                auto end_rpc_time = GetCurrentTimeNanos();
-                update_rpc_time(id, start_rpc_time, end_rpc_time);
-            }
+
+            auto end_rpc_time = GetCurrentTimeNanos();
+            update_rpc_time(id, start_rpc_time, end_rpc_time);
+
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
@@ -344,10 +344,10 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
             // attach task for memory tracker and query id when core
             SCOPED_ATTACH_TASK(_state);
-            {
-                auto end_rpc_time = GetCurrentTimeNanos();
-                update_rpc_time(id, start_rpc_time, end_rpc_time);
-            }
+
+            auto end_rpc_time = GetCurrentTimeNanos();
+            update_rpc_time(id, start_rpc_time, end_rpc_time);
+
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
                 _set_receiver_eof(id);
