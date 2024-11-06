@@ -67,6 +67,12 @@ public class LdapConfig extends ConfigBase {
     public static String ldap_group_basedn = "";
 
     /**
+     * Group lookup filter, the placeholder {login} will be replaced by the user supplied login.
+     */
+    @ConfigBase.ConfField
+    public static String ldap_group_filter = "";
+
+    /**
      * The user LDAP information cache time.
      * After timeout, the user information will be retrieved from the LDAP service again.
      */
