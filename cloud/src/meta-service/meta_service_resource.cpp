@@ -701,6 +701,9 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     new_vault.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
     new_vault.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
     new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
+    if (obj_info.has_use_path_style()) {
+        new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
+    }
 
     auto new_vault_info = new_vault.DebugString();
     val = new_vault.SerializeAsString();
