@@ -165,8 +165,7 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         }
         // Delete inverted index files
         for (auto&& column : schema->columns()) {
-            if (schema->has_inverted_index(*column)) {
-                const auto* index_info = schema->get_inverted_index(*column);
+            if (const auto* index_info = schema->inverted_index(*column); index_info != nullptr) {
                 auto index_id = index_info->index_id();
                 if (schema->get_inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {
@@ -232,7 +231,7 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
 
 Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end) {
-    return _writer->_create_segment_writer_for_segcompaction(writer, begin, end);
+    return _writer->create_segment_writer_for_segcompaction(writer, begin, end);
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {

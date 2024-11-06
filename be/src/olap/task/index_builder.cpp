@@ -100,7 +100,7 @@ Status IndexBuilder::update_inverted_index_info() {
                     continue;
                 }
                 auto column = output_rs_tablet_schema->column(column_idx);
-                const auto* index_meta = output_rs_tablet_schema->get_inverted_index(column);
+                const auto* index_meta = output_rs_tablet_schema->inverted_index(column);
                 if (index_meta == nullptr) {
                     LOG(ERROR) << "failed to find column: " << column_name
                                << " index_id: " << t_inverted_index.index_id;
@@ -136,12 +136,7 @@ Status IndexBuilder::update_inverted_index_info() {
                     return Status::Error<ErrorCode::INTERNAL_ERROR>(
                             "indexes count cannot be negative");
                 }
-                int32_t indexes_size = 0;
-                for (auto index : output_rs_tablet_schema->indexes()) {
-                    if (index.index_type() == IndexType::INVERTED) {
-                        indexes_size++;
-                    }
-                }
+                int32_t indexes_size = output_rs_tablet_schema->inverted_indexes().size();
                 if (indexes_count != indexes_size) {
                     return Status::Error<ErrorCode::INTERNAL_ERROR>(
                             "indexes count not equal to expected");
@@ -159,11 +154,11 @@ Status IndexBuilder::update_inverted_index_info() {
                     LOG(WARNING) << "referenced column was missing. "
                                  << "[column=" << t_inverted_index.columns[0]
                                  << " referenced_column=" << column_uid << "]";
-                    output_rs_tablet_schema->append_index(index);
+                    output_rs_tablet_schema->append_index(std::move(index));
                     continue;
                 }
                 const TabletColumn& col = output_rs_tablet_schema->column_by_uid(column_uid);
-                const TabletIndex* exist_index = output_rs_tablet_schema->get_inverted_index(col);
+                const TabletIndex* exist_index = output_rs_tablet_schema->inverted_index(col);
                 if (exist_index && exist_index->index_id() != index.index_id()) {
                     LOG(WARNING) << fmt::format(
                             "column: {} has a exist inverted index, but the index id not equal "
@@ -173,7 +168,7 @@ Status IndexBuilder::update_inverted_index_info() {
                     without_index_uids.insert(exist_index->index_id());
                     output_rs_tablet_schema->remove_index(exist_index->index_id());
                 }
-                output_rs_tablet_schema->append_index(index);
+                output_rs_tablet_schema->append_index(std::move(index));
             }
         }
         // construct input rowset reader
@@ -381,8 +376,10 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 auto column_name = inverted_index.columns[0];
                 auto column_idx = output_rowset_schema->field_index(column_name);
                 if (column_idx < 0) {
-                    column_idx =
-                            output_rowset_schema->field_index(inverted_index.column_unique_ids[0]);
+                    if (!inverted_index.column_unique_ids.empty()) {
+                        column_idx = output_rowset_schema->field_index(
+                                inverted_index.column_unique_ids[0]);
+                    }
                     if (column_idx < 0) {
                         LOG(WARNING) << "referenced column was missing. "
                                      << "[column=" << column_name
@@ -391,14 +388,15 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                     }
                 }
                 auto column = output_rowset_schema->column(column_idx);
+                // variant column is not support for building index
                 if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
                     continue;
                 }
-                DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id, ""));
+                DCHECK(output_rowset_schema->has_inverted_index_with_index_id(index_id));
                 _olap_data_convertor->add_column_data_convertor(column);
                 return_columns.emplace_back(column_idx);
                 std::unique_ptr<Field> field(FieldFactory::create(column));
-                const auto* index_meta = output_rowset_schema->get_inverted_index(column);
+                const auto* index_meta = output_rowset_schema->inverted_index(column);
                 std::unique_ptr<segment_v2::InvertedIndexColumnWriter> inverted_index_builder;
                 try {
                     RETURN_IF_ERROR(segment_v2::InvertedIndexColumnWriter::create(

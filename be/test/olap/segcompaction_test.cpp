@@ -34,6 +34,7 @@
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
@@ -178,6 +179,24 @@ protected:
         tablet_schema->init_from_pb(tablet_schema_pb);
     }
 
+    void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t index_id,
+                          const std::string& index_name, int32_t col_unique_id,
+                          const std::string& column_type, const std::string& column_name,
+                          bool parser = false) {
+        column_pb->set_unique_id(col_unique_id);
+        column_pb->set_name(column_name);
+        column_pb->set_type(column_type);
+        column_pb->set_is_key(false);
+        column_pb->set_is_nullable(true);
+        tablet_index->set_index_id(index_id);
+        tablet_index->set_index_name(index_name);
+        tablet_index->set_index_type(IndexType::INVERTED);
+        tablet_index->add_col_unique_id(col_unique_id);
+        if (parser) {
+            auto* properties = tablet_index->mutable_properties();
+            (*properties)[INVERTED_INDEX_PARSER_KEY] = INVERTED_INDEX_PARSER_UNICODE;
+        }
+    }
     // use different id to avoid conflict
     void create_rowset_writer_context(int64_t id, TabletSchemaSPtr tablet_schema,
                                       RowsetWriterContext* rowset_writer_context) {
@@ -827,6 +846,48 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
             }
             EXPECT_GE(total_num_rows, num_rows_read);
         }
+    }
+}
+
+TEST_F(SegCompactionTest, CreateSegCompactionWriter) {
+    config::enable_segcompaction = true;
+    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
+    TabletSchemaPB schema_pb;
+    schema_pb.set_keys_type(KeysType::DUP_KEYS);
+    schema_pb.set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10000, "key_index", 0, "INT",
+                     "key");
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10001, "v1_index", 1, "STRING",
+                     "v1");
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10002, "v2_index", 2, "STRING",
+                     "v2", true);
+    construct_column(schema_pb.add_column(), schema_pb.add_index(), 10003, "v3_index", 3, "INT",
+                     "v3");
+
+    tablet_schema.reset(new TabletSchema);
+    tablet_schema->init_from_pb(schema_pb);
+    RowsetSharedPtr rowset;
+    config::segcompaction_candidate_max_rows = 6000; // set threshold above
+    // rows_per_segment
+    config::segcompaction_batch_size = 3;
+    std::vector<uint32_t> segment_num_rows;
+    {
+        RowsetWriterContext writer_context;
+        create_rowset_writer_context(10052, tablet_schema, &writer_context);
+        auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto rowset_writer = std::move(res).value();
+        auto beta_rowset_writer = dynamic_cast<BetaRowsetWriter*>(rowset_writer.get());
+        EXPECT_TRUE(beta_rowset_writer != nullptr);
+        std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
+        auto status = beta_rowset_writer->create_segment_writer_for_segcompaction(&writer, 0, 1);
+        EXPECT_TRUE(beta_rowset_writer != nullptr);
+        EXPECT_TRUE(status == Status::OK());
+        int64_t inverted_index_file_size = 0;
+        status = writer->close_inverted_index(&inverted_index_file_size);
+        EXPECT_TRUE(status == Status::OK());
+        EXPECT_TRUE(inverted_index_file_size == 0);
     }
 }
 

@@ -113,7 +113,7 @@ public class LoadingTaskPlanner {
                         PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
         } else {
-            this.analyzer.setUDFAllowed(false);
+            this.analyzer.setUDFAllowed(Config.enable_udf_in_load);
         }
     }
 

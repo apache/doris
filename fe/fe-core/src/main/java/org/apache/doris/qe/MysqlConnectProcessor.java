@@ -151,6 +151,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor.execute();
             if (ctx.getSessionVariable().isEnablePreparedStmtAuditLog()) {
                 stmtStr = executeStmt.toSql();
+                stmtStr = stmtStr + " /*originalSql = " + prepareCommand.getOriginalStmt().originStmt + "*/";
             }
         } catch (Throwable e) {
             // Catch all throwable.
