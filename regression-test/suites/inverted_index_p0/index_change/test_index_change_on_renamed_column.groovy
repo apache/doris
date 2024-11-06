@@ -103,7 +103,8 @@ suite("test_index_change_on_renamed_column") {
     assertEquals(show_result[0][2], "idx_s")
 
     qt_select2 """ SELECT * FROM ${tableName} order by id; """
-    qt_select3 """ SELECT * FROM ${tableName} where s1 match 'welcome'; """
+    // disable match without inverted index
+    qt_select3 """ SELECT /*+ SET_VAR(enable_match_without_inverted_index = false) */ * FROM ${tableName} where s1 match 'welcome'; """
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
     String tablet_id = tablets[0].TabletId
