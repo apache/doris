@@ -19,6 +19,7 @@
 
 #include <cctz/civil_time_detail.h>
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
@@ -488,8 +489,8 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
         case orc::TypeKind::CHAR:
             [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
-            StringRef* string_value = (StringRef*)value;
-            return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
+            const auto* string_value = static_cast<const char*>(value);
+            return std::make_tuple(true, orc::Literal(string_value, strlen(string_value)));
         }
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;
@@ -605,12 +606,52 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lete
     }
 }
 
+// check if the expr can be pushed down to orc reader
+static bool check_expr_can_push_down(const VExprSPtr& expr) {
+    DCHECK_NOTNULL(expr);
+    switch (expr->op()) {
+    case TExprOpcode::COMPOUND_AND:
+    case TExprOpcode::COMPOUND_OR:
+    case TExprOpcode::COMPOUND_NOT:
+        // at least one child can be pushed down
+        return std::ranges::any_of(expr->children(), check_expr_can_push_down);
+    case TExprOpcode::GE:
+    case TExprOpcode::GT:
+    case TExprOpcode::LE:
+    case TExprOpcode::LT:
+    case TExprOpcode::EQ:
+    case TExprOpcode::NE:
+    case TExprOpcode::FILTER_IN:
+    case TExprOpcode::FILTER_NOT_IN:
+        return true;
+    case TExprOpcode::INVALID_OPCODE:
+        if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
+            auto fn_name = expr->fn().name.function_name;
+            // only support is_null_pred and is_not_null_pred
+            if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
+                return true;
+            }
+            LOG(WARNING) << "Unsupported function [funciton=" << fn_name << "]";
+        }
+        return false;
+    default:
+        VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
+        return false;
+    }
+}
+
 // convert expr to sargs recursively
 bool OrcReader::_build_search_argument(const VExprSPtr& expr,
                                        std::unique_ptr<orc::SearchArgumentBuilder>& builder) {
     if (expr == nullptr) {
         return false;
     }
+
+    // if expr can not be pushed down, skip it and continue to next expr
+    if (!check_expr_can_push_down(expr)) {
+        return true;
+    }
+
     switch (expr->op()) {
     case TExprOpcode::COMPOUND_AND:
         builder->startAnd();
@@ -767,8 +808,6 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
     // is null and is not null is represented as function call
     case TExprOpcode::INVALID_OPCODE: {
         DCHECK(expr->node_type() == TExprNodeType::FUNCTION_CALL);
-        DCHECK(expr->children().size() == 1);
-        DCHECK(expr->children()[0]->is_slot_ref());
         if (expr->fn().name.function_name == "is_null_pred") {
             DCHECK(expr->children().size() == 1);
             DCHECK(expr->children()[0]->is_slot_ref());
@@ -788,15 +827,13 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
             builder->isNull(slot_ref->expr_name(), predicate_type);
             builder->end();
         } else {
-            VLOG_CRITICAL << "Unsupported function [funciton=" << expr->fn().name.function_name
-                          << "]";
-            return false;
+            __builtin_unreachable();
         }
         break;
     }
     default: {
-        VLOG_CRITICAL << "Unsupported Opcode [OpCode=" << expr->op() << "]";
-        return false;
+        // should not reach here, because check_expr_can_push_down has already checked
+        __builtin_unreachable();
     }
     }
     return true;
@@ -804,6 +841,13 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
 
 bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
     if (!_enable_filter_by_min_max) {
+        return false;
+    }
+
+    // if no conjuncts can be pushed down, return false
+    if (!std::ranges::any_of(conjuncts, [](const auto& expr_ctx) {
+            return check_expr_can_push_down(expr_ctx->root());
+        })) {
         return false;
     }
 
