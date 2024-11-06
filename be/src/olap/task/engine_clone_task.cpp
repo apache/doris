@@ -143,13 +143,13 @@ Result<std::string> check_dest_binlog_valid(const std::string& tablet_dir,
     } while (false)
 
 EngineCloneTask::EngineCloneTask(StorageEngine& engine, const TCloneReq& clone_req,
-                                 const TMasterInfo& master_info, int64_t signature,
+                                 const ClusterInfo* cluster_info, int64_t signature,
                                  std::vector<TTabletInfo>* tablet_infos)
         : _engine(engine),
           _clone_req(clone_req),
           _tablet_infos(tablet_infos),
           _signature(signature),
-          _master_info(master_info) {
+          _cluster_info(cluster_info) {
     _mem_tracker = MemTrackerLimiter::create_shared(
             MemTrackerLimiter::Type::OTHER,
             "EngineCloneTask#tabletId=" + std::to_string(_clone_req.tablet_id));
@@ -356,7 +356,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                                                      bool* allow_incremental_clone) {
     Status status;
 
-    const auto& token = _master_info.token;
+    const auto& token = _cluster_info->token;
 
     int timeout_s = 0;
     if (_clone_req.__isset.timeout_s) {

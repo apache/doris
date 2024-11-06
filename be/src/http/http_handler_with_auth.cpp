@@ -77,7 +77,7 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
     }
 
 #ifndef BE_TEST
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     {
         auto status = ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,

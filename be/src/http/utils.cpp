@@ -54,8 +54,7 @@ std::string encode_basic_auth(const std::string& user, const std::string& passwd
 }
 
 bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* passwd) {
-    const auto& token = req.header(HttpHeaders::AUTH_TOKEN);
-
+    // const auto& token = req.header(HttpHeaders::AUTH_TOKEN);
 
     const char k_basic[] = "Basic ";
     const auto& auth = req.header(HttpHeaders::AUTHORIZATION);

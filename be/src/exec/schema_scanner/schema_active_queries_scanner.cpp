@@ -51,7 +51,7 @@ Status SchemaActiveQueriesScanner::start(RuntimeState* state) {
 }
 
 Status SchemaActiveQueriesScanner::_get_active_queries_block_from_fe() {
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
 
     TSchemaTableRequestParams schema_table_params;
     for (int i = 0; i < _s_tbls_columns.size(); i++) {

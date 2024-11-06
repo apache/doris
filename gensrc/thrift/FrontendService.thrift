@@ -645,12 +645,12 @@ struct TLoadTxnBeginRequest {
     6: optional string user_ip
     7: required string label
     8: optional i64 timestamp   // deprecated, use request_id instead
-    9: optional i64 auth_code
+    9: optional i64 auth_code // deprecated, use token instead
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
     12: optional string token
-    13: optional string auth_code_uuid
+    13: optional string auth_code_uuid // deprecated, use token instead
     14: optional i64 table_id
     15: optional i64 backend_id
 }
@@ -670,7 +670,7 @@ struct TBeginTxnRequest {
     5: optional list<i64> table_ids
     6: optional string user_ip
     7: optional string label
-    8: optional i64 auth_code
+    8: optional i64 auth_code // deprecated, use token instead
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     9: optional i64 timeout
     10: optional Types.TUniqueId request_id
@@ -718,7 +718,7 @@ struct TStreamLoadPutRequest {
     14: optional string columnSeparator
 
     15: optional string partitions
-    16: optional i64 auth_code
+    16: optional i64 auth_code // deprecated, use token instead
     17: optional bool negative
     18: optional i32 timeout
     19: optional bool strictMode
@@ -832,14 +832,14 @@ struct TLoadTxnCommitRequest {
     7: required i64 txnId
     8: required bool sync
     9: optional list<Types.TTabletCommitInfo> commitInfos
-    10: optional i64 auth_code
+    10: optional i64 auth_code // deprecated, use token instead
     11: optional TTxnCommitAttachment txnCommitAttachment
     12: optional i64 thrift_rpc_timeout_ms
     13: optional string token
     14: optional i64 db_id
     15: optional list<string> tbls
     16: optional i64 table_id
-    17: optional string auth_code_uuid
+    17: optional string auth_code_uuid // deprecated, use token instead
     18: optional bool groupCommit
     19: optional i64 receiveBytes
     20: optional i64 backendId 
@@ -857,7 +857,7 @@ struct TCommitTxnRequest {
     5: optional string user_ip
     6: optional i64 txn_id
     7: optional list<Types.TTabletCommitInfo> commit_infos
-    8: optional i64 auth_code
+    8: optional i64 auth_code // deprecated, use token instead
     9: optional TTxnCommitAttachment txn_commit_attachment
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string token
@@ -880,13 +880,13 @@ struct TLoadTxn2PCRequest {
     5: optional string user_ip
     6: optional i64 txnId
     7: optional string operation
-    8: optional i64 auth_code
+    8: optional i64 auth_code // deprecated, use token instead
     9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
     11: optional string label
 
     // For cloud
-    1000: optional string auth_code_uuid
+    1000: optional string auth_code_uuid // deprecated, use token instead
 }
 
 struct TLoadTxn2PCResult {
@@ -901,7 +901,7 @@ struct TRollbackTxnRequest {
     5: optional string user_ip
     6: optional i64 txn_id
     7: optional string reason
-    9: optional i64 auth_code
+    9: optional i64 auth_code // deprecated, use token instead
     10: optional TTxnCommitAttachment txn_commit_attachment
     11: optional string token
     12: optional i64 db_id
@@ -921,12 +921,12 @@ struct TLoadTxnRollbackRequest {
     6: optional string user_ip
     7: required i64 txnId
     8: optional string reason
-    9: optional i64 auth_code
+    9: optional i64 auth_code // deprecated, use token instead
     10: optional TTxnCommitAttachment txnCommitAttachment
     11: optional string token
     12: optional i64 db_id
     13: optional list<string> tbls
-    14: optional string auth_code_uuid
+    14: optional string auth_code_uuid // deprecated, use token instead
     15: optional string label
 }
 
