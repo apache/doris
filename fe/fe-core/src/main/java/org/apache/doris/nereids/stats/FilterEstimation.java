@@ -46,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.coercion.RangeScalable;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.StatisticRange;
@@ -60,6 +61,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Calculate selectivity of expression that produces boolean value.
@@ -112,42 +114,89 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
     }
 
-    @Override
-    public Statistics visitCompoundPredicate(CompoundPredicate predicate, EstimationContext context) {
-        Expression leftExpr = predicate.child(0);
-        Expression rightExpr = predicate.child(1);
+    private Statistics estimateLargeAnd(List<Expression> conjuncts, EstimationContext context) {
+        StatisticsBuilder builder = new StatisticsBuilder(context.statistics);
+        if (context.statistics.getRowCount() <= 1) {
+            return builder.build();
+        }
+        List<Double> orderedSelections = conjuncts.stream()
+                .mapToDouble(conjunct ->
+                        conjunct.accept(this, context).getBENumber() / context.statistics.getRowCount())
+                .boxed()
+                .sorted()
+                .collect(Collectors.toList());
+
+        double sel = 1.0;
+        for (int i = 0; i < orderedSelections.size(); i++) {
+            double value = orderedSelections.get(i);
+            if (value >= 1) {
+                break;
+            }
+            double root = Math.pow(value, 1.0 / (i + 1));
+            sel *= root;
+        }
+        double inputRowCount = context.statistics.getRowCount();
+        Statistics outputStats = builder.setRowCount(inputRowCount * sel).build();
+        return outputStats.normalizeColumnStatistics(inputRowCount, true);
+    }
+
+    private Statistics estimateBasicAnd(List<Expression> conjuncts, EstimationContext context) {
+        Expression leftExpr = conjuncts.get(0);
+        Expression rightExpr = conjuncts.get(1);
         Statistics leftStats = leftExpr.accept(this, context);
         leftStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
         Statistics andStats = rightExpr.accept(this, new EstimationContext(leftStats));
-        if (predicate instanceof And) {
-            andStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
-            return andStats;
-        } else if (predicate instanceof Or) {
-            Statistics rightStats = rightExpr.accept(this, context);
-            rightStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
-            double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStats.getRowCount();
-            Statistics orStats = context.statistics.withRowCount(rowCount);
-            Set<Slot> leftInputSlots = leftExpr.getInputSlots();
-            Set<Slot> rightInputSlots = rightExpr.getInputSlots();
-            for (Slot slot : context.keyColumns) {
-                if (leftInputSlots.contains(slot) && rightInputSlots.contains(slot)) {
-                    ColumnStatistic leftColStats = leftStats.findColumnStatistics(slot);
-                    ColumnStatistic rightColStats = rightStats.findColumnStatistics(slot);
-                    StatisticRange leftRange = StatisticRange.from(leftColStats, slot.getDataType());
-                    StatisticRange rightRange = StatisticRange.from(rightColStats, slot.getDataType());
-                    StatisticRange union = leftRange.union(rightRange);
-                    ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(
-                            context.statistics.findColumnStatistics(slot));
-                    colBuilder.setMinValue(union.getLow()).setMinExpr(union.getLowExpr())
-                            .setMaxValue(union.getHigh()).setMaxExpr(union.getHighExpr())
-                            .setNdv(union.getDistinctValues());
-                    double maxNumNulls = Math.max(leftColStats.numNulls, rightColStats.numNulls);
-                    colBuilder.setNumNulls(Math.min(colBuilder.getCount(), maxNumNulls));
-                    orStats.addColumnStats(slot, colBuilder.build());
-                }
-            }
-            return orStats;
+        return andStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
+    }
+
+    @Override
+    public Statistics visitAnd(And and, EstimationContext context) {
+        List<Expression> conjuncts = ExpressionUtils.extractConjunction(and);
+        Statistics outputStats;
+        if (conjuncts.size() >= LARGE_COMPOUND_PREDICATE) {
+            outputStats = estimateLargeAnd(conjuncts, context);
+        } else {
+            outputStats = estimateBasicAnd(conjuncts, context);
         }
+        return outputStats;
+    }
+
+    @Override
+    public Statistics visitOr(Or or, EstimationContext context) {
+        Expression leftExpr = or.child(0);
+        Expression rightExpr = or.child(1);
+        Statistics leftStats = leftExpr.accept(this, context);
+        leftStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
+        Statistics andStats = rightExpr.accept(this, new EstimationContext(leftStats));
+
+        Statistics rightStats = rightExpr.accept(this, context);
+        rightStats.normalizeColumnStatistics(context.statistics.getRowCount(), true);
+        double rowCount = leftStats.getRowCount() + rightStats.getRowCount() - andStats.getRowCount();
+        Statistics orStats = context.statistics.withRowCount(rowCount);
+        Set<Slot> leftInputSlots = leftExpr.getInputSlots();
+        Set<Slot> rightInputSlots = rightExpr.getInputSlots();
+        for (Slot slot : context.keyColumns) {
+            if (leftInputSlots.contains(slot) && rightInputSlots.contains(slot)) {
+                ColumnStatistic leftColStats = leftStats.findColumnStatistics(slot);
+                ColumnStatistic rightColStats = rightStats.findColumnStatistics(slot);
+                StatisticRange leftRange = StatisticRange.from(leftColStats, slot.getDataType());
+                StatisticRange rightRange = StatisticRange.from(rightColStats, slot.getDataType());
+                StatisticRange union = leftRange.union(rightRange);
+                ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(
+                        context.statistics.findColumnStatistics(slot));
+                colBuilder.setMinValue(union.getLow()).setMinExpr(union.getLowExpr())
+                        .setMaxValue(union.getHigh()).setMaxExpr(union.getHighExpr())
+                        .setNdv(union.getDistinctValues());
+                double maxNumNulls = Math.max(leftColStats.numNulls, rightColStats.numNulls);
+                colBuilder.setNumNulls(Math.min(colBuilder.getCount(), maxNumNulls));
+                orStats.addColumnStats(slot, colBuilder.build());
+            }
+        }
+        return orStats;
+    }
+
+    @Override
+    public Statistics visitCompoundPredicate(CompoundPredicate predicate, EstimationContext context) {
         // should not come here
         Preconditions.checkArgument(false,
                 "unsupported compound operator: %s in %s",
@@ -577,7 +626,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return builder.build();
     }
 
-    static class EstimationContext {
+    /**
+     * EstimationContext
+     */
+    public static class EstimationContext {
         private final Statistics statistics;
 
         private final Set<Slot> keyColumns = Sets.newHashSet();

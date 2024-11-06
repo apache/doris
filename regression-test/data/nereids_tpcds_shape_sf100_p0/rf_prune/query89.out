@@ -15,7 +15,9 @@ PhysicalResultSink
 ------------------------PhysicalDistribute[DistributionSpecHash]
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=()
+------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF2 ss_store_sk->[s_store_sk]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[store] apply RFs: RF2
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ------------------------------------PhysicalProject
@@ -28,6 +30,4 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------filter((date_dim.d_year = 1999))
 ----------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalProject
-----------------------------------PhysicalOlapScan[store]
 
