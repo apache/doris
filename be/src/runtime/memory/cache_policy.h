@@ -46,6 +46,7 @@ public:
         TABLET_SCHEMA_CACHE = 14,
         CREATE_TABLET_RR_IDX_CACHE = 15,
         NONE = 16, // not be used
+        TABLET_COLUMN_OBJECT_POOL = 21,
     };
 
     static std::string type_string(CacheType type) {
@@ -82,6 +83,8 @@ public:
             return "TabletSchemaCache";
         case CacheType::CREATE_TABLET_RR_IDX_CACHE:
             return "CreateTabletRRIdxCache";
+        case CacheType::TABLET_COLUMN_OBJECT_POOL:
+            return "TabletColumnObjectPool";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
@@ -105,7 +108,8 @@ public:
             {"CommonObjLRUCache", CacheType::COMMON_OBJ_LRU_CACHE},
             {"ForUT", CacheType::FOR_UT},
             {"TabletSchemaCache", CacheType::TABLET_SCHEMA_CACHE},
-            {"CreateTabletRRIdxCache", CacheType::CREATE_TABLET_RR_IDX_CACHE}};
+            {"CreateTabletRRIdxCache", CacheType::CREATE_TABLET_RR_IDX_CACHE},
+            {"TabletColumnObjectPool", CacheType::TABLET_COLUMN_OBJECT_POOL}};
 
     static CacheType string_to_type(std::string type) {
         if (StringToType.contains(type)) {
