@@ -21,6 +21,7 @@
 #include "io/io_common.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
+#include "olap/rowid_conversion.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -75,6 +76,8 @@ struct RowsetReaderContext {
     bool enable_unique_key_merge_on_write = false;
     const DeleteBitmap* delete_bitmap = nullptr;
     bool record_rowids = false;
+    RowIdConversion* rowid_conversion;
+    bool is_vertical_compaction = false;
     bool is_key_column_group = false;
     const std::set<int32_t>* output_columns = nullptr;
     RowsetId rowset_id;
