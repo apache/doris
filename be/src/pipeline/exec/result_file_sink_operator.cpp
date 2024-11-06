@@ -97,6 +97,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
                 state->fragment_instance_id(), p._buf_size, &_sender, state->execution_timeout(),
                 state->batch_size()));
     }
+    _sender->set_dependency(state->fragment_instance_id(), _dependency->shared_from_this());
 
     // create writer
     _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
