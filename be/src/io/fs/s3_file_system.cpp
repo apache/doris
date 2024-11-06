@@ -440,7 +440,6 @@ Status S3FileSystem::copy_path_impl(const Path& src, const Path& dst) {
     return {resp.status.code, std::move(resp.status.msg)};
 }
 
-
 // oss has public endpoint and private endpoint, is_public_endpoint determines
 // whether to return a public endpoint.
 std::string S3FileSystem::generate_presigned_url(const Path& path, int64_t expiration_secs,
