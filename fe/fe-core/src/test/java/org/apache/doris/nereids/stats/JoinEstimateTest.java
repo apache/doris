@@ -55,15 +55,13 @@ public class JoinEstimateTest {
         EqualTo eq = new EqualTo(a, b);
         Statistics leftStats = new StatisticsBuilder().setRowCount(100).build();
         leftStats.addColumnStats(a,
-                new ColumnStatisticBuilder()
-                        .setCount(100)
+                new ColumnStatisticBuilder(100)
                         .setNdv(10)
                         .build()
         );
         Statistics rightStats = new StatisticsBuilder().setRowCount(80).build();
         rightStats.addColumnStats(b,
-                new ColumnStatisticBuilder()
-                        .setCount(80)
+                new ColumnStatisticBuilder(80)
                         .setNdv(5)
                         .build()
         );
@@ -101,20 +99,17 @@ public class JoinEstimateTest {
         EqualTo eq = new EqualTo(a, b);
         Statistics leftStats = new StatisticsBuilder().setRowCount(100).build();
         leftStats.addColumnStats(a,
-                new ColumnStatisticBuilder()
-                        .setCount(100)
+                new ColumnStatisticBuilder(100)
                         .setNdv(10)
                         .build()
         );
         Statistics rightStats = new StatisticsBuilder().setRowCount(80).build();
         rightStats.addColumnStats(b,
-                new ColumnStatisticBuilder()
-                        .setCount(80)
+                new ColumnStatisticBuilder(80)
                         .setNdv(0)
                         .build()
         ).addColumnStats(c,
-                new ColumnStatisticBuilder()
-                        .setCount(80)
+                new ColumnStatisticBuilder(80)
                         .setNdv(20)
                         .build()
         );

@@ -2321,6 +2321,8 @@ public class SessionVariable implements Serializable, Writable {
         this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
 
         // for spill to disk
+        /*
+        // disable fuzzy spill for now since it's in progress of refactoring
         if (Config.pull_request_id > 10000) {
             if (Config.pull_request_id % 2 == 0) {
                 this.enableJoinSpill = true;
@@ -2348,6 +2350,7 @@ public class SessionVariable implements Serializable, Writable {
                 this.enableAggSpill = false;
             }
         }
+        */
     }
 
     public String printFuzzyVariables() {
@@ -4291,7 +4294,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isIgnoreStorageDataDistribution() {
-        return ignoreStorageDataDistribution && enableLocalShuffle;
+        return ignoreStorageDataDistribution && enableLocalShuffle && enableNereidsPlanner;
     }
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
@@ -4329,7 +4332,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isForceToLocalShuffle() {
-        return enableLocalShuffle && forceToLocalShuffle;
+        return enableLocalShuffle && forceToLocalShuffle && enableNereidsPlanner;
     }
 
     public void setForceToLocalShuffle(boolean forceToLocalShuffle) {

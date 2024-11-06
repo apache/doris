@@ -1159,7 +1159,10 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    tablet_schemas.push_back(res.value()->merged_tablet_schema());
+                    auto schema = res.value()->merged_tablet_schema();
+                    if (schema != nullptr) {
+                        tablet_schemas.push_back(schema);
+                    }
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
@@ -1966,7 +1969,7 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveDoneRequest* request,
         PTabletWriteSlaveDoneResult* response, google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([txn_mgr = _engine.txn_manager(), request, response,
+    bool ret = _light_work_pool.try_offer([txn_mgr = _engine.txn_manager(), request, response,
                                            done]() {
         brpc::ClosureGuard closure_guard(done);
         VLOG_CRITICAL << "receive the result of slave replica pull rowset from slave replica. "

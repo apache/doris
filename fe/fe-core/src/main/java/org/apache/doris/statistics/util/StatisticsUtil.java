@@ -84,7 +84,6 @@ import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.text.StringSubstitutor;
-import org.apache.iceberg.DataFile;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.TableScan;
@@ -620,18 +619,19 @@ public class StatisticsUtil {
     public static long getHiveRowCount(HMSExternalTable table) {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         if (parameters == null) {
-            return -1;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // Table parameters contains row count, simply get and return it.
         if (parameters.containsKey(NUM_ROWS)) {
             long rows = Long.parseLong(parameters.get(NUM_ROWS));
             // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
-            if (rows != 0) {
+            if (rows > 0) {
+                LOG.info("Get row count {} for hive table {} in table parameters.", rows, table.getName());
                 return rows;
             }
         }
         if (!parameters.containsKey(TOTAL_SIZE)) {
-            return -1;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // Table parameters doesn't contain row count but contain total size. Estimate row count : totalSize/rowSize
         long totalSize = Long.parseLong(parameters.get(TOTAL_SIZE));
@@ -640,9 +640,13 @@ public class StatisticsUtil {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
-            return -1;
+            LOG.warn("Hive table {} estimated row size is invalid {}", table.getName(), estimatedRowSize);
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
-        return totalSize / estimatedRowSize;
+        long rows = totalSize / estimatedRowSize;
+        LOG.info("Get row count {} for hive table {} by total size {} and row size {}",
+                rows, table.getName(), totalSize, estimatedRowSize);
+        return rows;
     }
 
     /**
@@ -667,20 +671,25 @@ public class StatisticsUtil {
      */
     public static Optional<ColumnStatistic> getIcebergColumnStats(String colName, org.apache.iceberg.Table table) {
         TableScan tableScan = table.newScan().includeColumnStats();
-        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
-        columnStatisticBuilder.setCount(0);
-        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
-        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
-        columnStatisticBuilder.setDataSize(0);
-        columnStatisticBuilder.setAvgSizeByte(0);
-        columnStatisticBuilder.setNumNulls(0);
+        double totalDataSize = 0;
+        double totalDataCount = 0;
+        double totalNumNull = 0;
         try (CloseableIterable<FileScanTask> fileScanTasks = tableScan.planFiles()) {
             for (FileScanTask task : fileScanTasks) {
-                processDataFile(task.file(), task.spec(), colName, columnStatisticBuilder);
+                int colId = getColId(task.spec(), colName);
+                totalDataSize += task.file().columnSizes().get(colId);
+                totalDataCount += task.file().recordCount();
+                totalNumNull += task.file().nullValueCounts().get(colId);
             }
         } catch (IOException e) {
             LOG.warn("Error to close FileScanTask.", e);
         }
+        ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder(totalDataCount);
+        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
+        columnStatisticBuilder.setDataSize(totalDataSize);
+        columnStatisticBuilder.setAvgSizeByte(0);
+        columnStatisticBuilder.setNumNulls(totalNumNull);
         if (columnStatisticBuilder.getCount() > 0) {
             columnStatisticBuilder.setAvgSizeByte(columnStatisticBuilder.getDataSize()
                     / columnStatisticBuilder.getCount());
@@ -688,8 +697,7 @@ public class StatisticsUtil {
         return Optional.of(columnStatisticBuilder.build());
     }
 
-    private static void processDataFile(DataFile dataFile, PartitionSpec partitionSpec,
-            String colName, ColumnStatisticBuilder columnStatisticBuilder) {
+    private static int getColId(PartitionSpec partitionSpec, String colName) {
         int colId = -1;
         for (Types.NestedField column : partitionSpec.schema().columns()) {
             if (column.name().equals(colName)) {
@@ -700,12 +708,7 @@ public class StatisticsUtil {
         if (colId == -1) {
             throw new RuntimeException(String.format("Column %s not exist.", colName));
         }
-        // Update the data size, count and num of nulls in columnStatisticBuilder.
-        // TODO: Get min max value.
-        columnStatisticBuilder.setDataSize(columnStatisticBuilder.getDataSize() + dataFile.columnSizes().get(colId));
-        columnStatisticBuilder.setCount(columnStatisticBuilder.getCount() + dataFile.recordCount());
-        columnStatisticBuilder.setNumNulls(columnStatisticBuilder.getNumNulls()
-                + dataFile.nullValueCounts().get(colId));
+        return colId;
     }
 
     public static boolean isUnsupportedType(Type type) {

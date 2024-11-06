@@ -29,20 +29,18 @@ namespace doris::pipeline {
 AggLocalState::AggLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent),
           _get_results_timer(nullptr),
-          _serialize_result_timer(nullptr),
           _hash_table_iterate_timer(nullptr),
           _insert_keys_to_column_timer(nullptr),
-          _serialize_data_timer(nullptr) {}
+          _insert_values_to_column_timer(nullptr) {}
 
 Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _get_results_timer = ADD_TIMER(profile(), "GetResultsTime");
-    _serialize_result_timer = ADD_TIMER(profile(), "SerializeResultTime");
     _hash_table_iterate_timer = ADD_TIMER(profile(), "HashTableIterateTime");
     _insert_keys_to_column_timer = ADD_TIMER(profile(), "InsertKeysToColumnTime");
-    _serialize_data_timer = ADD_TIMER(profile(), "SerializeDataTime");
+    _insert_values_to_column_timer = ADD_TIMER(profile(), "InsertValuesToColumnTime");
 
     _merge_timer = ADD_TIMER(Base::profile(), "MergeTime");
     _deserialize_data_timer = ADD_TIMER(Base::profile(), "DeserializeAndMergeTime");
@@ -57,7 +55,7 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                                                      std::placeholders::_1, std::placeholders::_2,
                                                      std::placeholders::_3);
         } else {
-            _executor.get_result = std::bind<Status>(&AggLocalState::_serialize_without_key, this,
+            _executor.get_result = std::bind<Status>(&AggLocalState::_get_results_without_key, this,
                                                      std::placeholders::_1, std::placeholders::_2,
                                                      std::placeholders::_3);
         }
@@ -68,8 +66,8 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                     std::placeholders::_2, std::placeholders::_3);
         } else {
             _executor.get_result = std::bind<Status>(
-                    &AggLocalState::_serialize_with_serialized_key_result, this,
-                    std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+                    &AggLocalState::_get_results_with_serialized_key, this, std::placeholders::_1,
+                    std::placeholders::_2, std::placeholders::_3);
         }
     }
 
@@ -93,18 +91,9 @@ Status AggLocalState::_create_agg_status(vectorized::AggregateDataPtr data) {
     return Status::OK();
 }
 
-Status AggLocalState::_destroy_agg_status(vectorized::AggregateDataPtr data) {
-    auto& shared_state = *Base::_shared_state;
-    for (int i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
-        shared_state.aggregate_evaluators[i]->function()->destroy(
-                data + shared_state.offsets_of_aggregate_states[i]);
-    }
-    return Status::OK();
-}
-
-Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
-                                                            vectorized::Block* block, bool* eos) {
-    SCOPED_TIMER(_serialize_result_timer);
+Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state,
+                                                       vectorized::Block* block, bool* eos) {
+    SCOPED_TIMER(_get_results_timer);
     auto& shared_state = *_shared_state;
     int key_size = _shared_state->probe_expr_ctxs.size();
     int agg_size = _shared_state->aggregate_evaluators.size();
@@ -124,7 +113,6 @@ Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
         }
     }
 
-    SCOPED_TIMER(_get_results_timer);
     std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg) -> void {
@@ -180,7 +168,7 @@ Status AggLocalState::_serialize_with_serialized_key_result(RuntimeState* state,
                         }
 
                         {
-                            SCOPED_TIMER(_serialize_data_timer);
+                            SCOPED_TIMER(_insert_values_to_column_timer);
                             for (size_t i = 0; i < shared_state.aggregate_evaluators.size(); ++i) {
                                 value_data_types[i] = shared_state.aggregate_evaluators[i]
                                                               ->function()
@@ -332,13 +320,13 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, vecto
     return Status::OK();
 }
 
-Status AggLocalState::_serialize_without_key(RuntimeState* state, vectorized::Block* block,
-                                             bool* eos) {
+Status AggLocalState::_get_results_without_key(RuntimeState* state, vectorized::Block* block,
+                                               bool* eos) {
+    SCOPED_TIMER(_get_results_timer);
     auto& shared_state = *_shared_state;
     // 1. `child(0)->rows_returned() == 0` mean not data from child
     // in level two aggregation node should return NULL result
     //    level one aggregation node set `eos = true` return directly
-    SCOPED_TIMER(_serialize_result_timer);
     if (UNLIKELY(_shared_state->input_num_rows == 0)) {
         *eos = true;
         return Status::OK();
@@ -440,7 +428,9 @@ AggSourceOperatorX::AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
         : Base(pool, tnode, operator_id, descs),
           _needs_finalize(tnode.agg_node.need_finalize),
-          _without_key(tnode.agg_node.grouping_exprs.empty()) {}
+          _without_key(tnode.agg_node.grouping_exprs.empty()) {
+    _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
+}
 
 Status AggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
@@ -574,17 +564,6 @@ template Status AggSourceOperatorX::merge_with_serialized_key_helper<true>(
         RuntimeState* state, vectorized::Block* block);
 template Status AggSourceOperatorX::merge_with_serialized_key_helper<false>(
         RuntimeState* state, vectorized::Block* block);
-
-size_t AggLocalState::_get_hash_table_size() {
-    return std::visit(
-            vectorized::Overload {[&](std::monostate& arg) -> size_t {
-                                      throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                             "uninited hash table");
-                                      return 0;
-                                  },
-                                  [&](auto& agg_method) { return agg_method.hash_table->size(); }},
-            _shared_state->agg_data->method_variant);
-}
 
 void AggLocalState::_emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                              vectorized::ColumnRawPtrs& key_columns,

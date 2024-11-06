@@ -105,6 +105,7 @@ public class ColumnDef {
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
+        public static String BITMAP_EMPTY = "BITMAP_EMPTY";
         public static String HLL_EMPTY = "HLL_EMPTY";
         public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
         // no default value
@@ -115,7 +116,7 @@ public class ColumnDef {
         // default "value", "0" means empty hll
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO, HLL_EMPTY);
         // default "value", "0" means empty bitmap
-        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO, BITMAP_EMPTY);
         // default "value", "[]" means empty array
         public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
 

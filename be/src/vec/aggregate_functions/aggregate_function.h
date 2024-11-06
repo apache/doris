@@ -38,6 +38,10 @@ class Arena;
 class IColumn;
 class IDataType;
 
+struct AggregateFunctionAttr {
+    bool enable_decimal256 {false};
+};
+
 template <bool nullable, typename ColVecType>
 class AggregateFunctionBitmapCount;
 template <typename Op>
@@ -111,21 +115,21 @@ public:
      *  Additional parameter arena should be used instead of standard memory allocator if the addition requires memory allocation.
      */
     virtual void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
-                     Arena* arena) const = 0;
+                     Arena*) const = 0;
 
     virtual void add_many(AggregateDataPtr __restrict place, const IColumn** columns,
-                          std::vector<int>& rows, Arena* arena) const {}
+                          std::vector<int>& rows, Arena*) const {}
 
     /// Merges state (on which place points to) with other state of current aggregation function.
     virtual void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
-                       Arena* arena) const = 0;
+                       Arena*) const = 0;
 
     virtual void merge_vec(const AggregateDataPtr* places, size_t offset, ConstAggregateDataPtr rhs,
-                           Arena* arena, const size_t num_rows) const = 0;
+                           Arena*, const size_t num_rows) const = 0;
 
     // same as merge_vec, but only call "merge" function when place is not nullptr
     virtual void merge_vec_selected(const AggregateDataPtr* places, size_t offset,
-                                    ConstAggregateDataPtr rhs, Arena* arena,
+                                    ConstAggregateDataPtr rhs, Arena*,
                                     const size_t num_rows) const = 0;
 
     /// Serializes state (to transmit it over the network, for example).
@@ -142,21 +146,21 @@ public:
 
     /// Deserializes state. This function is called only for empty (just created) states.
     virtual void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
-                             Arena* arena) const = 0;
+                             Arena*) const = 0;
 
-    virtual void deserialize_vec(AggregateDataPtr places, const ColumnString* column, Arena* arena,
+    virtual void deserialize_vec(AggregateDataPtr places, const ColumnString* column, Arena*,
                                  size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
-                                           AggregateDataPtr rhs, const IColumn* column,
-                                           Arena* arena, const size_t num_rows) const = 0;
+                                           AggregateDataPtr rhs, const IColumn* column, Arena*,
+                                           const size_t num_rows) const = 0;
 
     virtual void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                                     AggregateDataPtr rhs, const IColumn* column,
-                                                    Arena* arena, const size_t num_rows) const = 0;
+                                                    Arena*, const size_t num_rows) const = 0;
 
-    virtual void deserialize_from_column(AggregateDataPtr places, const IColumn& column,
-                                         Arena* arena, size_t num_rows) const = 0;
+    virtual void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena*,
+                                         size_t num_rows) const = 0;
 
     /// Deserializes state and merge it with current aggregation function.
     virtual void deserialize_and_merge(AggregateDataPtr __restrict place,
@@ -165,10 +169,10 @@ public:
 
     virtual void deserialize_and_merge_from_column_range(AggregateDataPtr __restrict place,
                                                          const IColumn& column, size_t begin,
-                                                         size_t end, Arena* arena) const = 0;
+                                                         size_t end, Arena*) const = 0;
 
     virtual void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
-                                                   const IColumn& column, Arena* arena) const = 0;
+                                                   const IColumn& column, Arena*) const = 0;
 
     /// Inserts results into a column.
     virtual void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const = 0;
@@ -181,33 +185,32 @@ public:
       *  and do a single call to "add_batch" for devirtualization and inlining.
       */
     virtual void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
-                           const IColumn** columns, Arena* arena, bool agg_many = false) const = 0;
+                           const IColumn** columns, Arena*, bool agg_many = false) const = 0;
 
     // same as add_batch, but only call "add" function when place is not nullptr
     virtual void add_batch_selected(size_t batch_size, AggregateDataPtr* places,
-                                    size_t place_offset, const IColumn** columns,
-                                    Arena* arena) const = 0;
+                                    size_t place_offset, const IColumn** columns, Arena*) const = 0;
 
     /** The same for single place.
       */
     virtual void add_batch_single_place(size_t batch_size, AggregateDataPtr place,
-                                        const IColumn** columns, Arena* arena) const = 0;
+                                        const IColumn** columns, Arena*) const = 0;
 
     // only used at agg reader
     virtual void add_batch_range(size_t batch_begin, size_t batch_end, AggregateDataPtr place,
-                                 const IColumn** columns, Arena* arena, bool has_null = false) = 0;
+                                 const IColumn** columns, Arena*, bool has_null = false) = 0;
 
     // only used at window function
     virtual void add_range_single_place(int64_t partition_start, int64_t partition_end,
                                         int64_t frame_start, int64_t frame_end,
                                         AggregateDataPtr place, const IColumn** columns,
-                                        Arena* arena) const = 0;
+                                        Arena*) const = 0;
 
     virtual void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
-                                         const size_t num_rows, Arena* arena) const = 0;
+                                         const size_t num_rows, Arena*) const = 0;
 
     virtual void streaming_agg_serialize_to_column(const IColumn** columns, MutableColumnPtr& dst,
-                                                   const size_t num_rows, Arena* arena) const = 0;
+                                                   const size_t num_rows, Arena*) const = 0;
 
     const DataTypes& get_argument_types() const { return argument_types; }
 
