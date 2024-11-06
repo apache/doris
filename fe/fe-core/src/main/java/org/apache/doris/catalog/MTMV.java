@@ -358,7 +358,7 @@ public class MTMV extends OlapTable {
      *
      * @return mvPartitionName ==> mvPartitionKeyDesc
      */
-    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() {
+    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() throws AnalysisException {
         Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems();
         Map<String, PartitionKeyDesc> result = Maps.newHashMap();
         for (Entry<String, PartitionItem> entry : mtmvItems.entrySet()) {
