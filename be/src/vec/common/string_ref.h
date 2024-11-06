@@ -239,7 +239,7 @@ struct StringRef {
     // this < other: -1
     // this == other: 0
     // this > other: 1
-    int compare(const StringRef& other) const {
+    int8_t compare(const StringRef& other) const {
         int l = std::min(size, other.size);
 
         if (l == 0) {
