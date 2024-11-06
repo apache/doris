@@ -37,6 +37,8 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeNum
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplitOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
+import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 
 /**
@@ -125,4 +127,11 @@ public interface TableGeneratingFunctionVisitor<R, C> {
         return visitTableGeneratingFunction(explodeJsonArrayJsonOuter, context);
     }
 
+    default R visitPosExplode(PosExplode posExplode, C context) {
+        return visitTableGeneratingFunction(posExplode, context);
+    }
+
+    default R visitPosExplodeOuter(PosExplodeOuter posExplodeOuter, C context) {
+        return visitTableGeneratingFunction(posExplodeOuter, context);
+    }
 }
