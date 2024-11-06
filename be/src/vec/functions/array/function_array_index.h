@@ -217,9 +217,9 @@ private:
         const auto& right_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size());
+        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size());
+        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         // process
@@ -286,9 +286,9 @@ private:
         const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
 
         // prepare return data
-        auto dst = ColumnVector<ResultType>::create(offsets.size());
+        auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size());
+        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         // process
