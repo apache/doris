@@ -368,7 +368,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return getColumnStatistic(catalogRelation.getTable(), slot.getName(), idxId);
     }
 
-    private ColumnStatistic getColumnStatsFromPartitionCache(OlapScan catalogRelation, SlotReference slot,
+    /**
+     * if get partition col stats failed, then return table level col stats
+     */
+    private ColumnStatistic getColumnStatsFromPartitionCacheOrTableCache(OlapScan catalogRelation, SlotReference slot,
             List<String> partitionNames) {
         long idxId = catalogRelation.getSelectedIndexId();
 
@@ -384,8 +387,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     .getRowCountForPartitionIndex(id, olapScan.getSelectedIndexId(), true);
             if (partRowCount == -1) {
                 unknownPartitionCount++;
+            } else {
+                partRowCountSum += partRowCount;
             }
-            partRowCountSum += partRowCount;
         }
         // estimate row count for unknownPartitionCount
         if (unknownPartitionCount > 0) {
@@ -525,18 +529,17 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
 
-        boolean useTableLevelStats = true;
         if (olapScan.getSelectedPartitionIds().size() < olapScan.getTable().getPartitionNum()) {
             // partition pruned
             // try to use selected partition stats, if failed, fall back to table stats
             double selectedPartitionsRowCount = getSelectedPartitionRowCount(olapScan, tableRowCount);
-            useTableLevelStats = false;
             List<String> selectedPartitionNames = new ArrayList<>(olapScan.getSelectedPartitionIds().size());
             olapScan.getSelectedPartitionIds().forEach(id -> {
                 selectedPartitionNames.add(olapScan.getTable().getPartition(id).getName());
             });
             for (SlotReference slot : visibleOutputSlots) {
-                ColumnStatistic cache = getColumnStatsFromPartitionCache(olapScan, slot, selectedPartitionNames);
+                ColumnStatistic cache = getColumnStatsFromPartitionCacheOrTableCache(
+                        olapScan, slot, selectedPartitionNames);
                 if (slot.getColumn().isPresent()) {
                     cache = updateMinMaxForPartitionKey(olapTable, selectedPartitionNames, slot, cache);
                 }
@@ -547,10 +550,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             checkIfUnknownStatsUsedAsKey(builder);
             builder.setRowCount(selectedPartitionsRowCount);
-        }
-        // 1. no partition is pruned, or
-        // 2. fall back to table stats
-        if (useTableLevelStats) {
+        } else {
             // get table level stats
             for (SlotReference slot : visibleOutputSlots) {
                 ColumnStatistic cache = getColumnStatsFromTableCache((CatalogRelation) olapScan, slot);
@@ -564,6 +564,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         return builder.build();
     }
 
+    /**
+     * Determine whether it is a partition key inside the function.
+     */
     private ColumnStatistic updateMinMaxForPartitionKey(OlapTable olapTable,
             List<String> selectedPartitionNames,
             SlotReference slot, ColumnStatistic cache) {
@@ -614,12 +617,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     }
                 }
                 if (minExpr != null) {
-                    cache = new ColumnStatisticBuilder(cache)
-                            .setMinExpr(minExpr)
-                            .setMinValue(minValue)
-                            .setMaxExpr(maxExpr)
-                            .setMaxValue(maxValue)
-                            .build();
+                    cache = updateMinMax(cache, minValue, minExpr, maxValue, maxExpr);
                 }
             } catch (AnalysisException e) {
                 LOG.debug(e.getMessage());
@@ -669,16 +667,48 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     }
                 }
                 if (minExpr != null) {
-                    cache = new ColumnStatisticBuilder(cache)
-                            .setMinExpr(minExpr)
-                            .setMinValue(minValue)
-                            .setMaxExpr(maxExpr)
-                            .setMaxValue(maxValue)
-                            .build();
+                    cache = updateMinMax(cache, minValue, minExpr, maxValue, maxExpr);
                 }
             } catch (AnalysisException e) {
                 LOG.debug(e.getMessage());
             }
+        }
+        return cache;
+    }
+
+    private ColumnStatistic updateMinMax(ColumnStatistic cache, double minValue, LiteralExpr minExpr,
+            double maxValue, LiteralExpr maxExpr) {
+        boolean shouldUpdateCache = false;
+        if (!cache.isUnKnown) {
+            // merge the min/max with cache.
+            // example: min/max range in cache is [10-20]
+            // range from partition def is [15-30]
+            // the final range is [15-20]
+            if (cache.minValue > minValue) {
+                minValue = cache.minValue;
+                minExpr = cache.minExpr;
+            } else {
+                shouldUpdateCache = true;
+            }
+            if (cache.maxValue < maxValue) {
+                maxValue = cache.maxValue;
+                maxExpr = cache.maxExpr;
+            } else {
+                shouldUpdateCache = true;
+            }
+            // if min/max is invalid, do not update cache
+            if (minValue > maxValue) {
+                shouldUpdateCache = false;
+            }
+        }
+
+        if (shouldUpdateCache) {
+            cache = new ColumnStatisticBuilder(cache)
+                    .setMinExpr(minExpr)
+                    .setMinValue(minValue)
+                    .setMaxExpr(maxExpr)
+                    .setMaxValue(maxValue)
+                    .build();
         }
         return cache;
     }
