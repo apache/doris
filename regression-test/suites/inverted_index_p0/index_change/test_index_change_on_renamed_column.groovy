@@ -103,7 +103,6 @@ suite("test_index_change_on_renamed_column") {
     assertEquals(show_result[0][2], "idx_s")
 
     qt_select2 """ SELECT * FROM ${tableName} order by id; """
-    // disable match without inverted index
     qt_select3 """ SELECT /*+ SET_VAR(enable_inverted_index_query = true) */ * FROM ${tableName} where s1 match 'welcome'; """
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
