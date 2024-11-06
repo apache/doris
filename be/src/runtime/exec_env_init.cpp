@@ -383,7 +383,7 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     // TODO pipeline workload group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     _without_group_task_scheduler =
-            new pipeline::TaskScheduler(this, t_queue, "PipeNoGSchePool", nullptr);
+            new pipeline::TaskScheduler(t_queue, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
 
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
@@ -442,8 +442,11 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     }
     for (const auto& status : cache_status) {
         if (!status.ok()) {
-            LOG(FATAL) << "failed to init file cache, err: " << status;
-            exit(-1);
+            if (!doris::config::ignore_broken_disk) {
+                LOG(FATAL) << "failed to init file cache, err: " << status;
+                exit(-1);
+            }
+            LOG(WARNING) << "failed to init file cache, err: " << status;
         }
     }
 }
@@ -676,7 +679,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
-    // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
+    SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
     SAFE_STOP(_spill_stream_mgr);

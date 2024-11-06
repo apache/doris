@@ -73,8 +73,10 @@ suite("test_writer_v2_fault_injection", "nonConcurrent") {
             sql "insert into test select * from baseall where k1 <= 3"
         } catch(Exception e) {
             logger.info(e.getMessage())
-            assertTrue(e.getMessage().contains(error_msg))
+            assertTrue(e.getMessage().contains(error_msg),
+                       String.format("expected '%s', actual '%s'", error_msg, e.getMessage()))
         } finally {
+            sleep 1000 // wait some time for instance finish before disable injection
             GetDebugPoint().disableDebugPointForAllBEs(injection)
         }
     }

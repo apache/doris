@@ -17,13 +17,12 @@
 
 #include "result_sink_operator.h"
 
+#include <fmt/format.h>
 #include <sys/select.h>
 
 #include <memory>
-#include <utility>
 
 #include "common/config.h"
-#include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/buffer_control_block.h"
@@ -41,12 +40,11 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    _fetch_row_id_timer = ADD_TIMER(profile(), "FetchRowIdTime");
+    _write_data_timer = ADD_TIMER(profile(), "WriteDataTime");
     static const std::string timer_name = "WaitForDependencyTime";
     _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
     auto fragment_instance_id = state->fragment_instance_id();
-
-    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
-    _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
 
     if (state->query_options().enable_parallel_result_sink) {
         _sender = _parent->cast<ResultSinkOperatorX>()._sender;
@@ -146,12 +144,15 @@ Status ResultSinkOperatorX::open(RuntimeState* state) {
 Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    COUNTER_UPDATE(local_state.rows_sent_counter(), (int64_t)block->rows());
-    COUNTER_UPDATE(local_state.blocks_sent_counter(), 1);
+    COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
+        SCOPED_TIMER(local_state._fetch_row_id_timer);
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
-    RETURN_IF_ERROR(local_state._writer->write(state, *block));
+    {
+        SCOPED_TIMER(local_state._write_data_timer);
+        RETURN_IF_ERROR(local_state._writer->write(state, *block));
+    }
     if (_fetch_option.use_two_phase_fetch) {
         // Block structure may be changed by calling _second_phase_fetch_data().
         // So we should clear block in case of unmatched columns
@@ -191,9 +192,10 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
             final_status = st;
         }
 
-        LOG_INFO("Query {} result sink closed with status {} and has written {} rows",
-                 print_id(state->query_id()), final_status.to_string_no_stack(),
-                 _writer->get_written_rows());
+        VLOG_NOTICE << fmt::format(
+                "Query {} result sink closed with status {} and has written {} rows",
+                print_id(state->query_id()), final_status.to_string_no_stack(),
+                _writer->get_written_rows());
     }
 
     // close sender, this is normal path end

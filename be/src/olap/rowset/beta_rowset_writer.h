@@ -223,7 +223,6 @@ protected:
         RETURN_NOT_OK_STATUS_WITH_WARN(_idx_files.close(),
                                        "failed to close index file when build new rowset");
         this->_total_index_size += _idx_files.get_total_index_size();
-        this->_total_data_size += _idx_files.get_total_index_size();
         return Status::OK();
     }
 
@@ -282,6 +281,8 @@ public:
     Status flush_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
             KeyBoundsPB& key_bounds);
+    Status create_segment_writer_for_segcompaction(
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
 
     bool is_segcompacted() const { return _num_segcompacted > 0; }
 
@@ -292,8 +293,6 @@ private:
     Status _check_segment_number_limit(size_t segnum) override;
     int64_t _num_seg() const override;
     Status _wait_flying_segcompaction();
-    Status _create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
     Status _segcompaction_if_necessary();
     Status _segcompaction_rename_last_segments();
     Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);

@@ -42,6 +42,7 @@
 #include "vec/sink/writer/vtablet_writer.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs>
 VRowDistribution::_get_partition_function() {
@@ -299,7 +300,7 @@ Status VRowDistribution::_filter_block(vectorized::Block* block,
 Status VRowDistribution::_generate_rows_distribution_for_non_auto_partition(
         vectorized::Block* block, bool has_filtered_rows,
         std::vector<RowPartTabletIds>& row_part_tablet_ids) {
-    auto num_rows = block->rows();
+    int num_rows = cast_set<int>(block->rows());
 
     bool stop_processing = false;
     RETURN_IF_ERROR(_tablet_finder->find_tablets(_state, block, num_rows, _partitions,
@@ -318,7 +319,7 @@ Status VRowDistribution::_deal_missing_map(vectorized::Block* block,
                                            int64_t& rows_stat_val) {
     // for missing partition keys, calc the missing partition and save in _partitions_need_create
     auto [part_ctxs, part_exprs] = _get_partition_function();
-    auto part_col_num = part_exprs.size();
+    int part_col_num = cast_set<int>(part_exprs.size());
     // the two vectors are in column-first-order
     std::vector<std::vector<std::string>> col_strs;
     std::vector<const NullMap*> col_null_maps;
@@ -363,7 +364,7 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_partition(
         vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
         bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
         int64_t& rows_stat_val) {
-    auto num_rows = block->rows();
+    int num_rows = cast_set<int>(block->rows());
     std::vector<uint16_t> partition_keys = _vpartition->get_partition_keys();
 
     auto& partition_col = block->get_by_position(partition_keys[0]);
@@ -393,7 +394,7 @@ Status VRowDistribution::_generate_rows_distribution_for_auto_overwrite(
         vectorized::Block* block, const std::vector<uint16_t>& partition_cols_idx,
         bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
         int64_t& rows_stat_val) {
-    auto num_rows = block->rows();
+    int num_rows = cast_set<int>(block->rows());
 
     // for non-auto-partition situation, goes into two 'else' branch. just find the origin partitions, replace them by rpc,
     //  and find the new partitions to use.
@@ -504,7 +505,7 @@ Status VRowDistribution::generate_rows_distribution(
             VLOG_DEBUG << "Partition-calculated block:" << block->dump_data(0, 1);
             DCHECK(result_idx != -1);
 
-            partition_cols_idx.push_back(result_idx);
+            partition_cols_idx.push_back(cast_set<uint16_t>(result_idx));
         }
 
         // change the column to compare to transformed.

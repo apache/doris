@@ -730,6 +730,9 @@ public:
     void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
     int parallel_tasks() const { return _parallel_tasks; }
 
+    // To keep compatibility with older FE
+    void set_serial_operator() { _is_serial_operator = true; }
+
 protected:
     template <typename Dependency>
     friend class PipelineXLocalState;

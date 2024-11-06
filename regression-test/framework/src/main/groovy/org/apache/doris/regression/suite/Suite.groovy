@@ -475,7 +475,7 @@ class Suite implements GroovyInterceptable {
         return res;
     }
 
-    String getMasterIp(Connection conn) {
+    String getMasterIp(Connection conn = null) {
         def result = sql_return_maparray_impl("select Host, QueryPort, IsMaster from frontends();", conn)
         logger.info("get master fe: ${result}")
 
@@ -491,6 +491,28 @@ class Suite implements GroovyInterceptable {
             throw new Exception("can not find master fe")
         }
         return masterHost;
+    }
+
+    int getMasterPort(String type = "http") {
+        def result = sql_return_maparray_impl("select EditLogPort,HttpPort,QueryPort,RpcPort,ArrowFlightSqlPort from frontends() where IsMaster = 'true';")
+        if (result.size() != 1) {
+            throw new RuntimeException("could not find Master in this Cluster")
+        }
+        type = type.toLowerCase()
+        switch (type) {
+            case "editlog":
+                return result[0].EditLogPort as int
+            case "http":
+                return result[0].HttpPort as int
+            case ["query", "jdbc", "mysql"]:
+                return result[0].QueryPort as int
+            case ["rpc", "thrift"]:
+                return result[0].RpcPort as int
+            case ["arrow", "arrowflight"]:
+                return result[0].ArrowFlightSqlPort as int
+            default:
+                throw new RuntimeException("Unknown type: '${type}', you should select one of this type:[editlog, http, mysql, thrift, arrowflight]")
+        }
     }
 
     def jdbc_sql_return_maparray(String sqlStr) {
@@ -688,6 +710,24 @@ class Suite implements GroovyInterceptable {
 
     void profile(String tag, Closure<String> actionSupplier) {
         runAction(new ProfileAction(context, tag), actionSupplier)
+    }
+
+    void checkNereidsExecute(String sqlString) {
+        String tag = UUID.randomUUID().toString();
+        log.info("start check" + tag)
+        String finalSqlString = "--" + tag + "\n" + sqlString
+        ProfileAction profileAction = new ProfileAction(context, tag)
+        profileAction.run {
+            log.info("start profile run" + tag)
+            sql (finalSqlString)
+        }
+        profileAction.check {
+            profileString, exception ->
+                log.info("start profile check" + tag)
+                log.info(profileString)
+                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
+        }
+        profileAction.run()
     }
 
     void createMV(String sql) {
@@ -969,6 +1009,31 @@ class Suite implements GroovyInterceptable {
         Process process = cmd.execute()
         def code = process.waitFor()
         Assert.assertEquals(0, code)
+    }
+
+    String cmd(String cmd, int timeoutSecond = 0) {
+        var processBuilder = new ProcessBuilder()
+        processBuilder.command("/bin/bash", "-c", cmd)
+        var process = processBuilder.start()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        process.consumeProcessOutput(outBuf, errBuf)
+        var reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line)
+        }
+        // wait until cmd finish
+        if (timeoutSecond > 0) {
+            process.waitForOrKill(timeoutSecond * 1000)
+        } else {
+            process.waitFor()
+        }
+        if (process.exitValue() != 0) {
+            println outBuf
+            throw new RuntimeException(errBuf.toString())
+        }
+        return outBuf.toString()
     }
 
     void sshExec(String username, String host, String cmd, boolean alert=true) {

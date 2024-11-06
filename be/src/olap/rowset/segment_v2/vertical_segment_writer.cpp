@@ -201,23 +201,20 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         tablet_schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
-    // indexes for this column
-    opts.indexes = tablet_schema->get_indexes_for_column(column);
+
     if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
         opts.need_zone_map = false;
         opts.need_bloom_filter = false;
         opts.need_bitmap_index = false;
     }
-    for (const auto* index : opts.indexes) {
-        if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
-            opts.inverted_index = index;
-            opts.need_inverted_index = true;
-            DCHECK(_inverted_index_file_writer != nullptr);
-            // TODO support multiple inverted index
-            break;
-        }
+    if (const auto& index = tablet_schema->inverted_index(column);
+        index != nullptr && !skip_inverted_index) {
+        opts.inverted_index = index;
+        opts.need_inverted_index = true;
+        DCHECK(_inverted_index_file_writer != nullptr);
+        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        // TODO support multiple inverted index
     }
-    opts.inverted_index_file_writer = _inverted_index_file_writer;
 
 #define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
@@ -1043,8 +1040,10 @@ Status VerticalSegmentWriter::_append_block_with_variant_subcolumns(RowsInBlock&
         _opts.rowset_ctx->merged_tablet_schema = _opts.rowset_ctx->tablet_schema;
     }
     TabletSchemaSPtr update_schema;
+    bool check_schema_size = true;
     RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
-            {_opts.rowset_ctx->merged_tablet_schema, _flush_schema}, nullptr, update_schema));
+            {_opts.rowset_ctx->merged_tablet_schema, _flush_schema}, nullptr, update_schema,
+            check_schema_size));
     CHECK_GE(update_schema->num_columns(), _flush_schema->num_columns())
             << "Rowset merge schema columns count is " << update_schema->num_columns()
             << ", but flush_schema is larger " << _flush_schema->num_columns()

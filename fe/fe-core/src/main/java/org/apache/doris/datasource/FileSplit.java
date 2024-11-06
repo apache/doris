@@ -47,6 +47,9 @@ public class FileSplit implements Split {
     // the location type for BE, eg: HDFS, LOCAL, S3
     protected TFileType locationType;
 
+    public Long selfSplitWeight;
+    public Long targetSplitSize;
+
     public FileSplit(LocationPath path, long start, long length, long fileLength,
             long modificationTime, String[] hosts, List<String> partitionValues) {
         this.path = path;
@@ -87,6 +90,22 @@ public class FileSplit implements Split {
                 long modificationTime, String[] hosts,
                 List<String> partitionValues) {
             return new FileSplit(path, start, length, fileLength, modificationTime, hosts, partitionValues);
+        }
+    }
+
+    @Override
+    public void setTargetSplitSize(Long targetSplitSize) {
+        this.targetSplitSize = targetSplitSize;
+    }
+
+    @Override
+    public SplitWeight getSplitWeight() {
+        if (selfSplitWeight != null && targetSplitSize != null) {
+            double computedWeight = selfSplitWeight * 1.0 / targetSplitSize;
+            // Clamp the value be between the minimum weight and 1.0 (standard weight)
+            return SplitWeight.fromProportion(Math.min(Math.max(computedWeight, 0.01), 1.0));
+        } else {
+            return SplitWeight.standard();
         }
     }
 }

@@ -90,10 +90,11 @@ protected:
     BaseTabletSPtr _tablet;
 
     std::vector<RowsetSharedPtr> _input_rowsets;
-    int64_t _input_rowsets_size {0};
+    int64_t _input_rowsets_data_size {0};
+    int64_t _input_rowsets_index_size {0};
+    int64_t _input_rowsets_total_size {0};
     int64_t _input_row_num {0};
     int64_t _input_num_segments {0};
-    int64_t _input_index_size {0};
 
     Merger::Statistics _stats;
 

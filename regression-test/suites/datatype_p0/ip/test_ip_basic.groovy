@@ -146,4 +146,18 @@ suite("test_ip_basic") {
     sql "DROP TABLE t0"
     sql "DROP TABLE t1"
     sql "DROP TABLE t2"
+
+    // test ip with rowstore
+    sql """ SET enable_nereids_planner=true """
+    sql """ SET enable_fallback_to_original_planner=false """
+    sql """ DROP TABLE IF EXISTS table_ip """
+    sql """ CREATE TABLE IF NOT EXISTS `table_ip` (`col0` bigint NOT NULL,`col1` boolean NOT NULL, `col24` ipv4 NOT NULL, `col25` ipv6 NOT NULL,INDEX col1 (`col1`) USING INVERTED, INDEX col25 (`col25`) USING INVERTED ) ENGINE=OLAP UNIQUE KEY(`col0`) DISTRIBUTED BY HASH(`col0`) BUCKETS 4 PROPERTIES ("replication_allocation" = "tag.location.default: 1", "store_row_column" = "true") """
+    sql """ insert into table_ip values (1, true, '255.255.255.255', "5be8:dde9:7f0b:d5a7:bd01:b3be:9c69:573b") """
+    qt_sql """ select * from table_ip """
+    sql """ Update table_ip set col1 = false where col0 = 1 """
+    qt_sql """ select * from table_ip """
+    sql """ Update table_ip set col24 = '127.0.0.1' where col0 = 1 """
+    qt_sql """ select * from table_ip where col0 = 1"""
+    sql """ Update table_ip set col25 = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff' where col0 = 1 """
+    qt_sql """ select * from table_ip where col0 = 1"""
 }

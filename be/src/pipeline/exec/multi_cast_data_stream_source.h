@@ -68,6 +68,9 @@ private:
     std::vector<std::shared_ptr<RuntimeFilterDependency>> _filter_dependencies;
 
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
+    RuntimeProfile::Counter* _get_data_timer = nullptr;
+    RuntimeProfile::Counter* _materialize_data_timer = nullptr;
 };
 
 class MultiCastDataStreamerSourceOperatorX final

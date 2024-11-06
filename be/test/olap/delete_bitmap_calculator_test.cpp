@@ -128,7 +128,8 @@ public:
         EXPECT_NE("", writer.min_encoded_key().to_string());
         EXPECT_NE("", writer.max_encoded_key().to_string());
 
-        st = segment_v2::Segment::open(fs, path, segment_id, rowset_id, query_schema,
+        int64_t tablet_id = 100;
+        st = segment_v2::Segment::open(fs, path, tablet_id, segment_id, rowset_id, query_schema,
                                        io::FileReaderOptions {}, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
