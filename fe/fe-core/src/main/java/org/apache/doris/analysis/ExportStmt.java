@@ -208,7 +208,7 @@ public class ExportStmt extends StatementBase implements NotFallbackInParser {
     }
 
     private void setJob() throws UserException {
-        exportJob = new ExportJob();
+        exportJob = new ExportJob(Env.getCurrentEnv().getNextId());
 
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(this.tblName.getDb());
         exportJob.setDbId(db.getId());

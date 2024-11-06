@@ -1200,7 +1200,13 @@ public class StmtExecutor {
             LOG.debug("need to transfer to Master. stmt: {}", context.getStmtId());
         }
         masterOpExecutor.execute();
-        if (parsedStmt instanceof SetStmt) {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            // for nereids command
+            if (((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Forward) {
+                Forward forward = (Forward) ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+                forward.afterForwardToMaster(context);
+            }
+        } else if (parsedStmt instanceof SetStmt) {
             SetStmt setStmt = (SetStmt) parsedStmt;
             setStmt.modifySetVarsForExecute();
             for (SetVar var : setStmt.getSetVars()) {
@@ -1906,6 +1912,7 @@ public class StmtExecutor {
                                 : new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
             coordBase = new PointQueryExecutor(shortCircuitQueryContext,
                         context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            context.getState().setIsQuery(true);
         } else if (planner instanceof NereidsPlanner && ((NereidsPlanner) planner).getDistributedPlans() != null) {
             coord = new NereidsCoordinator(context, analyzer,
                     planner, context.getStatsErrorEstimator(),
@@ -2577,7 +2584,7 @@ public class StmtExecutor {
                 List<Long> tabletIdList = new ArrayList<Long>();
                 Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
                                            .getCloudTabletRebalancer()
-                                           .getSnapshotTabletsByBeId(backend.getId());
+                                           .getSnapshotTabletsInPrimaryByBeId(backend.getId());
                 allTabletIds.forEach(tabletId -> {
                     if (beTabletIds.contains(tabletId)) {
                         tabletIdList.add(tabletId);

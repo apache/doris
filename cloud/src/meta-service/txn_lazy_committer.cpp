@@ -21,6 +21,7 @@
 
 #include "common/logging.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/meta_service_helper.h"
 #include "meta-service/meta_service_tablet_stats.h"
@@ -128,6 +129,7 @@ void convert_tmp_rowsets(
             LOG(INFO) << "txn_id=" << txn_id << " key=" << hex(ver_key)
                       << " version_pb:" << version_pb.ShortDebugString();
             partition_versions.emplace(tmp_rowset_pb.partition_id(), version_pb);
+            DCHECK_EQ(partition_versions.size(), 1) << partition_versions.size();
         }
 
         const VersionPB& version_pb = partition_versions[tmp_rowset_pb.partition_id()];
@@ -178,8 +180,6 @@ void convert_tmp_rowsets(
         stats.num_segs += tmp_rowset_pb.num_segments();
     }
 
-    DCHECK(partition_versions.size() == 1);
-
     for (auto& [tablet_id, stats] : tablet_stats) {
         DCHECK(tablet_ids.count(tablet_id));
         auto& tablet_idx = tablet_ids[tablet_id];
@@ -189,6 +189,7 @@ void convert_tmp_rowsets(
         if (code != MetaServiceCode::OK) return;
     }
 
+    TEST_SYNC_POINT_RETURN_WITH_VOID("convert_tmp_rowsets::before_commit", &code);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -489,7 +490,8 @@ std::pair<MetaServiceCode, std::string> TxnLazyCommitTask::wait() {
     sw.pause();
     if (sw.elapsed_us() > 1000000) {
         LOG(INFO) << "txn_lazy_commit task wait more than 1000ms, cost=" << sw.elapsed_us() / 1000
-                  << " ms";
+                  << " ms"
+                  << " txn_id=" << txn_id_;
     }
     return std::make_pair(this->code_, this->msg_);
 }

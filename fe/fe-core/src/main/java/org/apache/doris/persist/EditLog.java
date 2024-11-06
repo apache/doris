@@ -323,6 +323,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_COLUMN: {
                     TableRenameColumnInfo info = (TableRenameColumnInfo) journal.getData();
                     env.replayRenameColumn(info);
+                    env.getBinlogManager().addColumnRename(info, logId);
                     break;
                 }
                 case OperationType.OP_BACKUP_JOB: {
@@ -1620,8 +1621,8 @@ public class EditLog {
         }
     }
 
-    public void logExportUpdateState(long jobId, ExportJobState newState) {
-        ExportJobStateTransfer transfer = new ExportJobStateTransfer(jobId, newState);
+    public void logExportUpdateState(ExportJob job, ExportJobState newState) {
+        ExportJobStateTransfer transfer = new ExportJobStateTransfer(job, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
     }
 

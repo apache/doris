@@ -99,11 +99,11 @@ public class DFSFileSystem extends RemoteFileSystem {
                                 throw new RuntimeException(e);
                             }
                         });
+                        operations = new HDFSFileOperations(dfsFileSystem);
+                        RemoteFSPhantomManager.registerPhantomReference(this);
                     } catch (Exception e) {
-                        throw new UserException(e);
+                        throw new UserException("Failed to get dfs FileSystem for " + e.getMessage(), e);
                     }
-                    operations = new HDFSFileOperations(dfsFileSystem);
-                    RemoteFSPhantomManager.registerPhantomReference(this);
                 }
             }
         }

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -245,7 +246,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                                     having.withChildren(new LogicalProject<>(projects, project.child())));
                         }
                     })
-            )
+             )
         );
     }
 
@@ -315,6 +316,8 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
                         throw new AnalysisException("Aggregate functions in having clause can't be nested: "
                                 + expression.toSql() + ".");
                     }
+                    generateAliasForNewOutputSlots(expression);
+                } else if (expression instanceof WindowExpression) {
                     generateAliasForNewOutputSlots(expression);
                 } else {
                     // Try to resolve the children.
@@ -387,7 +390,7 @@ public class FillUpMissingSlots implements AnalysisRuleFactory {
         Plan apply(Resolver resolver, Aggregate<?> aggregate);
     }
 
-    private Plan createPlan(Resolver resolver, Aggregate<? extends Plan> aggregate, PlanGenerator planGenerator) {
+    protected Plan createPlan(Resolver resolver, Aggregate<? extends Plan> aggregate, PlanGenerator planGenerator) {
         Aggregate<? extends Plan> newAggregate;
         if (resolver.getNewOutputSlots().isEmpty()) {
             newAggregate = aggregate;

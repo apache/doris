@@ -30,7 +30,7 @@ permissions:
 jobs:
   auto_cherry_pick:
     runs-on: ubuntu-latest
-    if: ${{ contains(github.event.pull_request.labels.*.name, 'dev/3.0.x') && github.event.pull_request.merged == true }}
+    if: ${{ (contains(github.event.pull_request.labels.*.name, 'dev/3.0.x') || contains(github.event.pull_request.labels.*.name, 'dev/2.1.x')) && github.event.pull_request.merged == true }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
@@ -45,7 +45,7 @@ jobs:
           pip install PyGithub
       - name: Check SHA
         run: |
-            expected_sha="80b7c6087f2a3e4f4c7f035a52e8e7b05ce00f27aa5c1bd52179df685c912447f94a96145fd3204a3958d8ed9777de5a5183b120e99e0e95bbca0366d69b0ac0"
+            expected_sha="4e4c0d7689b765c7f0677d75d23222555afa9286af46cf77ced66fa247a298d9f8a8c86830d0ce55f70e5f09532b54fbafee040c0343833077cbc7e214d486d2"
             calculated_sha=$(sha512sum tools/auto-pick-script.py | awk '{ print $1 }')
             if [ "$calculated_sha" != "$expected_sha" ]; then
               echo "SHA mismatch! Expected: $expected_sha, but got: $calculated_sha"
@@ -53,10 +53,19 @@ jobs:
             else
               echo "SHA matches: $calculated_sha"
             fi
-      - name: Auto cherry-pick
+      - name: Auto cherry-pick to branch-3.0
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'dev/3.0.x') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
           CONFLICT_LABEL: cherry-pick-conflict-in-3.0
         run: |
           python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-3.0  
+      - name: Auto cherry-pick to branch-2.1
+        if: ${{ contains(github.event.pull_request.labels.*.name, 'dev/2.1.x') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO_NAME: ${{ github.repository }}
+          CONFLICT_LABEL: cherry-pick-conflict-in-2.1.x
+        run: |
+            python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-2.1         

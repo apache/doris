@@ -40,6 +40,7 @@
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class IndexChannel;
 class VNodeChannel;
@@ -143,7 +144,7 @@ private:
     std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
 
     Status _save_missing_values(std::vector<std::vector<std::string>>& col_strs, int col_size,
-                                Block* block, std::vector<int64_t> filter,
+                                Block* block, const std::vector<int64_t>& filter,
                                 const std::vector<const NullMap*>& col_null_maps);
 
     void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
@@ -230,3 +231,5 @@ private:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"

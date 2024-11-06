@@ -886,13 +886,10 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
 
 Status PInternalService::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
                                             PTabletKeyLookupResponse* response) {
-    PointQueryExecutor lookup_util;
-    RETURN_IF_ERROR(lookup_util.init(request, response));
-    RETURN_IF_ERROR(lookup_util.lookup_up());
-    if (VLOG_DEBUG_IS_ON) {
-        VLOG_DEBUG << lookup_util.print_profile();
-    }
-    LOG_EVERY_N(INFO, 500) << lookup_util.print_profile();
+    PointQueryExecutor executor;
+    RETURN_IF_ERROR(executor.init(request, response));
+    RETURN_IF_ERROR(executor.lookup_up());
+    executor.print_profile();
     return Status::OK();
 }
 
@@ -1159,7 +1156,10 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                         LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
                         continue;
                     }
-                    tablet_schemas.push_back(res.value()->merged_tablet_schema());
+                    auto schema = res.value()->merged_tablet_schema();
+                    if (schema != nullptr) {
+                        tablet_schemas.push_back(schema);
+                    }
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all

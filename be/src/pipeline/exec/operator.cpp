@@ -74,6 +74,7 @@
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"
+#include "pipeline/pipeline.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"
@@ -116,11 +117,16 @@ std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
     }() + ")";
 }
 
-DataDistribution DataSinkOperatorXBase::required_data_distribution() const {
-    return _child && _child->ignore_data_distribution()
+DataDistribution OperatorBase::required_data_distribution() const {
+    return _child && _child->is_serial_operator() && !is_source()
                    ? DataDistribution(ExchangeType::PASSTHROUGH)
                    : DataDistribution(ExchangeType::NOOP);
 }
+
+bool OperatorBase::require_shuffled_data_distribution() const {
+    return Pipeline::is_hash_exchange(required_data_distribution().distribution_type);
+}
+
 const RowDescriptor& OperatorBase::row_desc() const {
     return _child->row_desc();
 }

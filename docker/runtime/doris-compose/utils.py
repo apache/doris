@@ -17,7 +17,7 @@
 
 import contextlib
 import docker
-import json
+import jsonpickle
 import logging
 import os
 import pwd
@@ -321,7 +321,7 @@ def write_compose_file(file, compose):
 
 
 def pretty_json(json_data):
-    return json.dumps(json_data, indent=4, sort_keys=True)
+    return jsonpickle.dumps(json_data, indent=4)
 
 
 def is_true(val):

@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
+import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 
 import org.apache.logging.log4j.LogManager;
@@ -53,12 +55,17 @@ public class PaimonFileExternalCatalog extends PaimonExternalCatalog {
             options.put(PaimonProperties.PAIMON_S3_SECRET_KEY,
                     properties.get(PaimonProperties.PAIMON_S3_SECRET_KEY));
         } else if (properties.containsKey(PaimonProperties.PAIMON_OSS_ENDPOINT)) {
-            options.put(PaimonProperties.PAIMON_OSS_ENDPOINT,
-                    properties.get(PaimonProperties.PAIMON_OSS_ENDPOINT));
-            options.put(PaimonProperties.PAIMON_OSS_ACCESS_KEY,
-                    properties.get(PaimonProperties.PAIMON_OSS_ACCESS_KEY));
-            options.put(PaimonProperties.PAIMON_OSS_SECRET_KEY,
-                    properties.get(PaimonProperties.PAIMON_OSS_SECRET_KEY));
+            boolean hdfsEnabled = Boolean.parseBoolean(properties.getOrDefault(
+                    OssProperties.OSS_HDFS_ENABLED, "false"));
+            if (!LocationPath.isHdfsOnOssEndpoint(properties.get(PaimonProperties.PAIMON_OSS_ENDPOINT))
+                    && !hdfsEnabled) {
+                options.put(PaimonProperties.PAIMON_OSS_ENDPOINT,
+                        properties.get(PaimonProperties.PAIMON_OSS_ENDPOINT));
+                options.put(PaimonProperties.PAIMON_OSS_ACCESS_KEY,
+                        properties.get(PaimonProperties.PAIMON_OSS_ACCESS_KEY));
+                options.put(PaimonProperties.PAIMON_OSS_SECRET_KEY,
+                        properties.get(PaimonProperties.PAIMON_OSS_SECRET_KEY));
+            }
         } else if (properties.containsKey(CosProperties.ENDPOINT)) {
             options.put(PaimonProperties.PAIMON_S3_ENDPOINT,
                     properties.get(CosProperties.ENDPOINT));

@@ -44,8 +44,7 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineFragmentContext;
 
 public:
-    explicit Pipeline(PipelineId pipeline_id, int num_tasks,
-                      std::weak_ptr<PipelineFragmentContext> context, int num_tasks_of_parent)
+    explicit Pipeline(PipelineId pipeline_id, int num_tasks, int num_tasks_of_parent)
             : _pipeline_id(pipeline_id),
               _num_tasks(num_tasks),
               _num_tasks_of_parent(num_tasks_of_parent) {
@@ -86,7 +85,9 @@ public:
 
     std::vector<std::shared_ptr<Pipeline>>& children() { return _children; }
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
-    void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
+    void set_children(std::vector<std::shared_ptr<Pipeline>> children) {
+        _children = std::move(children);
+    }
 
     void incr_created_tasks(int i, PipelineTask* task) {
         _num_tasks_created++;
@@ -115,7 +116,7 @@ public:
     int num_tasks() const { return _num_tasks; }
     bool close_task() { return _num_tasks_running.fetch_sub(1) == 1; }
 
-    std::string debug_string() {
+    std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(debug_string_buffer,
                        "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}]", _pipeline_id,

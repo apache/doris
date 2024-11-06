@@ -35,8 +35,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
-import java.time.ZoneId;
-import java.time.format.DateTimeFormatter;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 
@@ -47,9 +45,6 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     private static final Logger LOG = LogManager.getLogger(AuditLoader.class);
 
     public static final String AUDIT_LOG_TABLE = "audit_log";
-
-    private static final DateTimeFormatter DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
-            .withZone(ZoneId.systemDefault());
 
     private StringBuilder auditLogBuffer = new StringBuilder();
     private int auditLogNum = 0;
@@ -90,7 +85,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
             // GlobalVariable.audit_plugin_max_batch_bytes.
             this.auditEventQueue = Queues.newLinkedBlockingDeque(100000);
             this.streamLoader = new AuditStreamLoader();
-            this.loadThread = new Thread(new LoadWorker(this.streamLoader), "audit loader thread");
+            this.loadThread = new Thread(new LoadWorker(), "audit loader thread");
             this.loadThread.start();
 
             isInit = true;
@@ -143,6 +138,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private void fillLogBuffer(AuditEvent event, StringBuilder logBuffer) {
+        // should be same order as InternalSchema.AUDIT_SCHEMA
         logBuffer.append(event.queryId).append("\t");
         logBuffer.append(TimeUtils.longToTimeStringWithms(event.timestamp)).append("\t");
         logBuffer.append(event.clientIp).append("\t");
@@ -156,15 +152,21 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(event.scanBytes).append("\t");
         logBuffer.append(event.scanRows).append("\t");
         logBuffer.append(event.returnRows).append("\t");
+        logBuffer.append(event.shuffleSendRows).append("\t");
+        logBuffer.append(event.shuffleSendBytes).append("\t");
+        logBuffer.append(event.scanBytesFromLocalStorage).append("\t");
+        logBuffer.append(event.scanBytesFromRemoteStorage).append("\t");
         logBuffer.append(event.stmtId).append("\t");
         logBuffer.append(event.stmtType).append("\t");
         logBuffer.append(event.isQuery ? 1 : 0).append("\t");
+        logBuffer.append(event.isNereids ? 1 : 0).append("\t");
         logBuffer.append(event.feIp).append("\t");
         logBuffer.append(event.cpuTimeMs).append("\t");
         logBuffer.append(event.sqlHash).append("\t");
         logBuffer.append(event.sqlDigest).append("\t");
         logBuffer.append(event.peakMemoryBytes).append("\t");
         logBuffer.append(event.workloadGroup).append("\t");
+        logBuffer.append(event.cloudClusterName).append("\t");
         // already trim the query in org.apache.doris.qe.AuditLogHelper#logAuditLog
         String stmt = event.stmt;
         if (LOG.isDebugEnabled()) {
@@ -173,10 +175,12 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         logBuffer.append(stmt).append("\n");
     }
 
-    private void loadIfNecessary(AuditStreamLoader loader) {
+    // public for external call.
+    // synchronized to avoid concurrent load.
+    public synchronized void loadIfNecessary(boolean force) {
         long currentTime = System.currentTimeMillis();
 
-        if (auditLogBuffer.length() >= GlobalVariable.auditPluginMaxBatchBytes
+        if (force || auditLogBuffer.length() >= GlobalVariable.auditPluginMaxBatchBytes
                 || currentTime - lastLoadTimeAuditLog >= GlobalVariable.auditPluginMaxBatchInternalSec * 1000) {
             // begin to load
             try {
@@ -189,7 +193,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     discardLogNum += auditLogNum;
                     return;
                 }
-                AuditStreamLoader.LoadResponse response = loader.loadBatch(auditLogBuffer, token);
+                AuditStreamLoader.LoadResponse response = streamLoader.loadBatch(auditLogBuffer, token);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("audit loader response: {}", response);
                 }
@@ -215,10 +219,8 @@ public class AuditLoader extends Plugin implements AuditPlugin {
     }
 
     private class LoadWorker implements Runnable {
-        private AuditStreamLoader loader;
 
-        public LoadWorker(AuditStreamLoader loader) {
-            this.loader = loader;
+        public LoadWorker() {
         }
 
         public void run() {
@@ -228,7 +230,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                     if (event != null) {
                         assembleAudit(event);
                         // process all audit logs
-                        loadIfNecessary(loader);
+                        loadIfNecessary(false);
                     }
                 } catch (InterruptedException ie) {
                     if (LOG.isDebugEnabled()) {
@@ -241,3 +243,4 @@ public class AuditLoader extends Plugin implements AuditPlugin {
         }
     }
 }
+

@@ -43,7 +43,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _shared_state->join_op_variants = p._join_op_variants;
 
     _shared_state->is_null_safe_eq_join = p._is_null_safe_eq_join;
-    _shared_state->store_null_in_hash_table = p._store_null_in_hash_table;
+    _shared_state->serialize_null_into_key = p._serialize_null_into_key;
     _build_expr_ctxs.resize(p._build_expr_ctxs.size());
     for (size_t i = 0; i < _build_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(p._build_expr_ctxs[i]->clone(state, _build_expr_ctxs[i]));
@@ -51,19 +51,19 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _shared_state->build_exprs_size = _build_expr_ctxs.size();
 
     _should_build_hash_table = true;
+    profile()->add_info_string("BroadcastJoin", std::to_string(p._is_broadcast_join));
     if (p._is_broadcast_join) {
-        profile()->add_info_string("BroadcastJoin", "true");
         if (state->enable_share_hash_table_for_broadcast_join()) {
             _should_build_hash_table = info.task_idx == 0;
             if (_should_build_hash_table) {
-                profile()->add_info_string("ShareHashTableEnabled", "true");
                 p._shared_hashtable_controller->set_builder_and_consumers(
                         state->fragment_instance_id(), p.node_id());
             }
-        } else {
-            profile()->add_info_string("ShareHashTableEnabled", "false");
         }
     }
+    profile()->add_info_string("BuildShareHashTable", std::to_string(_should_build_hash_table));
+    profile()->add_info_string("ShareHashTableEnabled",
+                               std::to_string(state->enable_share_hash_table_for_broadcast_join()));
     if (!_should_build_hash_table) {
         _dependency->block();
         _finish_dependency->block();
@@ -72,6 +72,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
                                                           _finish_dependency->shared_from_this());
     }
 
+    _runtime_filter_init_timer = ADD_TIMER(profile(), "RuntimeFilterInitTime");
     _build_blocks_memory_usage =
             ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageBuildBlocks", TUnit::BYTES, 1);
     _hash_table_memory_usage =
@@ -81,13 +82,10 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
 
     // Build phase
     auto* record_profile = _should_build_hash_table ? profile() : faker_runtime_profile();
-    _build_table_timer = ADD_TIMER(profile(), "BuildTableTime");
-    _build_side_merge_block_timer = ADD_TIMER(profile(), "BuildSideMergeBlockTime");
+    _build_table_timer = ADD_TIMER(profile(), "BuildHashTableTime");
+    _build_side_merge_block_timer = ADD_TIMER(profile(), "MergeBuildBlockTime");
     _build_table_insert_timer = ADD_TIMER(record_profile, "BuildTableInsertTime");
     _build_expr_call_timer = ADD_TIMER(record_profile, "BuildExprCallTime");
-    _build_side_compute_hash_timer = ADD_TIMER(record_profile, "BuildSideHashComputingTime");
-
-    _allocate_resource_timer = ADD_TIMER(profile(), "AllocateResourceTime");
 
     // Hash Table Init
     RETURN_IF_ERROR(_hash_table_init(state));
@@ -227,33 +225,22 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(
         vectorized::Block& block, vectorized::ColumnUInt8::MutablePtr& null_map,
         vectorized::ColumnRawPtrs& raw_ptrs, const std::vector<int>& res_col_ids) {
     auto& shared_state = *_shared_state;
-    auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
-        if (p._should_convert_to_nullable[i]) {
+        const auto* column = block.get_by_position(res_col_ids[i]).column.get();
+        if (!column->is_nullable() && shared_state.serialize_null_into_key[i]) {
             _key_columns_holder.emplace_back(
                     vectorized::make_nullable(block.get_by_position(res_col_ids[i]).column));
             raw_ptrs[i] = _key_columns_holder.back().get();
-            continue;
-        }
-
-        if (shared_state.is_null_safe_eq_join[i]) {
-            raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
+        } else if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column);
+                   !shared_state.serialize_null_into_key[i] && nullable) {
+            // update nulllmap and split nested out of ColumnNullable when serialize_null_into_key is false and column is nullable
+            const auto& col_nested = nullable->get_nested_column();
+            const auto& col_nullmap = nullable->get_null_map_data();
+            DCHECK(null_map != nullptr);
+            vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
+            raw_ptrs[i] = &col_nested;
         } else {
-            const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-            if (const auto* nullable = check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                const auto& col_nested = nullable->get_nested_column();
-                const auto& col_nullmap = nullable->get_null_map_data();
-
-                if (shared_state.store_null_in_hash_table[i]) {
-                    raw_ptrs[i] = nullable;
-                } else {
-                    DCHECK(null_map != nullptr);
-                    vectorized::VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
-                    raw_ptrs[i] = &col_nested;
-                }
-            } else {
-                raw_ptrs[i] = column;
-            }
+            raw_ptrs[i] = column;
         }
     }
     return Status::OK();
@@ -267,7 +254,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
     }
-    COUNTER_UPDATE(_build_rows_counter, rows);
     block.replace_if_overflow();
 
     vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
@@ -284,13 +270,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                     .data()[0] = 1;
         }
     }
-    // TODO: Now we are not sure whether a column is nullable only by ExecNode's `row_desc`
-    //  so we have to initialize this flag by the first build block.
-    if (!_has_set_need_null_map_for_build) {
-        _has_set_need_null_map_for_build = true;
-        _set_build_ignore_flag(block, _build_col_ids);
-    }
-    if (p._short_circuit_for_null_in_build_side || _build_side_ignore_null) {
+
+    _set_build_side_has_external_nullmap(block, _build_col_ids);
+    if (_build_side_has_external_nullmap) {
         null_map_val = vectorized::ColumnUInt8::create();
         null_map_val->get_data().assign(rows, (uint8_t)0);
     }
@@ -300,27 +282,23 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
 
     st = std::visit(
             vectorized::Overload {
-                    [&](std::monostate& arg, auto join_op, auto has_null_value,
+                    [&](std::monostate& arg, auto join_op,
                         auto short_circuit_for_null_in_build_side,
                         auto with_other_conjuncts) -> Status {
                         LOG(FATAL) << "FATAL: uninited hash table";
                         __builtin_unreachable();
                         return Status::OK();
                     },
-                    [&](auto&& arg, auto&& join_op, auto has_null_value,
-                        auto short_circuit_for_null_in_build_side,
+                    [&](auto&& arg, auto&& join_op, auto short_circuit_for_null_in_build_side,
                         auto with_other_conjuncts) -> Status {
                         using HashTableCtxType = std::decay_t<decltype(arg)>;
                         using JoinOpType = std::decay_t<decltype(join_op)>;
                         ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
                                 rows, raw_ptrs, this, state->batch_size(), state);
                         auto st = hash_table_build_process.template run<
-                                JoinOpType::value, has_null_value,
-                                short_circuit_for_null_in_build_side, with_other_conjuncts>(
-                                arg,
-                                has_null_value || short_circuit_for_null_in_build_side
-                                        ? &null_map_val->get_data()
-                                        : nullptr,
+                                JoinOpType::value, short_circuit_for_null_in_build_side,
+                                with_other_conjuncts>(
+                                arg, null_map_val ? &null_map_val->get_data() : nullptr,
                                 &_shared_state->_has_null_in_build_side);
                         COUNTER_SET(_memory_used_counter,
                                     _build_blocks_memory_usage->value() +
@@ -330,22 +308,24 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
                         return st;
                     }},
             _shared_state->hash_table_variants->method_variant, _shared_state->join_op_variants,
-            vectorized::make_bool_variant(_build_side_ignore_null),
             vectorized::make_bool_variant(p._short_circuit_for_null_in_build_side),
             vectorized::make_bool_variant((p._have_other_join_conjunct)));
 
     return st;
 }
 
-void HashJoinBuildSinkLocalState::_set_build_ignore_flag(vectorized::Block& block,
-                                                         const std::vector<int>& res_col_ids) {
+void HashJoinBuildSinkLocalState::_set_build_side_has_external_nullmap(
+        vectorized::Block& block, const std::vector<int>& res_col_ids) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+    if (p._short_circuit_for_null_in_build_side) {
+        _build_side_has_external_nullmap = true;
+        return;
+    }
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
-        if (!_shared_state->is_null_safe_eq_join[i] && !p._short_circuit_for_null_in_build_side) {
-            const auto* column = block.get_by_position(res_col_ids[i]).column.get();
-            if (check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                _build_side_ignore_null |= !_shared_state->store_null_in_hash_table[i];
-            }
+        const auto* column = block.get_by_position(res_col_ids[i]).column.get();
+        if (column->is_nullable() && !_shared_state->serialize_null_into_key[i]) {
+            _build_side_has_external_nullmap = true;
+            return;
         }
     }
 }
@@ -359,7 +339,7 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
 
         /// For 'null safe equal' join,
         /// the build key column maybe be converted to nullable from non-nullable.
-        if (p._should_convert_to_nullable[i]) {
+        if (p._serialize_null_into_key[i]) {
             data_type = vectorized::make_nullable(data_type);
         }
         data_types.emplace_back(std::move(data_type));
@@ -392,10 +372,6 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     if (tnode.hash_join_node.__isset.hash_output_slot_ids) {
         _hash_output_slot_ids = tnode.hash_join_node.hash_output_slot_ids;
     }
-
-    const bool build_stores_null = _join_op == TJoinOp::RIGHT_OUTER_JOIN ||
-                                   _join_op == TJoinOp::FULL_OUTER_JOIN ||
-                                   _join_op == TJoinOp::RIGHT_ANTI_JOIN;
 
     const std::vector<TEqJoinCondition>& eq_join_conjuncts = tnode.hash_join_node.eq_join_conjuncts;
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
@@ -430,16 +406,18 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
                 (eq_join_conjunct.right.nodes[0].is_nullable ||
                  eq_join_conjunct.left.nodes[0].is_nullable);
 
-        const bool should_convert_to_nullable = is_null_safe_equal &&
-                                                !eq_join_conjunct.right.nodes[0].is_nullable &&
-                                                eq_join_conjunct.left.nodes[0].is_nullable;
         _is_null_safe_eq_join.push_back(is_null_safe_equal);
-        _should_convert_to_nullable.emplace_back(should_convert_to_nullable);
 
-        // if is null aware, build join column and probe join column both need dispose null value
-        _store_null_in_hash_table.emplace_back(
-                is_null_safe_equal ||
-                (_build_expr_ctxs.back()->root()->is_nullable() && build_stores_null));
+        if (eq_join_conjuncts.size() == 1) {
+            // single column key serialize method must use nullmap for represent null to instead serialize null into key
+            _serialize_null_into_key.emplace_back(false);
+        } else if (is_null_safe_equal) {
+            // use serialize null into key to represent multi column null value
+            _serialize_null_into_key.emplace_back(true);
+        } else {
+            // on normal conditions, because null!=null, it can be expressed directly with nullmap.
+            _serialize_null_into_key.emplace_back(false);
+        }
     }
 
     return Status::OK();
