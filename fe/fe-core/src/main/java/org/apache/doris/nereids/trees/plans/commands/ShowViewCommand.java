@@ -56,8 +56,9 @@ public class ShowViewCommand extends ShowCommand {
             .addColumn(new Column("View", ScalarType.createVarchar(30)))
             .addColumn(new Column("Create View", ScalarType.createVarchar(65535)))
             .build();
-    private String db;
-    private TableNameInfo tbl;
+
+    private final String db;
+    private final TableNameInfo tbl;
     private List<View> matchViews = Lists.newArrayList();
 
     public ShowViewCommand(String db, TableNameInfo tbl) {
@@ -72,9 +73,6 @@ public class ShowViewCommand extends ShowCommand {
     }
 
     private void validate(ConnectContext ctx) throws Exception {
-        if (tbl == null) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_TABLES_USED);
-        }
         if (!Strings.isNullOrEmpty(db)) {
             // if user specify the `from db`, overwrite the db in `tbl` with this db.
             // for example:

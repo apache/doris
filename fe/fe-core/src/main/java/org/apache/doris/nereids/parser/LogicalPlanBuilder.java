@@ -4019,15 +4019,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 return new ShowVariablesCommand(type, stripQuotes(ctx.wildWhere().STRING_LITERAL().getText()));
             } else {
                 StringBuilder sb = new StringBuilder();
-                sb.append("select VARIABLE_NAME as Variable_name, VARIABLE_VALUE as Value from ");
-                sb.append(InternalCatalog.INTERNAL_CATALOG_NAME);
+                sb.append("SELECT `VARIABLE_NAME` AS `Variable_name`, `VARIABLE_VALUE` AS `Value` FROM ");
+                sb.append("`").append(InternalCatalog.INTERNAL_CATALOG_NAME).append("`");
                 sb.append(".");
-                sb.append(InfoSchemaDb.DATABASE_NAME);
+                sb.append("`").append(InfoSchemaDb.DATABASE_NAME).append("`");
                 sb.append(".");
                 if (type == SetType.GLOBAL) {
-                    sb.append("GLOBAL_VARIABLES ");
+                    sb.append("`global_variables` ");
                 } else {
-                    sb.append("SESSION_VARIABLES ");
+                    sb.append("`session_variables` ");
                 }
                 sb.append(getOriginSql(ctx.wildWhere()));
                 return new NereidsParser().parseSingle(sb.toString());

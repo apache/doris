@@ -47,8 +47,9 @@ public class ShowVariablesCommand extends ShowCommand {
             .addColumn(new Column(DEFAULT_VALUE_COL, ScalarType.createVarchar(20)))
             .addColumn(new Column(CHANGED_COL, ScalarType.createVarchar(20)))
             .build();
-    private SetType type;
-    private String pattern;
+
+    private final SetType type;
+    private final String pattern;
 
     public ShowVariablesCommand(SetType type, String pattern) {
         super(PlanType.SHOW_VARIABLES_COMMAND);
