@@ -149,8 +149,8 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
         compaction_type != PARAM_COMPACTION_FULL) {
         return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
     }
-
-    CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
+    bool sync_delete_bitmap = compaction_type != PARAM_COMPACTION_FULL;
+    CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id, false, sync_delete_bitmap));
     if (tablet == nullptr) {
         return Status::NotFound("Tablet not found. tablet_id={}", tablet_id);
     }
