@@ -46,39 +46,30 @@ suite("test_create_table_like_nereids") {
     // with all rollup
     sql "drop table if exists table_like_with_roll_up"
     sql "CREATE TABLE table_like_with_roll_up LIKE mal_test_create_table_like with rollup;"
-    waitIndexVisible("table_like_with_roll_up", ["ru1", "ru2"], 60000)
-    explain {
-        sql ("select sum(a) from table_like_with_roll_up group by a")
-        contains "ru1"
-    } ;
-    explain {
-        sql ("select sum(b) from table_like_with_roll_up group by b,pk ;")
-        contains "ru2"
-    } ;
+
+    sql """insert into table_like_with_roll_up values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
+    ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
+
+    mv_rewrite_success_without_check_chosen("select sum(a) from table_like_with_roll_up group by a", "ru1")
+    mv_rewrite_success_without_check_chosen("select sum(b) from table_like_with_roll_up group by b,pk ;", "ru2")
 
     // with partial rollup
     sql "drop table if exists table_like_with_partial_roll_up;"
     sql "CREATE TABLE table_like_with_partial_roll_up LIKE mal_test_create_table_like with rollup (ru1);"
-    waitIndexVisible("table_like_with_partial_roll_up", ["ru1"], 60000)
-    sql "select * from table_like_with_partial_roll_up order by pk, a, b"
-    explain {
-        sql("select sum(a) from table_like_with_partial_roll_up group by a")
-        contains("ru1")
-    } ;
-    explain {
-        sql ("select sum(b) from table_like_with_partial_roll_up group by b,pk ;")
-        notContains "ru2"
-    } ;
+
     sql """insert into table_like_with_partial_roll_up values(2,1,3),(1,1,2),(3,5,6),(6,null,6),(4,5,6),(2,1,4),(2,3,5),(1,1,4)
     ,(3,5,6),(3,5,null),(6,7,1),(2,1,7),(2,4,2),(2,3,9),(1,3,6),(3,5,8),(3,2,8);"""
-    sleep(2000)
+
+    sql "select * from table_like_with_partial_roll_up order by pk, a, b"
+    mv_rewrite_success_without_check_chosen("select sum(a) from table_like_with_partial_roll_up group by a", "ru1")
+    mv_not_part_in("select sum(b) from table_like_with_partial_roll_up group by b,pk ;", "ru2")
+
     sql "select sum(a) from table_like_with_partial_roll_up group by a order by 1"
 
     // test if not exists
     sql "drop table if exists table_like_with_partial_roll_up_exists"
     sql """CREATE TABLE if not exists table_like_with_partial_roll_up_exists
     LIKE mal_test_create_table_like with rollup (ru1);"""
-    waitIndexVisible("table_like_with_partial_roll_up_exists", ["ru1"], 60000)
 
     sql "drop table if exists test_create_table_like_char_255"
     sql """
