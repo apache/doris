@@ -85,7 +85,7 @@ struct AggregateFunctionDistinctSingleNumericData {
         DCHECK(!stable);
         if constexpr (!stable) {
             write_var_uint(data.size(), buf);
-            for (auto value : data) {
+            for (const auto& value : data) {
                 write_binary(value, buf);
             }
         }

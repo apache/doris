@@ -91,7 +91,7 @@ struct AggregateFunctionCollectSetData {
 
     void write(BufferWritable& buf) const {
         write_var_uint(data_set.size(), buf);
-        for (auto value : data_set) {
+        for (const auto& value : data_set) {
             write_binary(value, buf);
         }
         write_var_int(max_size, buf);
