@@ -86,7 +86,8 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
     S3ClientConf reset_conf;
     {
         std::shared_lock lock(_mtx);
-        if (conf.ak == _conf.ak && conf.sk == _conf.sk && conf.token == _conf.token) {
+        if (conf.ak == _conf.ak && conf.sk == _conf.sk && conf.token == _conf.token &&
+            conf.use_virtual_addressing == _conf.use_virtual_addressing) {
             return Status::OK(); // Same conf
         }
 
@@ -95,6 +96,7 @@ Status ObjClientHolder::reset(const S3ClientConf& conf) {
         reset_conf.sk = conf.sk;
         reset_conf.token = conf.token;
         reset_conf.bucket = conf.bucket;
+        reset_conf.use_virtual_addressing = conf.use_virtual_addressing;
         // Should check endpoint here?
     }
 
