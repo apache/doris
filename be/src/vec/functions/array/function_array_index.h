@@ -219,7 +219,7 @@ private:
         // prepare return data
         auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size());
+        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         // process
@@ -288,7 +288,7 @@ private:
         // prepare return data
         auto dst = ColumnVector<ResultType>::create(offsets.size(), 0);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size());
+        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         // process
