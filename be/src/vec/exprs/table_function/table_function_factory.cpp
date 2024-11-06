@@ -33,6 +33,7 @@
 #include "vec/exprs/table_function/vexplode_map.h"
 #include "vec/exprs/table_function/vexplode_numbers.h"
 #include "vec/exprs/table_function/vexplode_split.h"
+#include "vec/exprs/table_function/vposexplode.h"
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
@@ -61,6 +62,7 @@ const std::unordered_map<std::string, std::function<std::unique_ptr<TableFunctio
                 {"explode_bitmap", TableFunctionCreator<VExplodeBitmapTableFunction>()},
                 {"explode_map", TableFunctionCreator<VExplodeMapTableFunction> {}},
                 {"explode_json_object", TableFunctionCreator<VExplodeJsonObjectTableFunction> {}},
+                {"posexplode", TableFunctionCreator<VPosExplodeTableFunction> {}},
                 {"explode", TableFunctionCreator<VExplodeTableFunction> {}}};
 
 Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, TableFunction** fn) {
