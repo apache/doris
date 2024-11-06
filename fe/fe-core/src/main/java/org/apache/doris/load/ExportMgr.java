@@ -111,14 +111,17 @@ public class ExportMgr {
                 BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
                         job.getBrokerDesc());
             }
+            Env.getCurrentEnv().getEditLog().logExportCreate(job);
+            // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
             job.getCopiedTaskExecutors().forEach(executor -> {
                 Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
             });
-            Env.getCurrentEnv().getEditLog().logExportCreate(job);
+            LOG.info("add export job. {}", job);
+
         } finally {
             writeUnlock();
         }
-        LOG.info("add export job. {}", job);
+
     }
 
     public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {
@@ -466,6 +469,7 @@ public class ExportMgr {
     public void replayUpdateJobState(ExportJobStateTransfer stateTransfer) {
         writeLock();
         try {
+            LOG.info("replay update export job: {}, {}", stateTransfer.getJobId(), stateTransfer.getState());
             ExportJob job = exportIdToJob.get(stateTransfer.getJobId());
             job.replayExportJobState(stateTransfer.getState());
             job.setStartTimeMs(stateTransfer.getStartTimeMs());
