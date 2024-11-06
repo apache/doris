@@ -44,10 +44,7 @@ while read -r line; do
     fi
 done <"${DORIS_HOME}/conf/be.conf"
 
-signum=9
-if [[ "$1" = "--grace" ]]; then
-    signum=15
-fi
+signum=15
 
 pidfile="${PID_DIR}/be.pid"
 
