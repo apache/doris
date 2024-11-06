@@ -713,13 +713,13 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
 
     auto st = _engine.meta_mgr().update_delete_bitmap(*this, txn_id, -1, new_delete_bitmap.get(),
                                                       true);
-    LOG(INFO) << "tablet=" << tablet_id()
-              << "load update_delete_bitmap size=" << new_delete_bitmap->delete_bitmap.size();
-    for (auto it = new_delete_bitmap->delete_bitmap.begin();
-         it != new_delete_bitmap->delete_bitmap.end(); it++) {
-        LOG(INFO) << "key=" << std::get<0>(it->first) << "|" << std::get<1>(it->first) << "|"
-                  << std::get<2>(it->first) << ",size=" << it->second.cardinality();
-    }
+//    LOG(INFO) << "tablet=" << tablet_id()
+//              << "load update_delete_bitmap size=" << new_delete_bitmap->delete_bitmap.size();
+//    for (auto it = new_delete_bitmap->delete_bitmap.begin();
+//         it != new_delete_bitmap->delete_bitmap.end(); it++) {
+//        LOG(INFO) << "key=" << std::get<0>(it->first) << "|" << std::get<1>(it->first) << "|"
+//                  << std::get<2>(it->first) << ",size=" << it->second.cardinality();
+//    }
     if (!st.ok()) {
         LOG(WARNING) << "update delete bitmap fail,txn=" << txn_id << " st=" << st.to_string();
         return st;
@@ -792,19 +792,19 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
                         "cumulative compaction: the merged rows({}), the filtered rows({}) is not "
                         "equal to missed rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
                         merged_rows, filtered_rows, missed_rows_size, tablet_id(), table_id());
-                LOG(INFO) << "tablet=" << tablet_id() << ",delete_bitmap size="
-                          << tablet_meta()->delete_bitmap().delete_bitmap.size();
-                for (auto it = tablet_meta()->delete_bitmap().delete_bitmap.begin();
-                     it != tablet_meta()->delete_bitmap().delete_bitmap.end(); it++) {
-                    LOG(INFO) << "key=" << std::get<0>(it->first) << "|" << std::get<1>(it->first)
-                              << "|" << std::get<2>(it->first)
-                              << ",size=" << it->second.cardinality();
-                }
-                if (config::enable_mow_compaction_correctness_check_core) {
+//                LOG(INFO) << "tablet=" << tablet_id() << ",delete_bitmap size="
+//                          << tablet_meta()->delete_bitmap().delete_bitmap.size();
+//                for (auto it = tablet_meta()->delete_bitmap().delete_bitmap.begin();
+//                     it != tablet_meta()->delete_bitmap().delete_bitmap.end(); it++) {
+//                    LOG(INFO) << "key=" << std::get<0>(it->first) << "|" << std::get<1>(it->first)
+//                              << "|" << std::get<2>(it->first)
+//                              << ",size=" << it->second.cardinality();
+//                }
+//                if (config::enable_mow_compaction_correctness_check_core) {
 //                    CHECK(false) << err_msg;
-                } else {
+//                } else {
 //                    DCHECK(false) << err_msg;
-                }
+//                }
                 LOG(WARNING) << err_msg;
             }
         }
@@ -838,13 +838,13 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     // 3. store delete bitmap
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator, output_rowset_delete_bitmap.get()));
-    LOG(INFO) << "tablet=" << tablet_id() << "compaction update_delete_bitmap size="
-              << output_rowset_delete_bitmap->delete_bitmap.size();
-    for (auto it = output_rowset_delete_bitmap->delete_bitmap.begin();
-         it != output_rowset_delete_bitmap->delete_bitmap.end(); it++) {
-        LOG(INFO) << "key=" << std::get<0>(it->first) << "|" << std::get<1>(it->first) << "|"
-                  << std::get<2>(it->first) << ",size=" << it->second.cardinality();
-    }
+//    LOG(INFO) << "tablet=" << tablet_id() << "compaction update_delete_bitmap size="
+//              << output_rowset_delete_bitmap->delete_bitmap.size();
+//    for (auto it = output_rowset_delete_bitmap->delete_bitmap.begin();
+//         it != output_rowset_delete_bitmap->delete_bitmap.end(); it++) {
+//        LOG(INFO) << "key=" << std::get<0>(it->first) << "|" << std::get<1>(it->first) << "|"
+//                  << std::get<2>(it->first) << ",size=" << it->second.cardinality();
+//    }
     return Status::OK();
 }
 

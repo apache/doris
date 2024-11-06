@@ -484,23 +484,23 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                         .error(st);
                 return st;
             }
-            LOG(INFO) << "tablet=" << tablet->tablet_id() << "sync rowset get delete_bitmap size="
-                      << delete_bitmap.delete_bitmap.size();
-            for (auto it = delete_bitmap.delete_bitmap.begin();
-                 it != delete_bitmap.delete_bitmap.end(); it++) {
-                LOG(INFO) << "tablet=" << tablet->tablet_id() << "key=" << std::get<0>(it->first)
-                          << "|" << std::get<1>(it->first) << "|" << std::get<2>(it->first)
-                          << ",size=" << it->second.cardinality();
-            }
+//            LOG(INFO) << "tablet=" << tablet->tablet_id() << "sync rowset get delete_bitmap size="
+//                      << delete_bitmap.delete_bitmap.size();
+//            for (auto it = delete_bitmap.delete_bitmap.begin();
+//                 it != delete_bitmap.delete_bitmap.end(); it++) {
+//                LOG(INFO) << "tablet=" << tablet->tablet_id() << "key=" << std::get<0>(it->first)
+//                          << "|" << std::get<1>(it->first) << "|" << std::get<2>(it->first)
+//                          << ",size=" << it->second.cardinality();
+//            }
             tablet->tablet_meta()->delete_bitmap().merge(delete_bitmap);
-            LOG(INFO) << "tablet=" << tablet->tablet_id() << "after merge delete_bitmap size="
-                      << tablet->tablet_meta()->delete_bitmap().delete_bitmap.size();
-            for (auto it = tablet->tablet_meta()->delete_bitmap().delete_bitmap.begin();
-                 it != tablet->tablet_meta()->delete_bitmap().delete_bitmap.end(); it++) {
-                LOG(INFO) << "tablet=" << tablet->tablet_id() << "key=" << std::get<0>(it->first)
-                          << "|" << std::get<1>(it->first) << "|" << std::get<2>(it->first)
-                          << ",size=" << it->second.cardinality();
-            }
+//            LOG(INFO) << "tablet=" << tablet->tablet_id() << "after merge delete_bitmap size="
+//                      << tablet->tablet_meta()->delete_bitmap().delete_bitmap.size();
+//            for (auto it = tablet->tablet_meta()->delete_bitmap().delete_bitmap.begin();
+//                 it != tablet->tablet_meta()->delete_bitmap().delete_bitmap.end(); it++) {
+//                LOG(INFO) << "tablet=" << tablet->tablet_id() << "key=" << std::get<0>(it->first)
+//                          << "|" << std::get<1>(it->first) << "|" << std::get<2>(it->first)
+//                          << ",size=" << it->second.cardinality();
+//            }
         }
         {
             const auto& stats = resp.stats();
