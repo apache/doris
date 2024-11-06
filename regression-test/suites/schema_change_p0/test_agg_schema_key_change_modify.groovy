@@ -16,8 +16,8 @@
 // under the License.
 
 suite("test_agg_schema_key_change_modify","p0") {
-     def tbName1 = "test_agg_schema_key_change_modify1"
-     def tbName2 = "test_agg_schema_key_change_modify_1"
+     def tbName1 = "test_agg_schema_key_change_modify"
+     def tbName2 = "test_agg_schema_key_change_modify_"
      def initTable1 = ""
      def initTableData1 = ""
 
