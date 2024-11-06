@@ -72,7 +72,7 @@ suite("test_vertical_compaction_agg_state") {
             ('a',collect_set_state('aaa'))
             """
 
-        qt_select_default """ SELECT user_id,collect_set_merge(agg_user_id) FROM ${tableName} t group by user_id ORDER BY user_id;"""
+        qt_select_default """ SELECT user_id,array_sort(collect_set_merge(agg_user_id)) FROM ${tableName} t group by user_id ORDER BY user_id;"""
 
         def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 
@@ -124,7 +124,7 @@ suite("test_vertical_compaction_agg_state") {
             }
         }
         assert (rowCount < 8 * replicaNum)
-        qt_select_default """ SELECT user_id,collect_set_merge(agg_user_id) FROM ${tableName} t group by user_id ORDER BY user_id;"""
+        qt_select_default """ SELECT user_id,array_sort(collect_set_merge(agg_user_id)) FROM ${tableName} t group by user_id ORDER BY user_id;"""
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
