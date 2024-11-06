@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
@@ -97,7 +98,8 @@ private:
 
 class PrimaryKeyIndexReader {
 public:
-    PrimaryKeyIndexReader() : _index_parsed(false), _bf_parsed(false) {}
+    PrimaryKeyIndexReader(OlapReaderStatistics* pk_index_load_stats = nullptr)
+            : _index_parsed(false), _bf_parsed(false), _pk_index_load_stats(pk_index_load_stats) {}
 
     ~PrimaryKeyIndexReader() {
         segment_v2::g_pk_total_bloom_filter_num << -static_cast<int64_t>(_bf_num);
@@ -111,9 +113,10 @@ public:
 
     Status parse_bf(io::FileReaderSPtr file_reader, const segment_v2::PrimaryKeyIndexMetaPB& meta);
 
-    Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator) const {
+    Status new_iterator(std::unique_ptr<segment_v2::IndexedColumnIterator>* index_iterator,
+                        OlapReaderStatistics* stats = nullptr) const {
         DCHECK(_index_parsed);
-        index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get()));
+        index_iterator->reset(new segment_v2::IndexedColumnIterator(_index_reader.get(), stats));
         return Status::OK();
     }
 
@@ -152,6 +155,7 @@ private:
     std::unique_ptr<segment_v2::BloomFilter> _bf;
     size_t _bf_num = 0;
     uint64 _bf_bytes = 0;
+    OlapReaderStatistics* _pk_index_load_stats = nullptr;
 };
 
 } // namespace doris

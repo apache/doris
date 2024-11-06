@@ -130,7 +130,8 @@ public:
     }
 
     Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
-                          bool with_rowid, RowLocation* row_location);
+                          bool with_rowid, RowLocation* row_location,
+                          OlapReaderStatistics* stats = nullptr);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
@@ -140,7 +141,7 @@ public:
 
     Status load_index();
 
-    Status load_pk_index_and_bf();
+    Status load_pk_index_and_bf(OlapReaderStatistics* index_load_stats = nullptr);
 
     std::string min_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr);
@@ -290,6 +291,7 @@ private:
     InvertedIndexFileInfo _idx_file_info;
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
+    OlapReaderStatistics* _pk_index_load_stats = nullptr;
 };
 
 } // namespace segment_v2
