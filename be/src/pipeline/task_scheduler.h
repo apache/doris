@@ -31,6 +31,7 @@
 #include "gutil/ref_counted.h"
 #include "pipeline_task.h"
 #include "runtime/workload_group/workload_group.h"
+#include "task_queue.h"
 #include "util/thread.h"
 
 namespace doris {
@@ -39,13 +40,11 @@ class ThreadPool;
 } // namespace doris
 
 namespace doris::pipeline {
-class TaskQueue;
 
 class TaskScheduler {
 public:
-    TaskScheduler(std::shared_ptr<TaskQueue> task_queue, std::string name,
-                  CgroupCpuCtl* cgroup_cpu_ctl)
-            : _task_queue(std::move(task_queue)),
+    TaskScheduler(int core_num, std::string name, CgroupCpuCtl* cgroup_cpu_ctl)
+            : _task_queue(core_num),
               _shutdown(false),
               _name(std::move(name)),
               _cgroup_cpu_ctl(cgroup_cpu_ctl) {}
@@ -62,7 +61,7 @@ public:
 
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
-    std::shared_ptr<TaskQueue> _task_queue;
+    MultiCoreTaskQueue _task_queue;
     std::vector<bool> _markers;
     bool _shutdown;
     std::string _name;

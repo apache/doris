@@ -51,7 +51,7 @@ TaskScheduler::~TaskScheduler() {
 }
 
 Status TaskScheduler::start() {
-    int cores = _task_queue->cores();
+    int cores = _task_queue.cores();
     RETURN_IF_ERROR(ThreadPoolBuilder(_name)
                             .set_min_threads(cores)
                             .set_max_threads(cores)
@@ -67,7 +67,7 @@ Status TaskScheduler::start() {
 }
 
 Status TaskScheduler::schedule_task(PipelineTask* task) {
-    return _task_queue->push_back(task);
+    return _task_queue.push_back(task);
 }
 
 // after _close_task, task maybe destructed.
@@ -99,17 +99,17 @@ void _close_task(PipelineTask* task, Status exec_status) {
 
 void TaskScheduler::_do_work(int index) {
     while (_markers[index]) {
-        auto* task = _task_queue->take(index);
+        auto* task = _task_queue.take(index);
         if (!task) {
             continue;
         }
         if (task->is_running()) {
-            static_cast<void>(_task_queue->push_back(task, index));
+            static_cast<void>(_task_queue.push_back(task, index));
             continue;
         }
         task->log_detail_if_need();
         task->set_running(true);
-        task->set_task_queue(_task_queue.get());
+        task->set_task_queue(&_task_queue);
         auto* fragment_ctx = task->fragment_context();
         bool canceled = fragment_ctx->is_canceled();
 
@@ -189,9 +189,7 @@ void TaskScheduler::_do_work(int index) {
 
 void TaskScheduler::stop() {
     if (!_shutdown) {
-        if (_task_queue) {
-            _task_queue->close();
-        }
+        _task_queue.close();
         if (_fix_thread_pool) {
             for (size_t i = 0; i < _markers.size(); ++i) {
                 _markers[i] = false;
