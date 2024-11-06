@@ -23,10 +23,11 @@ namespace doris::pipeline {
 
 class Dependency;
 struct MultiCastBlock {
-    MultiCastBlock(vectorized::Block* block, int used_count, int need_copy, size_t mem_size);
+    MultiCastBlock(vectorized::Block* block, int need_copy, size_t mem_size);
 
     std::unique_ptr<vectorized::Block> _block;
-    int _used_count;
+    // Each block is copied during pull. If _un_finish_copy == 0,
+    // it indicates that this block has been fully used and can be released.
     int _un_finish_copy;
     size_t _mem_size;
 };
@@ -69,14 +70,10 @@ private:
     void _block_reading(int sender_idx);
 
     void _copy_block(vectorized::Block* block, int& un_finish_copy);
-
-    void _wait_copy_block(vectorized::Block* block, int& un_finish_copy);
-
     const RowDescriptor& _row_desc;
     RuntimeProfile* _profile = nullptr;
     std::list<MultiCastBlock> _multi_cast_blocks;
     std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read;
-    std::condition_variable _cv;
     std::mutex _mutex;
     bool _eos = false;
     int _cast_sender_count = 0;
