@@ -37,7 +37,7 @@
 1
 
 -- !select_timestamp2 --
-11
+1
 
 -- !select_date --
 1
@@ -86,7 +86,7 @@ B
 1
 
 -- !select_timestamp2 --
-11
+1
 
 -- !select_date --
 1

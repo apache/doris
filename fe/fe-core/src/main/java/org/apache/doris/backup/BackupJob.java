@@ -100,7 +100,7 @@ public class BackupJob extends AbstractJob {
     private List<TableRef> tableRefs = Lists.newArrayList();
 
     @SerializedName("st")
-    private BackupJobState state;
+    private volatile BackupJobState state;
 
     @SerializedName("sft")
     private long snapshotFinishedTime = -1;
@@ -129,9 +129,6 @@ public class BackupJob extends AbstractJob {
     // backup properties && table commit seq with table id
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
-
-    private byte[] metaInfoBytes = null;
-    private byte[] jobInfoBytes = null;
 
     public BackupJob() {
         super(JobType.BACKUP);
@@ -344,11 +341,7 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public synchronized void replayRun() {
-        LOG.info("replay run backup job: {}", this);
-        if (state == BackupJobState.FINISHED && repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
-            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
-            env.getBackupHandler().addSnapshot(label, snapshot);
-        }
+        // nothing to do
     }
 
     @Override
@@ -364,6 +357,11 @@ public class BackupJob extends AbstractJob {
     @Override
     public boolean isCancelled() {
         return state == BackupJobState.CANCELLED;
+    }
+
+    @Override
+    public boolean isFinished() {
+        return state == BackupJobState.FINISHED;
     }
 
     @Override
@@ -839,8 +837,6 @@ public class BackupJob extends AbstractJob {
             }
             backupMeta.writeToFile(metaInfoFile);
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
-            // read meta info to metaInfoBytes
-            metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
 
             // 3. save job info file
             Map<Long, Long> tableCommitSeqMap = Maps.newHashMap();
@@ -867,8 +863,6 @@ public class BackupJob extends AbstractJob {
             }
             jobInfo.writeToFile(jobInfoFile);
             localJobInfoFilePath = jobInfoFile.getAbsolutePath();
-            // read job info to jobInfoBytes
-            jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
         } catch (Exception e) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to save meta info and job info file: " + e.getMessage());
             return;
@@ -922,7 +916,6 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-
         finishedTime = System.currentTimeMillis();
         state = BackupJobState.FINISHED;
 
@@ -931,8 +924,7 @@ public class BackupJob extends AbstractJob {
         LOG.info("job is finished. {}", this);
 
         if (repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
-            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
-            env.getBackupHandler().addSnapshot(label, snapshot);
+            env.getBackupHandler().addSnapshot(label, this);
             return;
         }
     }
@@ -1025,7 +1017,30 @@ public class BackupJob extends AbstractJob {
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
     }
 
-    public List<String> getInfo() {
+    public boolean isLocalSnapshot() {
+        return repoId == Repository.KEEP_ON_LOCAL_REPO_ID;
+    }
+
+    // read meta and job info bytes from disk, and return the snapshot
+    public synchronized Snapshot getSnapshot() {
+        if (state != BackupJobState.FINISHED || repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
+            return null;
+        }
+
+        try {
+            File metaInfoFile = new File(localMetaInfoFilePath);
+            File jobInfoFile = new File(localJobInfoFilePath);
+            byte[] metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
+            byte[] jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
+            return new Snapshot(label, metaInfoBytes, jobInfoBytes);
+        } catch (IOException e) {
+            LOG.warn("failed to load meta info and job info file, meta info file {}, job info file {}: ",
+                    localMetaInfoFilePath, localJobInfoFilePath, e);
+            return null;
+        }
+    }
+
+    public synchronized List<String> getInfo() {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(label);

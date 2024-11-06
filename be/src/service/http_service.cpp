@@ -387,7 +387,7 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::POST, "/api/pad_rowset", pad_rowset_action);
 
     ReportAction* report_tablet_action = _pool.add(new ReportAction(
-            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_OLAP_TABLE"));
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_OLAP_TABLET"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/tablet", report_tablet_action);
 
     ReportAction* report_disk_action = _pool.add(new ReportAction(

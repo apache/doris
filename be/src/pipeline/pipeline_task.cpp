@@ -216,10 +216,6 @@ Status PipelineTask::_open() {
     return Status::OK();
 }
 
-void PipelineTask::set_task_queue(TaskQueue* task_queue) {
-    _task_queue = task_queue;
-}
-
 bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
