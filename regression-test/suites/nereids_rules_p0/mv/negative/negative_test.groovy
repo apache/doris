@@ -471,7 +471,7 @@ suite("negative_partition_mv_rewrite") {
         on lineitem_1.l_orderkey > orders_1.o_orderkey 
         group by l_shipdate, o_orderdate, l_partkey
     """
-    mv_rewrite_fail(query_sql, mv_name)
+    mv_rewrite_success(query_sql, mv_name)
 
     // mtmv exists join but not exists agg, query exists agg
     mtmv_sql = """
