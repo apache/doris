@@ -464,8 +464,10 @@ static std::unordered_map<orc::TypeKind, orc::PredicateDataType> TYPEKIND_TO_PRE
         {orc::TypeKind::BOOLEAN, orc::PredicateDataType::BOOLEAN}};
 
 template <PrimitiveType primitive_type>
-std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, const void* value,
-                                                      int precision, int scale) {
+std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
+                                                      StringRef& literal_data, int precision,
+                                                      int scale) {
+    const auto* value = literal_data.data;
     try {
         switch (type->getKind()) {
         case orc::TypeKind::BOOLEAN:
@@ -489,8 +491,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
         case orc::TypeKind::CHAR:
             [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
-            const auto* string_value = static_cast<const char*>(value);
-            return std::make_tuple(true, orc::Literal(string_value, strlen(string_value)));
+            return std::make_tuple(true, orc::Literal(literal_data.data, literal_data.size));
         }
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;
@@ -563,17 +564,17 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type, con
 
 std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_leteral(
         const VSlotRef* slot_ref, const VLiteral* literal) {
-    const auto* value = literal->get_column_ptr()->get_data_at(0).data;
+    auto literal_data = literal->get_column_ptr()->get_data_at(0);
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
     const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
     const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
     switch (slot_type.type) {
-#define M(NAME)                                                          \
-    case TYPE_##NAME: {                                                  \
-        auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>( \
-                orc_type, value, slot_type.precision, slot_type.scale);  \
-        return std::make_tuple(valid, orc_literal, predicate_type);      \
+#define M(NAME)                                                                \
+    case TYPE_##NAME: {                                                        \
+        auto [valid, orc_literal] = convert_to_orc_literal<TYPE_##NAME>(       \
+                orc_type, literal_data, slot_type.precision, slot_type.scale); \
+        return std::make_tuple(valid, orc_literal, predicate_type);            \
     }
 #define APPLY_FOR_PRIMITIVE_TYPE(M) \
     M(TINYINT)                      \
