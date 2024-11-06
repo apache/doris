@@ -93,7 +93,7 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
         // cache can't find cloud_unique_id, so degraded by parse cloud_unique_id
         // cloud_unique_id encode: ${version}:${instance_id}:${unique_id}
         // check it split by ':' c
-        auto [valid, instance_id] = rc_mgr->get_instance_id_by_degrade_unique_id(cloud_unique_id);
+        auto [valid, id] = ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id);
         if (!valid) {
             LOG(WARNING) << "use degraded format cloud_unique_id, but cloud_unique_id not degrade "
                             "format, cloud_unique_id="
@@ -102,12 +102,11 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
         }
 
         // check instance_id valid by get fdb
-        if (config::enable_check_cloud_unique_id_degrade_format &&
-            !rc_mgr->check_degrade_instance_valid(instance_id)) {
+        if (config::enable_check_instance_id && !rc_mgr->is_instance_id_registered(id)) {
             LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed";
             return "";
         }
-        return instance_id;
+        return id;
     }
 
     for (auto& node : nodes) {
@@ -120,7 +119,8 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
         instance_id = node.instance_id; // The last wins
         // check cache unique_id
         std::string cloud_unique_id_in_cache = node.node_info.cloud_unique_id();
-        auto [valid, id] = rc_mgr->get_instance_id_by_degrade_unique_id(cloud_unique_id_in_cache);
+        auto [valid, id] =
+                ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id_in_cache);
         if (!valid) {
             continue;
         }

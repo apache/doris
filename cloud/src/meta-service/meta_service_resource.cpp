@@ -1924,9 +1924,9 @@ void MetaServiceImpl::alter_cluster(google::protobuf::RpcController* controller,
     instance_id = request->has_instance_id() ? request->instance_id() : "";
     if (!cloud_unique_id.empty() && instance_id.empty()) {
         auto [is_degraded_format, id] =
-                resource_mgr_->get_instance_id_by_degrade_unique_id(cloud_unique_id);
-        if (config::enable_check_cloud_unique_id_degrade_format && is_degraded_format &&
-            !resource_mgr_->check_degrade_instance_valid(id)) {
+                ResourceManager::get_instance_id_by_cloud_unique_id(cloud_unique_id);
+        if (config::enable_check_instance_id && is_degraded_format &&
+            !resource_mgr_->is_instance_id_registered(id)) {
             msg = "use degrade cloud_unique_id, but instance_id invalid, cloud_unique_id=" +
                   cloud_unique_id;
             LOG(WARNING) << msg;

@@ -162,10 +162,9 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     for (auto& n : cluster.nodes()) {
         // check here cloud_unique_id
         std::string cloud_unique_id = n.cloud_unique_id();
-        auto [is_degrade_format, instance_id] =
-                get_instance_id_by_degrade_unique_id(cloud_unique_id);
-        if (config::enable_check_cloud_unique_id_degrade_format && is_degrade_format &&
-            !check_degrade_instance_valid(instance_id)) {
+        auto [is_degrade_format, instance_id] = get_instance_id_by_cloud_unique_id(cloud_unique_id);
+        if (config::enable_check_instance_id && is_degrade_format &&
+            !is_instance_id_registered(instance_id)) {
             ss << "node=" << n.DebugString()
                << " cloud_unique_id use degrade format, but check instance failed";
             *err = ss.str();
@@ -211,7 +210,7 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     return no_err;
 }
 
-std::pair<bool, std::string> ResourceManager::get_instance_id_by_degrade_unique_id(
+std::pair<bool, std::string> ResourceManager::get_instance_id_by_cloud_unique_id(
         const std::string& cloud_unique_id) {
     auto v = split(cloud_unique_id, ':');
     if (v.size() != 3) return {false, ""};
@@ -221,16 +220,15 @@ std::pair<bool, std::string> ResourceManager::get_instance_id_by_degrade_unique_
     return {true, v[1]};
 }
 
-bool ResourceManager::check_degrade_instance_valid(const std::string& instance_id) {
+bool ResourceManager::is_instance_id_registered(const std::string& instance_id) {
     // check kv
     auto [c0, m0] = get_instance(nullptr, instance_id, nullptr);
-    { TEST_SYNC_POINT_CALLBACK("check_degrade_instance_valid", &c0); }
+    { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &c0); }
     if (c0 != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "check instance instance_id=" << instance_id
-                     << " failed, code=" << format_as(c0) << ", info=" + m0;
-        return false;
+        LOG(WARNING) << "failed to check instance instance_id=" << instance_id
+                     << ", code=" << format_as(c0) << ", info=" + m0;
     }
-    return true;
+    return c0 == TxnErrorCode::TXN_OK;
 }
 
 std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::string& instance_id,

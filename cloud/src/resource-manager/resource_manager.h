@@ -121,7 +121,7 @@ public:
      *
      * @return a <is_degraded_format, instance_id> pair, if is_degraded_format == true , instance_id, if is_degraded_format == false, instance_id=""
      */
-    std::pair<bool, std::string> get_instance_id_by_degrade_unique_id(
+    static std::pair<bool, std::string> get_instance_id_by_cloud_unique_id(
             const std::string& cloud_unique_id);
 
     /**
@@ -131,7 +131,7 @@ public:
      *
      * @return true, instance_id in fdb kv
      */
-    bool check_degrade_instance_valid(const std::string& instance_id);
+    bool is_instance_id_registered(const std::string& instance_id);
 
     /**
      * Refreshes the cache of given instance. This process removes the instance in cache
