@@ -114,6 +114,8 @@ struct TReportRequest {
     11: i32 num_cores
     12: i32 pipeline_executor_size
     13: optional map<Types.TPartitionId, Types.TVersion> partitions_version
+    // tablet num in be, in cloud num_tablets may not eq tablet_list.size()
+    14: optional i64 num_tablets
 }
 
 struct TMasterResult {

@@ -226,32 +226,34 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      * 2. col stats ndv=0 but minExpr or maxExpr is not null
      * 3. ndv > 10 * rowCount
      */
-    public static Optional<String> disableJoinReorderIfStatsInvalid(List<LogicalOlapScan> scans,
+    public static Optional<String> disableJoinReorderIfStatsInvalid(List<CatalogRelation> scans,
             CascadesContext context) {
         StatsCalculator calculator = new StatsCalculator(context);
         if (ConnectContext.get() == null) {
             // ut case
             return Optional.empty();
         }
-        for (LogicalOlapScan scan : scans) {
-            double rowCount = calculator.getOlapTableRowCount(scan);
+        for (CatalogRelation scan : scans) {
+            double rowCount = calculator.getTableRowCount(scan);
             // row count not available
             if (rowCount == -1) {
                 LOG.info("disable join reorder since row count not available: "
                         + scan.getTable().getNameWithFullQualifiers());
                 return Optional.of("table[" + scan.getTable().getName() + "] row count is invalid");
             }
-            // ndv abnormal
-            Optional<String> reason = calculator.checkNdvValidation(scan, rowCount);
-            if (reason.isPresent()) {
-                try {
-                    ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
-                    LOG.info("disable join reorder since col stats invalid: "
-                            + reason.get());
-                } catch (Exception e) {
-                    LOG.info("disableNereidsJoinReorderOnce failed");
+            if (scan instanceof OlapScan) {
+                // ndv abnormal
+                Optional<String> reason = calculator.checkNdvValidation((OlapScan) scan, rowCount);
+                if (reason.isPresent()) {
+                    try {
+                        ConnectContext.get().getSessionVariable().disableNereidsJoinReorderOnce();
+                        LOG.info("disable join reorder since col stats invalid: "
+                                + reason.get());
+                    } catch (Exception e) {
+                        LOG.info("disableNereidsJoinReorderOnce failed");
+                    }
+                    return reason;
                 }
-                return reason;
             }
         }
         return Optional.empty();
@@ -404,6 +406,14 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     }
                 }
             }
+        }
+    }
+
+    private double getTableRowCount(CatalogRelation scan) {
+        if (scan instanceof OlapScan) {
+            return getOlapTableRowCount((OlapScan) scan);
+        } else {
+            return scan.getTable().getRowCount();
         }
     }
 
@@ -1212,11 +1222,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
      */
     private Statistics computeCatalogRelation(CatalogRelation catalogRelation) {
         StatisticsBuilder builder = new StatisticsBuilder();
+        double tableRowCount = catalogRelation.getTable().getRowCount();
         // for FeUt, use ColumnStatistic.UNKNOWN
         if (!FeConstants.enableInternalSchemaDb
                 || ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable().internalSession) {
-            builder.setRowCount(catalogRelation.getTable().getRowCountForNereids());
+            builder.setRowCount(Math.max(1, tableRowCount));
             for (Slot slot : catalogRelation.getOutput()) {
                 builder.putColumnStatistics(slot, ColumnStatistic.UNKNOWN);
             }
@@ -1232,8 +1243,8 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
         }
         Set<SlotReference> slotSet = slotSetBuilder.build();
-        double tableRowCount = catalogRelation.getTable().getRowCount();
         if (tableRowCount <= 0) {
+            tableRowCount = 1;
             // try to get row count from col stats
             for (SlotReference slot : slotSet) {
                 ColumnStatistic cache = getColumnStatsFromTableCache(catalogRelation, slot);

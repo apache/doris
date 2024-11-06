@@ -183,6 +183,9 @@ public:
 
     std::map<std::string, double> get_stats();
 
+    // for be UTs
+    std::map<std::string, double> get_stats_unsafe();
+
     class LRUQueue {
     public:
         LRUQueue() = default;
@@ -216,6 +219,10 @@ public:
         size_t get_capacity(T& /* cache_lock */) const {
             return cache_size;
         }
+
+        size_t get_capacity_unsafe() const { return cache_size; }
+
+        size_t get_elements_num_unsafe() const { return queue.size(); }
 
         size_t get_elements_num(std::lock_guard<std::mutex>& /* cache_lock */) const {
             return queue.size();
@@ -383,6 +390,7 @@ private:
     bool try_reserve_during_async_load(size_t size, std::lock_guard<std::mutex>& cache_lock);
 
     std::vector<FileCacheType> get_other_cache_type(FileCacheType cur_cache_type);
+    std::vector<FileCacheType> get_other_cache_type_without_ttl(FileCacheType cur_cache_type);
 
     bool try_reserve_from_other_queue(FileCacheType cur_cache_type, size_t offset, int64_t cur_time,
                                       std::lock_guard<std::mutex>& cache_lock);
@@ -428,15 +436,16 @@ private:
 
     void recycle_deleted_blocks();
 
-    bool try_reserve_from_other_queue_by_hot_interval(std::vector<FileCacheType> other_cache_types,
+    bool try_reserve_from_other_queue_by_hot_interval(FileCacheType cur_type,
+                                                      std::vector<FileCacheType> other_cache_types,
                                                       size_t size, int64_t cur_time,
                                                       std::lock_guard<std::mutex>& cache_lock);
 
-    bool try_reserve_from_other_queue_by_size(std::vector<FileCacheType> other_cache_types,
+    bool try_reserve_from_other_queue_by_size(FileCacheType cur_type,
+                                              std::vector<FileCacheType> other_cache_types,
                                               size_t size, std::lock_guard<std::mutex>& cache_lock);
 
-    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size,
-                     bool is_ttl = false) const;
+    bool is_overflow(size_t removed_size, size_t need_size, size_t cur_cache_size) const;
 
     void remove_file_blocks(std::vector<FileBlockCell*>&, std::lock_guard<std::mutex>&);
 
@@ -447,7 +456,7 @@ private:
 
     void find_evict_candidates(LRUQueue& queue, size_t size, size_t cur_cache_size,
                                size_t& removed_size, std::vector<FileBlockCell*>& to_evict,
-                               std::lock_guard<std::mutex>& cache_lock, bool is_ttl);
+                               std::lock_guard<std::mutex>& cache_lock, size_t& cur_removed_size);
 
     void recycle_stale_rowset_async_bottom_half();
 
@@ -506,6 +515,10 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_heat_metrics_matrix[4][4];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_try_release;
 
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_hit_blocks_5m;
     std::shared_ptr<bvar::Window<bvar::Adder<size_t>>> _num_read_blocks_5m;
@@ -519,6 +532,7 @@ private:
     std::shared_ptr<bvar::Status<double>> _hit_ratio;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_5m;
     std::shared_ptr<bvar::Status<double>> _hit_ratio_1h;
+    std::shared_ptr<bvar::Status<size_t>> _disk_limit_mode_metrics;
 };
 
 } // namespace doris::io

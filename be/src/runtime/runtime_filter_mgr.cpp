@@ -452,8 +452,6 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                                   DummyBrpcCallback<PPublishFilterResponse>::create_shared());
 
             closure->request_->set_filter_id(request->filter_id());
-            closure->request_->set_is_pipeline(request->has_is_pipeline() &&
-                                               request->is_pipeline());
             closure->request_->set_merge_time(merge_time);
             *closure->request_->mutable_query_id() = request->query_id();
             if (has_attachment) {

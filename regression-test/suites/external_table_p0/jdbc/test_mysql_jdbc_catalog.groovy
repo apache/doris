@@ -643,6 +643,7 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         // ctas logic is different between new and old planner.
         // so need to test both.
         sql """drop catalog if exists mysql_conjuncts;"""
+        sql """set enable_nereids_planner=true"""
     }
 }
 
