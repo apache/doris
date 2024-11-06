@@ -284,7 +284,6 @@ std::vector<std::string> FSFileCacheStorage::get_path_in_local_cache_all_candida
     candidates.push_back(base + "_idx");
     candidates.push_back(base + "_ttl");
     candidates.push_back(base + "_disposable");
-    candidates.push_back(base + "_tmp");
     return candidates;
 }
 

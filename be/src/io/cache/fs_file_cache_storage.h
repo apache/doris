@@ -75,9 +75,6 @@ public:
                                                              FileCacheType type,
                                                              bool is_tmp = false);
 
-    [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
-            const std::string& dir, size_t offset);
-
     [[nodiscard]] static std::string get_path_in_local_cache_old_ttl_format(const std::string& dir,
                                                                             size_t offset,
                                                                             FileCacheType type,
@@ -103,6 +100,9 @@ private:
     [[nodiscard]] std::string get_version_path() const;
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
+
+    [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
+            const std::string& dir, size_t offset);
 
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;
