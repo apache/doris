@@ -709,6 +709,7 @@ public class ExportJob implements Writable {
             return;
         }
         Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.CANCELLED);
+        LOG.info("cancel export job {}", id);
     }
 
     private void exportExportJob() {
@@ -752,6 +753,7 @@ public class ExportJob implements Writable {
         // Clear the jobExecutorList to release memory.
         jobExecutorList.clear();
         Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.FINISHED);
+        LOG.info("finish export job {}", id);
     }
 
     public void replayExportJobState(ExportJobState newState) {
