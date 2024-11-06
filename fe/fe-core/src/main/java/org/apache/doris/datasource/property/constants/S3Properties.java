@@ -32,6 +32,7 @@ import com.amazonaws.auth.InstanceProfileCredentialsProvider;
 import com.amazonaws.auth.SystemPropertiesCredentialsProvider;
 import com.amazonaws.auth.WebIdentityTokenCredentialsProvider;
 import com.amazonaws.auth.profile.ProfileCredentialsProvider;
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
@@ -333,6 +334,15 @@ public class S3Properties extends BaseProperties {
         if (properties.containsKey(S3Properties.PROVIDER)) {
             // S3 Provider properties should be case insensitive.
             builder.setProvider(Provider.valueOf(properties.get(S3Properties.PROVIDER).toUpperCase()));
+        }
+
+        if (properties.containsKey(PropertyConverter.USE_PATH_STYLE)) {
+            String value = properties.get(PropertyConverter.USE_PATH_STYLE);
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(value), "use_path_style cannot be empty");
+            Preconditions.checkArgument(value.equalsIgnoreCase("true")
+                    || value.equalsIgnoreCase("false"),
+                    "Invalid use_path_style value: %s only 'true' or 'false' is acceptable", value);
+            builder.setUsePathStyle(value.equalsIgnoreCase("true"));
         }
         return builder;
     }
