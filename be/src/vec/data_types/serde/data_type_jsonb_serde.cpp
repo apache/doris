@@ -21,6 +21,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <cstddef>
 #include <cstdint>
 
 #include "arrow/array/builder_binary.h"
@@ -130,7 +131,8 @@ void DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Null
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
         std::string json_string =
                 JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
-        checkArrowStatus(builder.Append(json_string.data(), cast_set<int>(json_string.size())),
+        checkArrowStatus(builder.Append(json_string.data(),
+                                        cast_set<int, size_t, false>(json_string.size())),
                          column.get_name(), array_builder->type()->name());
     }
 }

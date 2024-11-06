@@ -117,19 +117,29 @@ private:
 template <typename T>
 Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto old_column_size = column.size();
-    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16> ||
-                  std::is_same_v<T, UInt32>) {
+    if constexpr (std::is_same_v<T, UInt8> || std::is_same_v<T, UInt16>) {
         column.resize(old_column_size + arg.uint32_value_size());
         auto& data = assert_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
-            data[old_column_size + i] = cast_set<T, uint32_t>(arg.uint32_value(i));
+            data[old_column_size + i] = cast_set<T, uint32_t, false>(arg.uint32_value(i));
         }
-    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16> ||
-                         std::is_same_v<T, Int32>) {
+    } else if constexpr (std::is_same_v<T, UInt32>) {
+        column.resize(old_column_size + arg.uint32_value_size());
+        auto& data = assert_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.uint32_value_size(); ++i) {
+            data[old_column_size + i] = arg.uint32_value(i);
+        }
+    } else if constexpr (std::is_same_v<T, Int8> || std::is_same_v<T, Int16>) {
         column.resize(old_column_size + arg.int32_value_size());
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
-            data[old_column_size + i] = cast_set<T, int32_t>(arg.int32_value(i));
+            data[old_column_size + i] = cast_set<T, int32_t, false>(arg.int32_value(i));
+        }
+    } else if constexpr (std::is_same_v<T, Int32>) {
+        column.resize(old_column_size + arg.int32_value_size());
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        for (int i = 0; i < arg.int32_value_size(); ++i) {
+            data[old_column_size + i] = arg.int32_value(i);
         }
     } else if constexpr (std::is_same_v<T, UInt64>) {
         column.resize(old_column_size + arg.uint64_value_size());

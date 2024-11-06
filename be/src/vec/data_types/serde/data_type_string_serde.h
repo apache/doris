@@ -281,8 +281,9 @@ public:
                 continue;
             }
             auto string_ref = string_column.get_data_at(string_i);
-            checkArrowStatus(builder.Append(string_ref.data, cast_set<int>(string_ref.size)),
-                             column.get_name(), array_builder->type()->name());
+            checkArrowStatus(
+                    builder.Append(string_ref.data, cast_set<int, size_t, false>(string_ref.size)),
+                    column.get_name(), array_builder->type()->name());
         }
     }
     void read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int start,

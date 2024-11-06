@@ -95,7 +95,8 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                                  array_builder->type()->name());
             } else {
                 checkArrowStatus(
-                        string_builder.Append(value_str.data(), cast_set<int>(value_str.length())),
+                        string_builder.Append(value_str.data(),
+                                              cast_set<int, size_t, false>(value_str.length())),
                         column.get_name(), array_builder->type()->name());
             }
         }

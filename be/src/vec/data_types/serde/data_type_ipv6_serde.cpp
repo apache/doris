@@ -19,6 +19,7 @@
 
 #include <arrow/builder.h>
 
+#include <cstddef>
 #include <string>
 
 #include "vec/columns/column_const.h"
@@ -148,9 +149,9 @@ void DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullM
                              array_builder->type()->name());
         } else {
             std::string ipv6_str = IPv6Value::to_string(col_data[i]);
-            checkArrowStatus(
-                    string_builder.Append(ipv6_str.c_str(), cast_set<int>(ipv6_str.size())),
-                    column.get_name(), array_builder->type()->name());
+            checkArrowStatus(string_builder.Append(ipv6_str.c_str(),
+                                                   cast_set<int, size_t, false>(ipv6_str.size())),
+                             column.get_name(), array_builder->type()->name());
         }
     }
 }
