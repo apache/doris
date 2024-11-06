@@ -539,8 +539,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             removeTabletDeleteBitmapUpdateLock(sucessTabletList, transactionId);
             removeDeleteBitmapUpdateLock(tableToPartitions, transactionId);
             throw e;
-        }
-        finally {
+        } finally {
             if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
                 RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
                 callbackId = rlTaskTxnCommitAttachment.getJobId();
