@@ -706,7 +706,7 @@ public class ExportJob implements Writable {
         if (FeConstants.runningUnitTest) {
             return;
         }
-        Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.CANCELLED);
+        Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.CANCELLED);
         LOG.info("cancel export job {}", id);
     }
 
@@ -750,7 +750,7 @@ public class ExportJob implements Writable {
         outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
         // Clear the jobExecutorList to release memory.
         jobExecutorList.clear();
-        Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.FINISHED);
+        Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.FINISHED);
         LOG.info("finish export job {}", id);
     }
 
