@@ -77,8 +77,8 @@ suite("test_be_metrics") {
     for (def backendId : backendId_to_backendHttpPort.keySet()) {
         def backendIP = backendId_to_backendIP.get(backendId)
         def backendHttpPort = backendId_to_backendHttpPort.get(backendId)
-        def ret = get_be_metric(backendIP, backendHttpPort, "jdbc_scan_connection_percent")
-        if (ret.left) {
+        def (is_exist, value) = get_be_metric(backendIP, backendHttpPort, "jdbc_scan_connection_percent")
+        if (is_exist) {
             hasValue = true
             break
         }
@@ -95,8 +95,8 @@ suite("test_be_metrics") {
     for (def backendId : backendId_to_backendHttpPort.keySet()) {
         def backendIP = backendId_to_backendIP.get(backendId)
         def backendHttpPort = backendId_to_backendHttpPort.get(backendId)
-        def ret = get_be_metric(backendIP, backendHttpPort, "jdbc_scan_connection_percent")
-        if (ret.left) {
+        def (is_exist, value)  = get_be_metric(backendIP, backendHttpPort, "jdbc_scan_connection_percent")
+        if (is_exist) {
             hasValue = true
             break
         }
