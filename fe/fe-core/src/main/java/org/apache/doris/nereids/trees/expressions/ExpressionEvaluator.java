@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -30,8 +29,6 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.TimeRound
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMultimap;
@@ -59,13 +56,11 @@ public enum ExpressionEvaluator {
      * Evaluate the value of the expression.
      */
     public Expression eval(Expression expression) {
-
         if (!(expression.isConstant() || expression.foldable()) || expression instanceof AggregateFunction) {
             return expression;
         }
 
         String fnName = null;
-        DataType ret = expression.getDataType();
         if (expression instanceof BinaryArithmetic) {
             BinaryArithmetic arithmetic = (BinaryArithmetic) expression;
             fnName = arithmetic.getLegacyOperator().getName();
@@ -75,14 +70,6 @@ public enum ExpressionEvaluator {
         } else if (expression instanceof BoundFunction) {
             BoundFunction function = ((BoundFunction) expression);
             fnName = function.getName();
-        }
-
-        if ((Env.getCurrentEnv().isNullResultWithOneNullParamFunction(fnName))) {
-            for (Expression e : expression.children()) {
-                if (e instanceof NullLiteral) {
-                    return new NullLiteral(ret);
-                }
-            }
         }
 
         return invoke(expression, fnName);

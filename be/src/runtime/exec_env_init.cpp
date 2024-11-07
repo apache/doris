@@ -53,6 +53,7 @@
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_column_object_pool.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
@@ -339,6 +340,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _tablet_schema_cache =
             TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
 
+    _tablet_column_object_pool = TabletColumnObjectPool::create_global_column_cache(
+            config::tablet_schema_cache_capacity);
+
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
@@ -381,9 +385,8 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 
     LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
     // TODO pipeline workload group combie two blocked schedulers.
-    auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     _without_group_task_scheduler =
-            new pipeline::TaskScheduler(t_queue, "PipeNoGSchePool", nullptr);
+            new pipeline::TaskScheduler(executors_size, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
 
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();

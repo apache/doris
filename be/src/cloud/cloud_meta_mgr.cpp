@@ -704,11 +704,19 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     const auto& segment_ids = res.segment_ids();
     const auto& vers = res.versions();
     const auto& delete_bitmaps = res.segment_delete_bitmaps();
+    if (rowset_ids.size() != segment_ids.size() || rowset_ids.size() != vers.size() ||
+        rowset_ids.size() != delete_bitmaps.size()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "get delete bitmap data wrong,"
+                "rowset_ids.size={},segment_ids.size={},vers.size={},delete_bitmaps.size={}",
+                rowset_ids.size(), segment_ids.size(), vers.size(), delete_bitmaps.size());
+    }
     for (size_t i = 0; i < rowset_ids.size(); i++) {
         RowsetId rst_id;
         rst_id.init(rowset_ids[i]);
-        delete_bitmap->merge({rst_id, segment_ids[i], vers[i]},
-                             roaring::Roaring::read(delete_bitmaps[i].data()));
+        delete_bitmap->merge(
+                {rst_id, segment_ids[i], vers[i]},
+                roaring::Roaring::readSafe(delete_bitmaps[i].data(), delete_bitmaps[i].length()));
     }
     int64_t latency = cntl.latency_us();
     if (latency > 100 * 1000) { // 100ms
@@ -1061,9 +1069,9 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
     return st;
 }
 
-Status CloudMetaMgr::update_delete_bitmap_without_lock(const CloudTablet& tablet,
-                                                       DeleteBitmap* delete_bitmap) {
-    LOG(INFO) << "update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
+Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                             DeleteBitmap* delete_bitmap) {
+    LOG(INFO) << "cloud_update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
               << ",delete_bitmap size:" << delete_bitmap->delete_bitmap.size();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
@@ -1215,12 +1223,8 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
     }
     if (rs_meta.tablet_schema()->get_inverted_index_storage_format() ==
         InvertedIndexStorageFormatPB::V1) {
-        auto indices = rs_meta.tablet_schema()->indexes();
+        const auto& indices = rs_meta.tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
-            // only get file_size for inverted index
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
-            }
             for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
                 std::string segment_path = StorageResource().remote_segment_path(
                         rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
@@ -1229,7 +1233,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
                 std::string inverted_index_file_path =
                         InvertedIndexDescriptor::get_index_file_path_v1(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(segment_path),
-                                index.index_id(), index.get_index_suffix());
+                                index->index_id(), index->get_index_suffix());
                 auto st = fs->file_size(inverted_index_file_path, &file_size);
                 if (!st.ok()) {
                     file_size = 0;

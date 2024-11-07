@@ -619,7 +619,7 @@ public class ReportHandler extends Daemon {
 
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
 
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.report_resend_batch_task_num_per_rpc);
         long taskReportTime = System.currentTimeMillis();
         for (AgentTask task : diffTasks) {
             // these tasks no need to do diff
@@ -974,7 +974,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                             objectPool,
                                             olapTable.rowStorePageSize(),
-                                            olapTable.variantEnableFlattenNested());
+                                            olapTable.variantEnableFlattenNested(),
+                                            olapTable.storagePageSize());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());

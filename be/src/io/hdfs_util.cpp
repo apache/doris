@@ -67,7 +67,8 @@ Status create_hdfs_fs(const THdfsParams& hdfs_params, const std::string& fs_name
         if (t.joinable()) t.join();
         bthread::butex_destroy(btx);
     });
-    timespec tmout {.tv_sec = std::chrono::system_clock::now().time_since_epoch().count() + 60};
+    timespec tmout {.tv_sec = std::chrono::system_clock::now().time_since_epoch().count() + 60,
+                    .tv_nsec = 0};
     if (int ret = bthread::butex_wait(btx, 1, &tmout); ret != 0) {
         std::string msg = "failed to wait _create_hdfs_fs fs_name=" + fs_name;
         LOG(WARNING) << msg << " error=" << std::strerror(errno);

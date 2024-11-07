@@ -23,6 +23,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <unordered_map>
 #include <utility>
 
@@ -71,7 +72,7 @@ public:
     void cancel(const TUniqueId& fragment_instance_id, Status exec_status);
 
 private:
-    std::mutex _lock;
+    std::shared_mutex _lock;
     using StreamMap = std::unordered_multimap<uint32_t, std::shared_ptr<VDataStreamRecvr>>;
     StreamMap _receiver_map;
 

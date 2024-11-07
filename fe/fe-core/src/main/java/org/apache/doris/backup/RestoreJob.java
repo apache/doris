@@ -397,6 +397,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     }
 
     @Override
+    public boolean isFinished() {
+        return state == RestoreJobState.FINISHED;
+    }
+
+    @Override
     public synchronized Status updateRepo(Repository repo) {
         this.repo = repo;
 
@@ -1348,7 +1353,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool,
                             localTbl.rowStorePageSize(),
-                            localTbl.variantEnableFlattenNested());
+                            localTbl.variantEnableFlattenNested(),
+                            localTbl.storagePageSize());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
