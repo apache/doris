@@ -142,7 +142,11 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         return Status::InternalError("fail to set CURLOPT_URL");
     }
 
+#ifdef BE_TEST
+    set_auth_token("test_token");
+#else
     set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
+#endif
     return Status::OK();
 }
 

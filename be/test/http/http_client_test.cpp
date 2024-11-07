@@ -140,7 +140,7 @@ TEST_F(HttpClientTest, get_normal) {
     client.set_basic_auth("test1", "");
     std::string response;
     st = client.execute(&response);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st;
     EXPECT_STREQ("test1", response.c_str());
 
     // for head

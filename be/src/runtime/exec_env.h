@@ -264,7 +264,7 @@ public:
     void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
         _memtable_memory_limiter.reset(limiter);
     }
-    void set_cluster_info(const ClusterInfo& cluster_info) { this->_cluster_info = cluster_info; }
+    void set_cluster_info(ClusterInfo* cluster_info) { this->_cluster_info = cluster_info; }
     void set_new_load_stream_mgr(std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr) {
         this->_new_load_stream_mgr = new_load_stream_mgr;
     }
