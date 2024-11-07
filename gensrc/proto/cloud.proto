@@ -197,6 +197,7 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+    optional bool use_path_style = 16;
 }
 
 // The legacy ObjectStoreInfoPB is stored in InstanceInfoPB
