@@ -18,8 +18,8 @@
 #include "vec/sink/vresult_sink.h"
 
 #include <fmt/format.h>
-#include <time.h>
 #include <sys/select.h>
+#include <time.h>
 
 #include <new>
 

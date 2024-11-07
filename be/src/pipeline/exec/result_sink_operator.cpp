@@ -17,8 +17,9 @@
 
 #include "result_sink_operator.h"
 
-#include <memory>
 #include <sys/select.h>
+
+#include <memory>
 
 #include "common/config.h"
 #include "common/object_pool.h"
