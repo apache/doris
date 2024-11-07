@@ -74,6 +74,7 @@ public:
 
     TupleDescBuilder& operator<<(const TypeDescriptor& slot_type) {
         _slot_types.push_back(slot_type);
+        _slot_names.emplace_back("");
         return *this;
     }
 
