@@ -1245,7 +1245,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TLoadTxnBeginResult loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(),
@@ -1479,7 +1479,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private void loadTxnPreCommitImpl(TLoadTxnCommitRequest request) throws UserException {
         if (request.isSetAuthCode()) {
-            // CHECKSTYLE IGNORE THIS LINE
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             if (!checkToken(request.getToken())) {
                 throw new AuthenticationException("Invalid token: " + request.getToken());
@@ -1665,7 +1665,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // timeout
     private boolean loadTxnCommitImpl(TLoadTxnCommitRequest request) throws UserException {
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
@@ -1806,7 +1806,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
@@ -1886,7 +1886,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private void loadTxnRollbackImpl(TLoadTxnRollbackRequest request) throws UserException {
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
@@ -2009,7 +2009,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
@@ -2174,7 +2174,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ConnectContext ctx = ConnectContext.get();
 
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(),

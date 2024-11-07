@@ -231,7 +231,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     ctx->db = task.db;
     ctx->table = task.tbl;
     ctx->label = task.label;
-    // deprecated
+    // deprecated, removed in 3.1, use auth token instead.
     ctx->auth.auth_code = task.auth_code;
     ctx->auth.token = _exec_env->cluster_info()->curr_auth_token;
 
