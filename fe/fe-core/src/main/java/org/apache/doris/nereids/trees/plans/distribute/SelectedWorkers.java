@@ -53,8 +53,8 @@ public class SelectedWorkers {
         }
     }
 
-    /** tryToSelectExistWorker */
-    public DistributedPlanWorker tryToSelectUsedWorker() {
+    /** tryToSelectRandomUsedWorker */
+    public DistributedPlanWorker tryToSelectRandomUsedWorker() {
         if (usedWorkers.isEmpty()) {
             return workerManager.randomAvailableWorker();
         } else {

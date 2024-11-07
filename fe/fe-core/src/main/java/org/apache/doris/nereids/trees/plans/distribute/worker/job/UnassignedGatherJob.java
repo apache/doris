@@ -48,7 +48,7 @@ public class UnassignedGatherJob extends AbstractUnassignedJob {
 
         int expectInstanceNum = degreeOfParallelism();
 
-        DistributedPlanWorker selectedWorker = distributeContext.selectedWorkers.tryToSelectUsedWorker();
+        DistributedPlanWorker selectedWorker = distributeContext.selectedWorkers.tryToSelectRandomUsedWorker();
         if (useLocalShuffleToAddParallel) {
             ImmutableList.Builder<AssignedJob> instances = ImmutableList.builder();
 

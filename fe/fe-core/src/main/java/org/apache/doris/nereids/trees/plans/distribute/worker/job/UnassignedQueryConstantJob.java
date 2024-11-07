@@ -40,7 +40,7 @@ public class UnassignedQueryConstantJob extends AbstractUnassignedJob {
     @Override
     public List<AssignedJob> computeAssignedJobs(
             DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        DistributedPlanWorker randomWorker = distributeContext.selectedWorkers.tryToSelectUsedWorker();
+        DistributedPlanWorker randomWorker = distributeContext.selectedWorkers.tryToSelectRandomUsedWorker();
         ConnectContext connectContext = statementContext.getConnectContext();
         return ImmutableList.of(
                 new StaticAssignedJob(0, connectContext.nextInstanceId(), this,
