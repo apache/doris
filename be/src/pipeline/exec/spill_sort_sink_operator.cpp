@@ -281,7 +281,7 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
         return Status::OK();
     };
 
-    auto exception_catch_func = [query_id, spill_context, spill_func]() {
+    auto exception_catch_func = [query_id, spill_func]() {
         DBUG_EXECUTE_IF("fault_inject::spill_sort_sink::revoke_memory_cancel", {
             auto status = Status::InternalError(
                     "fault_inject spill_sort_sink "
@@ -303,14 +303,10 @@ Status SpillSortSinkLocalState::revoke_memory(RuntimeState* state,
     if (status.ok()) {
         state->get_query_ctx()->increase_revoking_tasks_count();
 
-        MonotonicStopWatch submit_timer;
-        submit_timer.start();
-        _spilling_task_count = 1;
         status = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-                std::make_shared<SpillRunnable>(
-                        state, spill_context, _spilling_task_count, _profile, submit_timer,
-                        _shared_state->shared_from_this(), _spill_dependency, true, true,
-                        exception_catch_func));
+                std::make_shared<SpillSinkRunnable>(state, spill_context, _spill_dependency,
+                                                    _profile, _shared_state->shared_from_this(),
+                                                    exception_catch_func));
     }
     if (!status.ok()) {
         if (!_eos) {

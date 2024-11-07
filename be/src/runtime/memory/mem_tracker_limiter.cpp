@@ -136,7 +136,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                    << ", mem tracker label: " << _label
                    << ", peak consumption: " << peak_consumption() << print_address_sanitizers();
     }
-    DCHECK(reserved_consumption() == 0);
+    DCHECK_EQ(reserved_consumption(), 0);
     memory_memtrackerlimiter_cnt << -1;
 }
 

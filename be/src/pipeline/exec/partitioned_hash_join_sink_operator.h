@@ -19,6 +19,8 @@
 
 #include <stdint.h>
 
+#include <atomic>
+
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/exec/hashjoin_build_sink.h"
@@ -54,8 +56,7 @@ protected:
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
 
     Status _spill_to_disk(uint32_t partition_index,
-                          const vectorized::SpillStreamSPtr& spilling_stream,
-                          const std::shared_ptr<SpillContext>& spill_context);
+                          const vectorized::SpillStreamSPtr& spilling_stream);
 
     Status _partition_block(RuntimeState* state, vectorized::Block* in_block, size_t begin,
                             size_t end);
@@ -68,7 +69,7 @@ protected:
     friend class PartitionedHashJoinSinkOperatorX;
 
     std::atomic<bool> _spilling_finished {false};
-    vectorized::Block _pending_block;
+    std::atomic_int32_t _spilling_task_count {0};
 
     bool _child_eos {false};
 

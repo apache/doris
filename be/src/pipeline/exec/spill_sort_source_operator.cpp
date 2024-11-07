@@ -173,14 +173,10 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 "merge_sort_spill_data submit_func failed");
     });
 
-    MonotonicStopWatch submit_timer;
-    submit_timer.start();
-    _spilling_task_count = 1;
     return ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool()->submit(
-            std::make_shared<SpillRunnable>(state, nullptr, _spilling_task_count,
-                                            _runtime_profile.get(), submit_timer,
-                                            _shared_state->shared_from_this(), _spill_dependency,
-                                            false, false, exception_catch_func));
+            std::make_shared<SpillRecoverRunnable>(state, _spill_dependency, _runtime_profile.get(),
+                                                   _shared_state->shared_from_this(),
+                                                   exception_catch_func));
 }
 
 Status SpillSortLocalState::_create_intermediate_merger(

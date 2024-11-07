@@ -243,7 +243,7 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(
         return Status::OK();
     };
 
-    auto exception_catch_func = [query_id, spill_func, spill_context]() {
+    auto exception_catch_func = [query_id, spill_func]() {
         DBUG_EXECUTE_IF("fault_inject::partitioned_hash_join_probe::spill_probe_blocks_cancel", {
             auto status = Status::InternalError(
                     "fault_inject partitioned_hash_join_probe "
@@ -265,14 +265,9 @@ Status PartitionedHashJoinProbeLocalState::spill_probe_blocks(
                 "fault_inject partitioned_hash_join_probe spill_probe_blocks submit_func failed");
     });
 
-    MonotonicStopWatch submit_timer;
-    submit_timer.start();
-
-    _spilling_task_count = 1;
-    auto spill_runnable = std::make_shared<SpillRunnable>(
-            state, spill_context, _spilling_task_count, _runtime_profile.get(), submit_timer,
-            _shared_state->shared_from_this(), _spill_dependency, false, true,
-            exception_catch_func);
+    auto spill_runnable = std::make_shared<SpillNonSinkRunnable>(
+            state, spill_context, _spill_dependency, _runtime_profile.get(),
+            _shared_state->shared_from_this(), exception_catch_func);
     return spill_io_pool->submit(std::move(spill_runnable));
 }
 
@@ -398,13 +393,8 @@ Status PartitionedHashJoinProbeLocalState::recover_build_blocks_from_disk(Runtim
                                 "recovery_build_blocks submit_func failed");
                     });
 
-    MonotonicStopWatch submit_timer;
-    submit_timer.start();
-
-    _spilling_task_count = 1;
-    auto spill_runnable = std::make_shared<SpillRunnable>(
-            state, nullptr, _spilling_task_count, _runtime_profile.get(), submit_timer,
-            _shared_state->shared_from_this(), _spill_dependency, false, false,
+    auto spill_runnable = std::make_shared<SpillRecoverRunnable>(
+            state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
             exception_catch_func);
     VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
                << ", task id: " << state->task_id() << ", partition: " << partition_index
@@ -511,12 +501,8 @@ Status PartitionedHashJoinProbeLocalState::recover_probe_blocks_from_disk(Runtim
                                 "fault_inject partitioned_hash_join_probe "
                                 "recovery_probe_blocks submit_func failed");
                     });
-    MonotonicStopWatch submit_timer;
-    submit_timer.start();
-    _spilling_task_count = 1;
-    return spill_io_pool->submit(std::make_shared<SpillRunnable>(
-            state, nullptr, _spilling_task_count, _runtime_profile.get(), submit_timer,
-            _shared_state->shared_from_this(), _spill_dependency, false, false,
+    return spill_io_pool->submit(std::make_shared<SpillRecoverRunnable>(
+            state, _spill_dependency, _runtime_profile.get(), _shared_state->shared_from_this(),
             exception_catch_func));
 }
 
