@@ -370,7 +370,7 @@ public class IndexChangeJob implements Writable {
                     LOG.warn("alter inverted index task failed: " + task.getErrorMsg());
                     // If error is obtaining lock failed.
                     // we should do more tries.
-                    if (task.getErrorCode().equals(TStatusCode.TRY_LOCK_FAILED)) {
+                    if (task.getErrorCode().equals(TStatusCode.OBTAIN_LOCK_FAILED)) {
                         if (task.getFailedTimes() < MAX_FAILED_NUM) {
                             continue;
                         }

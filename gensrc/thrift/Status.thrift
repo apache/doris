@@ -104,7 +104,7 @@ enum TStatusCode {
 
     NOT_MASTER = 73,
 
-    TRY_LOCK_FAILED = 74,
+    OBTAIN_LOCK_FAILED = 74,
 
     // used for cloud
     DELETE_BITMAP_LOCK_ERROR = 100,
