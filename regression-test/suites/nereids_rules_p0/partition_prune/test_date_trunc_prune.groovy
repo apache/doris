@@ -346,7 +346,7 @@ suite("test_date_trunc_prune") {
     partition p30 values [(30,'2024-01-31 00:00:00'), (40,'2024-02-10 00:00:00')),
     partition p40 values [(40,'2024-02-10 00:00:00'), (50,'2024-02-20 00:00:00'))
     )
-    distributed by hash(a);
+    distributed by hash(a) properties("replication_num"="1");
     """
     sql """
     insert into t_multi_column_partition values(0,'2024-01-01 00:00:00',2),(1,'2024-01-01 00:00:00',2),(1,'2025-01-01 00:00:00',2),
