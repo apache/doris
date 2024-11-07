@@ -277,6 +277,8 @@ protected:
     // get_const_col()
     std::shared_ptr<ColumnPtrWrapper> _constant_col;
     bool _prepared;
+
+    bool _enable_inverted_index_query = true;
 };
 
 } // namespace vectorized
