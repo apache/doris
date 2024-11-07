@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -36,12 +35,12 @@ import org.apache.logging.log4j.Logger;
 /**
  * recover database command
  */
-public class RecoverDatabaseCommand extends Command implements ForwardWithSync {
+public class RecoverDatabaseCommand extends RecoverCommand {
 
     public static final Logger LOG = LogManager.getLogger(RecoverDatabaseCommand.class);
     private final String dbName;
-    private final long dbId = -1;
-    private final String newDbName = "";
+    private final long dbId;
+    private final String newDbName;
 
     /**
      * constructor
@@ -51,9 +50,7 @@ public class RecoverDatabaseCommand extends Command implements ForwardWithSync {
         super(PlanType.RECOVER_DATABASE_COMMAND);
         this.dbName = dbName;
         this.dbId = dbId;
-        if (newDbName != null) {
-            this.newDbName = newDbName;
-        }
+        this.newDbName = newDbName;
     }
 
     public String getDbName() {
@@ -69,7 +66,7 @@ public class RecoverDatabaseCommand extends Command implements ForwardWithSync {
     }
 
     @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws UserException {
+    public void doRun(ConnectContext ctx, StmtExecutor executor) throws UserException {
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
         }
@@ -87,10 +84,5 @@ public class RecoverDatabaseCommand extends Command implements ForwardWithSync {
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitRecoverDatabaseCommand(this, context);
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.RECOVER;
     }
 }

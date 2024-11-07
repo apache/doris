@@ -68,13 +68,13 @@ suite("test_recover_db") {
     qt_select "show tables";
     
     sql " drop database $db"
-    sql " recover database $db"
+    checkNereidsExecute("recover database $db;")
     sql " use $db"
     qt_select1 "show tables";
     def newdb="new_recover_db"
     sql " drop database IF EXISTS $newdb FORCE"
     sql " drop database $db"
-    sql " recover database $db as $newdb"
+    checkNereidsExecute("recover database $db as $newdb;")
 
     sql " use $newdb"
     qt_select2 "show tables";
