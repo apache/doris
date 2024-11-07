@@ -1205,10 +1205,6 @@ Status Tablet::_contains_version(const Version& version) {
     return Status::OK();
 }
 
-TabletInfo Tablet::get_tablet_info() const {
-    return TabletInfo(tablet_id(), tablet_uid());
-}
-
 std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_cumulative_compaction() {
     std::vector<RowsetSharedPtr> candidate_rowsets;
     if (_cumulative_point == K_INVALID_CUMULATIVE_POINT) {
@@ -1276,7 +1272,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
         std::shared_lock rlock(_meta_lock);
         auto has_alter_inverted_index = [&](RowsetSharedPtr rowset) -> bool {
             for (const auto& index_id : alter_index_uids) {
-                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id, "")) {
+                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
                     return true;
                 }
             }
@@ -2654,12 +2650,9 @@ void Tablet::gc_binlogs(int64_t version) {
         // add binlog segment files and index files
         for (int64_t i = 0; i < num_segments; ++i) {
             wait_for_deleted_binlog_files.emplace_back(get_segment_filepath(rowset_id, i));
-            for (const auto& index : this->tablet_schema()->indexes()) {
-                if (index.index_type() != IndexType::INVERTED) {
-                    continue;
-                }
+            for (const auto& index : this->tablet_schema()->inverted_indexes()) {
                 wait_for_deleted_binlog_files.emplace_back(
-                        get_segment_index_filepath(rowset_id, i, index.index_id()));
+                        get_segment_index_filepath(rowset_id, i, index->index_id()));
             }
         }
     };
@@ -2808,12 +2801,8 @@ int64_t Tablet::get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta)
 
     if (rs_meta->tablet_schema()->get_inverted_index_storage_format() ==
         InvertedIndexStorageFormatPB::V1) {
-        auto indices = rs_meta->tablet_schema()->indexes();
+        const auto& indices = rs_meta->tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
-            // only get file_size for inverted index
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
-            }
             for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
                 std::string segment_path = get_segment_path(rs_meta, seg_id);
                 int64_t file_size = 0;
@@ -2821,7 +2810,7 @@ int64_t Tablet::get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta)
                 std::string inverted_index_file_path =
                         InvertedIndexDescriptor::get_index_file_path_v1(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(segment_path),
-                                index.index_id(), index.get_index_suffix());
+                                index->index_id(), index->get_index_suffix());
                 auto st = fs->file_size(inverted_index_file_path, &file_size);
                 if (!st.ok()) {
                     file_size = 0;

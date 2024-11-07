@@ -81,8 +81,10 @@ import java.util.stream.Collectors;
 public class MaxComputeScanNode extends FileQueryScanNode {
 
     private final MaxComputeExternalTable table;
-    TableBatchReadSession tableBatchReadSession;
+    private TableBatchReadSession tableBatchReadSession;
     private Predicate filterPredicate;
+    private static final LocationPath ROW_OFFSET_PATH = new LocationPath("/row_offset", Maps.newHashMap());
+    private static final LocationPath BYTE_SIZE_PATH = new LocationPath("/byte_size", Maps.newHashMap());
 
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         this(id, desc, "MCScanNode", StatisticalType.MAX_COMPUTE_SCAN_NODE, needCheckColumnPriv);
@@ -441,7 +443,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
                 for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
                     MaxComputeSplit maxComputeSplit =
-                            new MaxComputeSplit(new LocationPath("/byte_size", Maps.newHashMap()),
+                            new MaxComputeSplit(BYTE_SIZE_PATH,
                                     ((IndexedInputSplit) split).getSplitIndex(), -1,
                                     mcCatalog.getSplitByteSize(),
                                     modificationTime, null,
@@ -464,7 +466,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
                             assigner.getSplitByRowOffset(offset, recordsPerSplit);
 
                     MaxComputeSplit maxComputeSplit =
-                            new MaxComputeSplit(new LocationPath("/row_offset", Maps.newHashMap()),
+                            new MaxComputeSplit(ROW_OFFSET_PATH,
                             offset, recordsPerSplit, totalRowCount, modificationTime, null,
                             Collections.emptyList());
 

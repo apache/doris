@@ -125,6 +125,9 @@ Status DeltaWriterV2::init() {
     context.partial_update_info = _partial_update_info;
     context.memtable_on_sink_support_index_v2 = true;
 
+    auto tablet = DORIS_TRY(ExecEnv::GetInstance()->storage_engine().get_tablet(_req.tablet_id));
+    context.storage_page_size = tablet->tablet_meta()->storage_page_size();
+
     _rowset_writer = std::make_shared<BetaRowsetWriterV2>(_streams);
     RETURN_IF_ERROR(_rowset_writer->init(context));
     std::shared_ptr<WorkloadGroup> wg_sptr = nullptr;

@@ -660,6 +660,11 @@ Status FSFileCacheStorage::clear(std::string& msg) {
     return Status::OK();
 }
 
+std::string FSFileCacheStorage::get_local_file(const FileCacheKey& key) {
+    return get_path_in_local_cache(get_path_in_local_cache(key.hash, key.meta.expiration_time),
+                                   key.offset, key.meta.type, false);
+}
+
 FSFileCacheStorage::~FSFileCacheStorage() {
     if (_cache_background_load_thread.joinable()) {
         _cache_background_load_thread.join();
