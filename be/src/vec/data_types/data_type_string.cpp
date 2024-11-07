@@ -27,6 +27,8 @@
 #include <cstring>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/exception.h"
+#include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
@@ -81,7 +83,7 @@ bool DataTypeString::equals(const IDataType& rhs) const {
 int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
                                                           int be_exec_version) const {
     if (be_exec_version >= USE_CONST_SERDE) {
-        auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
+        int64_t size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
         bool is_const_column = is_column_const(column);
         const IColumn* string_column = &column;
         if (is_const_column) {
@@ -99,9 +101,15 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
                                                                     upper_int32(offsets_size)));
         }
         size += sizeof(size_t);
-        if (auto bytes = data_column.get_chars().size(); bytes <= SERIALIZED_MEM_SIZE_LIMIT) {
+        if (size_t bytes = data_column.get_chars().size(); bytes <= SERIALIZED_MEM_SIZE_LIMIT) {
             size += bytes;
         } else {
+            if (bytes > LZ4_MAX_INPUT_SIZE) {
+                throw Exception(ErrorCode::BUFFER_OVERFLOW,
+                                "LZ4_compressBound meet invalid input size, input_size={}, "
+                                "LZ4_MAX_INPUT_SIZE={}",
+                                bytes, LZ4_MAX_INPUT_SIZE);
+            }
             size += sizeof(size_t) + std::max(bytes, (size_t)LZ4_compressBound(bytes));
         }
         return size;
