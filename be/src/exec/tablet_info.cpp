@@ -734,6 +734,7 @@ Status VOlapTablePartitionParam::replace_partitions(
 
         // add new partitions with new id.
         _partitions.emplace_back(part);
+        VLOG_NOTICE << "params add new partition " << part->id;
 
         // replace items in _partition_maps
         if (_is_in_partition) {
