@@ -308,8 +308,8 @@ class Config {
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
 
-        config.tryCreateDbIfNotExist()
-        config.buildUrlWithDefaultDb()
+        // mainly auth_xxx cases use defaultDb, these suites better not use defaultDb
+        config.createDefaultDb()
 
         return config
     }
@@ -628,6 +628,24 @@ class Config {
             }
         }
         return null
+    }
+
+    void createDefaultDb() {
+        String dbName = null
+        try {
+            tryCreateDbIfNotExist(defaultDb)
+            dbName = defaultDb
+        } catch (Exception e) {
+            // defaultDb is not need for most cases.
+            // when run docker suites without external fe/be,  createDefaultDb will fail, but can ignore this exception.
+            // Infact, only mainly auth_xxx cases use defaultDb, and they just use jdbcUrl in connect function.
+            // And they can avoid using defaultDb too. But modify all these cases take a lot work.
+            // We better delete all the usage of defaultDb in suites later, and all suites should use their own db, not the defaultDb.
+            log.warn("create default db failed ${defaultDb}".toString())
+        }
+
+        jdbcUrl = buildUrlWithDb(jdbcUrl, dbName)
+        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
     }
 
     void tryCreateDbIfNotExist(String dbName = defaultDb) {
