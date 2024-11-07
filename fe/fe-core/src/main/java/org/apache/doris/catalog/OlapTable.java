@@ -105,6 +105,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -3037,8 +3038,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems() {
-        readLock();
+    public Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException {
+        if (!tryReadLock(1, TimeUnit.MINUTES)) {
+            throw new AnalysisException("get table read lock timeout, database=" + getDBName() + ",table=" + getName());
+        }
         try {
             Map<String, PartitionItem> res = Maps.newHashMap();
             for (Entry<Long, PartitionItem> entry : getPartitionInfo().getIdToItem(false).entrySet()) {
