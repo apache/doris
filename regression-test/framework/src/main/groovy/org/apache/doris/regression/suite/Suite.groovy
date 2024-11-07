@@ -2127,14 +2127,15 @@ class Suite implements GroovyInterceptable {
         def js = jsonOutput.toJson(map)
         log.info("get be metric req: ${js} ".toString())
 
-        def ret = Integer.MAX_VALUE
+        def ret = Pair.of(false, 0)
         metric_api.call(js) {
             respCode, body ->
                 log.info("get be metric resp: ${respCode}".toString())
                 def json = parseJson(body)
                 for (item : json) {
                     if (item.tags.metric == field) {
-                        ret = item.value
+                        ret.left = true
+                        ret.right = item.value
                     }
                 }
         }
