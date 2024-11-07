@@ -486,26 +486,16 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             }
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
-
-            if (num > 0) {
-                for (int i = 0; i < num; ++i) {
-                    ByteString bytesValues = resultContent.getBytesValue(i);
-                    String stringValue = bytesValues.toStringUtf8();
-                    if ("\\N".equalsIgnoreCase(stringValue) && resultContent.hasHasNull()) {
-                        res.add(new NullLiteral(type));
-                    } else {
-                        res.add(new StringLiteral(stringValue));
-                    }
-                }
-            } else {
-                num = resultContent.getStringValueCount();
-                for (int i = 0; i < num; ++i) {
-                    String stringValue = resultContent.getStringValue(i);
-                    if ("\\N".equalsIgnoreCase(stringValue) && resultContent.hasHasNull()) {
-                        res.add(new NullLiteral(type));
-                    } else {
-                        res.add(new StringLiteral(stringValue));
-                    }
+            for (int i = 0; i < num; ++i) {
+                // get the raw byte data to avoid character encoding conversion problems
+                ByteString bytesValues = resultContent.getBytesValue(i);
+                // use UTF-8 encoding to ensure proper handling of binary data
+                String stringValue = bytesValues.toStringUtf8();
+                // handle special NULL value cases
+                if ("\\N".equalsIgnoreCase(stringValue) && resultContent.hasHasNull()) {
+                    res.add(new NullLiteral(type));
+                } else {
+                    res.add(new StringLiteral(stringValue));
                 }
             }
         } else if (type.isArrayType()) {
