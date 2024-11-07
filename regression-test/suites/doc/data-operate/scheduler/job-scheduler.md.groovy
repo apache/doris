@@ -69,62 +69,64 @@ suite("docs/data-operate/scheduler/job-scheduler.md", "p0,external,mysql,externa
             );
         """
 
-        def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        def mysql_port = context.config.otherConfigs.get("mysql_57_port")
-        String s3_endpoint = getS3Endpoint()
-        String bucket = getS3BucketName()
-        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-        String driver_class = "com.mysql.cj.jdbc.Driver"
+        if (enableJdbcTest()) {
+            def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+            def mysql_port = context.config.otherConfigs.get("mysql_57_port")
+            String s3_endpoint = getS3Endpoint()
+            String bucket = getS3BucketName()
+            String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
+            String driver_class = "com.mysql.cj.jdbc.Driver"
 
-        multi_sql """
-            DROP CATALOG IF EXISTS activity;
-            CREATE CATALOG activity PROPERTIES (
-                "type"="jdbc",
-                "user"="root",
-                "password"="123456",
-                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
-                "driver_url" = "${driver_url}",
-                "driver_class" = "${driver_class}"
-            );
-            CALL EXECUTE_STMT("activity", "CREATE DATABASE IF NOT EXISTS user");
-            CALL EXECUTE_STMT("activity", "DROP TABLE IF EXISTS user.activity");
-            CALL EXECUTE_STMT("activity", "CREATE TABLE IF NOT EXISTS user.activity (
-                `user_id` INT NOT NULL,
-                `date` DATE NOT NULL,
-                `city` VARCHAR(20),
-                `age` SMALLINT,
-                `sex` TINYINT,
-                `last_visit_date` DATETIME DEFAULT '1970-01-01 00:00:00',
-                `cost` BIGINT DEFAULT '0',
-                `max_dwell_time` INT DEFAULT '0',
-                `min_dwell_time` INT DEFAULT '99999'
-            )");
-            CALL EXECUTE_STMT("activity", "INSERT INTO user.activity VALUES
-                    (10000, '2017-10-01', 'Beijing', 20, 0, '2017-10-01 06:00:00', 20, 10, 10),
-                    (10000, '2017-10-01', 'Beijing', 20, 0, '2017-10-01 07:00:00', 15, 2, 2),
-                    (10001, '2017-10-01', 'Beijing', 30, 1, '2017-10-01 17:05:00', 2, 22, 22),
-                    (10002, '2017-10-02', 'Shanghai', 20, 1, '2017-10-02 12:59:00', 200, 5, 5),
-                    (10003, '2017-10-02', 'Guangzhou', 32, 0, '2017-10-02 11:20:00', 30, 11, 11),
-                    (10004, '2017-10-01', 'Shenzhen', 35, 0, '2017-10-01 10:00:00', 100, 3, 3),
-                    (10004, '2017-10-03', 'Shenzhen', 35, 0, '2017-10-03 10:20:00', 11, 6, 6)
-            ");
-        """
+            multi_sql """
+                DROP CATALOG IF EXISTS activity;
+                CREATE CATALOG activity PROPERTIES (
+                    "type"="jdbc",
+                    "user"="root",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false&zeroDateTimeBehavior=convertToNull",
+                    "driver_url" = "${driver_url}",
+                    "driver_class" = "${driver_class}"
+                );
+                CALL EXECUTE_STMT("activity", "CREATE DATABASE IF NOT EXISTS user");
+                CALL EXECUTE_STMT("activity", "DROP TABLE IF EXISTS user.activity");
+                CALL EXECUTE_STMT("activity", "CREATE TABLE IF NOT EXISTS user.activity (
+                    `user_id` INT NOT NULL,
+                    `date` DATE NOT NULL,
+                    `city` VARCHAR(20),
+                    `age` SMALLINT,
+                    `sex` TINYINT,
+                    `last_visit_date` DATETIME DEFAULT '1970-01-01 00:00:00',
+                    `cost` BIGINT DEFAULT '0',
+                    `max_dwell_time` INT DEFAULT '0',
+                    `min_dwell_time` INT DEFAULT '99999'
+                )");
+                CALL EXECUTE_STMT("activity", "INSERT INTO user.activity VALUES
+                        (10000, '2017-10-01', 'Beijing', 20, 0, '2017-10-01 06:00:00', 20, 10, 10),
+                        (10000, '2017-10-01', 'Beijing', 20, 0, '2017-10-01 07:00:00', 15, 2, 2),
+                        (10001, '2017-10-01', 'Beijing', 30, 1, '2017-10-01 17:05:00', 2, 22, 22),
+                        (10002, '2017-10-02', 'Shanghai', 20, 1, '2017-10-02 12:59:00', 200, 5, 5),
+                        (10003, '2017-10-02', 'Guangzhou', 32, 0, '2017-10-02 11:20:00', 30, 11, 11),
+                        (10004, '2017-10-01', 'Shenzhen', 35, 0, '2017-10-01 10:00:00', 100, 3, 3),
+                        (10004, '2017-10-03', 'Shenzhen', 35, 0, '2017-10-03 10:20:00', 11, 6, 6)
+                ");
+            """
 
-        dropJobIfExists("one_time_load_job")
-        createJobButMuteOutdateTime """
-        CREATE JOB one_time_load_job
-          ON SCHEDULE
-          AT '2024-8-10 03:00:00'
-          DO
-          INSERT INTO user_activity SELECT * FROM activity.user.activity
-        """
-        dropJobIfExists("schedule_load")
-        createJobButMuteOutdateTime """
-            CREATE JOB schedule_load
-              ON SCHEDULE EVERY 1 DAY
+            dropJobIfExists("one_time_load_job")
+            createJobButMuteOutdateTime """
+            CREATE JOB one_time_load_job
+              ON SCHEDULE
+              AT '2024-8-10 03:00:00'
               DO
-              INSERT INTO user_activity SELECT * FROM activity.user.activity where last_visit_date >= days_add(now(),-1)
-        """
+              INSERT INTO user_activity SELECT * FROM activity.user.activity
+            """
+            dropJobIfExists("schedule_load")
+            createJobButMuteOutdateTime """
+                CREATE JOB schedule_load
+                  ON SCHEDULE EVERY 1 DAY
+                  DO
+                  INSERT INTO user_activity SELECT * FROM activity.user.activity where last_visit_date >= days_add(now(),-1)
+            """
+        }
     } catch (Throwable t) {
         Assertions.fail("examples in docs/data-operate/scheduler/job-scheduler.md failed to exec, please fix it", t)
     }
