@@ -19,6 +19,7 @@ package org.apache.doris.fs.remote;
 
 import org.apache.doris.common.CustomThreadFactory;
 
+import com.google.common.collect.Sets;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -27,6 +28,7 @@ import java.io.IOException;
 import java.lang.ref.PhantomReference;
 import java.lang.ref.Reference;
 import java.lang.ref.ReferenceQueue;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -63,6 +65,8 @@ public class RemoteFSPhantomManager {
     private static final ConcurrentHashMap<PhantomReference<RemoteFileSystem>, FileSystem> referenceMap
             = new ConcurrentHashMap<>();
 
+    private static final Set<FileSystem> fsSet = Sets.newConcurrentHashSet();
+
     // Flag indicating whether the cleanup thread has been started
     private static final AtomicBoolean isStarted = new AtomicBoolean(false);
 
@@ -77,9 +81,13 @@ public class RemoteFSPhantomManager {
             start();
             isStarted.set(true);
         }
+        if (fsSet.contains(remoteFileSystem.dfsFileSystem)) {
+            throw new RuntimeException("FileSystem already exists: " + remoteFileSystem.dfsFileSystem.getUri());
+        }
         RemoteFileSystemPhantomReference phantomReference = new RemoteFileSystemPhantomReference(remoteFileSystem,
                 referenceQueue);
         referenceMap.put(phantomReference, remoteFileSystem.dfsFileSystem);
+        fsSet.add(remoteFileSystem.dfsFileSystem);
     }
 
     /**
@@ -102,6 +110,7 @@ public class RemoteFSPhantomManager {
                             if (fs != null) {
                                 try {
                                     fs.close();
+                                    fsSet.remove(fs);
                                     LOG.info("Closed file system: {}", fs.getUri());
                                 } catch (IOException e) {
                                     LOG.warn("Failed to close file system", e);

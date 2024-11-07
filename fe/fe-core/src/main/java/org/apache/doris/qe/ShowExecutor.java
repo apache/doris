@@ -1933,6 +1933,11 @@ public class ShowExecutor {
         Map<String, Expr> filterMap = showStmt.getFilterMap();
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
 
+        // catalog.getClient().listPartitionNames() returned string is the encoded string.
+        // example: insert into tmp partition(pt="1=3/3") values( xxx );
+        //          show partitions from tmp: pt=1%3D3%2F3
+        // Need to consider whether to call `HiveUtil.toPartitionColNameAndValues` method
+
         if (limit != null && limit.hasLimit() && limit.getOffset() == 0
                 && (orderByPairs == null || !orderByPairs.get(0).isDesc())) {
             // hmsClient returns unordered partition list, hence if offset > 0 cannot pass limit
@@ -3407,8 +3412,7 @@ public class ShowExecutor {
             UserIdentity user = ctx.getCurrentUserIdentity();
             rows = resp.getStorageVaultList().stream()
                     .filter(storageVault -> auth.checkStorageVaultPriv(user, storageVault.getName(),
-                            PrivPredicate.USAGE)
-                    )
+                            PrivPredicate.USAGE))
                     .map(StorageVault::convertToShowStorageVaultProperties)
                     .collect(Collectors.toList());
             if (resp.hasDefaultStorageVaultId()) {

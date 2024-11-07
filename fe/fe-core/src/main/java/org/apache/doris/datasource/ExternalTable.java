@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -194,7 +195,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             makeSureInitialized();
         } catch (Exception e) {
             LOG.warn("Failed to initialize table {}.{}.{}", catalog.getName(), dbName, name, e);
-            return -1;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // All external table should get external row count from cache.
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
@@ -220,7 +221,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * This is called by ExternalRowCountCache to load row count cache.
      */
     public long fetchRowCount() {
-        return -1;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -357,5 +358,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected Optional<SchemaCacheValue> getSchemaCacheValue() {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         return cache.getSchemaValue(dbName, name);
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }

@@ -65,6 +65,7 @@ class InvertedIndexQueryCache;
 class TmpFileDirs;
 } // namespace segment_v2
 
+class QueryCache;
 class WorkloadSchedPolicyMgr;
 class BfdParser;
 class BrokerMgr;
@@ -100,6 +101,7 @@ class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
 class TabletSchemaCache;
+class TabletColumnObjectPool;
 class UserFunctionCache;
 class SchemaCache;
 class StoragePageCache;
@@ -187,6 +189,9 @@ public:
     std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
         return _point_query_executor_mem_tracker;
     }
+    std::shared_ptr<MemTrackerLimiter> query_cache_mem_tracker() {
+        return _query_cache_mem_tracker;
+    }
     std::shared_ptr<MemTrackerLimiter> block_compression_mem_tracker() {
         return _block_compression_mem_tracker;
     }
@@ -268,6 +273,9 @@ public:
     void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
+        this->_tablet_column_object_pool = c;
+    }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
@@ -293,6 +301,7 @@ public:
     std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
+    TabletColumnObjectPool* get_tablet_column_object_pool() { return _tablet_column_object_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -305,6 +314,7 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    QueryCache* get_query_cache() { return _query_cache; }
     std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
     pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
@@ -366,6 +376,7 @@ private:
     // Tracking memory may be shared between multiple queries.
     std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;
     std::shared_ptr<MemTrackerLimiter> _block_compression_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_cache_mem_tracker;
 
     // TODO, looking forward to more accurate tracking.
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
@@ -428,6 +439,7 @@ private:
     // these redundancy header could introduce potential bug, at least, more header means slow compile.
     // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
     TabletSchemaCache* _tablet_schema_cache = nullptr;
+    TabletColumnObjectPool* _tablet_column_object_pool = nullptr;
     std::unique_ptr<BaseStorageEngine> _storage_engine;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
@@ -437,6 +449,7 @@ private:
     CacheManager* _cache_manager = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    QueryCache* _query_cache = nullptr;
     std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
 

@@ -137,6 +137,7 @@ public abstract class JdbcClient {
             dataSource.setConnectionTimeout(config.getConnectionPoolMaxWaitTime()); // default 5000
             dataSource.setMaxLifetime(config.getConnectionPoolMaxLifeTime()); // default 30 min
             dataSource.setIdleTimeout(config.getConnectionPoolMaxLifeTime() / 2L); // default 15 min
+            dataSource.setConnectionTestQuery(getTestQuery());
             LOG.info("JdbcClient set"
                     + " ConnectionPoolMinSize = " + config.getConnectionPoolMinSize()
                     + ", ConnectionPoolMaxSize = " + config.getConnectionPoolMaxSize()
@@ -188,13 +189,19 @@ public abstract class JdbcClient {
         return conn;
     }
 
-    public void close(AutoCloseable... closeables) {
-        for (AutoCloseable closeable : closeables) {
-            if (closeable != null) {
+    public void close(Object... resources) {
+        for (Object resource : resources) {
+            if (resource != null) {
                 try {
-                    closeable.close();
-                } catch (Exception e) {
-                    throw new JdbcClientException("Can not close : ", e);
+                    if (resource instanceof ResultSet) {
+                        ((ResultSet) resource).close();
+                    } else if (resource instanceof Statement) {
+                        ((Statement) resource).close();
+                    } else if (resource instanceof Connection) {
+                        ((Connection) resource).close();
+                    }
+                } catch (SQLException e) {
+                    LOG.warn("Failed to close resource: {}", e.getMessage(), e);
                 }
             }
         }
@@ -206,9 +213,10 @@ public abstract class JdbcClient {
      * @param origStmt, the raw stmt string
      */
     public void executeStmt(String origStmt) {
-        Connection conn = getConnection();
+        Connection conn = null;
         Statement stmt = null;
         try {
+            conn = getConnection();
             stmt = conn.createStatement();
             int effectedRows = stmt.executeUpdate(origStmt);
             if (LOG.isDebugEnabled()) {
@@ -228,10 +236,12 @@ public abstract class JdbcClient {
      * @return List<Column>
      */
     public List<Column> getColumnsFromQuery(String query) {
-        Connection conn = getConnection();
+        Connection conn = null;
+        PreparedStatement pstmt = null;
         List<Column> columns = Lists.newArrayList();
         try {
-            PreparedStatement pstmt = conn.prepareStatement(query);
+            conn = getConnection();
+            pstmt = conn.prepareStatement(query);
             ResultSetMetaData metaData = pstmt.getMetaData();
             if (metaData == null) {
                 throw new JdbcClientException("Query not supported: Failed to get ResultSetMetaData from query: %s",
@@ -246,11 +256,10 @@ public abstract class JdbcClient {
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to get columns from query: %s", e, query);
         } finally {
-            close(conn);
+            close(pstmt, conn);
         }
         return columns;
     }
-
 
     /**
      * Get schema from ResultSetMetaData
@@ -274,10 +283,11 @@ public abstract class JdbcClient {
      * @return list of database names
      */
     public List<String> getDatabaseNameList() {
-        Connection conn = getConnection();
+        Connection conn = null;
         ResultSet rs = null;
         List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
+            conn = getConnection();
             if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
                 String currentDatabase = conn.getSchema();
                 remoteDatabaseNames.add(currentDatabase);
@@ -336,12 +346,13 @@ public abstract class JdbcClient {
      * get all columns of one table
      */
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
-        Connection conn = getConnection();
+        Connection conn = null;
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
         String remoteDbName = getRemoteDatabaseName(localDbName);
         String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
+            conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
@@ -383,7 +394,7 @@ public abstract class JdbcClient {
         return jdbcLowerCaseMetaMatching.getRemoteColumnNames(localDbName, localTableName);
     }
 
-    // protected methods,for subclass to override
+    // protected methods, for subclass to override
     protected String getCatalogName(Connection conn) throws SQLException {
         return conn.getCatalog();
     }
@@ -394,9 +405,10 @@ public abstract class JdbcClient {
 
     protected void processTable(String remoteDbName, String remoteTableName, String[] tableTypes,
             Consumer<ResultSet> resultSetConsumer) {
-        Connection conn = getConnection();
+        Connection conn = null;
         ResultSet rs = null;
         try {
+            conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             rs = databaseMetaData.getTables(catalogName, remoteDbName, remoteTableName, tableTypes);
@@ -468,15 +480,21 @@ public abstract class JdbcClient {
 
     public void testConnection() {
         String testQuery = getTestQuery();
-        try (Connection conn = getConnection();
-                Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery(testQuery)) {
+        Connection conn = null;
+        Statement stmt = null;
+        ResultSet rs = null;
+        try {
+            conn = getConnection();
+            stmt = conn.createStatement();
+            rs = stmt.executeQuery(testQuery);
             if (!rs.next()) {
                 throw new JdbcClientException(
                         "Failed to test connection in FE: query executed but returned no results.");
             }
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to test connection in FE: " + e.getMessage(), e);
+        } finally {
+            close(rs, stmt, conn);
         }
     }
 

@@ -623,7 +623,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     @Override
     public long fetchRowCount() {
-        return 0;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -639,5 +639,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @Override
     public boolean autoAnalyzeEnabled() {
         return true;
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }

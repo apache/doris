@@ -43,12 +43,7 @@ class RowDescriptor;
 
 Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result);
 
-// Convert Doris RowDescriptor to Arrow Schema.
-Status convert_to_arrow_schema(const RowDescriptor& row_desc,
-                               std::shared_ptr<arrow::Schema>* result);
-
-Status convert_block_arrow_schema(const vectorized::Block& block,
-                                  std::shared_ptr<arrow::Schema>* result);
+Status get_arrow_schema(const vectorized::Block& block, std::shared_ptr<arrow::Schema>* result);
 
 Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
                                       std::shared_ptr<arrow::Schema>* result);
