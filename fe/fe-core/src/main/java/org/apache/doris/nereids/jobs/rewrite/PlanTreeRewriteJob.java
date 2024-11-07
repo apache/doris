@@ -60,8 +60,6 @@ public abstract class PlanTreeRewriteJob extends Job {
                 }
                 Plan newPlan = newPlans.get(0);
                 if (!newPlan.deepEquals(plan)) {
-                    // don't remove this comment, it can help us to trace some bug when developing.
-
                     NereidsTracer.logRewriteEvent(rule.toString(), pattern, plan, newPlan);
                     String traceBefore = null;
                     if (showPlanProcess) {
