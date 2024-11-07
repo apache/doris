@@ -23,6 +23,7 @@
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <bool nullable, template <bool, typename> class AggregateFunctionTemplate>
 AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_type) {
@@ -33,7 +34,11 @@ AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_type) {
         return std::make_shared<AggregateFunctionTemplate<nullable, ColumnVector<TYPE>>>( \
                 argument_type);                                                           \
     }
-    FOR_INTEGER_TYPES(DISPATCH)
+    // Keep consistent with the FE definition; the function does not have an int128 type.
+    DISPATCH(Int8)
+    DISPATCH(Int16)
+    DISPATCH(Int32)
+    DISPATCH(Int64)
 #undef DISPATCH
     LOG(WARNING) << "with unknowed type, failed in create_with_int_data_type bitmap_union_int"
                  << " and type is: " << argument_type[0]->get_name();

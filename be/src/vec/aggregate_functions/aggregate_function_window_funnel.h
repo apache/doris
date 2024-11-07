@@ -32,6 +32,7 @@
 #include <utility>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "util/binary_cast.hpp"
@@ -49,6 +50,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Arena;
 class BufferReadable;
@@ -349,7 +351,9 @@ struct WindowFunnelState {
         in.read(buff.data(), data_bytes);
 
         PBlock pblock;
-        if (!pblock.ParseFromArray(buff.data(), data_bytes)) {
+        // It is preferable to change data_bytes to int type here,
+        // but due to compatibility issues, no changes will be made.
+        if (!pblock.ParseFromArray(buff.data(), (int)data_bytes)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "Failed to parse window_funnel data to block");
         }
@@ -376,7 +380,7 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         auto data = new (place) WindowFunnelState<TYPE_INDEX, NativeType>(
-                IAggregateFunction::get_argument_types().size() - 3);
+                cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
         /// support window funnel mode from 2.0. See `BeExecVersionManager::max_be_exec_version`
         data->enable_mode = version >= 3;
     }
@@ -424,3 +428,5 @@ protected:
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"
