@@ -94,10 +94,16 @@ Status IndexBuilder::update_inverted_index_info() {
                 auto column_name = t_inverted_index.columns[0];
                 auto column_idx = output_rs_tablet_schema->field_index(column_name);
                 if (column_idx < 0) {
-                    LOG(WARNING) << "referenced column was missing. "
-                                 << "[column=" << column_name << " referenced_column=" << column_idx
-                                 << "]";
-                    continue;
+                    if (!t_inverted_index.column_unique_ids.empty()) {
+                        auto column_unique_id = t_inverted_index.column_unique_ids[0];
+                        column_idx = output_rs_tablet_schema->field_index(column_unique_id);
+                    }
+                    if (column_idx < 0) {
+                        LOG(WARNING) << "referenced column was missing. "
+                                     << "[column=" << column_name
+                                     << " referenced_column=" << column_idx << "]";
+                        continue;
+                    }
                 }
                 auto column = output_rs_tablet_schema->column(column_idx);
                 const auto* index_meta = output_rs_tablet_schema->get_inverted_index(column);
@@ -498,9 +504,16 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         auto column_name = inverted_index.columns[0];
         auto column_idx = tablet_schema->field_index(column_name);
         if (column_idx < 0) {
-            LOG(WARNING) << "referenced column was missing. "
-                         << "[column=" << column_name << " referenced_column=" << column_idx << "]";
-            continue;
+            if (!inverted_index.column_unique_ids.empty()) {
+                auto column_unique_id = inverted_index.column_unique_ids[0];
+                column_idx = tablet_schema->field_index(column_unique_id);
+            }
+            if (column_idx < 0) {
+                LOG(WARNING) << "referenced column was missing. "
+                             << "[column=" << column_name << " referenced_column=" << column_idx
+                             << "]";
+                continue;
+            }
         }
         auto column = tablet_schema->column(column_idx);
         auto writer_sign = std::make_pair(segment_idx, index_id);
