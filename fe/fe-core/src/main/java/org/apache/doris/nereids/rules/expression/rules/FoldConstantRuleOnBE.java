@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -260,6 +261,16 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Folding will make it impossible to construct columns such as nullable(1).
         if (expr instanceof Nullable || expr instanceof NonNullable) {
             return true;
+        }
+
+        if (expr instanceof FromBase64) {
+            return true;
+        }
+
+        for (Expression child : expr.children()) {
+            if (shouldSkipFold(child)) {
+                return true;
+            }
         }
 
         return false;
