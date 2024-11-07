@@ -60,8 +60,8 @@ import java.util.List;
 
 public class IndexChangeJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(IndexChangeJob.class);
-    private static final int MAX_FAILED_NUM = 10;
-    private static final int MIN_FAILED_NUM = 3;
+    static final int MAX_FAILED_NUM = 10;
+    static final int MIN_FAILED_NUM = 3;
 
     public enum JobState {
         // CHECKSTYLE OFF
@@ -387,7 +387,9 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
-        Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        }
         LOG.info("inverted index job finished: {}", jobId);
     }
 
@@ -405,7 +407,9 @@ public class IndexChangeJob implements Writable {
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        }
         LOG.info("cancel index job {}, err: {}", jobId, errMsg);
         return true;
     }
