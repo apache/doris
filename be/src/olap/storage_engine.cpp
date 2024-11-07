@@ -111,10 +111,6 @@ RowsetId BaseStorageEngine::next_rowset_id() {
     return _rowset_id_generator->next_id();
 }
 
-int64_t BaseStorageEngine::next_rowset_id_high() {
-    return _rowset_id_generator->next_high();
-}
-
 StorageEngine& BaseStorageEngine::to_local() {
     CHECK_EQ(_type, Type::LOCAL);
     return *static_cast<StorageEngine*>(this);
