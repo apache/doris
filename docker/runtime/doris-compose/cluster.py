@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+import configparser
 import filelock
 import jsonpickle
 import os
@@ -34,6 +35,7 @@ FE_HTTP_PORT = 8030
 FE_RPC_PORT = 9020
 FE_QUERY_PORT = 9030
 FE_EDITLOG_PORT = 9010
+FE_JAVA_DBG_PORT = 5005
 
 BE_PORT = 9060
 BE_WEBSVR_PORT = 8040
@@ -217,8 +219,6 @@ class Node(object):
         path = self.get_path()
         os.makedirs(path, exist_ok=True)
 
-        config = self.get_add_init_config()
-
         # copy config to local
         conf_dir = os.path.join(path, "conf")
         if not os.path.exists(conf_dir) or utils.is_dir_empty(conf_dir):
@@ -226,12 +226,15 @@ class Node(object):
             assert not utils.is_dir_empty(conf_dir), "conf directory {} is empty, " \
                     "check doris path in image is correct".format(conf_dir)
             utils.enable_dir_with_rw_perm(conf_dir)
+            config = self.get_add_init_config()
             if config:
                 with open(os.path.join(conf_dir, self.conf_file_name()),
                           "a") as f:
                     f.write("\n")
+                    f.write("#### start doris-compose add config ####\n\n")
                     for item in config:
                         f.write(item + "\n")
+                    f.write("\n#### end doris-compose add config ####\n")
         for sub_dir in self.expose_sub_dirs():
             os.makedirs(os.path.join(path, sub_dir), exist_ok=True)
 
@@ -424,6 +427,18 @@ class FE(Node):
                 cfg += [
                     "cloud_unique_id = " + self.cloud_unique_id(),
                 ]
+
+        with open("{}/conf/{}".format(self.get_path(), self.conf_file_name()),
+                  "r") as f:
+            parser = configparser.ConfigParser()
+            parser.read_string('[dummy_section]\n' + f.read())
+            for key in ("JAVA_OPTS", "JAVA_OPTS_FOR_JDK_17"):
+                value = parser["dummy_section"].get(key)
+                if value:
+                    cfg.append(
+                        f"{key} = \"{value} -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:{FE_JAVA_DBG_PORT}\""
+                    )
+
         return cfg
 
     def init_is_follower(self):
@@ -449,7 +464,10 @@ class FE(Node):
         return ["init_fe.sh"]
 
     def docker_ports(self):
-        return [FE_HTTP_PORT, FE_EDITLOG_PORT, FE_RPC_PORT, FE_QUERY_PORT]
+        return [
+            FE_HTTP_PORT, FE_EDITLOG_PORT, FE_RPC_PORT, FE_QUERY_PORT,
+            FE_JAVA_DBG_PORT
+        ]
 
     def docker_home_dir(self):
         return os.path.join(DOCKER_DORIS_PATH, "fe")

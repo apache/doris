@@ -182,6 +182,18 @@ class Command(object):
     def _support_boolean_action(self):
         return sys.version_info.major == 3 and sys.version_info.minor >= 9
 
+    def _print_table(self, header, datas):
+        if utils.is_enable_log():
+            table = prettytable.PrettyTable(
+                [utils.render_green(field) for field in header])
+            for row in datas:
+                table.add_row(row)
+            print(table)
+            return ""
+        else:
+            datas.insert(0, header)
+            return datas
+
 
 class SimpleCommand(Command):
 
@@ -1029,18 +1041,6 @@ class ListCommand(Command):
                             action=self._get_parser_bool_action(True),
                             help="Print more detail fields.")
 
-    def _handle_data(self, header, datas):
-        if utils.is_enable_log():
-            table = prettytable.PrettyTable(
-                [utils.render_green(field) for field in header])
-            for row in datas:
-                table.add_row(row)
-            print(table)
-            return ""
-        else:
-            datas.insert(0, header)
-            return datas
-
     def run(self, args):
         COMPOSE_MISSING = "(missing)"
         COMPOSE_BAD = "(bad)"
@@ -1132,7 +1132,7 @@ class ListCommand(Command):
                              CLUSTER.get_master_fe_endpoint(name), is_cloud,
                              "{}{}".format(compose_file,
                                            cluster_info["status"])))
-            return self._handle_data(header, rows)
+            return self._print_table(header, rows)
 
         header = [
             "CLUSTER", "NAME", "IP", "STATUS", "CONTAINER ID", "IMAGE",
@@ -1219,48 +1219,42 @@ class ListCommand(Command):
             for node in sorted(nodes, key=get_node_seq):
                 rows.append(node.info(args.detail))
 
-        return self._handle_data(header, rows)
+        return self._print_table(header, rows)
 
 
-class GetCloudIniCommand(Command):
+class InfoCommand(Command):
 
     def add_parser(self, args_parsers):
-        parser = args_parsers.add_parser("get-cloud-ini",
-                                         help="Get cloud.init")
-        parser.add_argument(
-            "NAME",
-            nargs="*",
-            help=
-            "Specify multiple clusters, if specific, show all their containers."
-        )
+        parser = args_parsers.add_parser(
+            "info", help="Show info like cloud.ini, port, path, etc")
         self._add_parser_common_args(parser)
-
-    def _handle_data(self, header, datas):
-        if utils.is_enable_log():
-            table = prettytable.PrettyTable(
-                [utils.render_green(field) for field in header])
-            for row in datas:
-                table.add_row(row)
-            print(table)
-            return ""
-        else:
-            datas.insert(0, header)
-            return datas
 
     def run(self, args):
 
-        header = ["key", "value"]
-
-        rows = []
+        header = ["key", "value", "scope"]
+        cloud_cfg_file_env = os.getenv("DORIS_CLOUD_CFG_FILE")
+        cloud_cfg_file = cloud_cfg_file_env if cloud_cfg_file_env else "${LOCAL_DORIS_PATH}/cloud.ini"
+        rows = [
+            ("LOCAL_DORIS_PATH", CLUSTER.LOCAL_DORIS_PATH, "env variable"),
+            ("DORIS_CLOUD_CFG_FILE", cloud_cfg_file, "env variable"),
+            ("FE_QUERY_PORT", CLUSTER.FE_QUERY_PORT, "constant"),
+            ("FE_HTTP_PORT", CLUSTER.FE_HTTP_PORT, "constant"),
+            ("FE_EDITLOG_PORT", CLUSTER.FE_EDITLOG_PORT, "constant"),
+            ("FE_JAVA_DBG_PORT", CLUSTER.FE_JAVA_DBG_PORT, "constant"),
+            ("BE_HEARTBEAT_PORT", CLUSTER.BE_HEARTBEAT_PORT, "constant"),
+            ("BE_WEBSVR_PORT", CLUSTER.BE_WEBSVR_PORT, "constant"),
+            ("MS_PORT", CLUSTER.MS_PORT, "constant"),
+            ("RECYCLER_PORT", CLUSTER.MS_PORT, "constant"),
+        ]
 
         with open(CLUSTER.CLOUD_CFG_FILE, "r") as f:
             for line in f:
                 line = line.strip()
                 if line and not line.startswith('#'):
                     key, value = line.split('=', 1)
-                    rows.append([key.strip(), value.strip()])
+                    rows.append((key.strip(), value.strip(), "cloud.ini"))
 
-        return self._handle_data(header, rows)
+        return self._print_table(header, rows)
 
 
 class AddRWPermCommand(Command):
@@ -1285,8 +1279,8 @@ ALL_COMMANDS = [
     NeedStartCommand("restart", "Restart the doris containers. "),
     SimpleCommand("pause", "Pause the doris containers. "),
     SimpleCommand("unpause", "Unpause the doris containers. "),
-    GetCloudIniCommand("get-cloud-ini"),
     GenConfCommand("config"),
+    InfoCommand("info"),
     ListCommand("ls"),
     AddRWPermCommand("add-rw-perm"),
 ]
