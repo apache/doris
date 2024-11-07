@@ -25,6 +25,7 @@
 #include <string>
 #include <type_traits>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
@@ -52,6 +53,7 @@ struct Log2Impl;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 struct AcosName {
     static constexpr auto name = "acos";
     // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_acos
@@ -137,7 +139,7 @@ struct LogImpl {
 
         if (!is_null) {
             for (size_t i = 0; i < size; i++) {
-                if (a[i] <= 0 || std::fabs(a[i] - 1.0) < EPSILON) {
+                if (a[i] <= 0 || std::fabs(static_cast<Float64>(a[i]) - 1.0) < EPSILON) {
                     null_map[i] = 1;
                 } else {
                     c[i] = static_cast<Float64>(std::log(static_cast<Float64>(b)) /
@@ -149,7 +151,7 @@ struct LogImpl {
 
     template <typename Result>
     static inline Result apply(A a, B b, UInt8& is_null) {
-        is_null = a <= 0 || b <= 0 || std::fabs(a - 1.0) < EPSILON;
+        is_null = a <= 0 || b <= 0 || std::fabs(static_cast<Float64>(a) - 1.0) < EPSILON;
         return static_cast<Float64>(std::log(static_cast<Float64>(b)) /
                                     std::log(static_cast<Float64>(a)));
     }
@@ -275,7 +277,7 @@ struct RadiansImpl {
     using ResultType = A;
 
     static inline ResultType apply(A a) {
-        return static_cast<ResultType>(a * PiImpl::value / 180.0);
+        return static_cast<ResultType>(static_cast<double>(a) * PiImpl::value / 180.0);
     }
 };
 
@@ -290,7 +292,7 @@ struct DegreesImpl {
     using ResultType = A;
 
     static inline ResultType apply(A a) {
-        return static_cast<ResultType>(a * 180.0 / PiImpl::value);
+        return static_cast<ResultType>(static_cast<double>(a) * 180.0 / PiImpl::value);
     }
 };
 
