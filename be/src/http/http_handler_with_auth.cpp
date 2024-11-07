@@ -54,8 +54,13 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
 
     // check auth by token
     if (auth_info.token != "") {
+#ifdef BE_TEST
+        if (auth_info.token == "valid_token") {
+            return 0;
+#else
         if (_exec_env->check_auth_token(auth_info.token)) {
             return 0;
+#endif
         } else {
             LOG(WARNING) << "invalid auth token, request: " << req->debug_string();
             HttpChannel::send_error(req, HttpStatus::BAD_REQUEST);

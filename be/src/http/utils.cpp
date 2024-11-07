@@ -100,7 +100,7 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     if (!token.empty()) {
         auth->token = token; // deprecated
     } else if (!auth_token.empty()) {
-        auth->token = token;
+        auth->token = auth_token;
     } else if (!auth_code.empty()) {
         auth->auth_code = std::stoll(auth_code); // deprecated
     } else if (!valid_basic_auth) {
