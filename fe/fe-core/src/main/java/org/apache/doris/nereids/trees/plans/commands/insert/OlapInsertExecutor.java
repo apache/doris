@@ -74,12 +74,15 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
     protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
+    protected OlapTable olapTable;
+
     /**
      * constructor
      */
     public OlapInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+        this.olapTable = (OlapTable) table;
     }
 
     @Override
