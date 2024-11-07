@@ -500,7 +500,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             builder.addMowTableIds(olapTable.getId());
         }
         for (Long tabletId : sucessTabletList) {
-            LOG.info("add tabletId=" + tabletId + " to release lock");
             builder.addMowTabletIds(tabletId);
         }
 
@@ -652,8 +651,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws UserException {
         Map<Long, Map<Long, List<Long>>> backendToPartitionTablets = Maps.newHashMap();
         Map<Long, Partition> partitions = Maps.newHashMap();
-        // Map<Long, Set<Long>> tableToPartitions = Maps.newHashMap();
-        // Map<Long, List<Long>> tableToTabletList = Maps.newHashMap();
         Map<Long, TabletMeta> tabletToTabletMeta = Maps.newHashMap();
         getPartitionInfo(tableList, tabletCommitInfos, tableToPartitions, partitions, backendToPartitionTablets,
                 tableToTabletList, tabletToTabletMeta);

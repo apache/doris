@@ -4516,20 +4516,34 @@ static std::string generate_random_string(int length) {
 TEST(MetaServiceTest, UpdateDeleteBitmap) {
     auto meta_service = get_meta_service();
 
-    // get delete bitmap update lock
+    // get delete bitmap update lock for table
     brpc::Controller cntl;
-    GetDeleteBitmapUpdateLockRequest get_lock_req;
-    GetDeleteBitmapUpdateLockResponse get_lock_res;
-    get_lock_req.set_cloud_unique_id("test_cloud_unique_id");
-    get_lock_req.set_table_id(112);
-    get_lock_req.add_partition_ids(123);
-    get_lock_req.set_expiration(5);
-    get_lock_req.set_lock_id(888);
-    get_lock_req.set_initiator(-1);
+    GetDeleteBitmapUpdateLockRequest get_table_lock_req;
+    GetDeleteBitmapUpdateLockResponse get_table_lock_res;
+    get_table_lock_req.set_cloud_unique_id("test_cloud_unique_id");
+    get_table_lock_req.set_table_id(112);
+    get_table_lock_req.add_partition_ids(123);
+    get_table_lock_req.set_expiration(5);
+    get_table_lock_req.set_lock_id(888);
+    get_table_lock_req.set_initiator(-1);
     meta_service->get_delete_bitmap_update_lock(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
-            &get_lock_res, nullptr);
-    ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_table_lock_req,
+            &get_table_lock_res, nullptr);
+    ASSERT_EQ(get_table_lock_res.status().code(), MetaServiceCode::OK);
+
+    // get delete bitmap update lock for tablet
+    GetDeleteBitmapUpdateLockRequest get_tablet_lock_req;
+    GetDeleteBitmapUpdateLockResponse get_tablet_lock_res;
+    get_tablet_lock_req.set_cloud_unique_id("test_cloud_unique_id");
+    get_tablet_lock_req.set_tablet_id(333);
+    get_tablet_lock_req.add_partition_ids(123);
+    get_tablet_lock_req.set_expiration(5);
+    get_tablet_lock_req.set_lock_id(888);
+    get_tablet_lock_req.set_initiator(-1);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_tablet_lock_req,
+            &get_tablet_lock_res, nullptr);
+    ASSERT_EQ(get_tablet_lock_res.status().code(), MetaServiceCode::OK);
 
     // first update delete bitmap
     {
@@ -4954,20 +4968,34 @@ TEST(MetaServiceTest, DeleteBimapCommitTxnTest) {
 
         // update delete bitmap
         {
-            // get delete bitmap update lock
+            // get delete bitmap update lock for table
             brpc::Controller cntl;
-            GetDeleteBitmapUpdateLockRequest get_lock_req;
-            GetDeleteBitmapUpdateLockResponse get_lock_res;
-            get_lock_req.set_cloud_unique_id("test_cloud_unique_id");
-            get_lock_req.set_table_id(table_id);
-            get_lock_req.add_partition_ids(partition_id);
-            get_lock_req.set_expiration(5);
-            get_lock_req.set_lock_id(txn_id);
-            get_lock_req.set_initiator(-1);
+            GetDeleteBitmapUpdateLockRequest get_table_lock_req;
+            GetDeleteBitmapUpdateLockResponse get_table_lock_res;
+            get_table_lock_req.set_cloud_unique_id("test_cloud_unique_id");
+            get_table_lock_req.set_table_id(table_id);
+            get_table_lock_req.add_partition_ids(partition_id);
+            get_table_lock_req.set_expiration(5);
+            get_table_lock_req.set_lock_id(txn_id);
+            get_table_lock_req.set_initiator(-1);
             meta_service->get_delete_bitmap_update_lock(
-                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_lock_req,
-                    &get_lock_res, nullptr);
-            ASSERT_EQ(get_lock_res.status().code(), MetaServiceCode::OK);
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &get_table_lock_req,
+                    &get_table_lock_res, nullptr);
+            ASSERT_EQ(get_table_lock_res.status().code(), MetaServiceCode::OK);
+
+            // get delete bitmap update lock for tablet
+            GetDeleteBitmapUpdateLockRequest get_tablet_lock_req;
+            GetDeleteBitmapUpdateLockResponse get_tablet_lock_res;
+            get_tablet_lock_req.set_cloud_unique_id("test_cloud_unique_id");
+            get_tablet_lock_req.set_tablet_id(tablet_id_base);
+            get_tablet_lock_req.add_partition_ids(partition_id);
+            get_tablet_lock_req.set_expiration(5);
+            get_tablet_lock_req.set_lock_id(txn_id);
+            get_tablet_lock_req.set_initiator(-1);
+            meta_service->get_delete_bitmap_update_lock(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                    &get_tablet_lock_req, &get_tablet_lock_res, nullptr);
+            ASSERT_EQ(get_tablet_lock_res.status().code(), MetaServiceCode::OK);
 
             // first update delete bitmap
             UpdateDeleteBitmapRequest update_delete_bitmap_req;

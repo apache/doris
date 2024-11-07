@@ -431,7 +431,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         // _vcollect_iter->next_batch(block) will fill row_source_buffer but delete sign is ignored
         // we calc delete sign column if it's base compaction and update row_sourece_buffer's agg flag
         // after we get current block
-        LOG(INFO) << "reader id: " << _id
+        VLOG_NOTICE << "reader id: " << _id
                     << ", buffer size: " << _row_sources_buffer->buffered_size();
         uint64_t row_source_idx = _row_sources_buffer->buffered_size();
         uint64_t row_buffer_size_start = row_source_idx;
