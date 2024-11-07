@@ -153,6 +153,7 @@ public:
   // And/or call registered callback function, with argument `cb_args`
   void process(const std::string& point, std::vector<std::any>&& cb_args = {});
 
+  bool has_point(const std::string& point);
   // TODO: it might be useful to provide a function that blocks until all
   //       sync points are cleared.
   // We want this to be public so we can subclass the implementation
@@ -187,11 +188,13 @@ auto try_any_cast_ret(std::vector<std::any>& any) {
 #define SYNC_POINT_CALLBACK(x, ...) doris::SyncPoint::get_instance()->process(x, {__VA_ARGS__})
 #define SYNC_POINT_RETURN_WITH_VALUE(x, default_ret_val, ...) \
 { \
-  std::pair ret {default_ret_val, false}; \
-  std::vector<std::any> args {__VA_ARGS__}; \
-  args.emplace_back(&ret); \
-  doris::SyncPoint::get_instance()->process(x, std::move(args)); \
-  if (ret.second) return std::move(ret.first); \
+  if (doris::SyncPoint::get_instance()->has_point(x)) { \
+    std::pair ret {default_ret_val, false}; \
+    std::vector<std::any> args {__VA_ARGS__}; \
+    args.emplace_back(&ret); \
+    doris::SyncPoint::get_instance()->process(x, std::move(args)); \
+    if (ret.second) return std::move(ret.first); \
+  } \
 }
 #define SYNC_POINT_RETURN_WITH_VOID(x, ...) \
 { \
