@@ -64,6 +64,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateGroupBy;
 import org.apache.doris.nereids.rules.rewrite.EliminateGroupByKey;
+import org.apache.doris.nereids.rules.rewrite.EliminateGroupByKeyByUniform;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByFK;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinByUnique;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
@@ -356,6 +357,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new EliminateJoinByUnique())
                 ),
                 topic("eliminate Aggregate according to fd items",
+                        topDown(new EliminateGroupByKeyByUniform()),
                         topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
