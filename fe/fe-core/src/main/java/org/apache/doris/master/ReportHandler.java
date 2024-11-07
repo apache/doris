@@ -162,6 +162,7 @@ public class ReportHandler extends Daemon {
         Map<Long, TTablet> tablets = null;
         Map<Long, Long> partitionsVersion = null;
         long reportVersion = -1;
+        long numTablets = 0;
 
         ReportType reportType = null;
 
@@ -188,6 +189,12 @@ public class ReportHandler extends Daemon {
             Env.getCurrentSystemInfo().updateBackendReportVersion(beId, reportVersion, -1L, -1L, false);
         }
 
+        if (tablets == null) {
+            numTablets = request.isSetNumTablets() ? request.getNumTablets() : 0;
+        } else {
+            numTablets = request.isSetNumTablets() ? request.getNumTablets() : tablets.size();
+        }
+
         if (request.isSetPartitionsVersion()) {
             partitionsVersion = request.getPartitionsVersion();
         }
@@ -206,7 +213,7 @@ public class ReportHandler extends Daemon {
 
         ReportTask reportTask = new ReportTask(beId, reportType, tasks, disks, tablets, partitionsVersion,
                 reportVersion, request.getStoragePolicy(), request.getResource(), request.getNumCores(),
-                request.getPipelineExecutorSize());
+                request.getPipelineExecutorSize(), numTablets);
         try {
             putToQueue(reportTask);
         } catch (Exception e) {
@@ -294,12 +301,13 @@ public class ReportHandler extends Daemon {
         private List<TStorageResource> storageResources;
         private int cpuCores;
         private int pipelineExecutorSize;
+        private long numTablets;
 
         public ReportTask(long beId, ReportType reportType, Map<TTaskType, Set<Long>> tasks,
                 Map<String, TDisk> disks, Map<Long, TTablet> tablets,
                 Map<Long, Long> partitionsVersion, long reportVersion,
                 List<TStoragePolicy> storagePolicies, List<TStorageResource> storageResources, int cpuCores,
-                int pipelineExecutorSize) {
+                int pipelineExecutorSize, long numTablets) {
             this.beId = beId;
             this.reportType = reportType;
             this.tasks = tasks;
@@ -311,6 +319,7 @@ public class ReportHandler extends Daemon {
             this.storageResources = storageResources;
             this.cpuCores = cpuCores;
             this.pipelineExecutorSize = pipelineExecutorSize;
+            this.numTablets = numTablets;
         }
 
         @Override
@@ -336,7 +345,7 @@ public class ReportHandler extends Daemon {
                     if (partitions == null) {
                         partitions = Maps.newHashMap();
                     }
-                    ReportHandler.tabletReport(beId, tablets, partitions, reportVersion);
+                    tabletReport(beId, tablets, partitions, reportVersion, numTablets);
                 }
             }
         }
@@ -471,8 +480,8 @@ public class ReportHandler extends Daemon {
     }
 
     // public for fe ut
-    public static void tabletReport(long backendId, Map<Long, TTablet> backendTablets,
-            Map<Long, Long> backendPartitionsVersion, long backendReportVersion) {
+    public void tabletReport(long backendId, Map<Long, TTablet> backendTablets,
+            Map<Long, Long> backendPartitionsVersion, long backendReportVersion, long numTablets) {
         long start = System.currentTimeMillis();
         LOG.info("backend[{}] reports {} tablet(s). report version: {}",
                 backendId, backendTablets.size(), backendReportVersion);
@@ -610,7 +619,7 @@ public class ReportHandler extends Daemon {
 
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
 
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.report_resend_batch_task_num_per_rpc);
         long taskReportTime = System.currentTimeMillis();
         for (AgentTask task : diffTasks) {
             // these tasks no need to do diff
@@ -965,7 +974,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                             objectPool,
                                             olapTable.rowStorePageSize(),
-                                            olapTable.variantEnableFlattenNested());
+                                            olapTable.variantEnableFlattenNested(),
+                                            olapTable.storagePageSize());
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaTask.setInvertedIndexFileStorageFormat(olapTable
                                                                 .getInvertedIndexFileStorageFormat());

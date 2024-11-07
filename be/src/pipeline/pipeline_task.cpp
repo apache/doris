@@ -216,10 +216,6 @@ Status PipelineTask::_open() {
     return Status::OK();
 }
 
-void PipelineTask::set_task_queue(TaskQueue* task_queue) {
-    _task_queue = task_queue;
-}
-
 bool PipelineTask::_wait_to_start() {
     // Before task starting, we should make sure
     // 1. Execution dependency is ready (which is controlled by FE 2-phase commit)
@@ -247,6 +243,12 @@ bool PipelineTask::_wait_to_start() {
 }
 
 bool PipelineTask::_is_blocked() {
+    Defer defer([this] {
+        if (_blocked_dep != nullptr) {
+            _task_profile->add_info_string("TaskState", "Blocked");
+            _task_profile->add_info_string("BlockedByDependency", _blocked_dep->name());
+        }
+    });
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
         for (int i = _read_dependencies.size() - 1; i >= 0; i--) {
@@ -328,6 +330,8 @@ Status PipelineTask::execute(bool* eos) {
         RETURN_IF_ERROR(_open());
     }
 
+    _task_profile->add_info_string("TaskState", "Runnable");
+    _task_profile->add_info_string("BlockedByDependency", "");
     while (!_fragment_context->is_canceled()) {
         if (_is_blocked()) {
             return Status::OK();
@@ -391,6 +395,7 @@ Status PipelineTask::execute(bool* eos) {
             *eos = status.is<ErrorCode::END_OF_FILE>() ? true : *eos;
             if (*eos) { // just return, the scheduler will do finish work
                 _eos = true;
+                _task_profile->add_info_string("TaskState", "Finished");
                 return Status::OK();
             }
         }

@@ -223,7 +223,7 @@ public:
     }
 
     void add(AggregateDataPtr place, const IColumn** columns, ssize_t row_num,
-             Arena* arena) const override {
+             Arena*) const override {
         this->data(place).add(row_num, columns);
     }
 
@@ -231,7 +231,7 @@ public:
 
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, AggregateDataPtr place, const IColumn** columns,
-                                Arena* arena) const override {
+                                Arena*) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "ReaderFunctionData do not support add_range_single_place");
         __builtin_unreachable();

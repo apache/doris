@@ -121,4 +121,7 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
 
 std::string dump_column(DataTypePtr type, const ColumnPtr& col);
 
+bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
+                           int32_t new_col_idx, int32_t old_col_idx);
+
 } // namespace  doris::vectorized::schema_util

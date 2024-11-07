@@ -257,10 +257,10 @@ int64_t Compaction::get_avg_segment_rows() {
     if (meta->compaction_policy() == CUMULATIVE_TIME_SERIES_POLICY) {
         int64_t compaction_goal_size_mbytes = meta->time_series_compaction_goal_size_mbytes();
         return (compaction_goal_size_mbytes * 1024 * 1024 * 2) /
-               (_input_rowsets_size / (_input_row_num + 1) + 1);
+               (_input_rowsets_data_size / (_input_row_num + 1) + 1);
     }
     return config::vertical_compaction_max_segment_size /
-           (_input_rowsets_size / (_input_row_num + 1) + 1);
+           (_input_rowsets_data_size / (_input_row_num + 1) + 1);
 }
 
 CompactionMixin::CompactionMixin(StorageEngine& engine, TabletSharedPtr tablet,
@@ -305,9 +305,9 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     // build output rowset
     RowsetMetaSharedPtr rowset_meta = std::make_shared<RowsetMeta>();
     rowset_meta->set_num_rows(_input_row_num);
-    rowset_meta->set_total_disk_size(_input_rowsets_size);
-    rowset_meta->set_data_disk_size(_input_rowsets_size);
-    rowset_meta->set_index_disk_size(_input_index_size);
+    rowset_meta->set_total_disk_size(_input_rowsets_data_size + _input_rowsets_index_size);
+    rowset_meta->set_data_disk_size(_input_rowsets_data_size);
+    rowset_meta->set_index_disk_size(_input_rowsets_index_size);
     rowset_meta->set_empty(_input_row_num == 0);
     rowset_meta->set_num_segments(_input_num_segments);
     rowset_meta->set_segments_overlap(NONOVERLAPPING);
@@ -320,12 +320,13 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
 
 void CompactionMixin::build_basic_info() {
     for (auto& rowset : _input_rowsets) {
-        _input_rowsets_size += rowset->data_disk_size();
-        _input_index_size += rowset->index_disk_size();
+        _input_rowsets_data_size += rowset->data_disk_size();
+        _input_rowsets_index_size += rowset->index_disk_size();
+        _input_rowsets_total_size += rowset->total_disk_size();
         _input_row_num += rowset->num_rows();
         _input_num_segments += rowset->num_segments();
     }
-    COUNTER_UPDATE(_input_rowsets_data_size_counter, _input_rowsets_size);
+    COUNTER_UPDATE(_input_rowsets_data_size_counter, _input_rowsets_data_size);
     COUNTER_UPDATE(_input_row_num_counter, _input_row_num);
     COUNTER_UPDATE(_input_segments_num_counter, _input_num_segments);
 
@@ -444,8 +445,12 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
                   << ", disk=" << tablet()->data_dir()->path()
                   << ", segments=" << _input_num_segments << ", input_row_num=" << _input_row_num
                   << ", output_row_num=" << _output_rowset->num_rows()
-                  << ", input_rowset_size=" << _input_rowsets_size
-                  << ", output_rowset_size=" << _output_rowset->data_disk_size()
+                  << ", input_rowsets_data_size=" << _input_rowsets_data_size
+                  << ", input_rowsets_index_size=" << _input_rowsets_index_size
+                  << ", input_rowsets_total_size=" << _input_rowsets_total_size
+                  << ", output_rowset_data_size=" << _output_rowset->data_disk_size()
+                  << ", output_rowset_index_size=" << _output_rowset->index_disk_size()
+                  << ", output_rowset_total_size=" << _output_rowset->total_disk_size()
                   << ". elapsed time=" << watch.get_elapse_second() << "s.";
         _state = CompactionState::SUCCESS;
         return Status::OK();
@@ -467,8 +472,8 @@ Status CompactionMixin::execute_compact_impl(int64_t permits) {
               << ". tablet=" << _tablet->tablet_id() << ", output_version=" << _output_version
               << ", current_max_version=" << tablet()->max_version().second
               << ", disk=" << tablet()->data_dir()->path() << ", segments=" << _input_num_segments
-              << ", input_rowset_size=" << _input_rowsets_size
-              << ", output_rowset_size=" << _output_rowset->data_disk_size()
+              << ", input_data_size=" << _input_rowsets_data_size
+              << ", output_rowset_size=" << _output_rowset->total_disk_size()
               << ", input_row_num=" << _input_row_num
               << ", output_row_num=" << _output_rowset->num_rows()
               << ", filtered_row_num=" << _stats.filtered_rows
@@ -514,7 +519,6 @@ Status Compaction::do_inverted_index_compaction() {
     if (dest_segment_num <= 0) {
         LOG(INFO) << "skip doing index compaction due to no output segments"
                   << ". tablet=" << _tablet->tablet_id() << ", input row number=" << _input_row_num
-                  << ", output row number=" << _output_rowset->num_rows()
                   << ". elapsed time=" << inverted_watch.get_elapse_second() << "s.";
         return Status::OK();
     }
@@ -640,7 +644,7 @@ Status Compaction::do_inverted_index_compaction() {
     Status status = Status::OK();
     for (auto&& column_uniq_id : ctx.columns_to_do_index_compaction) {
         auto col = _cur_tablet_schema->column_by_uid(column_uniq_id);
-        const auto* index_meta = _cur_tablet_schema->get_inverted_index(col);
+        const auto* index_meta = _cur_tablet_schema->inverted_index(col);
 
         std::vector<lucene::store::Directory*> dest_index_dirs(dest_segment_num);
         try {
@@ -678,15 +682,11 @@ Status Compaction::do_inverted_index_compaction() {
 }
 
 void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
-    for (const auto& index : _cur_tablet_schema->indexes()) {
-        if (index.index_type() != IndexType::INVERTED) {
-            continue;
-        }
-
-        auto col_unique_ids = index.col_unique_ids();
+    for (const auto& index : _cur_tablet_schema->inverted_indexes()) {
+        auto col_unique_ids = index->col_unique_ids();
         // check if column unique ids is empty to avoid crash
         if (col_unique_ids.empty()) {
-            LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index[" << index.index_id()
+            LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] index[" << index->index_id()
                          << "] has no column unique id, will skip index compaction."
                          << " tablet_schema=" << _cur_tablet_schema->dump_full_schema();
             continue;
@@ -701,10 +701,9 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
         bool is_continue = false;
         std::optional<std::map<std::string, std::string>> first_properties;
         for (const auto& rowset : _input_rowsets) {
-            const auto* tablet_index =
-                    rowset->tablet_schema()->get_inverted_index(col_unique_id, "");
+            const auto* tablet_index = rowset->tablet_schema()->inverted_index(col_unique_id);
             // no inverted index or index id is different from current index id
-            if (tablet_index == nullptr || tablet_index->index_id() != index.index_id()) {
+            if (tablet_index == nullptr || tablet_index->index_id() != index->index_id()) {
                 is_continue = true;
                 break;
             }
@@ -737,7 +736,7 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                 return false;
             }
 
-            const auto* index_meta = rowset->tablet_schema()->get_inverted_index(col_unique_id, "");
+            const auto* index_meta = rowset->tablet_schema()->inverted_index(col_unique_id);
             if (index_meta == nullptr) {
                 LOG(WARNING) << "tablet[" << _tablet->tablet_id() << "] column_unique_id["
                              << col_unique_id << "] index meta is null, will skip index compaction";
@@ -822,6 +821,7 @@ Status CompactionMixin::construct_output_rowset_writer(RowsetWriterContext& ctx)
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    ctx.storage_page_size = _tablet->tablet_meta()->storage_page_size();
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     _pending_rs_guard = _engine.add_pending_rowset(ctx);
     return Status::OK();
@@ -1124,6 +1124,7 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     ctx.write_type = DataWriteType::TYPE_COMPACTION;
+    ctx.storage_page_size = _tablet->tablet_meta()->storage_page_size();
 
     auto compaction_policy = _tablet->tablet_meta()->compaction_policy();
     if (_tablet->tablet_meta()->time_series_compaction_level_threshold() >= 2) {

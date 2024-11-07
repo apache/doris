@@ -17,10 +17,15 @@
 
 #include "file_cache_action.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
 #include <memory>
 #include <shared_mutex>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <vector>
 
 #include "common/status.h"
 #include "http/http_channel.h"
@@ -30,6 +35,7 @@
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/fs_file_cache_storage.h"
 #include "olap/olap_define.h"
 #include "olap/tablet_meta.h"
 #include "util/easy_json.h"
@@ -43,6 +49,7 @@ constexpr static std::string_view PATH = "path";
 constexpr static std::string_view CLEAR = "clear";
 constexpr static std::string_view RESET = "reset";
 constexpr static std::string_view HASH = "hash";
+constexpr static std::string_view LIST_CACHE = "list_cache";
 constexpr static std::string_view CAPACITY = "capacity";
 constexpr static std::string_view RELEASE = "release";
 constexpr static std::string_view BASE_PATH = "base_path";
@@ -66,7 +73,14 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
         *json_metrics = json.ToString();
     } else if (operation == CLEAR) {
         const std::string& sync = req->param(SYNC.data());
-        auto ret = io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true");
+        const std::string& segment_path = req->param(VALUE.data());
+        if (segment_path.empty()) {
+            io::FileCacheFactory::instance()->clear_file_caches(to_lower(sync) == "true");
+        } else {
+            io::UInt128Wrapper hash = io::BlockFileCache::hash(segment_path);
+            io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+            cache->remove_if_cached(hash);
+        }
     } else if (operation == RESET) {
         std::string capacity = req->param(CAPACITY.data());
         int64_t new_capacity = 0;
@@ -95,6 +109,23 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
             EasyJson json;
             json[HASH.data()] = ret.to_string();
             *json_metrics = json.ToString();
+        }
+    } else if (operation == LIST_CACHE) {
+        const std::string& segment_path = req->param(VALUE.data());
+        if (segment_path.empty()) {
+            st = Status::InvalidArgument("missing parameter: {} is required", VALUE.data());
+        } else {
+            io::UInt128Wrapper cache_hash = io::BlockFileCache::hash(segment_path);
+            std::vector<std::string> cache_files =
+                    io::FileCacheFactory::instance()->get_cache_file_by_path(cache_hash);
+            if (cache_files.empty()) {
+                *json_metrics = "[]";
+            } else {
+                EasyJson json;
+                std::for_each(cache_files.begin(), cache_files.end(),
+                              [&json](auto& x) { json.PushBack(x); });
+                *json_metrics = json.ToString();
+            }
         }
     } else {
         st = Status::InternalError("invalid operation: {}", operation);

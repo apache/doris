@@ -471,7 +471,8 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
     std::vector<BatchLoadArgs> batch_load_buffer;
     batch_load_buffer.reserve(scan_length);
     auto add_cell_batch_func = [&]() {
-        std::lock_guard cache_lock(_mgr->_mutex);
+        SCOPED_CACHE_LOCK(_mgr->_mutex);
+
         auto f = [&](const BatchLoadArgs& args) {
             // in async load mode, a cell may be added twice.
             if (_mgr->_files.contains(args.hash) && _mgr->_files[args.hash].contains(args.offset)) {
@@ -657,6 +658,11 @@ Status FSFileCacheStorage::clear(std::string& msg) {
         return Status::InternalError(ss.str());
     }
     return Status::OK();
+}
+
+std::string FSFileCacheStorage::get_local_file(const FileCacheKey& key) {
+    return get_path_in_local_cache(get_path_in_local_cache(key.hash, key.meta.expiration_time),
+                                   key.offset, key.meta.type, false);
 }
 
 FSFileCacheStorage::~FSFileCacheStorage() {

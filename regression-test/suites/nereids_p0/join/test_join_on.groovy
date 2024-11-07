@@ -39,7 +39,7 @@ suite("test_join_on", "nereids_p0") {
     qt_sql """ select * from join_on order by k1; """
     test {
         sql """ select * from join_on as j1 inner join join_on as j2 on j1.d_array = j2.d_array; """
-        exception "Method get_max_row_byte_size is not supported for Array"
+        exception "meet invalid type, type=Array(Nullable(Int32))"
     }
     test {
         sql """ select * from join_on as j1 inner join join_on as j2 on j1.hll_col = j2.hll_col; """

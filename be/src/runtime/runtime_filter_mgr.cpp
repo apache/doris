@@ -29,6 +29,7 @@
 #include <string>
 #include <utility>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "exprs/bloom_filter_func.h"
@@ -343,8 +344,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(_state->query_id.hi());
             pquery_id->set_lo(_state->query_id.lo());
-            closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
-            closure->cntl_->ignore_eovercrowded();
+            closure->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(_state->execution_timeout));
+            if (config::execution_ignore_eovercrowded) {
+                closure->cntl_->ignore_eovercrowded();
+            }
 
             closure->request_->set_filter_id(filter_id);
             closure->request_->set_filter_size(cnt_val->global_size);
@@ -449,15 +452,17 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                                   DummyBrpcCallback<PPublishFilterResponse>::create_shared());
 
             closure->request_->set_filter_id(request->filter_id());
-            closure->request_->set_is_pipeline(request->has_is_pipeline() &&
-                                               request->is_pipeline());
             closure->request_->set_merge_time(merge_time);
             *closure->request_->mutable_query_id() = request->query_id();
             if (has_attachment) {
                 closure->cntl_->request_attachment().append(request_attachment);
             }
-            closure->cntl_->set_timeout_ms(std::min(3600, _state->execution_timeout) * 1000);
-            closure->cntl_->ignore_eovercrowded();
+
+            closure->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(_state->execution_timeout));
+            if (config::execution_ignore_eovercrowded) {
+                closure->cntl_->ignore_eovercrowded();
+            }
+
             // set fragment-id
             if (target.__isset.target_fragment_ids) {
                 for (auto& target_fragment_id : target.target_fragment_ids) {

@@ -78,6 +78,10 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
                                                            TUnit ::TIME_NS, timer_name, 1);
     }
 
+    get_data_from_recvr_timer = ADD_TIMER(_runtime_profile, "GetDataFromRecvrTime");
+    filter_timer = ADD_TIMER(_runtime_profile, "FilterTime");
+    create_merger_timer = ADD_TIMER(_runtime_profile, "CreateMergerTime");
+
     return Status::OK();
 }
 
@@ -144,15 +148,22 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     });
     SCOPED_TIMER(local_state.exec_time_counter());
     if (_is_merging && !local_state.is_ready) {
+        SCOPED_TIMER(local_state.create_merger_timer);
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
                 local_state.vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
                 state->batch_size(), _limit, _offset));
         local_state.is_ready = true;
         return Status::OK();
     }
-    auto status = local_state.stream_recvr->get_next(block, eos);
-    RETURN_IF_ERROR(doris::vectorized::VExprContext::filter_block(local_state.conjuncts(), block,
-                                                                  block->columns()));
+    {
+        SCOPED_TIMER(local_state.get_data_from_recvr_timer);
+        RETURN_IF_ERROR(local_state.stream_recvr->get_next(block, eos));
+    }
+    {
+        SCOPED_TIMER(local_state.filter_timer);
+        RETURN_IF_ERROR(doris::vectorized::VExprContext::filter_block(local_state.conjuncts(),
+                                                                      block, block->columns()));
+    }
     // In vsortrunmerger, it will set eos=true, and block not empty
     // so that eos==true, could not make sure that block not have valid data
     if (!*eos || block->rows() > 0) {
@@ -176,7 +187,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             local_state.set_num_rows_returned(_limit);
         }
     }
-    return status;
+    return Status::OK();
 }
 
 Status ExchangeLocalState::close(RuntimeState* state) {

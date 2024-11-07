@@ -197,6 +197,7 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+    optional bool use_path_style = 16;
 }
 
 // The legacy ObjectStoreInfoPB is stored in InstanceInfoPB
@@ -961,6 +962,11 @@ message CreateRowsetResponse {
 }
 
 message GetRowsetRequest {
+    enum SchemaOp {
+        FILL_WITH_DICT = 0; // fill rowset schema with SchemaCloudDictionary value
+        RETURN_DICT = 1;    // not use dict value in MS, return SchemaCloudDictionary directly
+        NO_DICT = 2;        // not read dict info, use local cached SchemaCloudDictionary instead
+    }
     optional string cloud_unique_id = 1; // For auth
     optional TabletIndexPB idx = 2;
     optional int64 start_version = 3;
@@ -968,13 +974,17 @@ message GetRowsetRequest {
     optional int64 base_compaction_cnt = 5;
     optional int64 cumulative_compaction_cnt = 6;
     optional int64 cumulative_point = 7;
-    // TODO: There may be more fields TBD
+    // returned schema format on rowset schema, used in variant type directly.
+    // for compability reason we use FILL_WITH_DICT as default
+    optional SchemaOp schema_op = 8  [default = FILL_WITH_DICT];
 }
 
 message GetRowsetResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated doris.RowsetMetaCloudPB rowset_meta = 2;
     optional TabletStatsPB stats = 3;
+    // Return dict value if SchemaOp is RETURN_DICT
+    optional SchemaCloudDictionary schema_dict = 4; 
 }
 
 message IndexRequest {
@@ -1453,6 +1463,18 @@ message GetDeleteBitmapUpdateLockResponse {
     repeated int64 cumulative_points = 4;
 }
 
+message RemoveDeleteBitmapUpdateLockRequest {
+    optional string cloud_unique_id = 1; // For auth
+    optional int64 table_id = 2;
+    optional int64 tablet_id = 3;
+    optional int64 lock_id = 4;
+    optional int64 initiator = 5;
+}
+
+message RemoveDeleteBitmapUpdateLockResponse {
+    optional MetaServiceResponseStatus status = 1;
+}
+
 message GetRLTaskCommitAttachRequest {
     optional string cloud_unique_id = 1; // For auth
     optional int64 db_id = 2;
@@ -1564,6 +1586,7 @@ service MetaService {
     rpc update_delete_bitmap(UpdateDeleteBitmapRequest) returns(UpdateDeleteBitmapResponse);
     rpc get_delete_bitmap(GetDeleteBitmapRequest) returns(GetDeleteBitmapResponse);
     rpc get_delete_bitmap_update_lock(GetDeleteBitmapUpdateLockRequest) returns(GetDeleteBitmapUpdateLockResponse);
+    rpc remove_delete_bitmap_update_lock(RemoveDeleteBitmapUpdateLockRequest) returns(RemoveDeleteBitmapUpdateLockResponse);
     rpc remove_delete_bitmap(RemoveDeleteBitmapRequest) returns(RemoveDeleteBitmapResponse);
 
     // routine load progress

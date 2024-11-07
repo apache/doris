@@ -437,6 +437,15 @@ varchar	varchar(65533)	Yes	true	\N
 int_u	bigint	Yes	false	\N	NONE
 
 -- !sql --
+int_u	bigint	Yes	true	\N	
+text	varchar(65533)	Yes	true	\N	
+t2	varchar(65533)	Yes	false	\N	NONE
+
+-- !sql --
+varchar	varchar(65533)	Yes	true	\N	
+int_u	bigint	Yes	false	\N	NONE
+
+-- !sql --
 internal
 
 -- !sql --
@@ -865,6 +874,15 @@ doris
 int_u	bigint	Yes	true	\N	
 text	varchar(65533)	Yes	true	\N	
 t2	text	Yes	false	\N	NONE
+
+-- !sql --
+varchar	varchar(65533)	Yes	true	\N	
+int_u	bigint	Yes	false	\N	NONE
+
+-- !sql --
+int_u	bigint	Yes	true	\N	
+text	varchar(65533)	Yes	true	\N	
+t2	varchar(65533)	Yes	false	\N	NONE
 
 -- !sql --
 varchar	varchar(65533)	Yes	true	\N	

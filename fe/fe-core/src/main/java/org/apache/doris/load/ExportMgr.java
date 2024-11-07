@@ -67,8 +67,8 @@ public class ExportMgr {
     // dbid -> <label -> job>
     private Map<Long, Map<String, Long>> dbTolabelToExportJobId = Maps.newHashMap();
 
-    // lock for export job
-    // lock is private and must use after db lock
+    // lock for protecting export jobs.
+    // need to be added when creating or cancelling export job.
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     public ExportMgr() {
@@ -95,8 +95,6 @@ public class ExportMgr {
     }
 
     public void addExportJobAndRegisterTask(ExportJob job) throws Exception {
-        long jobId = Env.getCurrentEnv().getNextId();
-        job.setId(jobId);
         writeLock();
         try {
             if (dbTolabelToExportJobId.containsKey(job.getDbId())
@@ -117,15 +115,17 @@ public class ExportMgr {
                 BrokerUtil.deleteDirectoryWithFileSystem(fullPath.substring(0, fullPath.lastIndexOf('/') + 1),
                         job.getBrokerDesc());
             }
-            job.getTaskExecutors().forEach(executor -> {
-                Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
-                job.getTaskIdToExecutor().put(taskId, executor);
-            });
             Env.getCurrentEnv().getEditLog().logExportCreate(job);
+            // ATTN: Must add task after edit log, otherwise the job may finish before adding job.
+            job.getCopiedTaskExecutors().forEach(executor -> {
+                Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
+            });
+            LOG.info("add export job. {}", job);
+
         } finally {
             writeUnlock();
         }
-        LOG.info("add export job. {}", job);
+
     }
 
     public void cancelExportJob(CancelExportStmt stmt) throws DdlException, AnalysisException {
@@ -142,6 +142,11 @@ public class ExportMgr {
 
         // check auth
         checkCancelExportJobAuth(InternalCatalog.INTERNAL_CATALOG_NAME, stmt.getDbName(), matchExportJobs);
+        // Must add lock to protect export job.
+        // Because job may be cancelled when generating task executors,
+        // the cancel process may clear the task executor list at same time,
+        // which will cause ConcurrentModificationException
+        writeLock();
         try {
             for (ExportJob exportJob : matchExportJobs) {
                 // exportJob.cancel(ExportFailMsg.CancelType.USER_CANCEL, "user cancel");
@@ -150,6 +155,8 @@ public class ExportMgr {
             }
         } catch (JobException e) {
             throw new AnalysisException(e.getMessage());
+        } finally {
+            writeUnlock();
         }
     }
 
@@ -464,8 +471,9 @@ public class ExportMgr {
     }
 
     public void replayUpdateJobState(ExportJobStateTransfer stateTransfer) {
-        readLock();
+        writeLock();
         try {
+            LOG.info("replay update export job: {}, {}", stateTransfer.getJobId(), stateTransfer.getState());
             ExportJob job = exportIdToJob.get(stateTransfer.getJobId());
             job.replayExportJobState(stateTransfer.getState());
             job.setStartTimeMs(stateTransfer.getStartTimeMs());
@@ -473,7 +481,7 @@ public class ExportMgr {
             job.setFailMsg(stateTransfer.getFailMsg());
             job.setOutfileInfo(stateTransfer.getOutFileInfo());
         } finally {
-            readUnlock();
+            writeUnlock();
         }
     }
 

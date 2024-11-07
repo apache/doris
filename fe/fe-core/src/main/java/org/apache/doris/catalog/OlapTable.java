@@ -139,8 +139,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         WAITING_STABLE
     }
 
-    public static long ROW_COUNT_BEFORE_REPORT = -1;
-
     @SerializedName(value = "tst", alternate = {"state"})
     private volatile OlapTableState state;
 
@@ -1618,12 +1616,12 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             if (index == null) {
                 LOG.warn("Index {} not exist in partition {}, table {}, {}",
                         indexId, entry.getValue().getName(), id, name);
-                return ROW_COUNT_BEFORE_REPORT;
+                return UNKNOWN_ROW_COUNT;
             }
             if (strict && !index.getRowCountReported()) {
-                return ROW_COUNT_BEFORE_REPORT;
+                return UNKNOWN_ROW_COUNT;
             }
-            rowCount += index.getRowCount() == -1 ? 0 : index.getRowCount();
+            rowCount += index.getRowCount() == UNKNOWN_ROW_COUNT ? 0 : index.getRowCount();
         }
         return rowCount;
     }
@@ -2765,6 +2763,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
     }
 
+    public void setStoragePageSize(long storagePageSize) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE,
+                Long.valueOf(storagePageSize).toString());
+        tableProperty.buildStoragePageSize();
+    }
+
+    public long storagePageSize() {
+        if (tableProperty != null) {
+            return tableProperty.storagePageSize();
+        }
+        return PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
+    }
+
     public void setStorageFormat(TStorageFormat storageFormat) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_FORMAT, storageFormat.name());
@@ -3283,11 +3295,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
         long visibleVersion = tableVersions.containsKey(id) ? tableVersions.get(id) : getVisibleVersion();
         return new MTMVVersionSnapshot(visibleVersion, id);
-    }
-
-    @Override
-    public boolean needAutoRefresh() {
-        return true;
     }
 
     @Override
