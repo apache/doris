@@ -214,6 +214,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_5_26 """select test6 from test2;"""
             order_qt_sql_5_27 """select * from composite_type_array order by name;"""
             order_qt_sql_5_28 """select * from test3_20231005;"""
+            order_qt_sql_5_29 """select test1, test2 from test1 where test1 like 'string%';"""
+            order_qt_sql_5_30 """select test1, test2 from test1 where test2 like 'text%';"""
 
             sql """switch test_es_query_es6"""
             // order_qt_sql_6_01 """show tables"""
@@ -244,6 +246,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_6_26 """select test6 from test2;"""
             order_qt_sql_6_27 """select * from composite_type_array order by name;"""
             order_qt_sql_6_28 """select * from test3_20231005;"""
+            order_qt_sql_6_29 """select test1, test2 from test1 where test1 like 'string%';"""
+            order_qt_sql_6_30 """select test1, test2 from test1 where test2 like 'text%';"""
 
             List<List<String>> tables6N = sql """show tables"""
             boolean notContainHide = true
@@ -299,6 +303,8 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_7_32 """select test6 from test1;"""
             order_qt_sql_7_33 """select test6 from test2;"""
             order_qt_sql_7_34 """select * from composite_type_array order by name;"""
+            order_qt_sql_7_35 """select test1, test2 from test1 where test1 like 'string%';"""
+            order_qt_sql_7_36 """select test1, test2 from test1 where test2 like 'text%';"""
 
             List<List<String>> tables7N = sql """show tables"""
             boolean notContainHide7 = true
@@ -354,7 +360,9 @@ suite("test_es_query", "p0,external,es,external_docker,external_docker_es") {
             order_qt_sql_8_30 """select test6 from test1;"""
             order_qt_sql_8_31 """select test6 from test2;"""
             order_qt_sql_8_32 """select * from composite_type_array order by name;"""
-        
+            order_qt_sql_8_33 """select test1, test2 from test1 where test1 like 'string%';"""
+            order_qt_sql_8_34 """select test1, test2 from test1 where test2 like 'text%';"""
+
         }
 
         sql """set enable_es_parallel_scroll=true"""
