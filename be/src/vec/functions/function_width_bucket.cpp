@@ -20,9 +20,11 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <limits>
 #include <memory>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
@@ -44,6 +46,7 @@ class FunctionContext;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 class FunctionWidthBucket : public IFunction {
 public:
     static constexpr auto name = "width_bucket";
@@ -103,18 +106,21 @@ private:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto min_value = min_value_column_concrete.get_data()[i];
             auto max_value = max_value_column_concrete.get_data()[i];
-            auto average_value = (max_value - min_value) / (1.0 * num_buckets);
+            auto range = max_value - min_value;
+            using arg_type = decltype(range);
+            auto average_value = static_cast<double>(range) / static_cast<double>(num_buckets);
             if (expr_column_concrete.get_data()[i] < min_value) {
                 continue;
             } else if (expr_column_concrete.get_data()[i] >= max_value) {
                 nested_column_concrete.get_data()[i] = num_buckets + 1;
             } else {
-                if ((max_value - min_value) / num_buckets == 0) {
+                if (range / static_cast<arg_type>(num_buckets) == static_cast<arg_type>(0)) {
                     continue;
                 }
                 nested_column_concrete.get_data()[i] =
-                        (int64_t)(1 +
-                                  (expr_column_concrete.get_data()[i] - min_value) / average_value);
+                        (int64_t)(1 + static_cast<double>(expr_column_concrete.get_data()[i] -
+                                                          min_value) /
+                                              average_value);
             }
         }
     }

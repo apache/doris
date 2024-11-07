@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/logging.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -37,6 +38,7 @@
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 // A regex to match any regex pattern is equivalent to a substring search.
 static const RE2 SUBSTRING_RE(R"((?:\.\*)*([^\.\^\{\[\(\|\)\]\}\+\*\?\$\\]*)(?:\.\*)*)");
 
@@ -253,7 +255,8 @@ Status FunctionLikeBase::constant_starts_with_fn_scalar(LikeSearchState* state,
                                                         const StringRef& pattern,
                                                         unsigned char* result) {
     *result = (val.size >= state->search_string_sv.size) &&
-              (state->search_string_sv == val.substring(0, state->search_string_sv.size));
+              (state->search_string_sv ==
+               val.substring(0, cast_set<int>(state->search_string_sv.size)));
     return Status::OK();
 }
 
@@ -287,8 +290,9 @@ Status FunctionLikeBase::constant_ends_with_fn_scalar(LikeSearchState* state, co
                                                       const StringRef& pattern,
                                                       unsigned char* result) {
     *result = (val.size >= state->search_string_sv.size) &&
-              (state->search_string_sv == val.substring(val.size - state->search_string_sv.size,
-                                                        state->search_string_sv.size));
+              (state->search_string_sv ==
+               val.substring(cast_set<int>(val.size - state->search_string_sv.size),
+                             cast_set<int>(state->search_string_sv.size)));
     return Status::OK();
 }
 
@@ -384,7 +388,8 @@ Status FunctionLikeBase::vector_substring_fn(const ColumnString& vals,
 Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
                                                   const StringRef& pattern, unsigned char* result) {
     if (state->hs_database) { // use hyperscan
-        auto ret = hs_scan(state->hs_database.get(), val.data, val.size, 0, state->hs_scratch.get(),
+        auto ret = hs_scan(state->hs_database.get(), val.data, cast_set<unsigned int>(val.size), 0,
+                           state->hs_scratch.get(),
                            doris::vectorized::LikeSearchState::hs_match_handler, (void*)result);
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
@@ -418,8 +423,8 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
     if (state->hs_database) { // use hyperscan
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
-            auto ret = hs_scan(state->hs_database.get(), str_ref.data, str_ref.size, 0,
-                               state->hs_scratch.get(),
+            auto ret = hs_scan(state->hs_database.get(), str_ref.data,
+                               cast_set<unsigned int>(str_ref.size), 0, state->hs_scratch.get(),
                                doris::vectorized::LikeSearchState::hs_match_handler,
                                (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
@@ -447,8 +452,8 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& v
         auto sz = val.size();
         for (size_t i = 0; i < sz; i++) {
             const auto& str_ref = val.get_data_at(i);
-            auto ret = hs_scan(database, str_ref.data, str_ref.size, 0, scratch,
-                               doris::vectorized::LikeSearchState::hs_match_handler,
+            auto ret = hs_scan(database, str_ref.data, cast_set<unsigned int>(str_ref.size), 0,
+                               scratch, doris::vectorized::LikeSearchState::hs_match_handler,
                                (void*)(result.data() + i));
             if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
                 return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
@@ -766,8 +771,8 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
 void FunctionLike::remove_escape_character(std::string* search_string) {
     std::string tmp_search_string;
     tmp_search_string.swap(*search_string);
-    int len = tmp_search_string.length();
-    for (int i = 0; i < len;) {
+    auto len = tmp_search_string.length();
+    for (std::string::size_type i = 0; i < len;) {
         if (tmp_search_string[i] == '\\' && i + 1 < len &&
             (tmp_search_string[i + 1] == '%' || tmp_search_string[i + 1] == '_' ||
              tmp_search_string[i + 1] == '\\')) {
@@ -787,7 +792,7 @@ bool re2_full_match(const std::string& str, const RE2& re, std::vector<std::stri
 
     std::vector<RE2::Arg> arguments;
     std::vector<RE2::Arg*> arguments_ptrs;
-    std::size_t args_count = re.NumberOfCapturingGroups();
+    auto args_count = re.NumberOfCapturingGroups();
     arguments.resize(args_count);
     arguments_ptrs.resize(args_count);
     results.resize(args_count);
