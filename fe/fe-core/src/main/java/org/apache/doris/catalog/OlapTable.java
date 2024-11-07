@@ -3040,7 +3040,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     @Override
     public Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException {
         if (!tryReadLock(1, TimeUnit.MINUTES)) {
-            throw new AnalysisException("get table read lock timeout, database=" + getDBName() + ",table=" + getName());
+            throw new AnalysisException(
+                    "get table read lock timeout, database=" + getQualifiedDbName() + ",table=" + getName());
         }
         try {
             Map<String, PartitionItem> res = Maps.newHashMap();
