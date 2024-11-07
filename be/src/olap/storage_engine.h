@@ -121,7 +121,6 @@ public:
     int32_t effective_cluster_id() const { return _effective_cluster_id; }
 
     RowsetId next_rowset_id();
-    int64_t next_rowset_id_high();
 
     MemTableFlushExecutor* memtable_flush_executor() { return _memtable_flush_executor.get(); }
     CalcDeleteBitmapExecutor* calc_delete_bitmap_executor() {
