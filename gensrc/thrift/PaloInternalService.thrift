@@ -334,6 +334,10 @@ struct TQueryOptions {
   134: optional i32 partition_topn_pre_partition_rows = 1000;
 
   137: optional bool enable_auto_create_when_overwrite = false;
+
+  138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
+  139: optional i64 orc_once_max_read_bytes = 8388608;
+  140: optional i64 orc_max_merge_distance_bytes = 1048576;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }
