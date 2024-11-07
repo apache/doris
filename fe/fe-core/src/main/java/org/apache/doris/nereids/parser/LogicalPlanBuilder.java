@@ -4007,7 +4007,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
         if (ctx.name != null) {
             String catalogName = ctx.name.getText();
-            return new RefreshCatalogCommand(catalogName, new HashMap<>());
+            Map<String, String> properties = visitPropertyClause(ctx.propertyClause());
+            return new RefreshCatalogCommand(catalogName, properties);
         }
         throw new AnalysisException("catalog name can not be null");
     }

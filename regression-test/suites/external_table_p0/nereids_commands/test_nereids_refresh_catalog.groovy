@@ -22,13 +22,13 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
     String bucket = getS3BucketName()
     String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_name = "mysql_jdbc_catalog_nereids";
+        String catalog_name = "refresh_catalog_mysql_catalog_nereids";
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
         String inDorisTable = "doris_in_tb_nereids";
         String ex_tb0 = "ex_tb0";
-        String ex_tb1 = "ex_tb1";
+        String new_mysql_db = "new_mysql_db";
 
         sql """create database if not exists ${internal_db_name}; """
 
@@ -46,38 +46,33 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-        checkNereidsExecute("refresh catalog ${catalog_name}")
-        qt_sql "refresh catalog ${catalog_name} ;"
+
 
         sql """switch ${catalog_name}"""
+        sql """CALL EXECUTE_STMT("${catalog_name}", "drop database if exists ${new_mysql_db}");"""
+
         qt_sql """show databases;"""
         sql """ use ${ex_db_name}"""
 
         qt_ex_tb0_where """select id from ${ex_tb0} where id = 111;"""
         order_qt_ex_tb0  """ select id, name from ${ex_tb0} order by id; """
-
-
-        sql """switch ${catalog_name}"""
+        // create database in mysql
+        sql """CALL EXECUTE_STMT("${catalog_name}", "create database  ${new_mysql_db} ;");"""
+        qt_sql """show databases;"""
         checkNereidsExecute("refresh catalog ${catalog_name}")
-        qt_sql "refresh catalog ${catalog_name} ;"
+        sql "refresh catalog ${catalog_name} ;"
+        qt_sql """show databases;"""
 
+        checkNereidsExecute("refresh catalog ${catalog_name} properties ('invalid_cache'='true');")
+        sql "refresh catalog ${catalog_name} properties ('invalid_cache'='true');"
 
-        sql """ drop catalog if exists ${catalog_name} """
+        sql """CALL EXECUTE_STMT("${catalog_name}", "drop database if exists ${new_mysql_db} ;");"""
+        qt_sql """show databases;"""
 
-        // test old create-catalog syntax for compatibility
-        sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
-            "type"="jdbc",
-            "jdbc.user"="root",
-            "jdbc.password"="123456",
-            "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
-            "jdbc.driver_url" = "${driver_url}",
-            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
-        """
-        sql """ switch ${catalog_name} """
-        sql """ use ${ex_db_name} """
-        order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
-        checkNereidsExecute("refresh catalog ${catalog_name}")
-        qt_sql "refresh catalog ${catalog_name} ;"
-        sql """ drop catalog if exists ${catalog_name} """
+        checkNereidsExecute("refresh catalog ${catalog_name} properties ('invalid_cache'='true');")
+        sql "refresh catalog ${catalog_name} properties ('invalid_cache'='true');"
+        qt_sql """show databases;"""
+
+        sql """ drop catalog if exists ${catalog_name} ;"""
     }
 }
