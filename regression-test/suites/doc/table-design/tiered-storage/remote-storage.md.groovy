@@ -130,7 +130,9 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
                 "replication_num" = "1"
             );
         """
-        sql """ALTER TABLE create_table_not_have_policy set ("storage_policy" = "test_policy");"""
+        if (!isCloudMode()) {
+            sql """ALTER TABLE create_table_not_have_policy set ("storage_policy" = "test_policy");"""
+        }
         multi_sql """
             DROP TABLE IF EXISTS create_table_partition;
             CREATE TABLE IF NOT EXISTS create_table_partition 
@@ -151,7 +153,9 @@ suite("docs/table-design/tiered-storage/remote-storage.md") {
                 "replication_num" = "1"
             );
         """
-        sql """ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="test_policy");"""
+        if (!isCloudMode()) {
+            sql """ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="test_policy");"""
+        }
     } catch (Throwable t) {
         Assertions.fail("examples in docs/table-design/tiered-storage/remote-storage.md failed to exec, please fix it", t)
     } finally {
