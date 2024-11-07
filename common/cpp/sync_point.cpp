@@ -51,6 +51,7 @@ public:
   void disable_processing();
   void clear_trace();
   bool has_point(const std::string& point);
+  bool get_enable();
 private:
   bool disable_by_marker(const std::string& point, std::thread::id thread_id);
 private:
@@ -110,6 +111,10 @@ void SyncPoint::process(const std::string& point, std::vector<std::any>&& cb_arg
 }
 bool SyncPoint::has_point(const std::string& point) {
   return impl_->has_point(point);
+}
+
+bool SyncPoint::get_enable() {
+  return impl_->get_enable();
 }
 
 // =============================================================================
@@ -245,6 +250,10 @@ bool SyncPoint::Data::has_point(const std::string& point) {
   std::unique_lock lock(mutex_);
   auto marked_point_iter = marked_thread_id_.find(point);
   return marked_point_iter != marked_thread_id_.end();
+}
+
+bool SyncPoint::Data::get_enable() {
+  return enabled_;
 }
 
 } // namespace doris
