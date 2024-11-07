@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <arrow/type.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
 #include <stdint.h>
@@ -82,6 +83,9 @@ public:
     void get_batch(GetResultBatchCtx* ctx);
     Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
 
+    void register_arrow_schema(const std::shared_ptr<arrow::Schema>& arrow_schema);
+    Status find_arrow_schema(std::shared_ptr<arrow::Schema>* arrow_schema);
+
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
     Status close(const TUniqueId& id, Status exec_status);
@@ -119,6 +123,8 @@ protected:
     // blocking queue for batch
     FeResultQueue _fe_result_batch_queue;
     ArrowFlightResultQueue _arrow_flight_batch_queue;
+    // for arrow flight
+    std::shared_ptr<arrow::Schema> _arrow_schema;
 
     // protects all subsequent data in this block
     std::mutex _lock;
@@ -126,6 +132,7 @@ protected:
     // get arrow flight result is a sync method, need wait for data ready and return result.
     // TODO, waiting for data will block pipeline, so use a request pool to save requests waiting for data.
     std::condition_variable _arrow_data_arrival;
+    std::condition_variable _arrow_schema_arrival;
 
     std::deque<GetResultBatchCtx*> _waiting_rpc;
 

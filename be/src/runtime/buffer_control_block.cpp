@@ -241,6 +241,40 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* 
     return Status::InternalError("Get Arrow Batch Abnormal Ending");
 }
 
+void BufferControlBlock::register_arrow_schema(const std::shared_ptr<arrow::Schema>& arrow_schema) {
+    std::lock_guard<std::mutex> l(_lock);
+    _arrow_schema = arrow_schema;
+}
+
+Status BufferControlBlock::find_arrow_schema(std::shared_ptr<arrow::Schema>* arrow_schema) {
+    std::unique_lock<std::mutex> l(_lock);
+    if (!_status.ok()) {
+        return _status;
+    }
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    while (_arrow_schema == nullptr && !_is_cancelled && !_is_close) {
+        _arrow_schema_arrival.wait_for(l, std::chrono::milliseconds(20));
+    }
+
+    if (_is_cancelled) {
+        return Status::Cancelled("Cancelled");
+    }
+
+    // normal path end
+    if (_arrow_schema != nullptr) {
+        *arrow_schema = _arrow_schema;
+        return Status::OK();
+    }
+
+    if (_is_close) {
+        return Status::RuntimeError("Closed");
+    }
+    return Status::InternalError("Get Arrow Schema Abnormal Ending");
+}
+
 Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
     std::unique_lock<std::mutex> l(_lock);
     // close will be called multiple times and error status needs to be collected.

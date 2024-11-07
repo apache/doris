@@ -106,21 +106,15 @@ std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TU
     return {};
 }
 
-void ResultBufferMgr::register_arrow_schema(const TUniqueId& query_id,
-                                            const std::shared_ptr<arrow::Schema>& arrow_schema) {
-    std::unique_lock<std::shared_mutex> wlock(_arrow_schema_map_lock);
-    _arrow_schema_map.insert(std::make_pair(query_id, arrow_schema));
-}
-
-std::shared_ptr<arrow::Schema> ResultBufferMgr::find_arrow_schema(const TUniqueId& query_id) {
-    std::shared_lock<std::shared_mutex> rlock(_arrow_schema_map_lock);
-    auto iter = _arrow_schema_map.find(query_id);
-
-    if (_arrow_schema_map.end() != iter) {
-        return iter->second;
+Status ResultBufferMgr::find_arrow_schema(const TUniqueId& finst_id,
+                                          std::shared_ptr<arrow::Schema>* schema) {
+    std::shared_ptr<BufferControlBlock> cb = find_control_block(finst_id);
+    if (cb == nullptr) {
+        return Status::InternalError(
+                "no arrow schema for this query, maybe query has been canceled, finst_id={}",
+                print_id(finst_id));
     }
-
-    return nullptr;
+    return cb->find_arrow_schema(schema);
 }
 
 void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {
@@ -153,15 +147,6 @@ void ResultBufferMgr::cancel(const TUniqueId& query_id, const Status& reason) {
         if (_buffer_map.end() != iter) {
             iter->second->cancel(reason);
             _buffer_map.erase(iter);
-        }
-    }
-
-    {
-        std::unique_lock<std::shared_mutex> wlock(_arrow_schema_map_lock);
-        auto arrow_schema_iter = _arrow_schema_map.find(query_id);
-
-        if (_arrow_schema_map.end() != arrow_schema_iter) {
-            _arrow_schema_map.erase(arrow_schema_iter);
         }
     }
 }
