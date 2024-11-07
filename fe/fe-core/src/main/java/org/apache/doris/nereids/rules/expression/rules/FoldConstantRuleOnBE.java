@@ -38,7 +38,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.FromBase64;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NonNullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sleep;
@@ -261,16 +260,6 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         // Folding will make it impossible to construct columns such as nullable(1).
         if (expr instanceof Nullable || expr instanceof NonNullable) {
             return true;
-        }
-
-        if (expr instanceof FromBase64) {
-            return true;
-        }
-
-        for (Expression child : expr.children()) {
-            if (shouldSkipFold(child)) {
-                return true;
-            }
         }
 
         return false;
@@ -497,9 +486,27 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
             }
         } else if (type.isStringLikeType()) {
             int num = resultContent.getStringValueCount();
-            for (int i = 0; i < num; ++i) {
-                Literal literal = new StringLiteral(resultContent.getStringValue(i));
-                res.add(literal);
+
+            if (num > 0) {
+                for (int i = 0; i < num; ++i) {
+                    ByteString bytesValues = resultContent.getBytesValue(i);
+                    String stringValue = bytesValues.toStringUtf8();
+                    if ("\\N".equalsIgnoreCase(stringValue) && resultContent.hasHasNull()) {
+                        res.add(new NullLiteral(type));
+                    } else {
+                        res.add(new StringLiteral(stringValue));
+                    }
+                }
+            } else {
+                num = resultContent.getStringValueCount();
+                for (int i = 0; i < num; ++i) {
+                    String stringValue = resultContent.getStringValue(i);
+                    if ("\\N".equalsIgnoreCase(stringValue) && resultContent.hasHasNull()) {
+                        res.add(new NullLiteral(type));
+                    } else {
+                        res.add(new StringLiteral(stringValue));
+                    }
+                }
             }
         } else if (type.isArrayType()) {
             ArrayType arrayType = (ArrayType) type;
