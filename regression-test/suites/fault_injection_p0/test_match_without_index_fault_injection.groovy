@@ -16,9 +16,9 @@
 // under the License.
 
 
-suite("test_match_without_index", "p0") {
+suite("test_match_without_index_fault_injection", "nonConcurrent") {
 
-    def testTable = "test_match_without_index"
+    def testTable = "test_match_without_index_fault_injection"
     sql "DROP TABLE IF EXISTS ${testTable}"
     sql """
         CREATE TABLE ${testTable} (
