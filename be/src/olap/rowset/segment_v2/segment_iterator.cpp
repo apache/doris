@@ -1057,16 +1057,17 @@ Status SegmentIterator::_init_inverted_index_iterators() {
         return Status::OK();
     }
     for (auto cid : _schema->column_ids()) {
+        // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
         if (_inverted_index_iterators[cid] == nullptr) {
-            // Not check type valid, since we need to get inverted index for related variant type when reading the segment.
-            // If check type valid, we can not get inverted index for variant type, and result nullptr.The result for calling
-            // get_inverted_index with variant suffix should return corresponding inverted index meta.
-            bool check_inverted_index_by_type = false;
-            // Use segment’s own index_meta, for compatibility with future indexing needs to default to lowercase.
+            // In the _opts.tablet_schema, the sub-column type information for the variant is FieldType::OLAP_FIELD_TYPE_VARIANT.
+            // This is because the sub-column is created in create_materialized_variant_column.
+            // We use this column to locate the metadata for the inverted index, which requires a unique_id and path.
+            const auto& column = _opts.tablet_schema->column(cid);
+            int32_t col_unique_id =
+                    column.is_extracted_column() ? column.parent_unique_id() : column.unique_id();
             RETURN_IF_ERROR(_segment->new_inverted_index_iterator(
-                    _opts.tablet_schema->column(cid),
-                    _segment->_tablet_schema->get_inverted_index(_opts.tablet_schema->column(cid),
-                                                                 check_inverted_index_by_type),
+                    column,
+                    _segment->_tablet_schema->inverted_index(col_unique_id, column.suffix_path()),
                     _opts, &_inverted_index_iterators[cid]));
         }
     }

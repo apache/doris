@@ -851,7 +851,6 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
 
 TEST_F(SegCompactionTest, CreateSegCompactionWriter) {
     config::enable_segcompaction = true;
-    Status s;
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     TabletSchemaPB schema_pb;
     schema_pb.set_keys_type(KeysType::DUP_KEYS);
@@ -876,11 +875,9 @@ TEST_F(SegCompactionTest, CreateSegCompactionWriter) {
     {
         RowsetWriterContext writer_context;
         create_rowset_writer_context(10052, tablet_schema, &writer_context);
-
         auto res = RowsetFactory::create_rowset_writer(*l_engine, writer_context, false);
         EXPECT_TRUE(res.has_value()) << res.error();
         auto rowset_writer = std::move(res).value();
-        EXPECT_EQ(Status::OK(), s);
         auto beta_rowset_writer = dynamic_cast<BetaRowsetWriter*>(rowset_writer.get());
         EXPECT_TRUE(beta_rowset_writer != nullptr);
         std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
@@ -890,7 +887,7 @@ TEST_F(SegCompactionTest, CreateSegCompactionWriter) {
         int64_t inverted_index_file_size = 0;
         status = writer->close_inverted_index(&inverted_index_file_size);
         EXPECT_TRUE(status == Status::OK());
-        std::cout << inverted_index_file_size << std::endl;
+        EXPECT_TRUE(inverted_index_file_size == 0);
     }
 }
 

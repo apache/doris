@@ -25,7 +25,7 @@ Related PR: #xxx
 
 Problem Summary:
 
-### Check List (For Committer)
+### Check List (For Author)
 
 - Test <!-- At least one of them must be included. -->
 

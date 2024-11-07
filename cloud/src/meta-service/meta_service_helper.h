@@ -92,6 +92,12 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
         VLOG_DEBUG << "finish " << func_name << " from " << ctrl->remote_side()
                    << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapResponse>) {
+        if (res->status().code() != MetaServiceCode::OK) {
+            res->clear_rowset_ids();
+            res->clear_segment_ids();
+            res->clear_versions();
+            res->clear_segment_delete_bitmaps();
+        }
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " status=" << res->status().ShortDebugString()
                   << " delete_bitmap_size=" << res->segment_delete_bitmaps_size();
