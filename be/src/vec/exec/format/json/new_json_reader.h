@@ -131,6 +131,12 @@ private:
                                  SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
                                  bool* valid);
 
+    Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
+                                      const TypeDescriptor& type_desc, vectorized::IColumn* column_ptr,
+                                      DataTypeSerDeSPtr serde,
+                                 bool* valid);
+
+
     Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
                                       const std::vector<SlotDescriptor*>& slot_descs, Block& block,
                                       bool* valid);
@@ -179,6 +185,12 @@ private:
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
                                           SlotDescriptor* slot_desc,
                                           vectorized::IColumn* column_ptr, bool* valid);
+
+    Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
+                                               const TypeDescriptor& type_desc,
+                                          vectorized::IColumn* column_ptr,
+                                               DataTypeSerDeSPtr serde,
+                                               bool* valid);
 
     Status _simdjson_write_columns_by_jsonpath(simdjson::ondemand::object* value,
                                                const std::vector<SlotDescriptor*>& slot_descs,

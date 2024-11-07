@@ -56,6 +56,9 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
+#include "vec/columns/column_struct.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
@@ -847,77 +850,134 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator value,
                                             SlotDescriptor* slot_desc, IColumn* column_ptr,
                                             bool* valid) {
-    const char* str_value = nullptr;
-    char tmp_buf[128] = {0};
-    int32_t wbytes = 0;
-    std::string json_str;
+
+    return _write_data_to_column(value,slot_desc->type(),column_ptr,
+                                      slot_desc->get_data_type_ptr()->get_serde(),
+                                      valid);
+}
+
+
+Status NewJsonReader:: _write_data_to_column(rapidjson::Value::ConstValueIterator value,
+                                                const TypeDescriptor& type_desc,
+                                                vectorized::IColumn* column_ptr,
+                                                  DataTypeSerDeSPtr serde,
+                                                    bool* valid){
 
     ColumnNullable* nullable_column = nullptr;
-    if (slot_desc->is_nullable()) {
+    vectorized::IColumn* data_column_ptr = column_ptr;
+    DataTypeSerDeSPtr data_serde = serde;
+
+    vectorized::DataTypeSerDe::FormatOptions _options;
+
+    if (column_ptr->is_nullable()) {
         nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
-        // kNullType will put 1 into the Null map, so there is no need to push 0 for kNullType.
+        data_column_ptr = nullable_column->get_nested_column().get_ptr();
+        data_serde = serde->get_nested_serdes()[0];
+
         if (value->GetType() != rapidjson::Type::kNullType) {
             nullable_column->get_null_map_data().push_back(0);
         } else {
             nullable_column->insert_default();
-        }
-        column_ptr = &nullable_column->get_nested_column();
-    }
-
-    switch (value->GetType()) {
-    case rapidjson::Type::kStringType:
-        str_value = value->GetString();
-        wbytes = value->GetStringLength();
-        break;
-    case rapidjson::Type::kNumberType:
-        if (value->IsUint()) {
-            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%u", value->GetUint());
-        } else if (value->IsInt()) {
-            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", value->GetInt());
-        } else if (value->IsUint64()) {
-            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRIu64, value->GetUint64());
-        } else if (value->IsInt64()) {
-            wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64, value->GetInt64());
-        } else if (value->IsFloat() || value->IsDouble()) {
-            auto* end = fmt::format_to(tmp_buf, "{}", value->GetDouble());
-            wbytes = end - tmp_buf;
-        } else {
-            return Status::InternalError<false>("It should not here.");
-        }
-        str_value = tmp_buf;
-        break;
-    case rapidjson::Type::kFalseType:
-        wbytes = 1;
-        str_value = (char*)"0";
-        break;
-    case rapidjson::Type::kTrueType:
-        wbytes = 1;
-        str_value = (char*)"1";
-        break;
-    case rapidjson::Type::kNullType:
-        if (!slot_desc->is_nullable()) {
-            RETURN_IF_ERROR(_append_error_msg(
-                    *value, "Json value is null, but the column `{}` is not nullable.",
-                    slot_desc->col_name(), valid));
             return Status::OK();
         }
 
-        // return immediately to prevent from repeatedly insert_data
-        *valid = true;
-        return Status::OK();
-    default:
-        // for other type like array or object. we convert it to string to save
-        json_str = NewJsonReader::_print_json_value(*value);
-        wbytes = json_str.size();
-        str_value = json_str.c_str();
-        break;
+    } else if (value->GetType() == rapidjson::Type::kNullType) [[unlikely]] {
+        return Status::DataQualityError("Json Reader insert null to not null column.");
     }
 
-    // TODO: if the vexpr can support another 'slot_desc type' than 'TYPE_VARCHAR',
-    // we need use a function to support these types to insert data in columns.
-    DCHECK(slot_desc->type().type == TYPE_VARCHAR || slot_desc->type().type == TYPE_STRING)
-            << slot_desc->type().type << ", query id: " << print_id(_state->query_id());
-    assert_cast<ColumnString*>(column_ptr)->insert_data(str_value, wbytes);
+    switch (type_desc.type) {
+        case TYPE_STRUCT:{
+            if (!value->IsObject()) [[unlikely]]{
+                return Status::DataQualityError("Json Reader insert not object to struct column.");
+            }
+
+            auto sub_col_size = type_desc.children.size();
+            const auto& object_value =  value->GetObject();
+            auto sub_serdes = data_serde->get_nested_serdes();
+            auto struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
+
+            for(size_t sub_col_idx = 0;sub_col_idx < sub_col_size; sub_col_idx ++ ){
+
+                const auto& sub_col_name =  type_desc.field_names[sub_col_idx];
+
+                const auto& member_itr =  object_value.FindMember(sub_col_name.c_str());
+                if ( member_itr == object_value.MemberEnd()) { // case 大小写 xxx
+                    return Status::DataQualityError("Json object don't have Member {}.",sub_col_name);
+                }
+
+                const auto& sub_col_type = type_desc.children[sub_col_idx];
+
+                RETURN_IF_ERROR(_write_data_to_column( &member_itr->value
+                                                            ,sub_col_type,
+                                                            struct_column_ptr->get_column(sub_col_idx).get_ptr() ,
+                                                            sub_serdes[sub_col_idx],valid));
+            }
+            break;
+        }case TYPE_MAP: {
+            if (!value->IsObject()) [[unlikely]] {
+                return Status::DataQualityError("Json Reader insert not object to map column.");
+            }
+            const auto& object_value =  value->GetObject();
+            auto sub_serdes = data_serde->get_nested_serdes();
+            auto map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
+
+            for (const auto& member_value : object_value) {
+
+
+                RETURN_IF_ERROR(_write_data_to_column( &member_value.name
+                                                            ,type_desc.children[0],
+                                                            map_column_ptr->get_keys_ptr()->assume_mutable()->get_ptr() ,
+                                                            sub_serdes[0]
+                                                            ,valid));
+
+                RETURN_IF_ERROR(_write_data_to_column(&member_value.value
+                                                        ,type_desc.children[1],
+                                                        map_column_ptr->get_values_ptr()->assume_mutable()->get_ptr() ,
+                                                        sub_serdes[1]
+                                                        ,valid));
+            }
+
+            auto& offsets = map_column_ptr->get_offsets();
+            offsets.emplace_back(offsets.back() + object_value.MemberCount());
+
+            break;
+        } case TYPE_ARRAY: {
+            if (!value->IsArray()) [[unlikely]] {
+                return Status::DataQualityError("Json Reader insert not array to array column.");
+            }
+            const auto& array_value = value->GetArray();
+            auto sub_serdes = data_serde->get_nested_serdes();
+            auto array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
+
+
+            for (const auto& sub_value:array_value) {
+                RETURN_IF_ERROR(_write_data_to_column( &sub_value
+                                                        ,type_desc.children[0],
+                                                         array_column_ptr->get_data().get_ptr(),
+                                                         sub_serdes[0]
+                                                         ,valid));
+            }
+            auto& offsets = array_column_ptr->get_offsets();
+            offsets.emplace_back(offsets.back() + array_value.Size());
+            break;
+        }
+        default: {
+
+            if (value->IsString()) {
+                Slice slice {value->GetString(), value->GetStringLength()};
+                RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr,slice,_options));
+
+            } else {
+
+                // Maybe we can `switch (value->GetType()) case: kNumberType`.
+                // Note that `if (value->IsInt())`, but column is FloatColumn.
+                auto json_str = NewJsonReader::_print_json_value(*value);
+                Slice  slice {json_str.c_str() , json_str.size()};
+                RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr,slice,_options));
+            }
+            break;
+        }
+    }
 
     *valid = true;
     return Status::OK();
@@ -1482,12 +1542,6 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         DCHECK(column_ptr->size() == cur_row_count + 1);
     }
 
-#ifndef NDEBUG
-    // Check all columns rows matched
-    for (size_t i = 0; i < block.columns(); ++i) {
-        DCHECK_EQ(block.get_by_position(i).column->size(), cur_row_count + 1);
-    }
-#endif
     // There is at least one valid value here
     DCHECK(nullcount < block.columns());
     *valid = true;
@@ -1495,55 +1549,176 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
 }
 
 Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                                     SlotDescriptor* slot_desc, IColumn* column,
-                                                     bool* valid) {
-    // write
+                                                      const TypeDescriptor& type_desc,
+                                               vectorized::IColumn* column_ptr,
+                                               DataTypeSerDeSPtr serde,
+                                               bool* valid){
+
     ColumnNullable* nullable_column = nullptr;
-    IColumn* column_ptr = nullptr;
-    if (slot_desc->is_nullable()) {
-        nullable_column = assert_cast<ColumnNullable*>(column);
-        column_ptr = &nullable_column->get_nested_column();
-    }
-    // TODO: if the vexpr can support another 'slot_desc type' than 'TYPE_VARCHAR',
-    // we need use a function to support these types to insert data in columns.
-    auto* column_string = assert_cast<ColumnString*>(column_ptr);
-    switch (value.type()) {
-    case simdjson::ondemand::json_type::null: {
-        if (column->is_nullable()) {
-            // insert_default already push 1 to null_map
-            nullable_column->insert_default();
+    vectorized::IColumn* data_column_ptr = column_ptr;
+    DataTypeSerDeSPtr data_serde = serde;
+
+    vectorized::DataTypeSerDe::FormatOptions _options;
+    _options.converted_from_string = true;
+
+
+
+    if (column_ptr->is_nullable()) {
+        nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
+        data_column_ptr = nullable_column->get_nested_column().get_ptr();
+        data_serde = serde->get_nested_serdes()[0];
+
+        // kNullType will put 1 into the Null map, so there is no need to push 0 for kNullType.
+        if (value.type() != simdjson::ondemand::json_type::null) {
+            nullable_column->get_null_map_data().push_back(0);
         } else {
-            RETURN_IF_ERROR(_append_error_msg(
-                    nullptr, "Json value is null, but the column `{}` is not nullable.",
-                    slot_desc->col_name(), valid));
+            nullable_column->insert_default();
             return Status::OK();
         }
-        break;
+    } else if ( value.type() == simdjson::ondemand::json_type::null) [[unlikely]] {
+        return Status::DataQualityError("Json Reader insert null to not null column.");
     }
-    case simdjson::ondemand::json_type::boolean: {
-        nullable_column->get_null_map_data().push_back(0);
-        if (value.get_bool()) {
-            column_string->insert_data("1", 1);
-        } else {
-            column_string->insert_data("0", 1);
-        }
-        break;
-    }
-    default: {
-        if (value.type() == simdjson::ondemand::json_type::string) {
-            auto* unescape_buffer =
-                    reinterpret_cast<uint8_t*>(_simdjson_ondemand_unscape_padding_buffer.data());
-            std::string_view unescaped_value =
-                    _ondemand_json_parser->unescape(value.get_raw_json_string(), unescape_buffer);
-            nullable_column->get_null_map_data().push_back(0);
-            column_string->insert_data(unescaped_value.data(), unescaped_value.length());
+
+    switch (type_desc.type) {
+        case TYPE_STRUCT: {
+            if ( value.type()!= simdjson::ondemand::json_type::object ) [[unlikely]]{
+                return Status::DataQualityError("Json Reader insert not object to struct column.");
+            }
+
+            auto sub_col_size = type_desc.children.size();
+
+            simdjson::ondemand::object object_value =  value.get_object();
+            auto sub_serdes = data_serde->get_nested_serdes();
+            auto struct_column_ptr = assert_cast<ColumnStruct*>(data_column_ptr);
+
+            for(size_t sub_col_idx = 0;sub_col_idx < sub_col_size; sub_col_idx ++ ){
+                const auto& sub_col_name =  type_desc.field_names[sub_col_idx];
+
+                auto member_itr =  object_value.find_field_unordered(std::string_view{sub_col_name});
+                if ( member_itr.error() != simdjson::error_code::SUCCESS ) { // case 大小写 xxx
+                    return Status::DataQualityError("Json Reader parse value Failed, field={}, error= {}.",
+                                                    sub_col_name,
+                                                    simdjson::error_message(member_itr.error()));
+                }
+
+                const auto& sub_col_type = type_desc.children[sub_col_idx];
+                RETURN_IF_ERROR(_simdjson_write_data_to_column( member_itr.value()
+                                                            ,sub_col_type,
+                                                            struct_column_ptr->get_column(sub_col_idx).get_ptr() ,
+                                                            sub_serdes[sub_col_idx],valid));
+            }
+            break;
+        }case TYPE_MAP: {
+            if ( value.type()!= simdjson::ondemand::json_type::object ) [[unlikely]]{
+                return Status::DataQualityError("Json Reader insert not object to map column.");
+            }
+            simdjson::ondemand::object object_value =  value.get_object();
+
+            auto sub_serdes = data_serde->get_nested_serdes();
+            auto map_column_ptr = assert_cast<ColumnMap*>(data_column_ptr);
+
+            size_t field_count = 0;
+            for (simdjson::ondemand::field member_value : object_value) {
+
+                auto  f = [&_options](
+                        std::string_view key_view,
+                        const TypeDescriptor& type_desc,
+                              vectorized::IColumn* column_ptr,
+                              DataTypeSerDeSPtr serde,
+                              bool* valid) {
+
+                    auto data_column_ptr = column_ptr;
+                    auto data_serde = serde;
+                    if (column_ptr->is_nullable()) {
+                        auto nullable_column = static_cast<ColumnNullable*>(column_ptr);
+
+                        nullable_column->get_null_map_data().push_back(0);//map.key not be null.
+                        data_column_ptr = nullable_column->get_nested_column().get_ptr();
+                        data_serde = serde->get_nested_serdes()[0];
+                    }
+                    Slice slice(key_view.data(),key_view.length());
+
+
+                    RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr,slice,_options));
+                    return Status::OK();
+                };
+
+                RETURN_IF_ERROR(f(member_value.unescaped_key(),
+                                    type_desc.children[0],
+                                    map_column_ptr->get_keys_ptr()->assume_mutable()->get_ptr() ,
+                                    sub_serdes[0]
+                                    ,valid));
+
+                simdjson::ondemand::value field_value = member_value.value();
+                RETURN_IF_ERROR(_simdjson_write_data_to_column(field_value
+                                                                    ,type_desc.children[1],
+                                                           map_column_ptr->get_values_ptr()->assume_mutable()->get_ptr() ,
+                                                           sub_serdes[1]
+                        ,valid));
+                field_count ++;
+            }
+
+            auto& offsets = map_column_ptr->get_offsets();
+            offsets.emplace_back(offsets.back() + field_count);
+
+            break;
+        } case TYPE_ARRAY: {
+            if ( value.type() != simdjson::ondemand::json_type::array ) [[unlikely]]{
+                return Status::DataQualityError("Json Reader insert not array to array column.");
+            }
+
+            simdjson::ondemand::array array_value = value.get_array();
+
+
+            auto sub_serdes = data_serde->get_nested_serdes();
+            auto array_column_ptr = assert_cast<ColumnArray*>(data_column_ptr);
+
+            int field_count = 0;
+            for (simdjson::ondemand::value sub_value: array_value) {
+
+                RETURN_IF_ERROR(_simdjson_write_data_to_column(sub_value
+                                                        ,type_desc.children[0],
+                                                            array_column_ptr->get_data().get_ptr(),
+                                                            sub_serdes[0]
+                        ,valid));
+                field_count ++;
+            }
+            auto& offsets = array_column_ptr->get_offsets();
+            offsets.emplace_back(offsets.back() + field_count);
             break;
         }
-        auto value_str = simdjson::to_json_string(value).value();
-        nullable_column->get_null_map_data().push_back(0);
-        column_string->insert_data(value_str.data(), value_str.length());
+        default: {
+
+            if (value.type() == simdjson::ondemand::json_type::string) {
+                std::string_view value_string = value.get_string();
+                Slice slice {value_string.data(),   value_string.size()};
+                RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr,slice,_options));
+
+            } else {
+
+                // Maybe we can `switch (value->GetType()) case: kNumberType`.
+                // Note that `if (value->IsInt())`, but column is FloatColumn.
+                std::string_view json_str = simdjson::to_json_string(value);
+                Slice  slice {json_str.data() , json_str.size()};
+                RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr,slice,_options));
+            }
+            break;
+        }
     }
-    }
+
+    *valid = true;
+    return Status::OK();
+}
+
+
+Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& value,
+                                                     SlotDescriptor* slot_desc, IColumn* column,
+                                                     bool* valid) {
+
+    RETURN_IF_ERROR(
+            _simdjson_write_data_to_column(
+                    value,slot_desc->type(),column,slot_desc->get_data_type_ptr()->get_serde(),valid)
+            );
     *valid = true;
     return Status::OK();
 }
