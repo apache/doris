@@ -934,6 +934,9 @@ DEFINE_mBool(enable_query_like_bloom_filter, "true");
 DEFINE_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
 DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
+DEFINE_mInt64(block_cache_wait_timeout_ms, "1000");
+DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
+DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
