@@ -44,11 +44,13 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.UnsupportedEncodingException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.zip.Adler32;
 
 /**
  * Save policy for storage migration.
@@ -410,5 +412,57 @@ public class StoragePolicy extends Policy implements Writable, GsonPostProcessab
             }
         }
         return false;
+    }
+
+    public int getSignature(int signatureVersion) {
+        Adler32 adler32 = new Adler32();
+        adler32.update(signatureVersion);
+        final String charsetName = "UTF-8";
+
+        try {
+            // policy name
+            adler32.update(policyName.getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. policy name: {}", policyName);
+            }
+            // storageResource name
+            adler32.update(policyName.getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. storageResource name: {}", storageResource);
+            }
+            // id
+            adler32.update(String.valueOf(id).getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. id : {}", id);
+            }
+            // type
+            adler32.update(String.valueOf(getType()).getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. type : {}", getType());
+            }
+            // version
+            adler32.update(String.valueOf(getVersion()).getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. version : {}", getVersion());
+            }
+            // cooldownTimestampMs
+            adler32.update(String.valueOf(cooldownTimestampMs).getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. cooldownTimestampMs : {}", cooldownTimestampMs);
+            }
+            // cooldownTtl
+            adler32.update(String.valueOf(cooldownTtl).getBytes(charsetName));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("signature. cooldownTtl : {}", cooldownTtl);
+            }
+        } catch (UnsupportedEncodingException e) {
+            LOG.error("encoding error", e);
+            return -1;
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("signature: {}", Math.abs((int) adler32.getValue()));
+        }
+        return Math.abs((int) adler32.getValue());
     }
 }

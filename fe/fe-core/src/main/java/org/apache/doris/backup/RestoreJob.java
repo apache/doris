@@ -688,6 +688,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
+        for (BackupJobInfo.BackupStoragePolicyInfo backupStoragePolicyInfo : jobInfo.newBackupObjects.storagePolicies) {
+            String backupStoragePoliceName = backupStoragePolicyInfo.name;
+            Optional<Policy> localPolicy = Env.getCurrentEnv().getPolicyMgr().findPolicy(backupStoragePoliceName,
+                    PolicyTypeEnum.STORAGE);
+            if (localPolicy.isPresent() && localPolicy.get().getType() != PolicyTypeEnum.STORAGE) {
+                status = new Status(ErrCode.COMMON_ERROR,
+                    "The local policy " + backupStoragePoliceName
+                        + " with the same name but a different type of backup meta.");
+                return;
+            }
+        }
+
         // the new tablets -> { local tablet, schema hash, storage medium }, used in atomic restore.
         Map<Long, TabletRef> tabletBases = new HashMap<>();
 
@@ -1338,6 +1350,14 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             + " already exist but with different properties");
                     return;
                 }
+                // storage policy id should be same
+                if (localStoargePolicy.getSignature(BackupHandler.SIGNATURE_VERSION)
+                        != backupStoargePolicy.getSignature(BackupHandler.SIGNATURE_VERSION)) {
+                    status = new Status(ErrCode.COMMON_ERROR, "Storage policy "
+                        + jobInfo.getAliasByOriginNameIfSet(backupStoragePoliceName)
+                        + " already exist but with different properties");
+                    return;
+                }
 
             } else {
                 // restore storage policy
@@ -1722,7 +1742,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         // restored storage policy
         PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
         for (StoragePolicy storagePolicy : storagePolicies) {
-            policyMgr.replayCreate(storagePolicy);
+            Optional<Policy> localPolicy = policyMgr.findPolicy(storagePolicy.getPolicyName(),
+                    PolicyTypeEnum.STORAGE);
+            if (!localPolicy.isPresent()) {
+                policyMgr.replayCreate(storagePolicy);
+            }
         }
 
         LOG.info("replay check and prepare meta. {}", this);
