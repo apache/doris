@@ -102,7 +102,7 @@ Status Pipeline::set_sink(DataSinkOperatorPtr& sink) {
         return Status::InternalError("set sink twice");
     }
     if (!sink->is_sink()) {
-        return Status::InternalError("should set a sink operator but {}", typeid(sink).name());
+        return Status::InternalError("should set a sink operator but {}", sink->get_name());
     }
     _sink = sink;
     return Status::OK();
