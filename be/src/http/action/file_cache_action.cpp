@@ -50,6 +50,8 @@ constexpr static std::string_view CLEAR = "clear";
 constexpr static std::string_view RESET = "reset";
 constexpr static std::string_view HASH = "hash";
 constexpr static std::string_view LIST_CACHE = "list_cache";
+constexpr static std::string_view LIST_BASE_PATHS = "list_base_paths";
+constexpr static std::string_view CHECK_CONSISTENCY = "check_consistency";
 constexpr static std::string_view CAPACITY = "capacity";
 constexpr static std::string_view RELEASE = "release";
 constexpr static std::string_view BASE_PATH = "base_path";
@@ -126,6 +128,25 @@ Status FileCacheAction::_handle_header(HttpRequest* req, std::string* json_metri
                               [&json](auto& x) { json.PushBack(x); });
                 *json_metrics = json.ToString();
             }
+        }
+    } else if (operation == LIST_BASE_PATHS) {
+        auto all_cache_base_path = io::FileCacheFactory::instance()->get_base_paths();
+        EasyJson json;
+        std::for_each(all_cache_base_path.begin(), all_cache_base_path.end(),
+                      [&json](auto& x) { json.PushBack(std::move(x)); });
+        *json_metrics = json.ToString();
+    } else if (operation == CHECK_CONSISTENCY) {
+        const std::string& cache_base_path = req->param(BASE_PATH.data());
+        if (cache_base_path.empty()) {
+            st = Status::InvalidArgument("missing parameter: {} is required", VALUE.data());
+        } else {
+            auto* block_file_cache = io::FileCacheFactory::instance()->get_by_path(cache_base_path);
+            std::vector<std::string> inconsistencies;
+            RETURN_IF_ERROR(block_file_cache->report_file_cache_inconsistency(inconsistencies));
+            EasyJson json;
+            std::for_each(inconsistencies.begin(), inconsistencies.end(),
+                          [&json](auto& x) { json.PushBack(std::move(x)); });
+            *json_metrics = json.ToString();
         }
     } else {
         st = Status::InternalError("invalid operation: {}", operation);

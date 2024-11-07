@@ -21,6 +21,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
 #include <stddef.h>
 #if defined(__APPLE__)
 #include <sys/mount.h>
@@ -5281,6 +5282,155 @@ TEST_F(BlockFileCacheTest, file_cache_path_storage_parse) {
         ASSERT_TRUE(cache_paths[0].path == "memory");
         ASSERT_TRUE(cache_paths[0].total_bytes == 102400);
         ASSERT_TRUE(cache_paths[0].storage == "disk");
+    }
+}
+
+TEST_F(BlockFileCacheTest, check_fs_file_cache_consistency) {
+    if (fs::exists(cache_base_path)) {
+        fs::remove_all(cache_base_path);
+    }
+    fs::create_directories(cache_base_path);
+    TUniqueId query_id;
+    query_id.hi = 1;
+    query_id.lo = 1;
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 30;
+    settings.query_queue_elements = 5;
+    settings.index_queue_size = 30;
+    settings.index_queue_elements = 5;
+    settings.disposable_queue_size = 30;
+    settings.disposable_queue_elements = 5;
+    settings.capacity = 90;
+    settings.max_file_block_size = 30;
+    settings.max_query_cache_size = 30;
+    auto key1 = io::BlockFileCache::hash("key1");
+    auto key2 = io::BlockFileCache::hash("key2");
+
+    io::BlockFileCache mgr(cache_base_path, settings);
+    ASSERT_TRUE(mgr.initialize());
+    for (int i = 0; i < 100; i++) {
+        if (mgr.get_async_open_success()) {
+            break;
+        };
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    io::CacheContext cache_context;
+    cache_context.cache_type = io::FileCacheType::TTL;
+    cache_context.query_id = query_id;
+    cache_context.expiration_time = 0;
+    {
+        cache_context.cache_type = io::FileCacheType::NORMAL;
+        auto holder = mgr.get_or_set(key1, 0, 9, cache_context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(0, 8), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, blocks[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
+        download(blocks[0]);
+        std::vector<std::string> result;
+        Status status = mgr.report_file_cache_inconsistency(result);
+        ASSERT_TRUE(result.empty());
+    }
+
+    {
+        auto holder = mgr.get_or_set(key1, 10, 9, cache_context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(10, 18), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, blocks[0], io::FileBlock::Range(10, 18), io::FileBlock::State::DOWNLOADING);
+        download(blocks[0]);
+        mgr._files[key1].erase(10);
+    }
+
+    {
+        auto holder = mgr.get_or_set(key1, 20, 9, cache_context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(20, 28), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, blocks[0], io::FileBlock::Range(20, 28), io::FileBlock::State::DOWNLOADING);
+        download(blocks[0]);
+        auto* fs_file_cache_storage = dynamic_cast<FSFileCacheStorage*>(mgr._storage.get());
+        std::string dir_path = fs_file_cache_storage->get_path_in_local_cache(key1, 0);
+        fs::path block_file_path = std::filesystem::path(dir_path) / "20";
+        fs::remove(block_file_path);
+    }
+
+    {
+        auto holder = mgr.get_or_set(key1, 30, 9, cache_context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(30, 38), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, blocks[0], io::FileBlock::Range(30, 38), io::FileBlock::State::DOWNLOADING);
+        download(blocks[0]);
+        auto* fs_file_cache_storage = dynamic_cast<FSFileCacheStorage*>(mgr._storage.get());
+        std::string dir_path = fs_file_cache_storage->get_path_in_local_cache(key1, 0);
+        fs::path block_file_path = std::filesystem::path(dir_path) / "30";
+        std::string data = "This is a test message.";
+        std::ofstream out_file(block_file_path, std::ios::out | std::ios::app);
+        out_file << data;
+        out_file.close();
+    }
+
+    {
+        auto holder = mgr.get_or_set(key1, 40, 9, cache_context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(40, 48), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, blocks[0], io::FileBlock::Range(40, 48), io::FileBlock::State::DOWNLOADING);
+        download(blocks[0]);
+        blocks[0]->_key.meta.type = io::FileCacheType::INDEX;
+    }
+
+    int64_t expiration_time = UnixSeconds() + 120;
+    {
+        cache_context.cache_type = FileCacheType::TTL;
+        cache_context.expiration_time = expiration_time;
+        auto holder = mgr.get_or_set(key2, 0, 9, cache_context);
+        auto blocks = fromHolder(holder);
+        ASSERT_EQ(blocks.size(), 1);
+        assert_range(1, blocks[0], io::FileBlock::Range(0, 8), io::FileBlock::State::EMPTY);
+        ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+        assert_range(2, blocks[0], io::FileBlock::Range(0, 8), io::FileBlock::State::DOWNLOADING);
+        download(blocks[0]);
+        blocks[0]->_key.meta.expiration_time = 0;
+    }
+    std::vector<std::string> results;
+    Status status = mgr.report_file_cache_inconsistency(results);
+    std::unordered_set<std::string> expected_results = {
+            "File cahce info in manager:\nHash: "
+            "62434304659ae12df53386481113dfe1\nExpiration Time: 0\nOffset: 0\nCache Type: "
+            "TTL\nFile cahce info in storage:\nHash: "
+            "62434304659ae12df53386481113dfe1\nExpiration Time: " +
+                    std::to_string(expiration_time) +
+                    "\nOffset: 0\nCache Type: "
+                    "TTL\nInconsistency Reason: EXPIRATION_TIME_INCONSISTENT \n\n",
+            "File cahce info in manager:\nHash: "
+            "00000000000000000000000000000000\nExpiration Time: 0\nOffset: 0\nCache Type: "
+            "NORMAL\nFile cahce info in storage:\nHash: "
+            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 10\nCache Type: "
+            "NORMAL\nInconsistency Reason: NOT_LOADED \n\n",
+            "File cahce info in manager:\nHash: "
+            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 30\nCache Type: "
+            "NORMAL\nFile cahce info in storage:\nHash: "
+            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 30\nCache Type: "
+            "NORMAL\nInconsistency Reason: SIZE_INCONSISTENT \n\n",
+            "File cahce info in manager:\nHash: "
+            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 40\nCache Type: "
+            "INDEX\nFile cahce info in storage:\nHash: "
+            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 40\nCache Type: "
+            "NORMAL\nInconsistency Reason: CACHE_TYPE_INCONSISTENT \n\n",
+            "File cahce info in manager:\nHash: "
+            "f36131fb4ba563c17e727cd0cdd63689\nExpiration Time: 0\nOffset: 20\nCache Type: "
+            "NORMAL\nFile cahce info in storage:\nHash: "
+            "00000000000000000000000000000000\nExpiration Time: 0\nOffset: 0\nCache Type: "
+            "NORMAL\nInconsistency Reason: MISSING_IN_STORAGE \n\n"};
+    ASSERT_EQ(results.size(), expected_results.size());
+    for (const auto& result : results) {
+        ASSERT_TRUE(expected_results.contains(result));
     }
 }
 

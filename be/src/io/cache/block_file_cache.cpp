@@ -20,6 +20,8 @@
 
 #include "io/cache/block_file_cache.h"
 
+#include <unordered_set>
+
 #include "common/status.h"
 #include "cpp/sync_point.h"
 
@@ -2039,4 +2041,84 @@ std::map<std::string, double> BlockFileCache::get_stats_unsafe() {
 template void BlockFileCache::remove(FileBlockSPtr file_block,
                                      std::lock_guard<std::mutex>& cache_lock,
                                      std::lock_guard<std::mutex>& block_lock, bool sync);
+
+Status BlockFileCache::report_file_cache_inconsistency(std::vector<std::string>& results) {
+    InconsistencyContext inconsistency_context;
+    RETURN_IF_ERROR(check_file_cache_consistency(inconsistency_context));
+    auto n = inconsistency_context.types.size();
+    results.reserve(n);
+    for (size_t i = 0; i < n; i++) {
+        std::string result;
+        result += "File cahce info in manager:\n";
+        result += inconsistency_context.infos_in_manager[i].to_string();
+        result += "File cahce info in storage:\n";
+        result += inconsistency_context.infos_in_storage[i].to_string();
+        result += inconsistency_context.types[i].to_string();
+        result += "\n";
+        results.push_back(std::move(result));
+    }
+    return Status::OK();
+}
+
+Status BlockFileCache::check_file_cache_consistency(InconsistencyContext& inconsistency_context) {
+    std::lock_guard<std::mutex> cache_lock(_mutex);
+    std::vector<FileCacheInfo> infos_in_storage;
+    RETURN_IF_ERROR(_storage->get_file_cache_infos(infos_in_storage, cache_lock));
+    std::unordered_set<AccessKeyAndOffset, KeyAndOffsetHash> confirmed_blocks;
+    for (const auto& info_in_storage : infos_in_storage) {
+        confirmed_blocks.insert({info_in_storage.hash, info_in_storage.offset});
+        auto* cell = get_cell(info_in_storage.hash, info_in_storage.offset, cache_lock);
+        if (cell == nullptr) {
+            inconsistency_context.infos_in_manager.emplace_back();
+            inconsistency_context.infos_in_storage.push_back(info_in_storage);
+            inconsistency_context.types.emplace_back(InconsistencyType::NOT_LOADED);
+            continue;
+        }
+        FileCacheInfo info_in_manager {
+                .hash = info_in_storage.hash,
+                .expiration_time = cell->file_block->expiration_time(),
+                .size = cell->size(),
+                .offset = info_in_storage.offset,
+                .is_tmp = cell->file_block->state() == FileBlock::State::DOWNLOADING,
+                .cache_type = cell->file_block->cache_type()};
+        InconsistencyType inconsistent_type;
+        if (info_in_storage.is_tmp != info_in_manager.is_tmp) {
+            inconsistent_type |= InconsistencyType::TMP_FILE_EXPECT_DOWNLOADING_STATE;
+        }
+        size_t expected_size =
+                info_in_manager.is_tmp ? cell->dowloading_size() : info_in_manager.size;
+        if (info_in_storage.size != expected_size) {
+            inconsistent_type |= InconsistencyType::SIZE_INCONSISTENT;
+        }
+        // Only if it is not a tmp file need we check the cache type.
+        if ((inconsistent_type & InconsistencyType::TMP_FILE_EXPECT_DOWNLOADING_STATE) == 0 &&
+            info_in_storage.cache_type != info_in_manager.cache_type) {
+            inconsistent_type |= InconsistencyType::CACHE_TYPE_INCONSISTENT;
+        }
+        if (info_in_storage.expiration_time != info_in_manager.expiration_time) {
+            inconsistent_type |= InconsistencyType::EXPIRATION_TIME_INCONSISTENT;
+        }
+        if (inconsistent_type != InconsistencyType::NONE) {
+            inconsistency_context.infos_in_manager.push_back(info_in_manager);
+            inconsistency_context.infos_in_storage.push_back(info_in_storage);
+            inconsistency_context.types.push_back(inconsistent_type);
+        }
+    }
+
+    for (const auto& [hash, offset_to_cell] : _files) {
+        for (const auto& [offset, cell] : offset_to_cell) {
+            if (confirmed_blocks.contains({hash, offset})) {
+                continue;
+            }
+            const auto& block = cell.file_block;
+            inconsistency_context.infos_in_manager.emplace_back(
+                    hash, block->expiration_time(), cell.size(), offset,
+                    cell.file_block->state() == FileBlock::State::DOWNLOADING, block->cache_type());
+            inconsistency_context.infos_in_storage.emplace_back();
+            inconsistency_context.types.emplace_back(InconsistencyType::MISSING_IN_STORAGE);
+        }
+    }
+    return Status::OK();
+}
+
 } // namespace doris::io

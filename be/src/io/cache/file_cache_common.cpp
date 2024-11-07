@@ -26,6 +26,21 @@
 
 namespace doris::io {
 
+std::string file_cache_type_to_string(FileCacheType type) {
+    switch (type) {
+    case FileCacheType::INDEX:
+        return "INDEX";
+    case FileCacheType::NORMAL:
+        return "NORMAL";
+    case FileCacheType::DISPOSABLE:
+        return "DISPOSABLE";
+    case FileCacheType::TTL:
+        return "TTL";
+    default:
+        return "UNKNOWN";
+    }
+}
+
 std::string FileCacheSettings::to_string() const {
     std::stringstream ss;
     ss << "capacity: " << capacity << ", max_file_block_size: " << max_file_block_size
@@ -85,6 +100,43 @@ FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offs
     ctx.is_cold_data = _is_cold_data;
     auto holder = _cache->get_or_set(_cache_hash, offset, size, ctx);
     return std::make_unique<FileBlocksHolder>(std::move(holder));
+}
+
+std::string FileCacheInfo::to_string() const {
+    std::stringstream ss;
+    ss << "Hash: " << hash.to_string() << "\n"
+       << "Expiration Time: " << expiration_time << "\n"
+       << "Offset: " << offset << "\n"
+       << "Cache Type: " << file_cache_type_to_string(cache_type) << "\n";
+    return ss.str();
+}
+
+std::string InconsistencyType::to_string() const {
+    std::string result = "Inconsistency Reason: ";
+    if (type == NONE) {
+        result += "NONE";
+    } else {
+        if (type & NOT_LOADED) {
+            result += "NOT_LOADED ";
+        }
+        if (type & MISSING_IN_STORAGE) {
+            result += "MISSING_IN_STORAGE ";
+        }
+        if (type & SIZE_INCONSISTENT) {
+            result += "SIZE_INCONSISTENT ";
+        }
+        if (type & CACHE_TYPE_INCONSISTENT) {
+            result += "CACHE_TYPE_INCONSISTENT ";
+        }
+        if (type & EXPIRATION_TIME_INCONSISTENT) {
+            result += "EXPIRATION_TIME_INCONSISTENT ";
+        }
+        if (type & TMP_FILE_EXPECT_DOWNLOADING_STATE) {
+            result += "TMP_FILE_EXPECT_DOWNLOADING_STATE";
+        }
+    }
+    result += "\n";
+    return result;
 }
 
 } // namespace doris::io

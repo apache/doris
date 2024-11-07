@@ -17,15 +17,19 @@
 
 #include "io/cache/fs_file_cache_storage.h"
 
+#include <fmt/core.h>
+
 #include <filesystem>
 #include <mutex>
 #include <system_error>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
+#include "io/cache/file_cache_storage.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
@@ -523,7 +527,7 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
             std::error_code ec;
             std::filesystem::directory_iterator offset_it(key_it->path(), ec);
             if (ec) [[unlikely]] {
-                LOG(WARNING) << "filesystem error, failed to remove file, file=" << key_it->path()
+                LOG(WARNING) << "filesystem error, failed to list dir, dir=" << key_it->path()
                              << " error=" << ec.message();
                 continue;
             }
@@ -603,6 +607,69 @@ void FSFileCacheStorage::load_cache_info_into_memory(BlockFileCache* _mgr) const
         add_cell_batch_func();
     }
     TEST_SYNC_POINT_CALLBACK("BlockFileCache::TmpFile2");
+}
+
+Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& infos,
+                                                std::lock_guard<std::mutex>& cache_lock) const {
+    std::error_code ec;
+    std::filesystem::directory_iterator key_prefix_it {_cache_base_path, ec};
+    if (ec) [[unlikely]] {
+        LOG(ERROR) << fmt::format("Failed to list dir {}, err={}", _cache_base_path, ec.message());
+        return Status::InternalError("Failed to list dir {}, err={}", _cache_base_path,
+                                     ec.message());
+    }
+    // Only supports version 2. For more details, refer to 'USE_CACHE_VERSION2'.
+    for (; key_prefix_it != std::filesystem::directory_iterator(); ++key_prefix_it) {
+        if (!key_prefix_it->is_directory()) {
+            // skip version file
+            continue;
+        }
+        if (key_prefix_it->path().filename().native().size() != KEY_PREFIX_LENGTH) {
+            LOG(WARNING) << "Unknown directory " << key_prefix_it->path().native();
+            continue;
+        }
+        std::filesystem::directory_iterator key_it {key_prefix_it->path(), ec};
+        if (ec) [[unlikely]] {
+            LOG(ERROR) << fmt::format("Failed to list dir {}, err={}",
+                                      key_prefix_it->path().filename().native(), ec.message());
+            return Status::InternalError("Failed to list dir {}, err={}",
+                                         key_prefix_it->path().filename().native(), ec.message());
+        }
+        for (; key_it != std::filesystem::directory_iterator(); ++key_it) {
+            auto key_with_suffix = key_it->path().filename().native();
+            auto delim_pos = key_with_suffix.find('_');
+            DCHECK(delim_pos != std::string::npos);
+            std::string key_str = key_with_suffix.substr(0, delim_pos);
+            std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
+            long expiration_time = std::stoul(expiration_time_str);
+            auto hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
+            std::error_code ec;
+            std::filesystem::directory_iterator offset_it(key_it->path(), ec);
+            if (ec) [[unlikely]] {
+                LOG(ERROR) << fmt::format("Failed to list dir {}, err={}",
+                                          key_it->path().filename().native(), ec.message());
+                return Status::InternalError("Failed to list dir {}, err={}",
+                                             key_it->path().filename().native(), ec.message());
+            }
+            for (; offset_it != std::filesystem::directory_iterator(); ++offset_it) {
+                size_t size = offset_it->file_size(ec);
+                if (ec) [[unlikely]] {
+                    LOG(ERROR) << fmt::format("Failed to get file size, file name {}, err={}",
+                                              key_it->path().filename().native(), ec.message());
+                    return Status::InternalError("Failed to get file size, file name {}, err={}",
+                                                 key_it->path().filename().native(), ec.message());
+                }
+                size_t offset = 0;
+                bool is_tmp = false;
+                FileCacheType cache_type = FileCacheType::NORMAL;
+                RETURN_IF_ERROR(this->parse_filename_suffix_to_cache_type(
+                        fs, offset_it->path().filename().native(), expiration_time, size, &offset,
+                        &is_tmp, &cache_type));
+                infos.emplace_back(hash, expiration_time, size, offset, is_tmp, cache_type);
+            }
+        }
+    }
+    return Status::OK();
 }
 
 void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, const FileCacheKey& key,
