@@ -40,6 +40,7 @@ public:
     int64_t backend_id = 0;
 
     // Auth token for internal authentication
+    // Save the last 2 tokens to avoid token invalid during token update
     std::string curr_auth_token = "";
     std::string last_auth_token = "";
 };

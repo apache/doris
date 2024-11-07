@@ -284,15 +284,15 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 master_info.tablet_report_inactive_duration_ms;
     }
 
-    if (master_info.__isset.curr_auth_token) {
+    if (master_info.__isset.auth_token) {
         if (_cluster_info->curr_auth_token == "") {
-            _cluster_info->curr_auth_token = master_info.curr_auth_token;
-            LOG(INFO) << "set new auth token: " << master_info.curr_auth_token;
-        } else if (_cluster_info->curr_auth_token != master_info.curr_auth_token) {
+            _cluster_info->curr_auth_token = master_info.auth_token;
+            LOG(INFO) << "set new auth token: " << master_info.auth_token;
+        } else if (_cluster_info->curr_auth_token != master_info.auth_token) {
             LOG(INFO) << "last auth token: " << _cluster_info->last_auth_token
-                      << "set new auth token: " << master_info.curr_auth_token;
+                      << "set new auth token: " << master_info.auth_token;
             _cluster_info->last_auth_token = _cluster_info->curr_auth_token;
-            _cluster_info->curr_auth_token = master_info.curr_auth_token;
+            _cluster_info->curr_auth_token = master_info.auth_token;
         }
     }
 
