@@ -363,7 +363,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                     if (StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
                         List<String> partitionUnSyncTables = partitionsUnSyncTables.getOrDefault(partitionId,
                                 Lists.newArrayList());
-                        boolean isSync = partitionsUnSyncTables.containsKey(partitionId) && CollectionUtils.isEmpty(partitionUnSyncTables);
+                        boolean isSync = partitionsUnSyncTables.containsKey(partitionId) && CollectionUtils.isEmpty(
+                                partitionUnSyncTables);
                         partitionInfo.add(isSync);
                         trow.addToColumnValue(new TCell().setBoolVal(isSync));
                         // The calculation logic of partitionsUnSyncTables is not protected in the current lock,
