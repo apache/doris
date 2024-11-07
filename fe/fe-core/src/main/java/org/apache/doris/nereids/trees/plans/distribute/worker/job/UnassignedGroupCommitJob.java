@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker;
-import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
@@ -40,7 +40,7 @@ public class UnassignedGroupCommitJob extends AbstractUnassignedJob {
 
     @Override
     public List<AssignedJob> computeAssignedJobs(
-            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         TUniqueId instanceId = statementContext.getConnectContext().nextInstanceId();
         BackendWorker selectBackend = new BackendWorker(statementContext.getGroupCommitMergeBackend());
         return ImmutableList.of(

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
@@ -47,14 +48,14 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
 
     @Override
     public List<AssignedJob> computeAssignedJobs(
-            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
 
         Map<DistributedPlanWorker, UninstancedScanSource> workerToScanSource
-                = multipleMachinesParallelization(workerManager, inputJobs);
+                = multipleMachinesParallelization(distributeContext, inputJobs);
 
-        List<AssignedJob> assignedJobs = insideMachineParallelization(workerToScanSource, inputJobs, workerManager);
+        List<AssignedJob> assignedJobs = insideMachineParallelization(workerToScanSource, inputJobs, distributeContext);
 
-        return fillUpAssignedJobs(assignedJobs, workerManager, inputJobs);
+        return fillUpAssignedJobs(assignedJobs, distributeContext.workerManager, inputJobs);
     }
 
     protected List<AssignedJob> fillUpAssignedJobs(
@@ -65,14 +66,15 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
     }
 
     protected abstract Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
-            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs);
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs);
 
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs,
+            DistributeContext distributeContext) {
 
         ConnectContext context = statementContext.getConnectContext();
-        boolean useLocalShuffleToAddParallel = useLocalShuffleToAddParallel(workerToScanRanges);
+        boolean useLocalShuffleToAddParallel = fragment.useSerialSource(ConnectContext.get());
         int instanceIndexInFragment = 0;
         List<AssignedJob> instances = Lists.newArrayList();
         for (Entry<DistributedPlanWorker, UninstancedScanSource> entry : workerToScanRanges.entrySet()) {
@@ -150,43 +152,6 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
         return instances;
     }
 
-    protected boolean useLocalShuffleToAddParallel(
-            Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges) {
-        if (fragment.queryCacheParam != null) {
-            return false;
-        }
-        if (fragment.hasNullAwareLeftAntiJoin()) {
-            return false;
-        }
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isForceToLocalShuffle()) {
-            return true;
-        }
-        return parallelTooLittle(workerToScanRanges);
-    }
-
-    protected boolean parallelTooLittle(Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges) {
-        if (this instanceof UnassignedScanBucketOlapTableJob) {
-            return scanRangesToLittle(workerToScanRanges) && bucketsTooLittle(workerToScanRanges);
-        } else if (this instanceof UnassignedScanSingleOlapTableJob
-                || this instanceof UnassignedScanSingleRemoteTableJob) {
-            return scanRangesToLittle(workerToScanRanges);
-        } else {
-            return false;
-        }
-    }
-
-    protected boolean scanRangesToLittle(
-            Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges) {
-        ConnectContext context = ConnectContext.get();
-        int backendNum = workerToScanRanges.size();
-        for (ScanNode scanNode : scanNodes) {
-            if (!scanNode.ignoreStorageDataDistribution(context, backendNum)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     protected int degreeOfParallelism(int maxParallel) {
         Preconditions.checkArgument(maxParallel > 0, "maxParallel must be positive");
         if (!fragment.getDataPartition().isPartitioned()) {
@@ -208,21 +173,6 @@ public abstract class AbstractUnassignedScanJob extends AbstractUnassignedJob {
 
         // the scan instance num should not larger than the tablets num
         return Math.min(maxParallel, Math.max(fragment.getParallelExecNum(), 1));
-    }
-
-    protected boolean bucketsTooLittle(Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges) {
-        int parallelExecNum = fragment.getParallelExecNum();
-        for (UninstancedScanSource uninstancedScanSource : workerToScanRanges.values()) {
-            ScanSource scanSource = uninstancedScanSource.scanSource;
-            if (scanSource instanceof BucketScanSource) {
-                BucketScanSource bucketScanSource = (BucketScanSource) scanSource;
-                int bucketNum = bucketScanSource.bucketIndexToScanNodeToTablets.size();
-                if (bucketNum >= parallelExecNum) {
-                    return false;
-                }
-            }
-        }
-        return true;
     }
 
     protected List<AssignedJob> fillUpSingleEmptyInstance(DistributedPlanWorkerManager workerManager) {

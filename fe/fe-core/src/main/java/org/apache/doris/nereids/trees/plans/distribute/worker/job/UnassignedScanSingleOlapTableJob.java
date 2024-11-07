@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
@@ -49,7 +50,7 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
 
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
-            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         // for every tablet, select its replica and worker.
         // for example:
         // {
@@ -66,7 +67,7 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
     @Override
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributeContext distributeContext) {
         // for each worker, compute how many instances should be generated, and which data should be scanned.
         // for example:
         // {
@@ -80,7 +81,7 @@ public class UnassignedScanSingleOlapTableJob extends AbstractUnassignedScanJob 
         //        instance 5: olapScanNode1: ScanRanges([tablet_10007])
         //    ],
         // }
-        return super.insideMachineParallelization(workerToScanRanges, inputJobs, workerManager);
+        return super.insideMachineParallelization(workerToScanRanges, inputJobs, distributeContext);
     }
 
     @Override

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
@@ -76,7 +77,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
 
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
-            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         // for every bucket tablet, select its replica and worker.
         // for example, colocate join:
         // {
@@ -103,7 +104,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
     @Override
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributeContext distributeContext) {
         // separate buckets to instanceNum groups, let one instance process some buckets.
         // for example, colocate join:
         // {
@@ -132,7 +133,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         //    ...
         // }
         List<AssignedJob> assignedJobs = super.insideMachineParallelization(
-                workerToScanRanges, inputJobs, workerManager);
+                workerToScanRanges, inputJobs, distributeContext);
 
         // the case:
         // ```sql

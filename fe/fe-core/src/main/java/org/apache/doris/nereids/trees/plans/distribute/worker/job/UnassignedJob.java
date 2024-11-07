@@ -19,8 +19,8 @@ package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
-import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.ScanNode;
@@ -44,7 +44,7 @@ public interface UnassignedJob extends TreeNode<UnassignedJob> {
     ListMultimap<ExchangeNode, UnassignedJob> getExchangeToChildJob();
 
     List<AssignedJob> computeAssignedJobs(
-            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs);
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs);
 
     // generate an instance job
     // e.g. build an instance job by a backends and the replica ids it contains

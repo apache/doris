@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.distribute.worker.job;
 
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
-import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
@@ -38,12 +38,12 @@ public class UnassignedQueryConstantJob extends AbstractUnassignedJob {
     }
 
     @Override
-    public List<AssignedJob> computeAssignedJobs(DistributedPlanWorkerManager workerManager,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
-        DistributedPlanWorker randomWorker = workerManager.randomAvailableWorker();
-        ConnectContext context = ConnectContext.get();
+    public List<AssignedJob> computeAssignedJobs(
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+        DistributedPlanWorker randomWorker = distributeContext.selectedWorkers.tryToSelectUsedWorker();
+        ConnectContext connectContext = statementContext.getConnectContext();
         return ImmutableList.of(
-                new StaticAssignedJob(0, context.nextInstanceId(), this,
+                new StaticAssignedJob(0, connectContext.nextInstanceId(), this,
                         randomWorker, new DefaultScanSource(ImmutableMap.of())
                 )
         );

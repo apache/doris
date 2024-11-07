@@ -1780,7 +1780,7 @@ public class Coordinator implements CoordInterface {
                 params.instanceExecParams.add(instanceParam);
 
                 // Using serial source means a serial source operator will be used in this fragment (e.g. data will be
-                // shuffled to only 1 exchange operator) and then splitted by followed local exchanger
+                // shuffled to only 1 exchange operator) and then split by followed local exchanger
                 int expectedInstanceNum = fragment.getParallelExecNum();
                 boolean useSerialSource = fragment.useSerialSource(context);
                 if (useSerialSource) {

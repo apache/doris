@@ -22,10 +22,12 @@ import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Reference;
 import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableMap;
 
+import java.util.Map;
 import java.util.function.Supplier;
 
 /** BackendWorkerManager */
@@ -71,5 +73,11 @@ public class BackendDistributedPlanWorkerManager implements DistributedPlanWorke
         } catch (Exception t) {
             throw new NereidsException("Can not get backends: " + t, t);
         }
+    }
+
+    @Override
+    public long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID) {
+        TNetworkAddress backend = SimpleScheduler.getHostByCurrentBackend(addressToBackendID);
+        return addressToBackendID.get(backend);
     }
 }

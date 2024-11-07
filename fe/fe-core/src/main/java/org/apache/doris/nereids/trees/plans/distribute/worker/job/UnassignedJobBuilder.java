@@ -202,10 +202,14 @@ public class UnassignedJobBuilder {
         }
     }
 
-    private UnassignedShuffleJob buildShuffleJob(
+    private UnassignedJob buildShuffleJob(
             StatementContext statementContext, PlanFragment planFragment,
             ListMultimap<ExchangeNode, UnassignedJob> inputJobs) {
-        return new UnassignedShuffleJob(statementContext, planFragment, inputJobs);
+        if (planFragment.isPartitioned()) {
+            return new UnassignedShuffleJob(statementContext, planFragment, inputJobs);
+        } else {
+            return new UnassignedGatherJob(statementContext, planFragment, inputJobs);
+        }
     }
 
     private static ListMultimap<ExchangeNode, UnassignedJob> findInputJobs(

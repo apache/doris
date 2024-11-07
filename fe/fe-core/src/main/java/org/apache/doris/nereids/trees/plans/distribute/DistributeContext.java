@@ -15,17 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.distribute.worker;
+package org.apache.doris.nereids.trees.plans.distribute;
 
-import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.nereids.trees.plans.distribute.worker.BackendDistributedPlanWorkerManager;
+import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 
-import java.util.Map;
+/** DistributeContext */
+public class DistributeContext {
+    public final DistributedPlanWorkerManager workerManager;
+    public final SelectedWorkers selectedWorkers;
 
-/** DistributedPlanWorkerManager */
-public interface DistributedPlanWorkerManager {
-    DistributedPlanWorker getWorker(long backendId);
-
-    DistributedPlanWorker randomAvailableWorker();
-
-    long randomAvailableWorker(Map<TNetworkAddress, Long> addressToBackendID);
+    public DistributeContext() {
+        this.workerManager = new BackendDistributedPlanWorkerManager();
+        this.selectedWorkers = new SelectedWorkers(workerManager);
+    }
 }
