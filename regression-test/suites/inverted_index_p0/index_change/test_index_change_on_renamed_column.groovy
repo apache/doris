@@ -72,7 +72,7 @@ suite("test_index_change_on_renamed_column") {
             `s` STRING COMMENT ""
         )
         DUPLICATE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES ( "replication_num" = "1" );
+        PROPERTIES ( "replication_num" = "1", "inverted_index_storage_format" = "V2" );
         """
 
     sql """ INSERT INTO ${tableName} VALUES
