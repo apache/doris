@@ -108,6 +108,7 @@ struct RowsetWriterContext {
     std::shared_ptr<std::mutex> schema_lock;
 
     int64_t compaction_level = 0;
+    int64_t storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
 
     // For local rowset
     std::string tablet_path;
