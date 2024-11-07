@@ -2022,6 +2022,12 @@ public class Config extends ConfigBase {
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
 
     /**
+     * Even if a backend is healthy, still write a heartbeat editlog to update backend's lastUpdateMs of bdb image.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int editlog_healthy_heartbeat_seconds = 300;
+
+    /**
      * Abort transaction time after lost heartbeat.
      * The default value is 300s, which means transactions of be will be aborted after lost heartbeat 300s.
      */
@@ -2844,9 +2850,6 @@ public class Config extends ConfigBase {
             "是否在每个请求开始之前打印一遍请求内容, 主要是query语句",
             "Should the request content be logged before each request starts, specifically the query statements"})
     public static boolean enable_print_request_before_execution = false;
-
-    @ConfField(mutable = true)
-    public static boolean enable_cooldown_replica_affinity = true;
 
     @ConfField
     public static String spilled_profile_storage_path = System.getenv("LOG_DIR") + File.separator + "profile";

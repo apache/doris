@@ -86,10 +86,30 @@ std::string file_cache_key_str(const std::string& seg_path) {
     return file_cache_key_from_path(seg_path).to_string();
 }
 
-Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
-                     RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
+                     uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
                      InvertedIndexFileInfo idx_file_info) {
+    auto s = _open(fs, path, segment_id, rowset_id, tablet_schema, reader_options, output,
+                   idx_file_info);
+    if (!s.ok()) {
+        if (!config::is_cloud_mode()) {
+            auto res = ExecEnv::get_tablet(tablet_id);
+            TabletSharedPtr tablet =
+                    res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
+            if (tablet) {
+                tablet->report_error(s);
+            }
+        }
+    }
+
+    return s;
+}
+
+Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
+                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
+                      InvertedIndexFileInfo idx_file_info) {
     io::FileReaderSPtr file_reader;
     RETURN_IF_ERROR(fs->open_file(path, &file_reader, &reader_options));
     std::shared_ptr<Segment> segment(

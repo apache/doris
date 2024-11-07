@@ -316,13 +316,13 @@ public class HeartbeatMgr extends MasterDaemon {
                             System.currentTimeMillis(), beStartTime, version, nodeRole,
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
                 } else {
-                    return new BackendHbResponse(backendId, backend.getHost(),
+                    return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                             result.getStatus().getErrorMsgs().isEmpty()
                                     ? "Unknown error" : result.getStatus().getErrorMsgs().get(0));
                 }
             } catch (Exception e) {
                 LOG.warn("backend heartbeat got exception", e);
-                return new BackendHbResponse(backendId, backend.getHost(),
+                return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
                 if (client != null) {

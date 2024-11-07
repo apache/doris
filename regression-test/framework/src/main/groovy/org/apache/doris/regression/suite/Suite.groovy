@@ -971,6 +971,31 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
+    String cmd(String cmd, int timeoutSecond = 0) {
+        var processBuilder = new ProcessBuilder()
+        processBuilder.command("/bin/bash", "-c", cmd)
+        var process = processBuilder.start()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        process.consumeProcessOutput(outBuf, errBuf)
+        var reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String line
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line)
+        }
+        // wait until cmd finish
+        if (timeoutSecond > 0) {
+            process.waitForOrKill(timeoutSecond * 1000)
+        } else {
+            process.waitFor()
+        }
+        if (process.exitValue() != 0) {
+            println outBuf
+            throw new RuntimeException(errBuf.toString())
+        }
+        return outBuf.toString()
+    }
+
     void sshExec(String username, String host, String cmd, boolean alert=true) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
@@ -1377,6 +1402,28 @@ class Suite implements GroovyInterceptable {
         // Need to analyze materialized view for cbo to choose the materialized view accurately
         logger.info("waitingMTMVTaskFinished analyze mv name is " + result.last().get(5))
         sql "analyze table ${result.last().get(6)}.${mvName} with sync;"
+    }
+
+    void waitingMVTaskFinishedByMvName(String dbName, String tableName) {
+        Thread.sleep(2000)
+        String showTasks = "SHOW ALTER TABLE MATERIALIZED VIEW from ${dbName} where TableName='${tableName}' ORDER BY CreateTime ASC"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(8)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status != 'FINISHED'))
+        if (status != "FINISHED") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("FINISHED", status)
     }
 
     void waitingPartitionIsExpected(String tableName, String partitionName, boolean expectedStatus) {
