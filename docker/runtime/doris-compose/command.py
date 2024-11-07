@@ -223,7 +223,6 @@ class SimpleCommand(Command):
         LOG.info(
             utils.render_green("{} succ, total related node num {}".format(
                 show_cmd, related_node_num)))
-        return ""
 
         if for_all:
             related_nodes = cluster.get_all_nodes()
@@ -381,7 +380,7 @@ class UpCommand(Command):
         group2.add_argument("--force-recreate",
                            default=False,
                            action=self._get_parser_bool_action(True),
-                           help="Recreate containers even if their configuration" \
+                           help="Recreate containers even if their configuration " \
                                 "and image haven't changed. ")
 
         parser.add_argument("--coverage-dir",
