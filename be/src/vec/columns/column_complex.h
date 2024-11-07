@@ -81,7 +81,7 @@ public:
         } else if constexpr (std::is_same_v<T, QuantileStateDouble>) {
             pvalue->deserialize(Slice(pos, length));
         } else {
-            LOG(FATAL) << "Unexpected type in column complex";
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unexpected type in column complex");
         }
     }
 
@@ -124,12 +124,12 @@ public:
 
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       IColumn::Permutation& res) const override {
-        LOG(FATAL) << "get_permutation not implemented";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get_permutation not implemented");
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
-        LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "get_int not implemented");
     }
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
@@ -205,11 +205,15 @@ public:
     // it's impossible to use ComplexType as key , so we don't have to implement them
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
-        LOG(FATAL) << "serialize_value_into_arena not implemented";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "serialize_value_into_arena not implemented");
+        __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
-        LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "deserialize_and_insert_from_arena not implemented");
+        __builtin_unreachable();
     }
 
     // maybe we do not need to impl the function

@@ -102,6 +102,7 @@ public class OutFileClause {
         PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("decimal", TParquetDataLogicalType.DECIMAL);
         PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("date", TParquetDataLogicalType.DATE);
         PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("datetime", TParquetDataLogicalType.TIMESTAMP);
+        PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("string", TParquetDataLogicalType.STRING);
         // TODO(ftw): add other logical type
         PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.put("none", TParquetDataLogicalType.NONE);
 
@@ -560,6 +561,12 @@ public class OutFileClause {
             }
 
             switch (expr.getType().getPrimitiveType()) {
+                case CHAR:
+                case VARCHAR:
+                case STRING: {
+                    parquetSchema.schema_data_logical_type = PARQUET_DATA_LOGICAL_TYPE_TYPE_MAP.get("string");
+                    break;
+                }
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128: {

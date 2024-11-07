@@ -45,6 +45,8 @@ import java.util.concurrent.TimeUnit;
 public interface TableIf {
     Logger LOG = LogManager.getLogger(TableIf.class);
 
+    long UNKNOWN_ROW_COUNT = -1;
+
     void readLock();
 
     boolean tryReadLock(long timeout, TimeUnit unit);
