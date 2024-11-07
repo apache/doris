@@ -38,7 +38,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      *
      * @return partitionId->PartitionItem
      */
-    Map<String, PartitionItem> getAndCopyPartitionItems();
+    Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException;
 
     /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
