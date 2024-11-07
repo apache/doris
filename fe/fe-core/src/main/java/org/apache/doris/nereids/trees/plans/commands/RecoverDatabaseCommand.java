@@ -41,7 +41,7 @@ public class RecoverDatabaseCommand extends Command implements ForwardWithSync {
     public static final Logger LOG = LogManager.getLogger(RecoverDatabaseCommand.class);
     private String dbName;
     private long dbId = -1;
-    private String newDbName = "";
+    private final String newDbName = "";
 
     /**
      * constructor
