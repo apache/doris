@@ -475,6 +475,19 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         if (!mowTableList.isEmpty()) {
+            TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
+                    .getTransactionState(dbId, transactionId);
+            if (null != transactionState && null != transactionState.getTransactionStatus()) {
+                if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED
+                        || transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
+                    LOG.info("txn={}, status={} not need to calculate delete bitmap again, just return ", transactionId,
+                            transactionState.getTransactionStatus().toString());
+                    return;
+                } else {
+                    LOG.info("txn={}, status={} need to calculate delete bitmap", transactionId,
+                            transactionState.getTransactionStatus().toString());
+                }
+            }
             calcDeleteBitmapForMow(dbId, mowTableList, transactionId, tabletCommitInfos);
         }
 
@@ -519,6 +532,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         try {
             txnState = commitTxn(commitTxnRequest, transactionId, is2PC, dbId, tableList);
             txnOperated = true;
+            if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTransaction.timeout")) {
+                throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
+                        "test delete bitmap update lock timeout, transactionId:" + transactionId);
+            }
         } finally {
             if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
                 RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
