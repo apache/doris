@@ -95,8 +95,6 @@ Status CloudDeleteBitmapAction::_handle_show_delete_bitmap_count(HttpRequest* re
     auto count = tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
     auto cardinality = tablet->tablet_meta()->delete_bitmap().cardinality();
     auto size = tablet->tablet_meta()->delete_bitmap().get_size();
-    LOG(INFO) << "show_delete_bitmap_count,tablet_id=" << tablet_id << ",count=" << count
-              << ",cardinality=" << cardinality << ",size=" << size;
 
     rapidjson::Document root;
     root.SetObject();
