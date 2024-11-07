@@ -80,9 +80,9 @@ public class AuditEvent {
     public String queryId = "";
     @AuditField(value = "IsQuery")
     public boolean isQuery = false;
-    @AuditField(value = "isNereids")
+    @AuditField(value = "IsNereids")
     public boolean isNereids = false;
-    @AuditField(value = "feIp")
+    @AuditField(value = "FeIp")
     public String feIp = "";
     @AuditField(value = "Stmt")
     public String stmt = "";
@@ -94,12 +94,10 @@ public class AuditEvent {
     public long shuffleSendRows = -1;
     @AuditField(value = "SqlHash")
     public String sqlHash = "";
-    @AuditField(value = "peakMemoryBytes")
+    @AuditField(value = "PeakMemoryBytes")
     public long peakMemoryBytes = -1;
     @AuditField(value = "SqlDigest")
     public String sqlDigest = "";
-    @AuditField(value = "TraceId")
-    public String traceId = "";
     @AuditField(value = "WorkloadGroup")
     public String workloadGroup = "";
     // note: newly added fields should be always before fuzzyVariables

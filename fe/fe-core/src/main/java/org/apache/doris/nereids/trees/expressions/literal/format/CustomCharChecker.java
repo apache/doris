@@ -15,26 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.scheduler.registry;
+package org.apache.doris.nereids.trees.expressions.literal.format;
 
-import org.apache.doris.scheduler.exception.JobException;
-import org.apache.doris.scheduler.executor.TransientTaskExecutor;
-import org.apache.doris.scheduler.manager.TransientTaskManager;
+import java.util.Objects;
+import java.util.function.Predicate;
 
-public class ExportTaskRegister implements TransientTaskRegister {
-    private final TransientTaskManager transientTaskManager;
+/** CustomCharChecker */
+public class CustomCharChecker extends FormatChecker {
+    private final Predicate<Character> checker;
 
-    public ExportTaskRegister(TransientTaskManager transientTaskManager) {
-        this.transientTaskManager = transientTaskManager;
+    public CustomCharChecker(String name, Predicate<Character> checker) {
+        super(name);
+        this.checker = Objects.requireNonNull(checker, "checker can not be null");
     }
 
     @Override
-    public Long registerTask(TransientTaskExecutor executor) {
-        return transientTaskManager.addMemoryTask(executor);
-    }
-
-    @Override
-    public void cancelTask(Long taskId) throws JobException {
-        transientTaskManager.cancelMemoryTask(taskId);
+    protected boolean doCheck(StringInspect stringInspect) {
+        if (stringInspect.eos() || !checker.test(stringInspect.lookAndStep())) {
+            return false;
+        }
+        return true;
     }
 }

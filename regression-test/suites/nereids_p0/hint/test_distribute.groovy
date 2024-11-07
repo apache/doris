@@ -83,6 +83,14 @@ suite("test_distribute") {
     qt_select1_3 """select count(*) from t3;"""
     qt_select1_4 """select count(*) from t4;"""
 
+//// analyze before query
+    sql """
+       analyze table t1 with sync;
+       analyze table t2 with sync;
+       analyze table t3 with sync;
+       analyze table t4 with sync;
+       """
+
 //// test inner join with all edge and vertax is complete and equal predicates
     qt_select2_1 """explain shape plan select count(*) from t1 join t2 on c1 = c2;"""
     qt_select2_2 """explain shape plan select count(*) from t1 join [shuffle] t2 on c1 = c2;"""

@@ -3,21 +3,21 @@
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((col1 = ds.col1) and (col2 = ds.col2)) otherCondition=()
 ----PhysicalOneRowRelation
-----filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
+----filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 ------PhysicalOlapScan[test_pull_up_predicate_literal]
 
 -- !test_pull_up_literal_suquery --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
 ----PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
+----filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 ------PhysicalOlapScan[test_pull_up_predicate_literal]
 
 -- !test_pull_up_literal_extra_literal --
 PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
 ----PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
+----filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 ------PhysicalOlapScan[test_pull_up_predicate_literal]
 
 -- !test_pull_up_literal_with_agg_func --
@@ -26,7 +26,7 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------hashAgg[LOCAL]
 --------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
+----filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 ------PhysicalOlapScan[test_pull_up_predicate_literal]
 
 -- !test_pull_up_literal_to_empty_relation --
@@ -38,7 +38,7 @@ PhysicalResultSink
 --hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
 ----filter((t.col2 = 'def'))
 ------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def'))
+----filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 ------PhysicalOlapScan[test_pull_up_predicate_literal]
 
 -- !test_pull_up_literal_outer_has_agg --
@@ -47,17 +47,17 @@ PhysicalResultSink
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
 --------PhysicalOlapScan[test_pull_up_predicate_literal]
---------filter((ds.col1 = 'abc') and (ds.col1 = ds.col1) and (ds.col2 = 'def') and (ds.col2 = ds.col2))
+--------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 ----------PhysicalOlapScan[test_pull_up_predicate_literal]
 
 -- !test_pull_up_literal_multi_join --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
-----hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = tmp2.col1)) otherCondition=()
+--hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = tmp2.col1)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
 ------PhysicalOlapScan[test_pull_up_predicate_literal]
-------filter((tmp2.col1 = 'abc'))
+------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 --------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
+----filter((tmp2.col1 = 'abc'))
 ------PhysicalOlapScan[test_pull_up_predicate_literal]
 
 -- !test_pull_up_literal_outer_or --
