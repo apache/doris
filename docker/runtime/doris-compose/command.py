@@ -261,6 +261,13 @@ class UpCommand(Command):
             help=
             "Create cloud cluster, default is false. Only use when creating new cluster."
         )
+        parser.add_argument(
+            "--root",
+            default=False,
+            action=self._get_parser_bool_action(True),
+            help=
+            "Run cluster as root user, default is false, it will run as host user."
+        )
 
         parser.add_argument(
             "--wait-timeout",
@@ -500,7 +507,7 @@ class UpCommand(Command):
                 args.add_recycle_num = 0
 
             cluster = CLUSTER.Cluster.new(
-                args.NAME, args.IMAGE, args.cloud, args.fe_config,
+                args.NAME, args.IMAGE, args.cloud, args.root, args.fe_config,
                 args.be_config, args.ms_config, args.recycle_config,
                 args.fe_follower, args.be_disks, args.be_cluster, args.reg_be,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
