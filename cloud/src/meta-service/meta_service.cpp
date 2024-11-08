@@ -1907,6 +1907,8 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         return;
     }
 
+    int64_t retry = 0;
+
     for (size_t i = 0; i < rowset_ids.size(); i++) {
         // create a new transaction every time, avoid using one transaction that takes too long
         std::unique_ptr<Transaction> txn;
@@ -1931,11 +1933,37 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
         std::unique_ptr<RangeGetIterator> it;
         int64_t last_ver = -1;
         int64_t last_seg_id = -1;
+        int64_t round = 0;
         do {
-            err = txn->get(start_key, end_key, &it);
+#ifdef UNIT_TEST
+            err = txn->get(start_key, end_key, &it, true, 2);
+#else
+            err = txn->get(start_key, end_key, &it, true);
+#endif
+            TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &round, &err);
+            while (err == TxnErrorCode::TXN_TOO_OLD &&
+                   retry < config::max_get_delete_bitmap_retry_times) {
+                LOG(INFO) << "retry get delete bitmap, code=" << MetaServiceCode_Name(code)
+                          << ", retry=" << retry << ", internal round=" << round;
+                txn = nullptr;
+                err = txn_kv_->create_txn(&txn);
+                if (err != TxnErrorCode::TXN_OK) {
+                    code = cast_as<ErrCategory::CREATE>(err);
+                    ss << "failed to init txn, retry=" << retry << ", internal round=" << round;
+                    msg = ss.str();
+                    return;
+                }
+#ifdef UNIT_TEST
+                err = txn->get(start_key, end_key, &it, true, 2);
+#else
+                err = txn->get(start_key, end_key, &it, true);
+#endif
+                retry++;
+            }
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
-                ss << "internal error, failed to get delete bitmap, ret=" << err;
+                ss << "internal error, failed to get delete bitmap, retry=" << retry
+                   << ", internal round=" << round << ", ret=" << err;
                 msg = ss.str();
                 return;
             }
@@ -1963,14 +1991,20 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 } else {
                     TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_code", &code);
                     if (code != MetaServiceCode::OK) {
-                        msg = "test get get_delete_bitmap fail,code=" + MetaServiceCode_Name(code);
+                        ss << "test get get_delete_bitmap fail, code=" << MetaServiceCode_Name(code)
+                           << ", retry=" << retry << ", internal round=" << round;
+                        msg = ss.str();
                         return;
                     }
                     response->mutable_segment_delete_bitmaps()->rbegin()->append(v);
                 }
             }
+            round++;
             start_key = it->next_begin_key(); // Update to next smallest key for iteration
         } while (it->more());
+        LOG(INFO) << "get delete bitmap for rowset=" << rowset_ids[i]
+                  << ", start version=" << begin_versions[i] << ", end version=" << end_versions[i]
+                  << ", internal round=" << round;
     }
 
     if (request->has_idx()) {
