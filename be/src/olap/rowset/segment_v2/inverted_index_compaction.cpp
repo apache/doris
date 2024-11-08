@@ -44,10 +44,16 @@ Status compact_column(int64_t index_id,
     bool can_use_ram_dir = true;
     lucene::store::Directory* dir = DorisFSDirectoryFactory::getDirectory(
             io::global_local_filesystem(), tmp_path.data(), can_use_ram_dir);
+    DBUG_EXECUTE_IF("compact_column_getDirectory_error", {
+        _CLTHROWA(CL_ERR_IO, "debug point: compact_column_getDirectory_error in index compaction");
+    })
     lucene::analysis::SimpleAnalyzer<char> analyzer;
     auto* index_writer = _CLNEW lucene::index::IndexWriter(dir, &analyzer, true /* create */,
                                                            true /* closeDirOnShutdown */);
-
+    DBUG_EXECUTE_IF("compact_column_create_index_writer_error", {
+        _CLTHROWA(CL_ERR_IO,
+                  "debug point: compact_column_create_index_writer_error in index compaction");
+    })
     DCHECK_EQ(src_index_dirs.size(), trans_vec.size());
     std::vector<lucene::store::Directory*> tmp_src_index_dirs(src_index_dirs.size());
     for (size_t i = 0; i < tmp_src_index_dirs.size(); ++i) {
@@ -55,8 +61,16 @@ Status compact_column(int64_t index_id,
     }
     index_writer->indexCompaction(tmp_src_index_dirs, dest_index_dirs, trans_vec,
                                   dest_segment_num_rows);
+    DBUG_EXECUTE_IF("compact_column_indexCompaction_error", {
+        _CLTHROWA(CL_ERR_IO,
+                  "debug point: compact_column_indexCompaction_error in index compaction");
+    })
 
     index_writer->close();
+    DBUG_EXECUTE_IF("compact_column_index_writer_close_error", {
+        _CLTHROWA(CL_ERR_IO,
+                  "debug point: compact_column_index_writer_close_error in index compaction");
+    })
     _CLDELETE(index_writer);
     // NOTE: need to ref_cnt-- for dir,
     // when index_writer is destroyed, if closeDir is set, dir will be close
