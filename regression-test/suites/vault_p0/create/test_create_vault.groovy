@@ -171,7 +171,7 @@ suite("test_create_vault", "nonConcurrent") {
 
     expectExceptionLike({
         sql """
-            CREATE STORAGE VAULT IF NOT EXISTS built_in_storage_vault
+            CREATE STORAGE VAULT built_in_storage_vault
             PROPERTIES (
                 "type"="S3",
                 "s3.endpoint"="${getS3Endpoint()}",
