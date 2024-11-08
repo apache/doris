@@ -91,7 +91,7 @@ public class RefreshCatalogCommand extends Command implements ForwardWithSync {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(catalogName);
         CatalogLog log = new CatalogLog();
         log.setCatalogId(catalog.getId());
-        log.setInvalidCache(isInvalidCache());
+        log.setInvalidCache(invalidCache);
         refreshCatalogInternal(catalog);
         Env.getCurrentEnv().getEditLog().logCatalogLog(OperationType.OP_REFRESH_CATALOG, log);
     }
@@ -124,17 +124,5 @@ public class RefreshCatalogCommand extends Command implements ForwardWithSync {
                 .append(catalogName)
                 .append("`");
         return stringBuilder.toString();
-    }
-
-    public String getCatalogName() {
-        return catalogName;
-    }
-
-    public Map<String, String> getProperties() {
-        return properties;
-    }
-
-    public boolean isInvalidCache() {
-        return invalidCache;
     }
 }
