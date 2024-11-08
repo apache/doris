@@ -16,7 +16,6 @@
 // under the License.
 
 #include <gtest/gtest.h>
-#include <stdio.h>
 
 #include "olap/comparison_predicate.h"
 #include "olap/rowset/beta_rowset.h"
