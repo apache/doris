@@ -1128,10 +1128,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return propertiesMap.build();
     }
 
-    /* ********************************************************************************************
-     * Plan parsing
-     * ******************************************************************************************** */
-
     @Override
     public BrokerDesc visitWithRemoteStorageSystem(WithRemoteStorageSystemContext ctx) {
         BrokerDesc brokerDesc = null;
