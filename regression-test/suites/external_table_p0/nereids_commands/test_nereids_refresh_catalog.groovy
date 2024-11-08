@@ -26,11 +26,8 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "doris_test";
         String mysql_port = context.config.otherConfigs.get("mysql_57_port");
-        String inDorisTable = "doris_in_tb_nereids";
         String ex_tb0 = "ex_tb0";
         String new_mysql_db = "new_mysql_db";
-
-        sql """create database if not exists ${internal_db_name}; """
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -46,8 +43,6 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
             "driver_class" = "com.mysql.cj.jdbc.Driver"
         );"""
 
-
-
         sql """switch ${catalog_name}"""
         sql """CALL EXECUTE_STMT("${catalog_name}", "drop database if exists ${new_mysql_db}");"""
 
@@ -59,18 +54,15 @@ suite("test_nereids_refresh_catalog", "p0,external,mysql,external_docker,externa
         // create database in mysql
         sql """CALL EXECUTE_STMT("${catalog_name}", "create database  ${new_mysql_db} ;");"""
         qt_sql """show databases;"""
-        checkNereidsExecute("refresh catalog ${catalog_name}")
-        sql "refresh catalog ${catalog_name} ;"
+        checkNereidsExecute("refresh catalog ${catalog_name} ;")
         qt_sql """show databases;"""
 
         checkNereidsExecute("refresh catalog ${catalog_name} properties ('invalid_cache'='true');")
-        sql "refresh catalog ${catalog_name} properties ('invalid_cache'='true');"
 
         sql """CALL EXECUTE_STMT("${catalog_name}", "drop database if exists ${new_mysql_db} ;");"""
         qt_sql """show databases;"""
 
         checkNereidsExecute("refresh catalog ${catalog_name} properties ('invalid_cache'='true');")
-        sql "refresh catalog ${catalog_name} properties ('invalid_cache'='true');"
         qt_sql """show databases;"""
 
         sql """ drop catalog if exists ${catalog_name} ;"""
