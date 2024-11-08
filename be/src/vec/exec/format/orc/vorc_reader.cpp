@@ -608,14 +608,16 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lete
 }
 
 // check if the expr can be pushed down to orc reader
-static bool check_expr_can_push_down(const VExprSPtr& expr) {
+bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
     DCHECK_NOTNULL(expr);
     switch (expr->op()) {
     case TExprOpcode::COMPOUND_AND:
     case TExprOpcode::COMPOUND_OR:
     case TExprOpcode::COMPOUND_NOT:
         // at least one child can be pushed down
-        return std::ranges::any_of(expr->children(), check_expr_can_push_down);
+        return std::ranges::any_of(expr->children(), [this](const auto& child) {
+            return _check_expr_can_push_down(child);
+        });
     case TExprOpcode::GE:
     case TExprOpcode::GT:
     case TExprOpcode::LE:
@@ -623,8 +625,11 @@ static bool check_expr_can_push_down(const VExprSPtr& expr) {
     case TExprOpcode::EQ:
     case TExprOpcode::NE:
     case TExprOpcode::FILTER_IN:
-    case TExprOpcode::FILTER_NOT_IN:
-        return true;
+    case TExprOpcode::FILTER_NOT_IN: {
+        // check if the slot is partition column
+        const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+        return !_lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name());
+    }
     case TExprOpcode::INVALID_OPCODE:
         if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
             auto fn_name = expr->fn().name.function_name;
@@ -649,7 +654,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
     }
 
     // if expr can not be pushed down, skip it and continue to next expr
-    if (!check_expr_can_push_down(expr)) {
+    if (!_check_expr_can_push_down(expr)) {
         return true;
     }
 
@@ -833,7 +838,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         break;
     }
     default: {
-        // should not reach here, because check_expr_can_push_down has already checked
+        // should not reach here, because _check_expr_can_push_down has already checked
         __builtin_unreachable();
     }
     }
@@ -846,8 +851,8 @@ bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
     }
 
     // if no conjuncts can be pushed down, return false
-    if (!std::ranges::any_of(conjuncts, [](const auto& expr_ctx) {
-            return check_expr_can_push_down(expr_ctx->root());
+    if (!std::ranges::any_of(conjuncts, [this](const auto& expr_ctx) {
+            return _check_expr_can_push_down(expr_ctx->root());
         })) {
         return false;
     }
