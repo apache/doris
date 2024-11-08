@@ -179,8 +179,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
 
     // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
     // except for columns whose type don't support zone map.
-    opts.need_zone_map = (column.is_key() || tablet_schema->keys_type() != KeysType::AGG_KEYS) &&
-                         !column.is_variant_type();
+    opts.need_zone_map = (column.is_key() || tablet_schema->keys_type() != KeysType::AGG_KEYS);
     opts.need_bloom_filter = column.is_bf_column() && !column.is_variant_type();
     auto* tablet_index = tablet_schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
@@ -230,6 +229,7 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     CHECK_FIELD_TYPE(OBJECT, "object")
     CHECK_FIELD_TYPE(HLL, "hll")
     CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+    CHECK_FIELD_TYPE(VARIANT, "variant")
 
 #undef CHECK_FIELD_TYPE
 
