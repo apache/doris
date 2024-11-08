@@ -32,8 +32,8 @@ suite('test_f_seq_read_from_old') {
         sql """ CREATE TABLE ${tableName} (
             `k` int(11) NULL, 
             `v1` BIGINT NULL,
-            `v2` BIGINT NULL DEFAULT "9876",
-            `v3` BIGINT NOT NULL,
+            `v2` BIGINT NULL,
+            `v3` BIGINT NOT NULL DEFAULT "9876",
             `v4` BIGINT NOT NULL DEFAULT "1234",
             `v5` BIGINT NULL
             ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1
@@ -49,37 +49,37 @@ suite('test_f_seq_read_from_old') {
         qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
 
 
+        String load1 = """ {"k":1,"__DORIS_DELETE_SIGN__":1} """
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
             set 'read_json_by_line', 'true'
-            set 'strict_mode', 'false'
             set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-            file "debug.json"
+            inputStream new ByteArrayInputStream(load1.getBytes())
             time 20000
         }
         qt_sql1 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k,__DORIS_VERSION_COL__;"
 
+        String load2 = """ {"k":1,"v4":777,"v5":8888} """
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
             set 'read_json_by_line', 'true'
-            set 'strict_mode', 'false'
             set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-            file "debug3.json"
+            inputStream new ByteArrayInputStream(load2.getBytes())
             time 20000
         }
         qt_sql2 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"
         inspect_rows "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__,__DORIS_VERSION_COL__,BITMAP_TO_STRING(__DORIS_SKIP_BITMAP_COL__) from ${tableName} order by k,__DORIS_VERSION_COL__;"
  
+        String load3 = """ {"k":1,"v1":999,"v2":-1,"v4":-2} """
         streamLoad {
             table "${tableName}"
             set 'format', 'json'
             set 'read_json_by_line', 'true'
-            set 'strict_mode', 'false'
             set 'unique_key_update_mode', 'UPDATE_FLEXIBLE_COLUMNS'
-            file "debug4.json"
+            inputStream new ByteArrayInputStream(load3.getBytes())
             time 20000
         }
         qt_sql3 "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__,__DORIS_DELETE_SIGN__ from ${tableName} order by k;"

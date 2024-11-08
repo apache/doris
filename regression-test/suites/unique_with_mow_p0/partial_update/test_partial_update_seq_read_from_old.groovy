@@ -33,8 +33,8 @@ suite('test_partial_update_seq_read_from_old') {
         sql """ CREATE TABLE ${tableName} (
             `k` int(11) NULL, 
             `v1` BIGINT NULL,
-            `v2` BIGINT NULL DEFAULT "9876",
-            `v3` BIGINT NOT NULL,
+            `v2` BIGINT NULL,
+            `v3` BIGINT NOT NULL DEFAULT "9876",
             `v4` BIGINT NOT NULL DEFAULT "1234",
             `v5` BIGINT NULL
             ) UNIQUE KEY(`k`) DISTRIBUTED BY HASH(`k`) BUCKETS 1

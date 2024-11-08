@@ -947,6 +947,13 @@ Status BaseTablet::generate_new_block_for_partial_update(
     auto old_block = rowset_schema->create_block_by_cids(missing_cids);
     auto update_block = rowset_schema->create_block_by_cids(update_cids);
 
+    bool have_input_seq_column = false;
+    if (rowset_schema->has_sequence_col()) {
+        have_input_seq_column =
+                (std::find(update_cids.cbegin(), update_cids.cend(),
+                           rowset_schema->sequence_col_idx()) != update_cids.cend());
+    }
+
     // rowid in the final block(start from 0, increase continuously) -> rowid to read in update_block
     std::map<uint32_t, uint32_t> read_index_update;
 
@@ -1000,10 +1007,25 @@ Status BaseTablet::generate_new_block_for_partial_update(
             //         before, even the `strict_mode` is true (which requires partial update
             //         load job can't insert new keys), this "new" key MUST be written into
             //         the new generated segment file.
-            if (new_block_delete_signs != nullptr && new_block_delete_signs[idx]) {
+            bool use_default = false;
+            bool new_row_delete_sign =
+                    (new_block_delete_signs != nullptr && new_block_delete_signs[idx]);
+            bool old_row_delete_sign = (old_block_delete_signs != nullptr &&
+                                        old_block_delete_signs[read_index_old[idx]] != 0);
+            if (old_row_delete_sign) {
+                if (!rowset_schema->has_sequence_col()) {
+                    use_default = true;
+                } else if (have_input_seq_column || !rs_column.is_seqeunce_col()) {
+                    // to keep the sequence column value not decreasing, we should read values of seq column
+                    // from old rows even if the old row is deleted when the input don't specify the sequence column, otherwise
+                    // it may cause the merge-on-read based compaction to produce incorrect results
+                    use_default = true;
+                }
+            }
+
+            if (new_row_delete_sign) {
                 mutable_column->insert_default();
-            } else if (old_block_delete_signs != nullptr &&
-                       old_block_delete_signs[read_index_old[idx]] != 0) {
+            } else if (use_default) {
                 if (rs_column.has_default_value()) {
                     mutable_column->insert_from(*default_value_block.get_by_position(i).column, 0);
                 } else if (rs_column.is_nullable()) {
@@ -1031,6 +1053,10 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         vectorized::Block* output_block) {
     CHECK(output_block);
 
+    int32_t seq_col_unique_id = -1;
+    if (rowset_schema->has_sequence_col()) {
+        seq_col_unique_id = rowset_schema->column(rowset_schema->sequence_col_idx()).unique_id();
+    }
     const auto& non_sort_key_cids = partial_update_info->missing_cids;
     std::vector<uint32_t> all_cids(rowset_schema->num_columns());
     std::iota(all_cids.begin(), all_cids.end(), 0);
@@ -1080,16 +1106,32 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                       update_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
                       ->get_data());
 
-    auto fill_one_cell = [&read_index_old, &read_index_update](
+    auto fill_one_cell = [&read_index_old, &read_index_update, &rowset_schema, partial_update_info](
                                  const TabletColumn& tablet_column, std::size_t idx,
                                  vectorized::MutableColumnPtr& new_col,
                                  const vectorized::IColumn& default_value_col,
                                  const vectorized::IColumn& old_value_col,
                                  const vectorized::IColumn& cur_col, bool skipped,
+                                 bool row_has_sequence_col,
                                  const signed char* delete_sign_column_data) {
         if (skipped) {
-            if (delete_sign_column_data != nullptr &&
-                delete_sign_column_data[read_index_old[cast_set<uint32_t>(idx)]] != 0) {
+            bool use_default = false;
+            bool old_row_delete_sign = (delete_sign_column_data != nullptr &&
+                                        delete_sign_column_data[read_index_old[cast_set<uint32_t>(idx)]] != 0);
+            if (old_row_delete_sign) {
+                if (!rowset_schema->has_sequence_col()) {
+                    use_default = true;
+                } else if (row_has_sequence_col ||
+                           (!tablet_column.is_seqeunce_col() &&
+                            (tablet_column.unique_id() !=
+                             partial_update_info->sequence_map_col_uid()))) {
+                    // to keep the sequence column value not decreasing, we should read values of seq column(and seq map column)
+                    // from old rows even if the old row is deleted when the input don't specify the sequence column, otherwise
+                    // it may cause the merge-on-read based compaction to produce incorrect results
+                    use_default = true;
+                }
+            }
+            if (use_default) {
                 if (tablet_column.has_default_value()) {
                     new_col->insert_from(default_value_col, 0);
                 } else if (tablet_column.is_nullable()) {
@@ -1122,7 +1164,11 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                 const vectorized::IColumn& old_value_col =
                         *old_block.get_by_position(cid - rowset_schema->num_key_columns()).column;
                 fill_one_cell(rs_column, idx, new_col, default_value_col, old_value_col, cur_col,
-                              skip_bitmaps->at(idx).contains(col_uid), old_block_delete_signs);
+                              skip_bitmaps->at(idx).contains(col_uid),
+                              rowset_schema->has_sequence_col()
+                                      ? !skip_bitmaps->at(idx).contains(seq_col_unique_id)
+                                      : false,
+                              old_block_delete_signs);
             }
         }
         DCHECK_EQ(full_mutable_columns[cid]->size(), update_rows);
