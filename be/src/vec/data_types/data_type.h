@@ -61,7 +61,7 @@ using DataTypes = std::vector<DataTypePtr>;
 constexpr auto SERIALIZED_MEM_SIZE_LIMIT = 256;
 
 template <typename T>
-inline T upper_int32(T size) {
+T upper_int32(T size) {
     static_assert(std::is_unsigned_v<T>);
     return T(static_cast<double>(3 + size) / 4.0);
 }

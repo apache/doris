@@ -30,6 +30,7 @@
 #include <type_traits>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "util/bitmap_value.h"
@@ -259,7 +260,7 @@ void convert_field_to_typeImpl(const Field& src, const IDataType& type,
         Field::dispatch([&writer](const auto& value) { FieldVisitorToJsonb()(value, &writer); },
                         src);
         *to = JsonbField(writer.getOutput()->getBuffer(),
-                         static_cast<UInt32>(writer.getOutput()->getSize()));
+                         cast_set<UInt32, size_t, false>(writer.getOutput()->getSize()));
         return;
     } else if (which_type.is_variant_type()) {
         if (src.get_type() == Field::Types::VariantMap) {

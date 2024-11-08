@@ -129,6 +129,7 @@ void DataTypeDecimal<T>::to_string_batch_impl(const ColumnPtr& column_ptr,
             chars.insert(str.begin(), str.end());
         }
 
+        // cast by row, so not use cast_set for performance issue
         offsets[row_num] = static_cast<UInt32>(chars.size());
     }
 }
@@ -162,13 +163,13 @@ int64_t DataTypeDecimal<T>::get_uncompressed_serialized_bytes(const IColumn& col
     if (be_exec_version >= USE_CONST_SERDE) {
         auto size = sizeof(bool) + sizeof(size_t) + sizeof(size_t);
         auto real_need_copy_num = is_column_const(column) ? 1 : column.size();
-        auto mem_size = sizeof(T) * real_need_copy_num;
+        auto mem_size = cast_set<UInt32>(sizeof(T) * real_need_copy_num);
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
             return size + mem_size;
         } else {
             return size + sizeof(size_t) +
-                   std::max(mem_size, streamvbyte_max_compressedbytes(
-                                              cast_set<UInt32>(upper_int32(mem_size))));
+                   std::max(cast_set<size_t>(mem_size),
+                            streamvbyte_max_compressedbytes(upper_int32(mem_size)));
         }
     } else {
         auto size = sizeof(T) * column.size();
