@@ -70,7 +70,7 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::create_recvr(
                                                                  fragment_instance_id, dest_node_id,
                                                                  num_senders, is_merging, profile));
     uint32_t hash_value = get_hash_value(fragment_instance_id, dest_node_id);
-    std::lock_guard<std::mutex> l(_lock);
+    std::unique_lock l(_lock);
     _fragment_stream_set.insert(std::make_pair(fragment_instance_id, dest_node_id));
     _receiver_map.insert(std::make_pair(hash_value, recvr));
     return recvr;
@@ -82,7 +82,7 @@ Status VDataStreamMgr::find_recvr(const TUniqueId& fragment_instance_id, PlanNod
              << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
     // Create lock guard and not own lock currently and will lock conditionally
-    std::unique_lock recvr_lock(_lock, std::defer_lock);
+    std::shared_lock recvr_lock(_lock, std::defer_lock);
     if (acquire_lock) {
         recvr_lock.lock();
     }
@@ -155,7 +155,7 @@ Status VDataStreamMgr::deregister_recvr(const TUniqueId& fragment_instance_id, P
                << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
     {
-        std::lock_guard<std::mutex> l(_lock);
+        std::unique_lock l(_lock);
         auto range = _receiver_map.equal_range(hash_value);
         while (range.first != range.second) {
             const std::shared_ptr<VDataStreamRecvr>& recvr = range.first->second;
@@ -189,7 +189,7 @@ void VDataStreamMgr::cancel(const TUniqueId& fragment_instance_id, Status exec_s
     VLOG_QUERY << "cancelling all streams for fragment=" << print_id(fragment_instance_id);
     std::vector<std::shared_ptr<VDataStreamRecvr>> recvrs;
     {
-        std::lock_guard<std::mutex> l(_lock);
+        std::shared_lock l(_lock);
         FragmentStreamSet::iterator i =
                 _fragment_stream_set.lower_bound(std::make_pair(fragment_instance_id, 0));
         while (i != _fragment_stream_set.end() && i->first == fragment_instance_id) {
