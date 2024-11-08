@@ -259,6 +259,17 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
+    if (_partial_update_info && _partial_update_info->is_flexible_partial_update()) {
+        if (_rowset->num_segments() > 1) {
+            // in flexible partial update, when there are more one segment in one load,
+            // we need to do alignment process for same keys between segments, we haven't
+            // implemented it yet and just report an error when encouter this situation
+            return Status::NotSupported(
+                    "too large input data in flexible partial update, Please "
+                    "reduce the amount of data imported in a single load.");
+        }
+    }
+
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (_tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
