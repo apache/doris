@@ -1057,9 +1057,8 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
 
-    ~SyncSizeClosure() override { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }
-
     void _process_if_rpc_failed() override {
+        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
         auto ctx = _rf_context.lock();
         if (!ctx) {
             return;
@@ -1070,6 +1069,7 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
     }
 
     void _process_if_meet_error_status(const Status& status) override {
+        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
         auto ctx = _rf_context.lock();
         if (!ctx) {
             return;
