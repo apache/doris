@@ -31,6 +31,7 @@ import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UseStmt;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.profile.Profile;
@@ -280,6 +281,46 @@ public class StmtExecutorTest {
         stmtExecutor.execute();
 
         Assert.assertEquals(QueryState.MysqlStateType.EOF, state.getStateType());
+    }
+
+    @Test
+    public void testBlockSqlAst(@Mocked UseStmt useStmt, @Mocked SqlParser parser) throws Exception {
+        new Expectations() {
+            {
+                Config.block_sql_ast_names = "UseStmt";
+                minTimes = 0;
+
+                useStmt.analyze((Analyzer) any);
+                minTimes = 0;
+
+                useStmt.getDatabase();
+                minTimes = 0;
+                result = "testDb";
+
+                useStmt.getRedirectStatus();
+                minTimes = 0;
+                result = RedirectStatus.NO_FORWARD;
+
+                useStmt.getCatalogName();
+                minTimes = 0;
+                result = InternalCatalog.INTERNAL_CATALOG_NAME;
+
+                Symbol symbol = new Symbol(0, Lists.newArrayList(useStmt));
+                parser.parse();
+                minTimes = 0;
+                result = symbol;
+            }
+        };
+
+        StmtExecutor.initBlockSqlAstNames();
+        StmtExecutor executor = new StmtExecutor(ctx, "");
+        try {
+            executor.execute();
+            Assert.fail();
+        } catch (Exception ignore) {
+
+        }
+        Assert.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
     }
 
     @Test
