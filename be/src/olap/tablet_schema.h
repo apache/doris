@@ -89,6 +89,7 @@ public:
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
     bool is_auto_increment() const { return _is_auto_increment; }
+    bool is_seqeunce_col() const { return _col_name == SEQUENCE_COL; }
     bool is_on_update_current_timestamp() const { return _is_on_update_current_timestamp; }
     bool is_variant_type() const { return _type == FieldType::OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
