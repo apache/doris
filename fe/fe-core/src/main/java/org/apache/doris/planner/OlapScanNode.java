@@ -797,7 +797,8 @@ public class OlapScanNode extends ScanNode {
                 replicas.clear();
                 replicas.add(replica);
             }
-            if (Config.enable_cooldown_replica_affinity) {
+
+            if (isEnableCooldownReplicaAffinity()) {
                 final long coolDownReplicaId = tablet.getCooldownReplicaId();
                 // we prefer to query using cooldown replica to make sure the cache is fully utilized
                 // for example: consider there are 3BEs(A,B,C) and each has one replica for tablet X. and X
@@ -884,6 +885,14 @@ public class OlapScanNode extends ScanNode {
         } else {
             desc.setCardinality(cardinality);
         }
+    }
+
+    private boolean isEnableCooldownReplicaAffinity() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            return connectContext.getSessionVariable().isEnableCooldownReplicaAffinity();
+        }
+        return true;
     }
 
     private void computePartitionInfo() throws AnalysisException {
