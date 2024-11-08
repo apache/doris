@@ -304,13 +304,9 @@ Status PartitionedAggSinkLocalState::revoke_memory(
 
     state->get_query_ctx()->increase_revoking_tasks_count();
 
-    MonotonicStopWatch submit_timer;
-    submit_timer.start();
-    _spilling_task_count = 1;
-    auto spill_runnable = std::make_shared<SpillRunnable>(
-            state, spill_context, _spilling_task_count, _profile, submit_timer,
-            _shared_state->shared_from_this(), Base::_spill_dependency, true, true,
-            [this, &parent, state, query_id, size_to_revoke, spill_context] {
+    auto spill_runnable = std::make_shared<SpillSinkRunnable>(
+            state, spill_context, _spill_dependency, _profile, _shared_state->shared_from_this(),
+            [this, &parent, state, query_id, size_to_revoke] {
                 Status status;
                 DBUG_EXECUTE_IF("fault_inject::partitioned_agg_sink::revoke_memory_cancel", {
                     status = Status::InternalError(

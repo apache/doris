@@ -271,12 +271,9 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
         return status;
     };
 
-    MonotonicStopWatch submit_timer;
-    submit_timer.start();
-    _spilling_task_count = 1;
-    auto spill_runnable = std::make_shared<SpillRunnable>(
-            state, spill_context, _spilling_task_count, _profile, submit_timer,
-            _shared_state->shared_from_this(), _spill_dependency, true, true, exception_catch_func);
+    auto spill_runnable = std::make_shared<SpillSinkRunnable>(
+            state, spill_context, _spill_dependency, _profile, _shared_state->shared_from_this(),
+            exception_catch_func);
 
     auto* thread_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
 
@@ -313,6 +310,10 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
     DCHECK(spill_io_pool != nullptr);
 
     auto spill_fin_cb = [this, state, query_id, spill_context]() {
+        if (_spilling_task_count.fetch_sub(1) != 1) {
+            return Status::OK();
+        }
+
         Status status;
         if (_child_eos) {
             VLOG_DEBUG << "query:" << print_id(this->state()->query_id()) << ", hash join sink "
@@ -324,12 +325,14 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
                                   COUNTER_UPDATE(_in_mem_rows_counter, block->rows());
                               }
                           });
-            auto st = _finish_spilling();
-            if (status.ok()) {
-                status = st;
-            }
+            status = _finish_spilling();
             _dependency->set_ready_to_read();
         }
+
+        if (spill_context) {
+            spill_context->on_task_finished();
+        }
+        _spill_dependency->set_ready();
         return status;
     };
     for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
@@ -355,10 +358,9 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
         // For every stream, the task counter is increased +1
         // so that when a stream finished, it should desc -1
         state->get_query_ctx()->increase_revoking_tasks_count();
-        auto spill_runnable = std::make_shared<SpillRunnable>(
-                state, spill_context, _spilling_task_count, _profile, submit_timer,
-                _shared_state->shared_from_this(), _spill_dependency, true, true,
-                [this, query_id, spilling_stream, i, spill_context] {
+        auto spill_runnable = std::make_shared<SpillSinkRunnable>(
+                state, nullptr, nullptr, _profile, _shared_state->shared_from_this(),
+                [this, query_id, spilling_stream, i] {
                     DBUG_EXECUTE_IF(
                             "fault_inject::partitioned_hash_join_sink::revoke_memory_cancel", {
                                 auto status = Status::InternalError(
@@ -371,8 +373,7 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
                     SCOPED_TIMER(_spill_build_timer);
 
                     auto status = [&]() {
-                        RETURN_IF_CATCH_EXCEPTION(
-                                return _spill_to_disk(i, spilling_stream, spill_context));
+                        RETURN_IF_CATCH_EXCEPTION(return _spill_to_disk(i, spilling_stream));
                     }();
 
                     _state->get_query_ctx()->decrease_revoking_tasks_count();
@@ -470,8 +471,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
 }
 
 Status PartitionedHashJoinSinkLocalState::_spill_to_disk(
-        uint32_t partition_index, const vectorized::SpillStreamSPtr& spilling_stream,
-        const std::shared_ptr<SpillContext>& spill_context) {
+        uint32_t partition_index, const vectorized::SpillStreamSPtr& spilling_stream) {
     auto& partitioned_block = _shared_state->partitioned_build_blocks[partition_index];
 
     Status status = _shared_state->_spill_status.status();

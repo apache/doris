@@ -389,8 +389,6 @@ public:
         }
     }
 
-    std::atomic_int _spilling_task_count {0};
-
     // Total time of spill, including spill task scheduling time,
     // serialize block time, write disk file time,
     // and read disk file time, deserialize block time etc.
@@ -783,8 +781,6 @@ public:
         COUNTER_SET(_spill_max_rows_of_partition, max_rows);
         COUNTER_SET(_spill_min_rows_of_partition, min_rows);
     }
-
-    std::atomic_int _spilling_task_count {0};
 
     std::vector<int64_t> _rows_in_partitions;
 
