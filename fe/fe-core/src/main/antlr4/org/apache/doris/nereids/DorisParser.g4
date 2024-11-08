@@ -195,6 +195,7 @@ supportedShowStatement
     | SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
+    | SHOW ROLES                                                                    #showRoles        
     ;
 
 unsupportedOtherStatement
@@ -223,6 +224,7 @@ lockTable
     : name=multipartIdentifier (AS alias=identifierOrText)?
         (READ (LOCAL)? | (LOW_PRIORITY)? WRITE)
     ;
+
 
 unsupportedShowStatement
     : SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
@@ -299,7 +301,6 @@ unsupportedShowStatement
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
-    | SHOW ROLES                                                                    #showRoles
     | SHOW PRIVILEGES                                                               #showPrivileges
     | SHOW FULL? BUILTIN? FUNCTIONS
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showFunctions
