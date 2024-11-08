@@ -34,6 +34,7 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
@@ -88,7 +89,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private boolean enableHmsEventsIncrementalSync = false;
 
     //for "type" = "hms" , but is iceberg table.
-    private HiveCatalog icebergHiveCatalog;
+    private IcebergMetadataOps icebergMetadataOps;
 
     @VisibleForTesting
     public HMSExternalCatalog() {
@@ -199,8 +200,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
                 fileSystemExecutor);
         metadataOps = hiveOps;
-
-        icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
     }
 
     @Override
@@ -337,10 +336,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return enableHmsEventsIncrementalSync;
     }
 
-    public HiveCatalog getIcebergHiveCatalog() {
-        return icebergHiveCatalog;
-    }
-
     /**
      * Enum for meta tables in hive catalog.
      * eg: tbl$partitions
@@ -392,6 +387,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     throw new AnalysisException("Unsupported meta function type: " + this);
             }
         }
+    }
+
+    public IcebergMetadataOps getIcebergMetadataOps() {
+        makeSureInitialized();
+        if (icebergMetadataOps == null) {
+            HiveCatalog icebergHiveCatalog = IcebergUtils.createIcebergHiveCatalog(this, getName());
+            icebergMetadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, icebergHiveCatalog);
+        }
+        return icebergMetadataOps;
     }
 }
 

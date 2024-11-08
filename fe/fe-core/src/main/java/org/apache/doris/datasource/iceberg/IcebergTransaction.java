@@ -22,6 +22,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
@@ -140,7 +141,7 @@ public class IcebergTransaction implements Transaction {
 
     private synchronized Table getNativeTable(SimpleTableInfo tableInfo) {
         Objects.requireNonNull(tableInfo);
-        IcebergExternalCatalog externalCatalog = ops.getExternalCatalog();
+        ExternalCatalog externalCatalog = ops.getExternalCatalog();
         return IcebergUtils.getRemoteTable(externalCatalog, tableInfo);
     }
 
