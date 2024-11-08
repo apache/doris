@@ -57,22 +57,18 @@ public class RefreshCatalogCommand extends Command implements ForwardWithSync {
         this.properties = properties;
     }
 
-    private void checkCatalogRules() throws AnalysisException {
+    private void validate() throws AnalysisException {
         Util.checkCatalogAllRules(catalogName);
         if (catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             throw new AnalysisException("Internal catalog name can't be refresh.");
         }
-    }
 
-    private void checkCatalogAccess() throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED_ERROR,
                     PrivPredicate.SHOW.getPrivs().toString(), catalogName);
         }
-    }
 
-    private void setInvalidCache() {
         if (properties != null) {
             // Set to false only if user set the property "invalid_cache"="false"
             invalidCache = !(properties.get(INVALID_CACHE) != null && properties.get(INVALID_CACHE)
@@ -82,7 +78,6 @@ public class RefreshCatalogCommand extends Command implements ForwardWithSync {
     }
 
     private void refreshCatalogInternal(CatalogIf catalog) {
-
         if (!catalogName.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             ((ExternalCatalog) catalog).onRefreshCache(invalidCache);
             LOG.info("refresh catalog {} with invalidCache {}", catalogName, invalidCache);
@@ -103,9 +98,7 @@ public class RefreshCatalogCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        checkCatalogRules();
-        checkCatalogAccess();
-        setInvalidCache();
+        validate();
         handleRefreshCatalog();
     }
 
