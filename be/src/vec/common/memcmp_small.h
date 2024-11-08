@@ -25,6 +25,8 @@
 
 namespace doris::vectorized::detail {
 
+#include "common/compile_check_begin.h"
+
 template <typename T>
 int cmp(T a, T b) {
     if (a < b) return -1;
@@ -53,7 +55,7 @@ int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b, s
     size_t min_size = std::min(a_size, b_size);
 
     for (size_t offset = 0; offset < min_size; offset += 16) {
-        uint16_t mask = _mm_movemask_epi8(
+        uint16_t mask = (uint16_t)_mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset))));
         mask = ~mask;
@@ -76,7 +78,7 @@ int memcmp_small_allow_overflow15(const Char* a, size_t a_size, const Char* b, s
 template <typename Char>
 int memcmp_small_allow_overflow15(const Char* a, const Char* b, size_t size) {
     for (size_t offset = 0; offset < size; offset += 16) {
-        uint16_t mask = _mm_movemask_epi8(
+        uint16_t mask = (uint16_t)_mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset))));
         mask = ~mask;
@@ -100,7 +102,7 @@ bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const Char* b
     if (a_size != b_size) return false;
 
     for (size_t offset = 0; offset < a_size; offset += 16) {
-        uint16_t mask = _mm_movemask_epi8(
+        uint16_t mask = (uint16_t)_mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset))));
         mask = ~mask;
@@ -119,7 +121,7 @@ bool memequal_small_allow_overflow15(const Char* a, size_t a_size, const Char* b
 template <typename Char>
 int memcmp_small_multiple_of16(const Char* a, const Char* b, size_t size) {
     for (size_t offset = 0; offset < size; offset += 16) {
-        uint16_t mask = _mm_movemask_epi8(
+        uint16_t mask = (uint16_t)_mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset))));
         mask = ~mask;
@@ -137,9 +139,9 @@ int memcmp_small_multiple_of16(const Char* a, const Char* b, size_t size) {
   */
 template <typename Char>
 int memcmp16(const Char* a, const Char* b) {
-    uint16_t mask =
-            _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a)),
-                                             _mm_loadu_si128(reinterpret_cast<const __m128i*>(b))));
+    uint16_t mask = (uint16_t)_mm_movemask_epi8(
+            _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a)),
+                           _mm_loadu_si128(reinterpret_cast<const __m128i*>(b))));
     mask = ~mask;
 
     if (mask) {
@@ -153,8 +155,8 @@ int memcmp16(const Char* a, const Char* b) {
 /** Variant when the size is 16 exactly.
   */
 inline bool memequal16(const void* a, const void* b) {
-    return 0xFFFF ==
-           _mm_movemask_epi8(_mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a)),
+    return 0xFFFF == (uint16_t)_mm_movemask_epi8(
+                             _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a)),
                                             _mm_loadu_si128(reinterpret_cast<const __m128i*>(b))));
 }
 
@@ -163,7 +165,7 @@ inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size)
     const __m128i zero16 = _mm_setzero_si128();
 
     for (size_t offset = 0; offset < size; offset += 16) {
-        uint16_t mask = _mm_movemask_epi8(
+        uint16_t mask = (uint16_t)_mm_movemask_epi8(
                 _mm_cmpeq_epi8(zero16, _mm_loadu_si128(reinterpret_cast<const __m128i*>(
                                                reinterpret_cast<const char*>(data) + offset))));
         mask = ~mask;
@@ -224,3 +226,5 @@ inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size)
 }
 
 #endif
+
+#include "common/compile_check_end.h"

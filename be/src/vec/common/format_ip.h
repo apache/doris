@@ -43,6 +43,8 @@ constexpr size_t IPV6_BINARY_LENGTH = 16;
 
 namespace doris::vectorized {
 
+#include "common/compile_check_begin.h"
+
 extern const std::array<std::pair<const char*, size_t>, 256> one_byte_to_string_lookup_table;
 
 /** Format 4-byte binary sequesnce as IPv4 text: 'aaa.bbb.ccc.ddd',
@@ -80,7 +82,7 @@ inline void format_ipv4(const unsigned char* src, size_t src_size, char*& dst,
             value = static_cast<uint8_t>(src[IPV4_BINARY_LENGTH - octet - 1]);
         else
             value = static_cast<uint8_t>(src[octet]);
-        const uint8_t len = one_byte_to_string_lookup_table[value].second;
+        const size_t len = one_byte_to_string_lookup_table[value].second;
         const char* str = one_byte_to_string_lookup_table[value].first;
 
         memcpy(dst, str, len);
@@ -251,7 +253,7 @@ inline void format_ipv6(unsigned char* src, char*& dst, uint8_t zeroed_tail_byte
         *    Copy the input (bytewise) array into a wordwise array.
         *    Find the longest run of 0x00's in src[] for :: shorthanding. */
     for (size_t i = 0; i < (IPV6_BINARY_LENGTH - zeroed_tail_bytes_count); i += 2) {
-        words[i / 2] = (src[i] << 8) | src[i + 1];
+        words[i / 2] = (UInt16)(src[i] << 8) | src[i + 1];
     }
 
     for (size_t i = 0; i < words.size(); i++) {
@@ -486,3 +488,4 @@ inline bool parse_ipv6_whole(const char* src, unsigned char* dst) {
 }
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

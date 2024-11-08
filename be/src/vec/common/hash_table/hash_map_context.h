@@ -39,6 +39,8 @@ struct RowRefListWithFlags;
 
 namespace doris::vectorized {
 
+#include "common/compile_check_begin.h"
+
 constexpr auto BITSIZE = 8;
 
 template <typename Base>
@@ -74,21 +76,21 @@ struct MethodBaseInner {
 
     virtual size_t serialized_keys_size(bool is_build) const { return 0; }
 
-    void init_join_bucket_num(uint32_t num_rows, uint32_t bucket_size, const uint8_t* null_map) {
+    void init_join_bucket_num(size_t num_rows, uint32_t bucket_size, const uint8_t* null_map) {
         bucket_nums.resize(num_rows);
 
         if (null_map == nullptr) {
             init_join_bucket_num(num_rows, bucket_size);
             return;
         }
-        for (uint32_t k = 0; k < num_rows; ++k) {
+        for (size_t k = 0; k < num_rows; ++k) {
             bucket_nums[k] =
                     null_map[k] ? bucket_size : hash_table->hash(keys[k]) & (bucket_size - 1);
         }
     }
 
-    void init_join_bucket_num(uint32_t num_rows, uint32_t bucket_size) {
-        for (uint32_t k = 0; k < num_rows; ++k) {
+    void init_join_bucket_num(size_t num_rows, uint32_t bucket_size) {
+        for (size_t k = 0; k < num_rows; ++k) {
             bucket_nums[k] = hash_table->hash(keys[k]) & (bucket_size - 1);
         }
     }
@@ -614,3 +616,5 @@ struct MethodSingleNullableColumn : public SingleColumnMethod {
 };
 
 } // namespace doris::vectorized
+
+#include "common/compile_check_end.h"
