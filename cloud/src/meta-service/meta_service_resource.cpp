@@ -570,6 +570,15 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     }
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+
+    if (!new_vault.has_hdfs_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << name << " is not hdfs storage vault";
+        msg = ss.str();
+        return -1;
+    }
+
     auto origin_vault_info = new_vault.DebugString();
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
@@ -671,6 +680,14 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     }
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+    if (!new_vault.has_obj_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << name << " is not s3 storage vault";
+        msg = ss.str();
+        return -1;
+    }
+
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
