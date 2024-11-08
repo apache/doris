@@ -28,9 +28,9 @@
 #include <cstring>
 
 #include "agent/be_exec_version_manager.h"
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "common/status.h"
-#include "common/cast_set.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
@@ -115,7 +115,8 @@ int64_t DataTypeString::get_uncompressed_serialized_bytes(const IColumn& column,
                                 "LZ4_MAX_INPUT_SIZE={}",
                                 bytes, LZ4_MAX_INPUT_SIZE);
             }
-            size += sizeof(size_t) + std::max(bytes, (size_t)LZ4_compressBound(cast_set<UInt32>(bytes)));
+            size += sizeof(size_t) +
+                    std::max(bytes, (size_t)LZ4_compressBound(cast_set<UInt32>(bytes)));
         }
         return size;
     } else {
