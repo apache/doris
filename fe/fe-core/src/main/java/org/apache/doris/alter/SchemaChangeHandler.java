@@ -2751,6 +2751,7 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException(e.getMessage());
         }
 
+        schemaChangeJob.stateWait("FE.LIGHT_SCHEMA_CHANGE");
         // set Job state then add job
         schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
         schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());

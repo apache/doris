@@ -81,17 +81,23 @@ suite("test_index_change_on_new_column") {
     qt_select1 """ SELECT * FROM ${tableName}; """
 
     // create inverted index on new column
-    sql """ alter table ${tableName} add index idx_s1(s1) USING INVERTED """
+    sql """ alter table ${tableName} add index idx_s1(s1) USING INVERTED PROPERTIES('parser' = 'english')"""
     wait_for_latest_op_on_table_finish(tableName, timeout)
 
     // build inverted index on new column
-    sql """ build index idx_s1 on ${tableName} """
-    wait_for_build_index_on_partition_finish(tableName, timeout)
+    if (!isCloudMode()) {
+        sql """ INSERT INTO ${tableName} VALUES
+             (2, 'hello wold', 'welcome to the world')
+            """
+        sql """ build index idx_s1 on ${tableName} """
+        wait_for_build_index_on_partition_finish(tableName, timeout)
+    }
 
     def show_result = sql "show index from ${tableName}"
     logger.info("show index from " + tableName + " result: " + show_result)
     assertEquals(show_result.size(), 1)
     assertEquals(show_result[0][2], "idx_s1")
 
-    qt_select2 """ SELECT * FROM ${tableName}; """
+    qt_select2 """ SELECT * FROM ${tableName} order by id; """
+    qt_select3 """ SELECT * FROM ${tableName} where s1 match 'welcome'; """
 }
