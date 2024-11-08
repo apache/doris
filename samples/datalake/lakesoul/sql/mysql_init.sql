@@ -1,66 +1,35 @@
--- SPDX-FileCopyrightText: 2023 LakeSoul Contributors
---
--- SPDX-License-Identifier: Apache-2.0
-
-create database if not exists test_cdc;
-
-use test_cdc;
-
-create table `default_init`
-(
-    `id`     int            NOT NULL,
-    `col_1`  bigint         NOT NULL,
-    `col_2`  binary(1)      NOT NULL,
-    `col_3`  blob           NOT NULL,
-    `col_4`  char(1)        NOT NULL,
-    `col_5`  date           NOT NULL,
-    `col_6`  datetime       NOT NULL,
-    `col_7`  decimal(10, 2) NOT NULL,
-    `col_8`  double         NOT NULL,
-    `col_9`  enum('spring','summer','autumn','winter') NOT NULL,
-    `col_10` int            NOT NULL,
-    `col_11` longblob       NOT NULL,
-    `col_12` longtext       NOT NULL,
-    `col_13` mediumblob     NOT NULL,
-    `col_14` mediumint      NOT NULL,
-    `col_15` mediumtext     NOT NULL,
-    `col_16` set('first','second','third','fourth','fifth') NOT NULL,
-    `col_17` smallint       NOT NULL,
-    `col_18` text           NOT NULL,
-    `col_19` timestamp      NOT NULL,
-    `col_20` tinyblob       NOT NULL,
-    `col_21` tinyint        NOT NULL,
-    `col_22` tinytext       NOT NULL,
-    `col_23` varbinary(50) NOT NULL,
-    `col_24` varchar(50)    NOT NULL,
-    PRIMARY KEY (`id`)
+CREATE TABLE customer (
+    c_custkey INT NOT NULL,
+    c_name VARCHAR(25),
+    c_address VARCHAR(40),
+    c_nationkey INT,
+    c_phone CHAR(15),
+    c_acctbal DECIMAL(15,2),
+    c_mktsegment VARCHAR(10),
+    c_comment VARCHAR(117),
+    PRIMARY KEY (c_custkey)
 );
 
-create table `default_init_1`
-(
-    `id`     int            NOT NULL,
-    `col_1`  bigint         NOT NULL,
-    `col_2`  binary(1)      NOT NULL,
-    `col_3`  blob           NOT NULL,
-    `col_4`  char(1)        NOT NULL,
-    `col_5`  date           NOT NULL,
-    `col_7`  decimal(10, 2) NOT NULL,
-    `col_8`  double         NOT NULL,
-    `col_9`  enum('spring','summer','autumn','winter') NOT NULL,
-    `col_10` int            NOT NULL,
-    `col_11` longblob       NOT NULL,
-    `col_12` longtext       NOT NULL,
-    `col_13` mediumblob     NOT NULL,
-    `col_14` mediumint      NOT NULL,
-    `col_15` mediumtext     NOT NULL,
-    `col_16` set('first','second','third','fourth','fifth') NOT NULL,
-    `col_18` text           NOT NULL,
-    `col_20` tinyblob       NOT NULL,
-    `col_22` tinytext       NOT NULL,
-    `col_23` varbinary(50) NOT NULL,
-    `col_24` varchar(50)    NOT NULL,
-    PRIMARY KEY (`id`)
+LOAD DATA INFILE '/data/tpch/customer.tbl' 
+INTO TABLE customer 
+FIELDS TERMINATED BY '|' 
+LINES TERMINATED BY '\n';
+
+CREATE TABLE orders (
+    o_orderkey INT NOT NULL,
+    o_custkey INT,
+    o_orderstatus CHAR(1),
+    o_totalprice DECIMAL(15,2),
+    o_orderdate DATE,
+    o_orderpriority CHAR(15),
+    o_clerk CHAR(15),
+    o_shippriority INT,
+    o_comment VARCHAR(79),
+    PRIMARY KEY (o_orderkey),
+    FOREIGN KEY (o_custkey) REFERENCES customer(c_custkey)
 );
 
-insert into default_init values (1, 8132132390403693530, 'N', 'blob', 'd', '2023-03-10', '2023-03-10 07:00:00', 8.20, 8.212, 'spring', 10, 'longblob', 'longtext', 'mediumblob', 83886, 'mediumtext', 'second', '99', 'text', '2023-03-10 07:00:00', 'tinyblob', 9, 'tinytext', 'varbinary', 'varchar');
-
+LOAD DATA INFILE '/data/tpch/orders.tbl' 
+INTO TABLE orders 
+FIELDS TERMINATED BY '|' 
+LINES TERMINATED BY '\n';

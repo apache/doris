@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-
 # Licensed to the Apache Software Foundation (ASF) under one
 # or more contributor license agreements.  See the NOTICE file
 # distributed with this work for additional information
@@ -17,29 +16,5 @@
 # specific language governing permissions and limitations
 # under the License.
 
-
-download_source_file() {
-    local FILE_PATH="$1"
-    local EXPECTED_MD5="$2"
-    local DOWNLOAD_URL="$3"
-
-    echo "Download ${FILE_PATH}"
-
-    if [[ -f "${FILE_PATH}" ]]; then
-        local FILE_MD5
-        FILE_MD5=$(md5sum "${FILE_PATH}" | awk '{ print $1 }')
-
-        if [[ "${FILE_MD5}" = "${EXPECTED_MD5}" ]]; then
-            echo "${FILE_PATH} is ready!"
-        else
-            echo "${FILE_PATH} is broken, Redownloading ..."
-            rm "${FILE_PATH}"
-            wget "${DOWNLOAD_URL}"/"${FILE_PATH}"
-        fi
-    else
-        echo "Downloading ${FILE_PATH} ..."
-        wget "${DOWNLOAD_URL}"/"${FILE_PATH}"
-    fi
-}
-
-docker compose -f docker-compose.yml --profile s3 --env-file docker-compose.env up -d
+echo "Start flink-cdc job..."
+sudo docker exec -t doris-lakesoul-jobmanager flink run -d -c org.apache.flink.lakesoul.entry.MysqlCdc /opt/flink/jars/lakesoul-flink-1.17-2.6.1.jar --source_db.host mysql --source_db.port 3306 --source_db.db_name tpch --source_db.user root --source_db.password root --source.parallelism 2 --sink.parallelism 4 --use.cdc true --warehouse_path s3://lakesoul-test-bucket/data/ --flink.checkpoint s3://lakesoul-test-bucket/chk --flink.savepoint s3://lakesoul-test-bucket/svp --job.checkpoint_interval 5000 --server_time_zone UTC

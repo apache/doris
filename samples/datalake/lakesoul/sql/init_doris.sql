@@ -1,5 +1,7 @@
 ALTER SYSTEM ADD BACKEND '127.0.0.1:9050';
 
+drop catalog if exists lakesoul;
+
 create catalog `lakesoul`  properties (
 	'type'='lakesoul',
 	'lakesoul.pg.username'='lakesoul_test',
