@@ -341,7 +341,9 @@ public class IndexChangeJob implements Writable {
 
             LOG.info("invertedIndexBatchTask:{}", invertedIndexBatchTask);
             AgentTaskQueue.addBatchTask(invertedIndexBatchTask);
-            AgentTaskExecutor.submit(invertedIndexBatchTask);
+            if (!FeConstants.runningUnitTest) {
+                AgentTaskExecutor.submit(invertedIndexBatchTask);
+            }
         } finally {
             olapTable.readUnlock();
         }

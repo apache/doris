@@ -491,6 +491,7 @@ public class IndexChangeJobTest {
         // if task error is not OBTAIN_LOCK_FAILED, the job should be failed after MIN_FAILED_NUM = 3 times
         AgentTask agentTask = tasks.get(0);
         agentTask.setErrorCode(TStatusCode.IO_ERROR);
+        Assert.assertEquals(agentTask.getFailedTimes(), 0);
         for (int i = 0; i < IndexChangeJob.MIN_FAILED_NUM; i++) {
             agentTask.failed();
             schemaChangeHandler.runAfterCatalogReady();
@@ -541,6 +542,7 @@ public class IndexChangeJobTest {
         // if task error is OBTAIN_LOCK_FAILED, the job should be failed after MAX_FAILED_NUM = 10 times
         AgentTask agentTask = tasks.get(0);
         agentTask.setErrorCode(TStatusCode.OBTAIN_LOCK_FAILED);
+        Assert.assertEquals(agentTask.getFailedTimes(), 0);
         for (int i = 0; i < IndexChangeJob.MAX_FAILED_NUM; i++) {
             agentTask.failed();
             schemaChangeHandler.runAfterCatalogReady();
