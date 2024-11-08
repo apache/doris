@@ -866,10 +866,6 @@ public abstract class Type {
                 return false;
             }
             for (int i = 0; i < sourceAggState.getSubTypes().size(); i++) {
-                // target subtype is not null but source subtype is nullable
-                if (!targetAggState.getSubTypeNullables().get(i) && sourceAggState.getSubTypeNullables().get(i)) {
-                    return false;
-                }
                 if (!canCastTo(sourceAggState.getSubTypes().get(i), targetAggState.getSubTypes().get(i))) {
                     return false;
                 }

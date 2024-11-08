@@ -22,7 +22,7 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-suite("txn_insert_restart_fe") {
+suite("txn_insert_restart_fe", 'docker') {
     def get_observer_fe_url = {
         def fes = sql_return_maparray "show frontends"
         logger.info("frontends: ${fes}")

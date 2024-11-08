@@ -286,6 +286,7 @@ namespace ErrorCode {
     E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
     E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
+    E(INVERTED_INDEX_FILE_CORRUPTED, -6012, false);          \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \
@@ -477,7 +478,7 @@ public:
     ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
-    ERROR_CTOR(TimedOut, TIMEOUT)
+    ERROR_CTOR_NOSTACK(TimedOut, TIMEOUT)
     ERROR_CTOR_NOSTACK(TooManyTasks, TOO_MANY_TASKS)
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)

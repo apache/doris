@@ -22,10 +22,8 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.LoadException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -39,6 +37,7 @@ import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionStatus;
 
 import com.google.common.base.Strings;
@@ -57,10 +56,13 @@ import java.util.function.Supplier;
 public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(OlapGroupCommitInsertExecutor.class);
 
+    private Backend groupCommitBackend;
+
     public OlapGroupCommitInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx,
-            boolean emptyInsert) {
+            boolean emptyInsert, Backend backend) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
+        this.groupCommitBackend = backend;
     }
 
     protected static void analyzeGroupCommit(ConnectContext ctx, TableIf table, LogicalPlan logicalQuery,
@@ -118,12 +120,8 @@ public class OlapGroupCommitInsertExecutor extends OlapInsertExecutor {
             LOG.info(msg);
             throw new AnalysisException(msg);
         }
-        try {
-            this.coordinator.setGroupCommitBe(Env.getCurrentEnv().getGroupCommitManager()
-                    .selectBackendForGroupCommit(table.getId(), ctx, false));
-        } catch (LoadException | DdlException e) {
-            throw new RuntimeException(e);
-        }
+        // this is used for old coordinator
+        this.coordinator.setGroupCommitBe(groupCommitBackend);
     }
 
     @Override

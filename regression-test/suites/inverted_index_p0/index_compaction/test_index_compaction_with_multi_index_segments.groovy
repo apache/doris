@@ -24,6 +24,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
     def backendId_to_backendHttpPort = [:]
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
 
+    sql """ set global enable_match_without_inverted_index = false """
     boolean disableAutoCompaction = false
   
     def set_be_config = { key, value ->
@@ -401,5 +402,6 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
             set_be_config.call("inverted_index_compaction_enable", invertedIndexCompactionEnable.toString())
             set_be_config.call("inverted_index_max_buffered_docs", invertedIndexMaxBufferedDocs.toString())
         }
+        sql """ set global enable_match_without_inverted_index = true """
     }
 }

@@ -23,7 +23,7 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 
 // Show Status statement
 // TODO(zhaochun): Add status information.
-public class ShowStatusStmt extends ShowStmt {
+public class ShowStatusStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Variable_name", ScalarType.createVarchar(20)))

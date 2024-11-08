@@ -23,16 +23,20 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.properties.RequireProperties;
 import org.apache.doris.nereids.properties.RequirePropertiesSupplier;
+import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
@@ -93,8 +97,9 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         super(PlanType.PHYSICAL_HASH_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(groupByExpressions, "groupByExpressions cannot be null"));
-        this.outputExpressions = ImmutableList.copyOf(
-                Objects.requireNonNull(outputExpressions, "outputExpressions cannot be null"));
+        this.outputExpressions = adjustNullableForOutputs(
+                Objects.requireNonNull(outputExpressions, "outputExpressions cannot be null"),
+                groupByExpressions.isEmpty());
         this.partitionExpressions = Objects.requireNonNull(
                 partitionExpressions, "partitionExpressions cannot be null");
         this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
@@ -120,8 +125,9 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 child);
         this.groupByExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(groupByExpressions, "groupByExpressions cannot be null"));
-        this.outputExpressions = ImmutableList.copyOf(
-                Objects.requireNonNull(outputExpressions, "outputExpressions cannot be null"));
+        this.outputExpressions = adjustNullableForOutputs(
+                Objects.requireNonNull(outputExpressions, "outputExpressions cannot be null"),
+                groupByExpressions.isEmpty());
         this.partitionExpressions = Objects.requireNonNull(
                 partitionExpressions, "partitionExpressions cannot be null");
         this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
@@ -193,9 +199,9 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         TopnPushInfo topnPushInfo = (TopnPushInfo) getMutableState(
                 MutableState.KEY_PUSH_TOPN_TO_AGG).orElseGet(() -> null);
         return Utils.toSqlString("PhysicalHashAggregate[" + id.asInt() + "]" + getGroupIdWithPrefix(),
+                "stats", statistics,
                 "aggPhase", aggregateParam.aggPhase,
                 "aggMode", aggregateParam.aggMode,
-                "stats", statistics,
                 "maybeUseStreaming", maybeUsingStream,
                 "groupByExpr", groupByExpressions,
                 "outputExpr", outputExpressions,
@@ -329,5 +335,34 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public PhysicalHashAggregate<CHILD_TYPE> setTopnPushInfo(TopnPushInfo topnPushInfo) {
         setMutableState(MutableState.KEY_PUSH_TOPN_TO_AGG, topnPushInfo);
         return this;
+    }
+
+    /**
+     * sql: select sum(distinct c1) from t;
+     * assume c1 is not null, because there is no group by
+     * sum(distinct c1)'s nullable is alwasNullable in rewritten phase.
+     * But in implementation phase, we may create 3 phase agg with group by key c1.
+     * And the sum(distinct c1)'s nullability should be changed depending on if there is any group by expressions.
+     * This pr update the agg function's nullability accordingly
+     */
+    private List<NamedExpression> adjustNullableForOutputs(List<NamedExpression> outputs, boolean alwaysNullable) {
+        return ExpressionUtils.rewriteDownShortCircuit(outputs, output -> {
+            if (output instanceof AggregateExpression) {
+                AggregateFunction function = ((AggregateExpression) output).getFunction();
+                if (function instanceof NullableAggregateFunction
+                        && ((NullableAggregateFunction) function).isAlwaysNullable() != alwaysNullable) {
+                    AggregateParam param = ((AggregateExpression) output).getAggregateParam();
+                    Expression child = ((AggregateExpression) output).child();
+                    AggregateFunction newFunction = ((NullableAggregateFunction) function)
+                            .withAlwaysNullable(alwaysNullable);
+                    if (function == child) {
+                        // function is also child
+                        child = newFunction;
+                    }
+                    return new AggregateExpression(newFunction, param, child);
+                }
+            }
+            return output;
+        });
     }
 }

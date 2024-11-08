@@ -448,7 +448,7 @@ void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
     }
 
     status_code = 404;
-    msg = "not found";
+    msg = "http path " + uri.path() + " not found, it may be not implemented";
     response_body = msg;
 }
 

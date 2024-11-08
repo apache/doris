@@ -252,13 +252,18 @@ public class Log4jConfig extends XmlConfiguration {
         }
         newXmlConfTemplate = newXmlConfTemplate.replaceAll(VERBOSE_MODULE_PLACEHOLDER, sb.toString());
 
-        if (sysLogMode.equalsIgnoreCase("NORMAL")) {
+        // BRIEF: async, no location
+        // ASYNC: async, with location
+        // NORMAL: sync, with location
+        boolean includeLocation = !sysLogMode.equalsIgnoreCase("BRIEF");
+        boolean immediateFlush = sysLogMode.equalsIgnoreCase("NORMAL");
+        if (includeLocation) {
             newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_FORMAT_PLACEHOLDER, " [%C{1}.%M():%L] ");
         } else {
             newXmlConfTemplate = newXmlConfTemplate.replaceAll(RUNTIME_LOG_FORMAT_PLACEHOLDER, " ");
-            if (sysLogMode.equalsIgnoreCase("ASYNC")) {
-                newXmlConfTemplate = newXmlConfTemplate.replaceAll("Root", "AsyncRoot");
-            }
+        }
+        if (!immediateFlush) {
+            newXmlConfTemplate = newXmlConfTemplate.replaceAll("Root", "AsyncRoot");
         }
 
         if (Config.enable_file_logger) {
@@ -298,11 +303,6 @@ public class Log4jConfig extends XmlConfiguration {
         properties.put("warn_sys_accumulated_file_size", String.valueOf(Config.warn_sys_accumulated_file_size));
         properties.put("audit_sys_accumulated_file_size", String.valueOf(Config.audit_sys_accumulated_file_size));
 
-        // BRIEF: async, no location
-        // ASYNC: async, with location
-        // NORMAL: sync, with location
-        boolean includeLocation = !sysLogMode.equalsIgnoreCase("BRIEF");
-        boolean immediateFlush = sysLogMode.equalsIgnoreCase("NORMAL");
         properties.put("include_location_flag", Boolean.toString(includeLocation));
         properties.put("immediate_flush_flag", Boolean.toString(immediateFlush));
         properties.put("audit_file_postfix", compressAuditLog ? ".gz" : "");

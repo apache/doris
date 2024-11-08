@@ -122,6 +122,7 @@ private:
 extern BvarLatencyRecorderWithTag g_bvar_ms_begin_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_precommit_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_commit_txn;
+extern BvarLatencyRecorderWithTag g_bvar_ms_commit_txn_eventually;
 extern BvarLatencyRecorderWithTag g_bvar_ms_abort_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_txn;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id;
@@ -171,6 +172,8 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_finish_tablet_job;
 extern BvarLatencyRecorderWithTag g_bvar_ms_update_delete_bitmap;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap_update_lock;
+extern BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap;
+extern BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap_update_lock;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_set_cluster_status;
 extern BvarLatencyRecorderWithTag g_bvar_ms_get_instance;
@@ -234,6 +237,7 @@ extern bvar::Status<int64_t> g_bvar_fdb_workload_written_bytes_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_started_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_committed_hz;
 extern bvar::Status<int64_t> g_bvar_fdb_workload_transactions_rejected_hz;
+extern bvar::Status<int64_t> g_bvar_fdb_client_thread_busyness_percent;
 
 // checker
 extern BvarStatusWithTag<long> g_bvar_checker_num_scanned;

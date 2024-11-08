@@ -18,18 +18,21 @@
 #pragma once
 #include <gen_cpp/Opcodes_types.h>
 
+#include <algorithm>
+#include <cstdint>
+
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vectorized_fn_call.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/exprs/vexpr_fwd.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 inline std::string compound_operator_to_string(TExprOpcode::type op) {
     if (op == TExprOpcode::COMPOUND_AND) {
@@ -155,7 +158,7 @@ public:
         if (_can_fast_execute && fast_execute(context, block, result_column_id)) {
             return Status::OK();
         }
-        if (children().size() == 1 || !_all_child_is_compound_and_not_const()) {
+        if (get_num_children() == 1 || !_all_child_is_compound_and_not_const()) {
             return VectorizedFnCall::execute(context, block, result_column_id);
         }
 
@@ -168,7 +171,7 @@ public:
         bool lhs_is_nullable = lhs_column->is_nullable();
         auto [lhs_data_column, lhs_null_map] =
                 _get_raw_data_and_null_map(lhs_column, lhs_is_nullable);
-        int filted = simd::count_zero_num((int8_t*)lhs_data_column, size);
+        size_t filted = simd::count_zero_num((int8_t*)lhs_data_column, size);
         bool lhs_all_true = (filted == 0);
         bool lhs_all_false = (filted == size);
 
@@ -196,7 +199,7 @@ public:
                 auto rhs_nullable_column = _get_raw_data_and_null_map(rhs_column, rhs_is_nullable);
                 rhs_data_column = rhs_nullable_column.first;
                 rhs_null_map = rhs_nullable_column.second;
-                int filted = simd::count_zero_num((int8_t*)rhs_data_column, size);
+                size_t filted = simd::count_zero_num((int8_t*)rhs_data_column, size);
                 rhs_all_true = (filted == 0);
                 rhs_all_false = (filted == size);
                 if (rhs_is_nullable) {
@@ -340,13 +343,9 @@ private:
     }
 
     bool _all_child_is_compound_and_not_const() const {
-        for (auto child : _children) {
-            // we can make sure non const compound predicate's return column is allow modifyied locally.
-            if (child->is_constant() || !child->is_compound_predicate()) {
-                return false;
-            }
-        }
-        return true;
+        return std::ranges::all_of(_children, [](const VExprSPtr& arg) -> bool {
+            return arg->is_compound_predicate() && !arg->is_constant();
+        });
     }
 
     std::pair<uint8*, uint8*> _get_raw_data_and_null_map(ColumnPtr column,
@@ -371,4 +370,6 @@ private:
 
     TExprOpcode::type _op;
 };
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

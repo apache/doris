@@ -140,6 +140,10 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     _base_tablet_schema->update_tablet_columns(*_base_tablet->tablet_schema(), request.columns);
     _new_tablet_schema = _new_tablet->tablet_schema();
 
+    std::vector<ColumnId> return_columns;
+    return_columns.resize(_base_tablet_schema->num_columns());
+    std::iota(return_columns.begin(), return_columns.end(), 0);
+
     // delete handlers to filter out deleted rows
     DeleteHandler delete_handler;
     std::vector<RowsetMetaSharedPtr> delete_predicates;
@@ -152,10 +156,6 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     }
     RETURN_IF_ERROR(delete_handler.init(_base_tablet_schema, delete_predicates,
                                         start_resp.alter_version()));
-
-    std::vector<ColumnId> return_columns;
-    return_columns.resize(_base_tablet_schema->num_columns());
-    std::iota(return_columns.begin(), return_columns.end(), 0);
 
     // reader_context is stack variables, it's lifetime MUST keep the same with rs_readers
     RowsetReaderContext reader_context;
@@ -252,6 +252,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             changer, sc_sorting,
             _cloud_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::_convert_historical_rowsets.block", DBUG_BLOCK);
+
     // 3. Convert historical data
     bool already_exist_any_version = false;
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
@@ -342,7 +344,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             sc_job->add_txn_ids(rs->txn_id());
             sc_job->add_output_versions(rs->end_version());
             num_output_rows += rs->num_rows();
-            size_output_rowsets += rs->data_disk_size();
+            size_output_rowsets += rs->total_disk_size();
             num_output_segments += rs->num_segments();
         }
         sc_job->set_num_output_rows(num_output_rows);

@@ -27,6 +27,7 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h"
 #include "common/exception.h"
 #include "common/logging.h"
@@ -535,7 +536,7 @@ struct DateTimeOp {
 
 template <typename FromType1, typename Transform, typename FromType2 = FromType1>
 struct DateTimeAddIntervalImpl {
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           size_t input_rows_count) {
         using ToType = typename Transform::ReturnType::FieldType;
         using Op = DateTimeOp<FromType1, FromType2, ToType, Transform>;
@@ -645,7 +646,7 @@ struct DateTimeAddIntervalImpl {
                                         col_to->get_data(), null_map->get_data(),
                                         delta_vec_column->get_data());
                 } else {
-                    Op::constant_vector(sources_const->template get_value<FromType2>(),
+                    Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(), null_map->get_data(),
                                         *not_nullable_column_ptr_arg1);
                 }
@@ -675,7 +676,7 @@ struct DateTimeAddIntervalImpl {
                     Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(), delta_vec_column->get_data());
                 } else {
-                    Op::constant_vector(sources_const->template get_value<FromType2>(),
+                    Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(),
                                         *block.get_by_position(arguments[1]).column);
                 }
@@ -744,7 +745,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& first_arg_type = block.get_by_position(arguments[0]).type;
         const auto& second_arg_type = block.get_by_position(arguments[1]).type;
         WhichDataType which1(remove_nullable(first_arg_type));
@@ -822,7 +823,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
     }
 };
@@ -841,7 +842,7 @@ struct CurrentDateTimeImpl {
     }
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if constexpr (WithPrecision) {
             DCHECK(which.is_date_time_v2() || which.is_date_v2());
@@ -868,7 +869,7 @@ struct CurrentDateTimeImpl {
 
     template <typename DateValueType, typename NativeType>
     static Status executeImpl(FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, size_t result,
+                              const ColumnNumbers& arguments, uint32_t result,
                               size_t input_rows_count) {
         auto col_to = ColumnVector<NativeType>::create();
         DateValueType dtv;
@@ -876,7 +877,7 @@ struct CurrentDateTimeImpl {
         if constexpr (WithPrecision) {
             if (const auto* const_column = check_and_get_column<ColumnConst>(
                         block.get_by_position(arguments[0]).column)) {
-                int scale = const_column->get_int(0);
+                int64_t scale = const_column->get_int(0);
                 dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->nano_seconds(),
                                   context->state()->timezone_obj(), scale);
@@ -956,7 +957,7 @@ struct CurrentDateImpl {
     using ReturnType = DateType;
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         auto col_to = ColumnVector<NativeType>::create();
         if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             DateV2Value<DateV2ValueType> dtv;
@@ -987,7 +988,7 @@ struct CurrentTimeImpl {
     using ReturnType = DataTypeTimeV2;
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         auto col_to = ColumnFloat64::create();
         VecDateTimeValue dtv;
         dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
@@ -1002,17 +1003,19 @@ struct CurrentTimeImpl {
 };
 
 struct TimeToSecImpl {
+    // rethink the func should return int32
     using ReturnType = DataTypeInt32;
     static constexpr auto name = "time_to_sec";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         auto res_col = ColumnInt32::create(input_rows_count);
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnFloat64&>(*arg_col);
 
         auto& res_data = res_col->get_data();
         for (int i = 0; i < input_rows_count; ++i) {
-            res_data[i] = static_cast<int64_t>(column_data.get_element(i)) / (1000 * 1000);
+            res_data[i] =
+                    cast_set<int>(static_cast<int64_t>(column_data.get_element(i)) / (1000 * 1000));
         }
         block.replace_by_position(result, std::move(res_col));
 
@@ -1024,7 +1027,7 @@ struct SecToTimeImpl {
     using ReturnType = DataTypeTimeV2;
     static constexpr auto name = "sec_to_time";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnInt32&>(*arg_col);
 
@@ -1066,7 +1069,7 @@ struct TimestampToDateTime : IFunction {
     static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
         auto res_col = ColumnUInt64::create();
@@ -1105,7 +1108,7 @@ struct UtcTimestampImpl {
     using ReturnType = DataTypeDateTime;
     static constexpr auto name = "utc_timestamp";
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count) {
+                          uint32_t result, size_t input_rows_count) {
         WhichDataType which(remove_nullable(block.get_by_position(result).type));
         if (which.is_date_time_v2()) {
             return executeImpl<DateV2Value<DateTimeV2ValueType>, UInt64>(context, block, result,
@@ -1119,7 +1122,7 @@ struct UtcTimestampImpl {
     }
 
     template <typename DateValueType, typename NativeType>
-    static Status executeImpl(FunctionContext* context, Block& block, size_t result,
+    static Status executeImpl(FunctionContext* context, Block& block, uint32_t result,
                               size_t input_rows_count) {
         auto col_to = ColumnVector<Int64>::create();
         DateValueType dtv;

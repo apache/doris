@@ -54,26 +54,15 @@ suite ("multi_slot_k1a2p2ap3ps") {
 
     qt_select_star "select * from d_table order by k1;"
 
-    explain {
-        sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1")
-        contains "(k1a2p2ap3ps)"
-    }
+    mv_rewrite_success("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1", "k1a2p2ap3ps")
     qt_select_mv "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1;"
 
-    explain {
-        sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2 order by abs(k1)+k2")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2 order by abs(k1)+k2", "k1a2p2ap3ps")
     qt_select_base "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2 order by abs(k1)+k2;"
 
     sql """set enable_stats=true;"""
-    explain {
-        sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1")
-        contains "(k1a2p2ap3ps)"
-    }
+    mv_rewrite_success("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1", "k1a2p2ap3ps")
 
-    explain {
-        sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2 order by abs(k1)+k2")
-        contains "(d_table)"
-    }
+    mv_rewrite_fail("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2 order by abs(k1)+k2", "k1a2p2ap3ps")
+
 }

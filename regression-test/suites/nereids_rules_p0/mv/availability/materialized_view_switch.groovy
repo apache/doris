@@ -39,11 +39,6 @@ suite("materialized_view_switch") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -74,10 +69,6 @@ suite("materialized_view_switch") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -151,8 +142,10 @@ suite("materialized_view_switch") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_1"""
 
     sql "SET enable_materialized_view_rewrite=false"
-    async_mv_rewrite_fail(db, mv_name, query, "mv_name_2")
+    create_async_mv(db, "mv_name_2", mv_name)
+    mv_not_part_in(query, "mv_name_2")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_2"""
+
     sql "SET enable_materialized_view_rewrite=true"
     async_mv_rewrite_success(db, mv_name, query, "mv_name_3")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv_name_3"""

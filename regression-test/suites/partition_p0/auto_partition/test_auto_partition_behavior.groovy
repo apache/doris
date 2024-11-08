@@ -50,11 +50,9 @@ suite("test_auto_partition_behavior") {
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 10)
     // add partition
-    try {
+    test {
         sql """ alter table unique_table add partition padd values in ("Xxx") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("is conflict with current partitionKeys"))
+        exception "is conflict with current partitionKeys"
     }
     // drop partition
     def partitions = sql "show partitions from unique_table order by PartitionName"
@@ -94,11 +92,9 @@ suite("test_auto_partition_behavior") {
     result = sql "show partitions from dup_table"
     assertEquals(result.size(), 10)
     // add partition
-    try {
+    test {
         sql """ alter table dup_table add partition padd values in ("Xxx") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("is conflict with current partitionKeys"))
+        exception "is conflict with current partitionKeys"
     }
     // drop partition
     partitions = sql "show partitions from dup_table order by PartitionName"
@@ -168,11 +164,9 @@ suite("test_auto_partition_behavior") {
         );
         """
     sql """ insert into rewrite values ("Xxx"); """
-    try {
+    test {
         sql """ insert overwrite table rewrite partition(p1) values ("") """
-        fail()
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("Insert has filtered data in strict mode"))
+        exception "Insert has filtered data in strict mode"
     }
     sql """ insert overwrite table rewrite partition(p1) values ("Xxx") """
     qt_sql_overwrite """ select * from rewrite """ // Xxx
@@ -214,117 +208,6 @@ suite("test_auto_partition_behavior") {
         """
         exception "AUTO RANGE PARTITION doesn't support NULL column"
     }
-
-
-
-    // dynamic + auto partition
-    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '1') """
-    // PROHIBIT different timeunit of interval when use both auto & dynamic partition
-    test{
-        sql """
-            CREATE TABLE tbl3
-            (
-                k1 DATETIME NOT NULL,
-                col1 int 
-            )
-            auto partition by range (date_trunc(`k1`, 'year')) ()
-            DISTRIBUTED BY HASH(k1)
-            PROPERTIES
-            (
-                "replication_num" = "1",
-                "dynamic_partition.create_history_partition"="true",
-                "dynamic_partition.enable" = "true",
-                "dynamic_partition.time_unit" = "HOUR",
-                "dynamic_partition.start" = "-2",
-                "dynamic_partition.end" = "2",
-                "dynamic_partition.prefix" = "p",
-                "dynamic_partition.buckets" = "8"
-            ); 
-        """
-        exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
-    }
-
-    sql " drop table if exists test_dynamic "
-    sql """
-            create table test_dynamic(
-                k0 DATE not null
-            )
-            auto partition by range (date_trunc(k0, 'year')) ()
-            DISTRIBUTED BY HASH(`k0`) BUCKETS auto
-            properties("replication_num" = "1");
-        """
-    test {
-        sql """
-            ALTER TABLE test_dynamic set (
-                "dynamic_partition.enable" = "true", 
-                "dynamic_partition.time_unit" = "DAY", 
-                "dynamic_partition.end" = "3", 
-                "dynamic_partition.prefix" = "p", 
-                "dynamic_partition.buckets" = "32"
-            );
-        """
-        exception "If support auto partition and dynamic partition at same time, they must have the same interval unit."
-    }
-    sql """
-        ALTER TABLE test_dynamic set (
-            "dynamic_partition.enable" = "true", 
-            "dynamic_partition.time_unit" = "YeAr", 
-            "dynamic_partition.end" = "3", 
-            "dynamic_partition.prefix" = "p", 
-            "dynamic_partition.buckets" = "32"
-        );
-    """
-
-    sql " drop table if exists auto_dynamic "
-    sql """
-        create table auto_dynamic(
-            k0 datetime(6) NOT NULL
-        )
-        auto partition by range (date_trunc(k0, 'hour'))
-        (
-        )
-        DISTRIBUTED BY HASH(`k0`) BUCKETS 2
-        properties(
-            "dynamic_partition.enable" = "true",
-            "dynamic_partition.prefix" = "p",
-            "dynamic_partition.create_history_partition" = "true",
-            "dynamic_partition.start" = "-5",
-            "dynamic_partition.end" = "0",
-            "dynamic_partition.time_unit" = "hour",
-            "replication_num" = "1"
-        );
-    """
-    def part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 6)
-
-    sql " drop table if exists auto_dynamic "
-    sql """
-        create table auto_dynamic(
-            k0 datetime(6) NOT NULL
-        )
-        auto partition by range (date_trunc(k0, 'year'))
-        (
-        )
-        DISTRIBUTED BY HASH(`k0`) BUCKETS 2
-        properties(
-            "dynamic_partition.enable" = "true",
-            "dynamic_partition.prefix" = "p",
-            "dynamic_partition.start" = "-50",
-            "dynamic_partition.end" = "0",
-            "dynamic_partition.time_unit" = "year",
-            "replication_num" = "1"
-        );
-    """
-    part_result = sql " show partitions from auto_dynamic "
-    assertEquals(part_result.size, 1)
-    sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
-    sleep(3000)
-    part_result = sql " show partitions from auto_dynamic "
-    log.info("${part_result}".toString())
-    assertEquals(part_result.size, 3)
-    qt_sql_dynamic_auto "select * from auto_dynamic order by k0;"
-    sql """ admin set frontend config ('dynamic_partition_check_interval_seconds' = '600') """
-
 
 
 
@@ -408,6 +291,9 @@ suite("test_auto_partition_behavior") {
     part_result = sql " show tablets from test_change "
     assertEquals(part_result.size, 52 * replicaNum)
 
+
+
+    // test not auto partition have expr.
     test {
         sql """
             CREATE TABLE not_auto_expr (
@@ -420,5 +306,43 @@ suite("test_auto_partition_behavior") {
             );
         """
         exception "Non-auto partition table not support partition expr!"
+    }
+
+
+    // test insert empty
+    sql "create table if not exists empty_range like test_change"
+    sql "insert into test_change select * from empty_range"
+    sql "create table if not exists empty_list like long_value"
+    sql "insert into long_value select * from empty_list"
+
+
+    // test not auto partition have expr.
+    test {
+        sql """
+            CREATE TABLE if not exists dup_dynamic_t_logs (
+                `timestamp` datetime NOT NULL,
+                `source` text NULL,
+                `node` text NULL,
+                `level` text NULL,
+                `component` text NULL,
+                `clientRequestId` varchar(50) NULL,
+                `message` text NULL,
+                `properties` variant NULL,
+            INDEX idx_source (`source`) USING INVERTED COMMENT '',
+            INDEX idx_node (`node`) USING INVERTED COMMENT '',
+            INDEX idx_level (`level`) USING INVERTED COMMENT '',
+            INDEX idx_component (`component`) USING INVERTED COMMENT '',
+            INDEX idx_clientRequestId (`clientRequestId`) USING INVERTED COMMENT '',
+            INDEX idx_message (`message`) USING INVERTED PROPERTIES("parser"="english") COMMENT '',
+            -- INDEX idx_properties (`properties`) USING INVERTED COMMENT '',
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`timestamp`)
+            AUTO PARTITION BY RANGE (`timestamp`)()
+            DISTRIBUTED BY RANDOM BUCKETS 100
+            PROPERTIES (
+            "file_cache_ttl_seconds" = "600"
+            );
+        """
+        exception "auto create partition only support date_trunc function of RANGE partition"
     }
 }

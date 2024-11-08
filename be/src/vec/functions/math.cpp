@@ -37,6 +37,7 @@
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_math_log.h"
 #include "vec/functions/function_math_unary.h"
+#include "vec/functions/function_math_unary_alway_nullable.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
@@ -53,13 +54,19 @@ struct Log2Impl;
 namespace doris::vectorized {
 struct AcosName {
     static constexpr auto name = "acos";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_acos
+    static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAcos = FunctionMathUnary<UnaryFunctionPlain<AcosName, std::acos>>;
+using FunctionAcos =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AcosName, std::acos>>;
 
 struct AsinName {
     static constexpr auto name = "asin";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_asin
+    static constexpr bool is_invalid_input(Float64 x) { return x < -1 || x > 1; }
 };
-using FunctionAsin = FunctionMathUnary<UnaryFunctionPlain<AsinName, std::asin>>;
+using FunctionAsin =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<AsinName, std::asin>>;
 
 struct AtanName {
     static constexpr auto name = "atan";
@@ -242,8 +249,11 @@ using FunctionSin = FunctionMathUnary<UnaryFunctionPlainSin>;
 
 struct SqrtName {
     static constexpr auto name = "sqrt";
+    // https://dev.mysql.com/doc/refman/8.4/en/mathematical-functions.html#function_sqrt
+    static constexpr bool is_invalid_input(Float64 x) { return x < 0; }
 };
-using FunctionSqrt = FunctionMathUnary<UnaryFunctionPlain<SqrtName, std::sqrt>>;
+using FunctionSqrt =
+        FunctionMathUnaryAlwayNullable<UnaryFunctionPlainAlwayNullable<SqrtName, std::sqrt>>;
 
 struct CbrtName {
     static constexpr auto name = "cbrt";
@@ -340,6 +350,79 @@ struct PowName {
 };
 using FunctionPow = FunctionBinaryArithmetic<PowImpl, PowName, false>;
 
+class FunctionNormalCdf : public IFunction {
+public:
+    static constexpr auto name = "normal_cdf";
+
+    String get_name() const override { return name; }
+
+    static FunctionPtr create() { return std::make_shared<FunctionNormalCdf>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeFloat64>());
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>(),
+                std::make_shared<DataTypeFloat64>()};
+    }
+    size_t get_number_of_arguments() const override { return 3; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        auto result_column = ColumnFloat64::create(input_rows_count);
+        auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
+
+        auto& result_data = result_column->get_data();
+        NullMap& result_null_map =
+                assert_cast<ColumnUInt8*>(result_null_map_column.get())->get_data();
+
+        ColumnPtr argument_columns[3];
+        bool col_const[3];
+        size_t argument_size = arguments.size();
+        for (int i = 0; i < argument_size; ++i) {
+            argument_columns[i] = block.get_by_position(arguments[i]).column;
+            col_const[i] = is_column_const(*argument_columns[i]);
+            if (col_const[i]) {
+                argument_columns[i] =
+                        static_cast<const ColumnConst&>(*argument_columns[i]).get_data_column_ptr();
+            }
+        }
+
+        auto* mean_col = assert_cast<const ColumnFloat64*>(argument_columns[0].get());
+        auto* sd_col = assert_cast<const ColumnFloat64*>(argument_columns[1].get());
+        auto* value_col = assert_cast<const ColumnFloat64*>(argument_columns[2].get());
+
+        result_column->reserve(input_rows_count);
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            double mean = mean_col->get_element(index_check_const(i, col_const[0]));
+            double sd = sd_col->get_element(index_check_const(i, col_const[1]));
+            double v = value_col->get_element(index_check_const(i, col_const[2]));
+
+            if (!check_argument(sd)) [[unlikely]] {
+                result_null_map[i] = true;
+                continue;
+            }
+            result_data[i] = calculate_cell(mean, sd, v);
+        }
+
+        block.get_by_position(result).column =
+                ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));
+        return Status::OK();
+    }
+
+    static bool check_argument(double sd) { return sd > 0; }
+    static double calculate_cell(double mean, double sd, double v) {
+#ifdef __APPLE__
+        const double sqrt2 = std::sqrt(2);
+#else
+        constexpr double sqrt2 = std::numbers::sqrt2;
+#endif
+
+        return 0.5 * (std::erf((v - mean) / (sd * sqrt2)) + 1);
+    }
+};
+
 // TODO: Now math may cause one thread compile time too long, because the function in math
 // so mush. Split it to speed up compile time in the future
 void register_function_math(SimpleFunctionFactory& factory) {
@@ -376,5 +459,6 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionRadians>();
     factory.register_function<FunctionDegrees>();
     factory.register_function<FunctionBin>();
+    factory.register_function<FunctionNormalCdf>();
 }
 } // namespace doris::vectorized

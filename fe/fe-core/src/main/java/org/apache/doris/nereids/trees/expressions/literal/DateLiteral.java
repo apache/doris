@@ -44,16 +44,16 @@ import java.util.function.UnaryOperator;
 public class DateLiteral extends Literal {
     public static final String JAVA_DATE_FORMAT = "yyyy-MM-dd";
 
+    public static final Set<Character> punctuations = ImmutableSet.of('!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
+            '-', '+', '=', '_', '{', '}', '[', ']', '|', '\\', ':', ';', '"', '\'', '<', '>', ',', '.', '?', '/', '~',
+            '`');
+
     // for cast datetime type to date type.
     private static final LocalDateTime START_OF_A_DAY = LocalDateTime.of(0, 1, 1, 0, 0, 0);
     private static final LocalDateTime END_OF_A_DAY = LocalDateTime.of(9999, 12, 31, 23, 59, 59, 999999000);
     private static final DateLiteral MIN_DATE = new DateLiteral(0, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
-
-    private static final Set<Character> punctuations = ImmutableSet.of('!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
-            '-', '+', '=', '_', '{', '}', '[', ']', '|', '\\', ':', ';', '"', '\'', '<', '>', ',', '.', '?', '/', '~',
-            '`');
 
     protected long year;
     protected long month;
@@ -145,7 +145,7 @@ public class DateLiteral extends Literal {
         return punctuations.contains(c);
     }
 
-    static String normalize(String s) {
+    static Result<String, AnalysisException> normalize(String s) {
         // merge consecutive space
         if (s.contains("  ")) {
             s = s.replaceAll(" +", " ");
@@ -208,7 +208,10 @@ public class DateLiteral extends Literal {
                         sb.append('0').append(c);
                     }
                 } else {
-                    throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
+                    final String currentString = s;
+                    return Result.err(
+                            () -> new AnalysisException("date/datetime literal [" + currentString + "] is invalid")
+                    );
                 }
                 i = j;
                 partNumber += 1;
@@ -220,11 +223,18 @@ public class DateLiteral extends Literal {
                     while (i < s.length() && (isPunctuation(s.charAt(i)) || s.charAt(i) == ' ' || s.charAt(i) == 'T')) {
                         i += 1;
                     }
-                    sb.append(' ');
+                    // avoid add blank before zone-id, for example 2008-08-08 +08:00
+                    // should be normalized to 2008-08-08+08:00
+                    if (i >= s.length() || Character.isDigit(s.charAt(i))) {
+                        sb.append(' ');
+                    }
                 } else if (partNumber > 3 && isPunctuation(c)) {
                     sb.append(':');
                 } else {
-                    throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
+                    final String currentString = s;
+                    return Result.err(
+                            () -> new AnalysisException("date/datetime literal [" + currentString + "] is invalid")
+                    );
                 }
             } else {
                 break;
@@ -240,28 +250,48 @@ public class DateLiteral extends Literal {
 
         // parse MicroSecond
         // Keep up to 7 digits at most, 7th digit is use for overflow.
+        int j = i;
         if (partNumber == 6 && i < s.length() && s.charAt(i) == '.') {
             sb.append(s.charAt(i));
             i += 1;
             while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                if (i - 19 <= 7) {
+                if (i - j <= 7) {
                     sb.append(s.charAt(i));
                 }
                 i += 1;
             }
         }
 
-        sb.append(s.substring(i));
+        // trim use to remove any blank before zone id or zone offset
+        sb.append(s.substring(i).trim());
 
-        return sb.toString();
+        return Result.ok(sb.toString());
     }
 
-    protected static TemporalAccessor parse(String s) {
+    /** parseDateLiteral */
+    public static Result<DateLiteral, AnalysisException> parseDateLiteral(String s) {
+        Result<TemporalAccessor, AnalysisException> parseResult = parseDateTime(s);
+        if (parseResult.isError()) {
+            return parseResult.cast();
+        }
+        TemporalAccessor dateTime = parseResult.get();
+        int year = DateUtils.getOrDefault(dateTime, ChronoField.YEAR);
+        int month = DateUtils.getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR);
+        int day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
+
+        if (checkDatetime(dateTime) || checkRange(year, month, day) || checkDate(year, month, day)) {
+            return Result.err(() -> new AnalysisException("date/datetime literal [" + s + "] is out of range"));
+        }
+        return Result.ok(new DateLiteral(year, month, day));
+    }
+
+    /** parseDateTime */
+    public static Result<TemporalAccessor, AnalysisException> parseDateTime(String s) {
         // fast parse '2022-01-01'
         if (s.length() == 10 && s.charAt(4) == '-' && s.charAt(7) == '-') {
             TemporalAccessor date = fastParseDate(s);
             if (date != null) {
-                return date;
+                return Result.ok(date);
             }
         }
 
@@ -283,15 +313,20 @@ public class DateLiteral extends Literal {
             if (!containsPunctuation) {
                 s = normalizeBasic(s);
                 // mysql reject "20200219 010101" "200219 010101", can't use ' ' spilt basic date time.
+
                 if (!s.contains("T")) {
                     dateTime = DateTimeFormatterUtils.BASIC_FORMATTER_WITHOUT_T.parse(s);
                 } else {
                     dateTime = DateTimeFormatterUtils.BASIC_DATE_TIME_FORMATTER.parse(s);
                 }
-                return dateTime;
+                return Result.ok(dateTime);
             }
 
-            s = normalize(s);
+            Result<String, AnalysisException> normalizeResult = normalize(s);
+            if (normalizeResult.isError()) {
+                return normalizeResult.cast();
+            }
+            s = normalizeResult.get();
 
             if (!s.contains(" ")) {
                 dateTime = DateTimeFormatterUtils.ZONE_DATE_FORMATTER.parse(s);
@@ -301,32 +336,34 @@ public class DateLiteral extends Literal {
 
             // if Year is not present, throw exception
             if (!dateTime.isSupported(ChronoField.YEAR)) {
-                throw new AnalysisException("date/datetime literal [" + originalString + "] is invalid");
+                return Result.err(
+                        () -> new AnalysisException("date/datetime literal [" + originalString + "] is invalid")
+                );
             }
 
-            return dateTime;
+            return Result.ok(dateTime);
         } catch (Exception ex) {
-            throw new AnalysisException("date/datetime literal [" + originalString + "] is invalid");
+            return Result.err(() -> new AnalysisException("date/datetime literal [" + originalString + "] is invalid"));
         }
     }
 
     protected void init(String s) throws AnalysisException {
-        TemporalAccessor dateTime = parse(s);
+        TemporalAccessor dateTime = parseDateTime(s).get();
         year = DateUtils.getOrDefault(dateTime, ChronoField.YEAR);
         month = DateUtils.getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR);
         day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
 
-        if (checkDatetime(dateTime) || checkRange() || checkDate()) {
+        if (checkDatetime(dateTime) || checkRange(year, month, day) || checkDate(year, month, day)) {
             throw new AnalysisException("date/datetime literal [" + s + "] is out of range");
         }
     }
 
-    protected boolean checkRange() {
+    protected static boolean checkRange(long year, long month, long day) {
         return year > MAX_DATE.getYear() || month > MAX_DATE.getMonth() || day > MAX_DATE.getDay();
     }
 
-    protected boolean checkDate() {
-        if (month != 0 && day > DAYS_IN_MONTH[((int) month)]) {
+    protected static boolean checkDate(long year, long month, long day) {
+        if (month != 0 && day > DAYS_IN_MONTH[(int) month]) {
             if (month == 2 && day == 29 && (Year.isLeap(year) && year > 0)) {
                 return false;
             }
@@ -339,7 +376,7 @@ public class DateLiteral extends Literal {
         return dateTime == null || dateTime.isBefore(START_OF_A_DAY) || dateTime.isAfter(END_OF_A_DAY);
     }
 
-    private boolean checkDatetime(TemporalAccessor dateTime) {
+    private static boolean checkDatetime(TemporalAccessor dateTime) {
         return DateUtils.getOrDefault(dateTime, ChronoField.HOUR_OF_DAY) != 0
                 || DateUtils.getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR) != 0
                 || DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE) != 0

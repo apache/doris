@@ -31,15 +31,16 @@ import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.task.AbstractTask;
 
-import com.lmax.disruptor.BlockingWaitStrategy;
 import com.lmax.disruptor.EventFactory;
 import com.lmax.disruptor.EventTranslatorVararg;
+import com.lmax.disruptor.LiteTimeoutBlockingWaitStrategy;
 import com.lmax.disruptor.WorkHandler;
 import lombok.Getter;
 
 import java.util.EnumMap;
 import java.util.Map;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 
 public class TaskDisruptorGroupManager<T extends AbstractTask> {
 
@@ -64,8 +65,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
     private static final int DISPATCH_MTMV_THREAD_NUM = Config.job_mtmv_task_consumer_thread_num > 0
             ? Config.job_mtmv_task_consumer_thread_num : DEFAULT_CONSUMER_THREAD_NUM;
 
-    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
-    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = DEFAULT_RING_BUFFER_SIZE;
+    private static final int DISPATCH_INSERT_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.insert_task_queue_size);
+    private static final int DISPATCH_MTMV_TASK_QUEUE_SIZE = normalizeRingbufferSize(Config.mtmv_task_queue_size);
 
 
     public void init() {
@@ -86,7 +87,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                 (event, sequence, args) -> event.setJob((AbstractJob) args[0]);
         this.dispatchDisruptor = new TaskDisruptor<>(dispatchEventFactory, DISPATCH_TIMER_JOB_QUEUE_SIZE,
                 dispatchThreadFactory,
-                new BlockingWaitStrategy(), dispatchTaskExecutorHandlers, eventTranslator);
+                new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
+                dispatchTaskExecutorHandlers, eventTranslator);
     }
 
     private void registerInsertDisruptor() {
@@ -102,7 +104,8 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                     event.setJobConfig((JobExecutionConfiguration) args[1]);
                 };
         TaskDisruptor insertDisruptor = new TaskDisruptor<>(insertEventFactory, DISPATCH_INSERT_TASK_QUEUE_SIZE,
-                insertTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
+                insertTaskThreadFactory, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
+                insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.INSERT, insertDisruptor);
     }
 
@@ -119,18 +122,35 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                     event.setJobConfig((JobExecutionConfiguration) args[1]);
                 };
         TaskDisruptor mtmvDisruptor = new TaskDisruptor<>(mtmvEventFactory, DISPATCH_MTMV_TASK_QUEUE_SIZE,
-                mtmvTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
+                mtmvTaskThreadFactory, new LiteTimeoutBlockingWaitStrategy(10, TimeUnit.MILLISECONDS),
+                insertTaskExecutorHandlers, eventTranslator);
         disruptorMap.put(JobType.MV, mtmvDisruptor);
     }
 
-    public void dispatchTimerJob(AbstractJob job) {
-        dispatchDisruptor.publishEvent(job);
-    }
-
-    public void dispatchInstantTask(AbstractTask task, JobType jobType,
-                                    JobExecutionConfiguration jobExecutionConfiguration) {
-        disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
+    public boolean dispatchInstantTask(AbstractTask task, JobType jobType,
+                                       JobExecutionConfiguration jobExecutionConfiguration) {
+        return disruptorMap.get(jobType).publishEvent(task, jobExecutionConfiguration);
     }
 
 
+    /**
+     * Normalizes the given size to the nearest power of two.
+     * This method ensures that the size is a power of two, which is often required for optimal
+     * performance in certain data structures like ring buffers.
+     *
+     * @param size The input size to be normalized.
+     * @return The nearest power of two greater than or equal to the input size.
+     */
+    public static int normalizeRingbufferSize(int size) {
+        int ringBufferSize = size - 1;
+        if (size < 1) {
+            return DEFAULT_RING_BUFFER_SIZE;
+        }
+        ringBufferSize |= ringBufferSize >>> 1;
+        ringBufferSize |= ringBufferSize >>> 2;
+        ringBufferSize |= ringBufferSize >>> 4;
+        ringBufferSize |= ringBufferSize >>> 8;
+        ringBufferSize |= ringBufferSize >>> 16;
+        return ringBufferSize + 1;
+    }
 }

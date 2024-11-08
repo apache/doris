@@ -41,6 +41,7 @@
 #include "vec/runtime/vsorted_run_merger.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VDataStreamRecvr::SenderQueue::SenderQueue(
         VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile,
@@ -59,6 +60,10 @@ VDataStreamRecvr::SenderQueue::~SenderQueue() {
     DCHECK(_pending_closures.empty());
     for (auto closure_pair : _pending_closures) {
         closure_pair.first->Run();
+        int64_t elapse_time = closure_pair.second.elapsed_time();
+        if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
+            _recvr->_max_wait_to_process_time->set(elapse_time);
+        }
     }
     _pending_closures.clear();
 }
@@ -92,6 +97,7 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     DCHECK(!_block_queue.empty());
     auto [next_block, block_byte_size] = std::move(_block_queue.front());
     _block_queue.pop_front();
+    _recvr->_parent->memory_used_counter()->update(-(int64_t)block_byte_size);
     sub_blocks_memory_usage(block_byte_size);
     _record_debug_info();
     if (_block_queue.empty() && _source_dependency) {
@@ -103,6 +109,10 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
         closure_pair.first->Run();
+        int64_t elapse_time = closure_pair.second.elapsed_time();
+        if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
+            _recvr->_max_wait_to_process_time->set(elapse_time);
+        }
         _pending_closures.pop_front();
 
         closure_pair.second.stop();
@@ -125,7 +135,9 @@ void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() {
 
 Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
                                                 int64_t packet_seq,
-                                                ::google::protobuf::Closure** done) {
+                                                ::google::protobuf::Closure** done,
+                                                const int64_t wait_for_worker,
+                                                const uint64_t time_to_find_recvr) {
     {
         std::lock_guard<std::mutex> l(_lock);
         if (_is_cancelled) {
@@ -176,6 +188,13 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
     COUNTER_UPDATE(_recvr->_rows_produced_counter, rows);
     COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
+    if (_recvr->_max_wait_worker_time->value() < wait_for_worker) {
+        _recvr->_max_wait_worker_time->set(wait_for_worker);
+    }
+
+    if (_recvr->_max_find_recvr_time->value() < time_to_find_recvr) {
+        _recvr->_max_find_recvr_time->set((int64_t)time_to_find_recvr);
+    }
 
     _block_queue.emplace_back(std::move(block), block_byte_size);
     COUNTER_UPDATE(_recvr->_remote_bytes_received_counter, block_byte_size);
@@ -190,6 +209,9 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
         _pending_closures.emplace_back(*done, monotonicStopWatch);
         *done = nullptr;
     }
+    _recvr->_parent->memory_used_counter()->update(block_byte_size);
+    _recvr->_parent->peak_memory_usage_counter()->set(
+            _recvr->_parent->memory_used_counter()->value());
     add_blocks_memory_usage(block_byte_size);
     return Status::OK();
 }
@@ -228,6 +250,9 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         _record_debug_info();
         try_set_dep_ready_without_lock();
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
+        _recvr->_parent->memory_used_counter()->update(block_mem_size);
+        _recvr->_parent->peak_memory_usage_counter()->set(
+                _recvr->_parent->memory_used_counter()->value());
         add_blocks_memory_usage(block_mem_size);
     }
 }
@@ -266,6 +291,10 @@ void VDataStreamRecvr::SenderQueue::cancel(Status cancel_status) {
         std::lock_guard<std::mutex> l(_lock);
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
+            int64_t elapse_time = closure_pair.second.elapsed_time();
+            if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
+                _recvr->_max_wait_to_process_time->set(elapse_time);
+            }
         }
         _pending_closures.clear();
     }
@@ -282,6 +311,10 @@ void VDataStreamRecvr::SenderQueue::close() {
 
         for (auto closure_pair : _pending_closures) {
             closure_pair.first->Run();
+            int64_t elapse_time = closure_pair.second.elapsed_time();
+            if (_recvr->_max_wait_to_process_time->value() < elapse_time) {
+                _recvr->_max_wait_to_process_time->set(elapse_time);
+            }
         }
         _pending_closures.clear();
     }
@@ -290,12 +323,13 @@ void VDataStreamRecvr::SenderQueue::close() {
     _block_queue.clear();
 }
 
-VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state,
-                                   const RowDescriptor& row_desc,
+VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, pipeline::ExchangeLocalState* parent,
+                                   RuntimeState* state, const RowDescriptor& row_desc,
                                    const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                                    int num_senders, bool is_merging, RuntimeProfile* profile)
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
+          _parent(parent),
           _query_thread_context(state->query_id(), state->query_mem_tracker(),
                                 state->get_query_ctx()->workload_group()),
           _fragment_instance_id(fragment_instance_id),
@@ -327,9 +361,6 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
     }
 
     // Initialize the counters
-    _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
-    _peak_memory_usage_counter =
-            _profile->add_counter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
     _remote_bytes_received_counter = ADD_COUNTER(_profile, "RemoteBytesReceived", TUnit::BYTES);
     _local_bytes_received_counter = ADD_COUNTER(_profile, "LocalBytesReceived", TUnit::BYTES);
 
@@ -341,6 +372,9 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
     _decompress_bytes = ADD_COUNTER(_profile, "DecompressBytes", TUnit::BYTES);
     _rows_produced_counter = ADD_COUNTER(_profile, "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(_profile, "BlocksProduced", TUnit::UNIT);
+    _max_wait_worker_time = ADD_COUNTER(_profile, "MaxWaitForWorkerTime", TUnit::UNIT);
+    _max_wait_to_process_time = ADD_COUNTER(_profile, "MaxWaitToProcessTime", TUnit::UNIT);
+    _max_find_recvr_time = ADD_COUNTER(_profile, "MaxFindRecvrTime(NS)", TUnit::UNIT);
 }
 
 VDataStreamRecvr::~VDataStreamRecvr() {
@@ -368,10 +402,13 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
 }
 
 Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
-                                   int64_t packet_seq, ::google::protobuf::Closure** done) {
+                                   int64_t packet_seq, ::google::protobuf::Closure** done,
+                                   const int64_t wait_for_worker,
+                                   const uint64_t time_to_find_recvr) {
     SCOPED_ATTACH_TASK(_query_thread_context);
     int use_sender_id = _is_merging ? sender_id : 0;
-    return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done);
+    return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done,
+                                                    wait_for_worker, time_to_find_recvr);
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
@@ -386,7 +423,6 @@ std::shared_ptr<pipeline::Dependency> VDataStreamRecvr::get_local_channel_depend
 }
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
-    _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     if (!_is_merging) {
         block->clear();
         return _sender_queues[0]->get_batch(block, eos);
@@ -461,9 +497,6 @@ void VDataStreamRecvr::close() {
     _mgr = nullptr;
 
     _merger.reset();
-    if (_peak_memory_usage_counter) {
-        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
-    }
 }
 
 void VDataStreamRecvr::set_sink_dep_always_ready() const {

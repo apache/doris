@@ -102,22 +102,19 @@ protected:
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
-    RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
-    RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
     // Num of newly created free blocks when running query
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     // Max num of scanner thread
     RuntimeProfile::Counter* _max_scanner_thread_num = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _peak_running_scanner = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _scanner_peak_memory_usage = nullptr;
     // time of get block from scanner
     RuntimeProfile::Counter* _scan_timer = nullptr;
     RuntimeProfile::Counter* _scan_cpu_timer = nullptr;
-    // time of convert input block to output block from scanner
-    RuntimeProfile::Counter* _convert_block_timer = nullptr;
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
     RuntimeProfile::Counter* _rows_read_counter = nullptr;
@@ -127,6 +124,9 @@ protected:
     RuntimeProfile::Counter* _num_scanners = nullptr;
 
     RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
+
+    RuntimeProfile::Counter* _scan_rows = nullptr;
+    RuntimeProfile::Counter* _scan_bytes = nullptr;
 };
 
 template <typename LocalStateType>
@@ -333,19 +333,6 @@ protected:
     // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
 
-    /**
-     * _colname_to_value_range only store the leaf of and in the conjunct expr tree,
-     * we use _compound_value_ranges to store conresponding value ranges
-     * in the one compound relationship except the leaf of and node,
-     * such as `where a > 1 or b > 10 and c < 200`, the expr tree like:
-     *     or
-     *   /   \
-     *  a     and
-     *       /   \
-     *      b     c
-     * the value ranges of column a,b,c will all store into _compound_value_ranges
-     */
-    std::vector<ColumnValueRangeType> _compound_value_ranges;
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
     // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
@@ -367,12 +354,19 @@ template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
     Status open(RuntimeState* state) override;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
     Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
                                     bool* eos) override {
-        return get_block(state, block, eos);
+        Status status = get_block(state, block, eos);
+        if (status.ok()) {
+            if (auto rows = block->rows()) {
+                auto* local_state = state->get_local_state(operator_id());
+                COUNTER_UPDATE(local_state->_rows_returned_counter, rows);
+                COUNTER_UPDATE(local_state->_blocks_returned_counter, 1);
+            }
+        }
+        return status;
     }
     [[nodiscard]] bool is_source() const override { return true; }
 
@@ -385,8 +379,8 @@ public:
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
     DataDistribution required_data_distribution() const override {
-        if (OperatorX<LocalStateType>::ignore_data_distribution()) {
-            // `ignore_data_distribution()` returns true means we ignore the distribution.
+        if (OperatorX<LocalStateType>::is_serial_operator()) {
+            // `is_serial_operator()` returns true means we ignore the distribution.
             return {ExchangeType::NOOP};
         }
         return {ExchangeType::BUCKET_HASH_SHUFFLE};

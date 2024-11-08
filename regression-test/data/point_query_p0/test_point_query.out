@@ -152,3 +152,11 @@
 -- !sql --
 0	1111111
 
+-- !sql --
+10	20	aabc	value
+
+-- !sql --
+
+-- !sql --
+-10	20	aabc	update val
+

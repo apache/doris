@@ -33,6 +33,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/functions/date_format_type.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -157,6 +158,29 @@ struct DayNameImpl {
 };
 
 template <typename ArgType>
+struct ToIso8601Impl {
+    using OpArgType = ArgType;
+    static constexpr auto name = "to_iso8601";
+    static constexpr auto max_size = std::is_same_v<ArgType, UInt32> ? 10 : 26;
+
+    static inline auto execute(const typename DateTraits<ArgType>::T& dt,
+                               ColumnString::Chars& res_data, size_t& offset) {
+        auto length = dt.to_buffer((char*)res_data.data() + offset,
+                                   std::is_same_v<ArgType, UInt32> ? -1 : 6);
+        if (std::is_same_v<ArgType, UInt64>) {
+            res_data[offset + 10] = 'T';
+        }
+
+        offset += length;
+        return offset;
+    }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename DateTraits<ArgType>::DateType>()};
+    }
+};
+
+template <typename ArgType>
 struct MonthNameImpl {
     using OpArgType = ArgType;
     static constexpr auto name = "monthname";
@@ -184,34 +208,44 @@ struct DateFormatImpl {
 
     static constexpr auto name = "date_format";
 
-    static inline auto execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
-                               size_t& offset) {
-        const auto& dt = (DateType&)t;
-        if (format.size > 128) {
-            return std::pair {offset, true};
-        }
-        char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-        if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                              100 + SAFE_FORMAT_STRING_MARGIN)) {
-            return std::pair {offset, true};
-        }
+    template <typename Impl>
+    static inline bool execute(const FromType& t, StringRef format, ColumnString::Chars& res_data,
+                               size_t& offset, const cctz::time_zone& time_zone) {
+        if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
+            // Handle non-special formats.
+            const auto& dt = (DateType&)t;
+            char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+            if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                return true;
+            }
 
-        auto len = strlen(buf);
-        res_data.insert(buf, buf + len);
-        offset += len;
-        return std::pair {offset, false};
+            auto len = strlen(buf);
+            res_data.insert(buf, buf + len);
+            offset += len;
+            return false;
+        } else {
+            const auto& dt = (DateType&)t;
+
+            if (!dt.is_valid_date()) {
+                return true;
+            }
+
+            // No buffer is needed here because these specially optimized formats have fixed lengths,
+            // and sufficient memory has already been reserved.
+            auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
+            offset += len;
+
+            return false;
+        }
     }
 
     static DataTypes get_variadic_argument_types() {
-        return std::vector<DataTypePtr> {
-                std::dynamic_pointer_cast<const IDataType>(
-                        std::make_shared<typename DateTraits<ArgType>::DateType>()),
-                std::dynamic_pointer_cast<const IDataType>(
-                        std::make_shared<vectorized::DataTypeString>())};
+        return std::vector<DataTypePtr> {std::make_shared<typename DateTraits<ArgType>::DateType>(),
+                                         std::make_shared<vectorized::DataTypeString>()};
     }
 };
 
-// TODO: This function should be depend on arguments not always nullable
 template <typename DateType>
 struct FromUnixTimeImpl {
     using FromType = Int64;
@@ -220,24 +254,45 @@ struct FromUnixTimeImpl {
     static const int64_t TIMESTAMP_VALID_MAX = 32536771199;
     static constexpr auto name = "from_unixtime";
 
-    static inline auto execute(FromType val, StringRef format, ColumnString::Chars& res_data,
+    template <typename Impl>
+    static inline bool execute(const FromType& val, StringRef format, ColumnString::Chars& res_data,
                                size_t& offset, const cctz::time_zone& time_zone) {
-        DateType dt;
-        if (format.size > 128 || val < 0 || val > TIMESTAMP_VALID_MAX) {
-            return std::pair {offset, true};
-        }
-        dt.from_unixtime(val, time_zone);
+        if constexpr (std::is_same_v<Impl, time_format_type::NoneImpl>) {
+            DateType dt;
+            if (val < 0 || val > TIMESTAMP_VALID_MAX) {
+                return true;
+            }
+            dt.from_unixtime(val, time_zone);
 
-        char buf[100 + SAFE_FORMAT_STRING_MARGIN];
-        if (!dt.to_format_string_conservative(format.data, format.size, buf,
-                                              100 + SAFE_FORMAT_STRING_MARGIN)) {
-            return std::pair {offset, true};
-        }
+            char buf[100 + SAFE_FORMAT_STRING_MARGIN];
+            if (!dt.to_format_string_conservative(format.data, format.size, buf,
+                                                  100 + SAFE_FORMAT_STRING_MARGIN)) {
+                return true;
+            }
 
-        auto len = strlen(buf);
-        res_data.insert(buf, buf + len);
-        offset += len;
-        return std::pair {offset, false};
+            auto len = strlen(buf);
+            res_data.insert(buf, buf + len);
+            offset += len;
+            return false;
+
+        } else {
+            DateType dt;
+            if (val < 0 || val > TIMESTAMP_VALID_MAX) {
+                return true;
+            }
+            dt.from_unixtime(val, time_zone);
+
+            if (!dt.is_valid_date()) {
+                return true;
+            }
+
+            // No buffer is needed here because these specially optimized formats have fixed lengths,
+            // and sufficient memory has already been reserved.
+            auto len = Impl::date_to_str(dt, (char*)res_data.data() + offset);
+            offset += len;
+
+            return false;
+        }
     }
 };
 
@@ -374,7 +429,7 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
 
 template <typename FromType, typename ToType, typename Transform>
 struct DateTimeTransformImpl {
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           size_t input_rows_count) {
         using Op = Transformer<FromType, ToType, Transform>;
 

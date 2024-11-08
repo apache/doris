@@ -43,9 +43,14 @@ RPCFnImpl::RPCFnImpl(const TFunction& fn) : _fn(fn) {
 }
 
 Status RPCFnImpl::vec_call(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count) {
+                           uint32_t result, size_t input_rows_count) {
     PFunctionCallRequest request;
     PFunctionCallResponse response;
+    if (_client == nullptr) {
+        return Status::InternalError(
+                "call to rpc function {} failed: init rpc error, server addr = {}", _signature,
+                _server_addr);
+    }
     request.set_function_name(_function_name);
     RETURN_IF_ERROR(_convert_block_to_proto(block, arguments, input_rows_count, &request));
     brpc::Controller cntl;
@@ -103,8 +108,8 @@ Status FunctionRPC::open(FunctionContext* context, FunctionContext::FunctionStat
 }
 
 Status FunctionRPC::execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                            size_t result, size_t input_rows_count, bool dry_run) const {
-    RPCFnImpl* fn = reinterpret_cast<RPCFnImpl*>(
+                            uint32_t result, size_t input_rows_count, bool dry_run) const {
+    auto* fn = reinterpret_cast<RPCFnImpl*>(
             context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     return fn->vec_call(context, block, arguments, result, input_rows_count);
 }

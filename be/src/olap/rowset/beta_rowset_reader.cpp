@@ -149,27 +149,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         }
     }
 
-    if (_read_context->predicates_except_leafnode_of_andnode != nullptr) {
-        bool should_push_down = true;
-        bool should_push_down_value_predicates = _should_push_down_value_predicates();
-        for (auto pred : *_read_context->predicates_except_leafnode_of_andnode) {
-            if (_rowset->keys_type() == UNIQUE_KEYS && !should_push_down_value_predicates &&
-                !_read_context->tablet_schema->column(pred->column_id()).is_key()) {
-                VLOG_DEBUG << "do not push down except_leafnode_of_andnode value pred "
-                           << pred->debug_string();
-                should_push_down = false;
-                break;
-            }
-        }
-
-        if (should_push_down) {
-            _read_options.column_predicates_except_leafnode_of_andnode.insert(
-                    _read_options.column_predicates_except_leafnode_of_andnode.end(),
-                    _read_context->predicates_except_leafnode_of_andnode->begin(),
-                    _read_context->predicates_except_leafnode_of_andnode->end());
-        }
-    }
-
     // Take a delete-bitmap for each segment, the bitmap contains all deletes
     // until the max read version, which is read_context->version.second
     if (_read_context->delete_bitmap != nullptr) {
@@ -255,6 +234,12 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _segments_rows.resize(segments.size());
     for (size_t i = 0; i < segments.size(); i++) {
         _segments_rows[i] = segments[i]->num_rows();
+    }
+    if (_read_context->record_rowids) {
+        // init segment rowid map for rowid conversion
+        std::vector<uint32_t> segment_num_rows;
+        RETURN_IF_ERROR(get_segment_num_rows(&segment_num_rows));
+        _read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(), segment_num_rows);
     }
 
     auto [seg_start, seg_end] = _segment_offsets;
@@ -372,6 +357,11 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
         return Status::Error<END_OF_FILE>("BetaRowsetReader is empty");
     }
 
+    RuntimeState* runtime_state = nullptr;
+    if (_read_context != nullptr) {
+        runtime_state = _read_context->runtime_state;
+    }
+
     do {
         auto s = _iterator->next_batch(block);
         if (!s.ok()) {
@@ -379,6 +369,10 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
                 LOG(WARNING) << "failed to read next block: " << s.to_string();
             }
             return s;
+        }
+
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+            return runtime_state->cancel_reason();
         }
     } while (block->empty());
 
@@ -388,6 +382,12 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
 Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
     RETURN_IF_ERROR(_init_iterator_once());
+
+    RuntimeState* runtime_state = nullptr;
+    if (_read_context != nullptr) {
+        runtime_state = _read_context->runtime_state;
+    }
+
     do {
         auto s = _iterator->next_block_view(block_view);
         if (!s.ok()) {
@@ -395,6 +395,10 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
                 LOG(WARNING) << "failed to read next block view: " << s.to_string();
             }
             return s;
+        }
+
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) [[unlikely]] {
+            return runtime_state->cancel_reason();
         }
     } while (block_view->empty());
 

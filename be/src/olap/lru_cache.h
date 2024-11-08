@@ -227,7 +227,10 @@ public:
 
     virtual int64_t get_usage() = 0;
 
-    virtual size_t get_total_capacity() = 0;
+    virtual PrunedInfo set_capacity(size_t capacity) = 0;
+    virtual size_t get_capacity() = 0;
+
+    virtual size_t get_element_count() = 0;
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
@@ -327,7 +330,7 @@ public:
     ~LRUCache();
 
     // Separate from constructor so caller can easily make an array of LRUCache
-    void set_capacity(size_t capacity) { _capacity = capacity; }
+    PrunedInfo set_capacity(size_t capacity);
     void set_element_count_capacity(uint32_t element_count_capacity) {
         _element_count_capacity = element_count_capacity;
     }
@@ -345,11 +348,14 @@ public:
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
 
-    uint64_t get_lookup_count() const { return _lookup_count; }
-    uint64_t get_hit_count() const { return _hit_count; }
-    size_t get_usage() const { return _usage; }
-    size_t get_capacity() const { return _capacity; }
-    size_t get_element_count() const { return _table.element_count(); }
+    uint64_t get_lookup_count();
+    uint64_t get_hit_count();
+    uint64_t get_miss_count();
+    uint64_t get_stampede_count();
+
+    size_t get_usage();
+    size_t get_capacity();
+    size_t get_element_count();
 
 private:
     void _lru_remove(LRUHandle* e);
@@ -381,6 +387,8 @@ private:
 
     uint64_t _lookup_count = 0; // number of cache lookups
     uint64_t _hit_count = 0;    // number of cache hits
+    uint64_t _miss_count = 0;   // number of cache misses
+    uint64_t _stampede_count = 0;
 
     CacheValueTimeExtractor _cache_value_time_extractor;
     bool _cache_value_check_timestamp = false;
@@ -403,15 +411,17 @@ public:
     PrunedInfo prune() override;
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override;
     int64_t get_usage() override;
-    size_t get_total_capacity() override { return _total_capacity; };
+    size_t get_element_count() override;
+    PrunedInfo set_capacity(size_t capacity) override;
+    size_t get_capacity() override;
 
 private:
     // LRUCache can only be created and managed with LRUCachePolicy.
     friend class LRUCachePolicy;
 
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+    explicit ShardedLRUCache(const std::string& name, size_t capacity, LRUCacheType type,
                              uint32_t num_shards, uint32_t element_count_capacity);
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+    explicit ShardedLRUCache(const std::string& name, size_t capacity, LRUCacheType type,
                              uint32_t num_shards,
                              CacheValueTimeExtractor cache_value_time_extractor,
                              bool cache_value_check_timestamp, uint32_t element_count_capacity);
@@ -429,7 +439,8 @@ private:
     const uint32_t _num_shards;
     LRUCache** _shards = nullptr;
     std::atomic<uint64_t> _last_id;
-    size_t _total_capacity;
+    std::mutex _mutex;
+    size_t _capacity {0};
 
     std::shared_ptr<MetricEntity> _entity;
     IntGauge* cache_capacity = nullptr;
@@ -438,6 +449,8 @@ private:
     DoubleGauge* cache_usage_ratio = nullptr;
     IntAtomicCounter* cache_lookup_count = nullptr;
     IntAtomicCounter* cache_hit_count = nullptr;
+    IntAtomicCounter* cache_miss_count = nullptr;
+    IntAtomicCounter* cache_stampede_count = nullptr;
     DoubleGauge* cache_hit_ratio = nullptr;
     // bvars
     std::unique_ptr<bvar::Adder<uint64_t>> _hit_count_bvar;
@@ -462,7 +475,9 @@ public:
         return {0, 0};
     };
     int64_t get_usage() override { return 0; };
-    size_t get_total_capacity() override { return 0; };
+    PrunedInfo set_capacity(size_t capacity) override { return {0, 0}; };
+    size_t get_capacity() override { return 0; };
+    size_t get_element_count() override { return 0; };
 };
 
 } // namespace doris

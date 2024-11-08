@@ -472,10 +472,10 @@ public:
                           const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
-        if (is_ignored() || wrapper->is_ignored()) {
-            _context->ignored = true;
+        if (wrapper->is_ignored()) {
             return Status::OK();
         }
+        _context->ignored = false;
 
         bool can_not_merge_in_or_bloom =
                 _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
@@ -493,7 +493,10 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            // try insert set
+            if (!_context->hybrid_set) {
+                _context->ignored = true;
+                return Status::OK();
+            }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
                 _context->ignored = true;
@@ -1123,9 +1126,8 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     std::shared_ptr<PBackendService_Stub> stub(
             _state->exec_env->brpc_internal_client_cache()->get_client(addr));
     if (!stub) {
-        std::string msg =
-                fmt::format("Get rpc stub failed, host={},  port=", addr.hostname, addr.port);
-        return Status::InternalError(msg);
+        return Status::InternalError("Get rpc stub failed, host={}, port={}", addr.hostname,
+                                     addr.port);
     }
 
     auto request = std::make_shared<PSendFilterSizeRequest>();
@@ -1144,7 +1146,11 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
 
     request->set_filter_size(local_filter_size);
     request->set_filter_id(_filter_id);
-    callback->cntl_->set_timeout_ms(std::min(3600, state->execution_timeout()) * 1000);
+
+    callback->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(state->execution_timeout()));
+    if (config::execution_ignore_eovercrowded) {
+        callback->cntl_->ignore_eovercrowded();
+    }
 
     stub->send_filter_size(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
                            closure.get());
@@ -1158,7 +1164,7 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
             _state->exec_env->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
         return Status::InternalError(
-                fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port));
+                fmt::format("Get rpc stub failed, host={}, port={}", addr->hostname, addr->port));
     }
 
     auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
@@ -1178,10 +1184,14 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
     pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_request->set_filter_id(_filter_id);
-    merge_filter_request->set_is_pipeline(true);
     auto column_type = _wrapper->column_type();
     RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
-    merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
+
+    merge_filter_callback->cntl_->set_timeout_ms(
+            get_execution_rpc_timeout_ms(_state->execution_timeout));
+    if (config::execution_ignore_eovercrowded) {
+        merge_filter_callback->cntl_->ignore_eovercrowded();
+    }
 
     if (get_ignored()) {
         merge_filter_request->set_filter_type(PFilterType::UNKNOW_FILTER);
@@ -1215,7 +1225,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
     // The runtime filter is pushed down, adding filtering information.
     auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
     auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
-    auto* always_true_counter = ADD_COUNTER(_profile, "always_true", TUnit::UNIT);
+    auto* always_true_counter = ADD_COUNTER(_profile, "always_true_pass_rows", TUnit::UNIT);
     for (auto i = origin_size; i < push_exprs.size(); i++) {
         push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
                                               always_true_counter);
@@ -1228,7 +1238,7 @@ void IRuntimeFilter::update_state() {
     auto execution_timeout = _state->execution_timeout * 1000;
     auto runtime_filter_wait_time_ms = _state->runtime_filter_wait_time_ms;
     // bitmap filter is precise filter and only filter once, so it must be applied.
-    int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
+    int64_t wait_times_ms = _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER
                                     ? execution_timeout
                                     : runtime_filter_wait_time_ms;
     auto expected = _rf_state_atomic.load(std::memory_order_acquire);
@@ -1275,19 +1285,21 @@ void IRuntimeFilter::signal() {
 }
 
 void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer> timer) {
+    std::unique_lock lock(_inner_mutex);
     _filter_timer.push_back(timer);
 }
 
-void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
+void IRuntimeFilter::set_finish_dependency(
+        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
     _dependency = dependency;
-    ((pipeline::CountedFinishDependency*)_dependency.get())->add();
+    _dependency->add();
     CHECK(_dependency);
 }
 
 void IRuntimeFilter::set_synced_size(uint64_t global_size) {
     _synced_size = global_size;
     if (_dependency) {
-        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        _dependency->sub();
     }
 }
 
@@ -1305,10 +1317,6 @@ std::string IRuntimeFilter::formatted_state() const {
             "HasLocalTarget = {}, Ignored = {}]",
             _is_push_down, _get_explain_state_string(), _has_remote_target, _has_local_target,
             _wrapper->_context->ignored);
-}
-
-BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
-    return _wrapper->get_bloomfilter();
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,

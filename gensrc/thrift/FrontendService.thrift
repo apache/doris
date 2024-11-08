@@ -434,6 +434,14 @@ struct TQueryProfile {
     5: optional list<RuntimeProfile.TRuntimeProfileTree> load_channel_profiles
 }
 
+struct TFragmentInstanceReport {
+  1: optional Types.TUniqueId fragment_instance_id;
+  2: optional i32 num_finished_range;
+  3: optional i64 loaded_rows
+  4: optional i64 loaded_bytes
+}
+
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -509,6 +517,8 @@ struct TReportExecStatusParams {
 
   29: optional i64 txn_id
   30: optional string label
+
+  31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 }
 
 struct TFeResult {
@@ -545,7 +555,6 @@ struct TGroupCommitInfo{
     1: optional bool getGroupCommitLoadBeId
     2: optional i64 groupCommitLoadTableId
     3: optional string cluster
-    4: optional bool isCloud
     5: optional bool updateLoadData
     6: optional i64 tableId 
     7: optional i64 receiveData
@@ -752,6 +761,7 @@ struct TStreamLoadPutRequest {
     54: optional bool group_commit // deprecated
     55: optional i32 stream_per_node;
     56: optional string group_commit_mode
+    57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
 
     // For cloud
     1000: optional string cloud_cluster
@@ -1005,6 +1015,8 @@ enum TSchemaTableName {
   TABLE_OPTIONS = 6,
   WORKLOAD_GROUP_PRIVILEGES = 7,
   TABLE_PROPERTIES = 8,
+  CATALOG_META_CACHE_STATS = 9,
+  PARTITIONS = 10,
 }
 
 struct TMetadataTableRequestParams {
@@ -1019,6 +1031,8 @@ struct TMetadataTableRequestParams {
   9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
   11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
+  12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
+  13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -1173,6 +1187,8 @@ enum TBinlogType {
   REPLACE_PARTITIONS = 12,
   TRUNCATE_TABLE = 13,
   RENAME_TABLE = 14,
+  RENAME_COLUMN = 15,
+  MODIFY_COMMENT = 16,
 }
 
 struct TBinlog {
@@ -1250,6 +1266,7 @@ struct TRestoreSnapshotRequest {
     12: optional binary job_info
     13: optional bool clean_tables
     14: optional bool clean_partitions
+    15: optional bool atomic_restore
 }
 
 struct TRestoreSnapshotResult {
@@ -1480,6 +1497,7 @@ struct TGetMetaDBMeta {
     3: optional list<TGetMetaTableMeta> tables
     4: optional list<i64> dropped_partitions
     5: optional list<i64> dropped_tables
+    6: optional list<i64> dropped_indexes
 }
 
 struct TGetMetaResult {

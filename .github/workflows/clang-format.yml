@@ -19,12 +19,22 @@
 ---
 name: Code Formatter
 
-on: [push, pull_request_target]
-
+on:
+  pull_request:
+  pull_request_target:
+  workflow_dispatch:
+  issue_comment:
+    types: [ created ]
 jobs:
   clang-format:
     name: "Clang Formatter"
     runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request') || (github.event_name == 'pull_request_target') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.comment.body == 'run buildall' &&
+       github.actor == 'doris-robot' &&
+       github.event.issue.user.login == 'github-actions[bot]')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         if: ${{ github.event_name != 'pull_request_target' }}
@@ -64,8 +74,13 @@ jobs:
           git clone https://github.com/DoozyX/clang-format-lint-action .github/actions/clang-format-lint-action
 
           pushd .github/actions/clang-format-lint-action &>/dev/null
-          git checkout 6adbe14579e5b8e19eb3e31e5ff2479f3bd302c7
+          git checkout c71d0bf4e21876ebec3e5647491186f8797fde31 # v0.18.2
           popd &>/dev/null
+
+      - name: Install Python dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'  # Adjust if needed
 
       - name: "Format it!"
         if: ${{ steps.filter.outputs.changes == 'true' }}

@@ -44,6 +44,8 @@ public:
 private:
     friend class DataGenSourceOperatorX;
     std::shared_ptr<VDataGenFunctionInf> _table_func;
+    RuntimeProfile::Counter* _table_function_execution_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
 };
 
 class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {
@@ -52,7 +54,7 @@ public:
                            const DescriptorTbl& descs);
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
-    Status prepare(RuntimeState* state) override;
+    Status open(RuntimeState* state) override;
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     [[nodiscard]] bool is_source() const override { return true; }

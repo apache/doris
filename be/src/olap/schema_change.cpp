@@ -30,6 +30,7 @@
 #include <tuple>
 #include <utility>
 
+#include "agent/be_exec_version_manager.h"
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/config.h"
 #include "common/consts.h"
@@ -80,6 +81,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -133,7 +135,8 @@ public:
                 try {
                     vectorized::AggregateFunctionPtr function =
                             tablet_schema->column(i).get_aggregate_function(
-                                    vectorized::AGG_LOAD_SUFFIX);
+                                    vectorized::AGG_LOAD_SUFFIX,
+                                    tablet_schema->column(i).get_be_exec_version());
                     agg_functions.push_back(function);
                     // create aggregate data
                     auto* place = new char[function->size_of_data()];
@@ -314,9 +317,9 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
 
             if (result_tmp_column_def.column->size() != row_num) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                        "result size invalid, expect={}, real={}; input expr={}", row_num,
+                        "result size invalid, expect={}, real={}; input expr={}, block={}", row_num,
                         result_tmp_column_def.column->size(),
-                        apache::thrift::ThriftDebugString(*expr));
+                        apache::thrift::ThriftDebugString(*expr), ref_block->dump_structure());
             }
 
             if (_type == SCHEMA_CHANGE) {
@@ -897,7 +900,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
                 }
             }
             std::vector<RowsetSharedPtr> empty_vec;
-            _new_tablet->delete_rowsets(rowsets_to_delete, false);
+            RETURN_IF_ERROR(_new_tablet->delete_rowsets(rowsets_to_delete, false));
             // inherit cumulative_layer_point from base_tablet
             // check if new_tablet.ce_point > base_tablet.ce_point?
             _new_tablet->set_cumulative_layer_point(-1);
@@ -1132,6 +1135,8 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
             changer, sc_sorting, sc_directly,
             _local_storage_engine.memory_limitation_bytes_per_thread_for_schema_change());
 
+    DBUG_EXECUTE_IF("SchemaChangeJob::_convert_historical_rowsets.block", DBUG_BLOCK);
+
     // c.Convert historical data
     bool have_failure_rowset = false;
     for (const auto& rs_reader : sc_params.ref_rowset_readers) {
@@ -1363,13 +1368,9 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             *sc_directly = true;
             return Status::OK();
         } else if (column_mapping->ref_column_idx >= 0) {
-            const auto& column_new = new_tablet_schema->column(i);
-            const auto& column_old = base_tablet_schema->column(column_mapping->ref_column_idx);
             // index changed
-            if (column_new.is_bf_column() != column_old.is_bf_column() ||
-                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
-                new_tablet_schema->has_inverted_index(column_new) !=
-                        base_tablet_schema->has_inverted_index(column_old)) {
+            if (vectorized::schema_util::has_schema_index_diff(
+                        new_tablet_schema, base_tablet_schema, i, column_mapping->ref_column_idx)) {
                 *sc_directly = true;
                 return Status::OK();
             }

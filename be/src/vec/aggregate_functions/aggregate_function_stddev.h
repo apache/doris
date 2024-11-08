@@ -126,8 +126,6 @@ struct BaseData {
         count += 1;
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
-
     double mean;
     double m2;
     int64_t count;
@@ -145,6 +143,8 @@ struct PopData : Data {
             col.get_data().push_back(this->get_pop_result());
         }
     }
+
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 };
 
 // For this series of functions, the Decimal type is not supported
@@ -172,26 +172,6 @@ struct StddevSampName : Data {
 };
 
 template <typename T, typename Data>
-struct SampData_OLDER : Data {
-    using ColVecResult =
-            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
-    void insert_result_into(IColumn& to) const {
-        ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 1 || this->count == 0) {
-            nullable_column.insert_default();
-        } else {
-            auto& col = assert_cast<ColVecResult&>(nullable_column.get_nested_column());
-            if constexpr (IsDecimalNumber<T>) {
-                col.get_data().push_back(this->get_samp_result().value());
-            } else {
-                col.get_data().push_back(this->get_samp_result());
-            }
-            nullable_column.get_null_map_data().push_back(0);
-        }
-    }
-};
-
-template <typename T, typename Data>
 struct SampData : Data {
     using ColVecResult =
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
@@ -207,6 +187,8 @@ struct SampData : Data {
             }
         }
     }
+
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 };
 
 template <bool is_pop, typename Data, bool is_nullable>
@@ -221,17 +203,7 @@ public:
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override {
-        if constexpr (is_pop) {
-            return Data::get_return_type();
-        } else {
-            if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
-                return make_nullable(Data::get_return_type());
-            } else {
-                return Data::get_return_type();
-            }
-        }
-    }
+    DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
@@ -268,16 +240,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
-};
-
-//samp function it's always nullables, it's need to handle nullable column
-//so return type and add function should processing null values
-template <typename Data, bool is_nullable>
-class AggregateFunctionSamp_OLDER final
-        : public AggregateFunctionSampVariance<false, Data, is_nullable> {
-public:
-    AggregateFunctionSamp_OLDER(const DataTypes& argument_types_)
-            : AggregateFunctionSampVariance<false, Data, is_nullable>(argument_types_) {}
 };
 
 template <typename Data, bool is_nullable>

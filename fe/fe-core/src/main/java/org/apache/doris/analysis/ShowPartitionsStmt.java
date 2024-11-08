@@ -54,7 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-public class ShowPartitionsStmt extends ShowStmt {
+public class ShowPartitionsStmt extends ShowStmt implements NotFallbackInParser {
     private static final Logger LOG = LogManager.getLogger(ShowPartitionsStmt.class);
 
     private static final String FILTER_PARTITION_ID = "PartitionId";

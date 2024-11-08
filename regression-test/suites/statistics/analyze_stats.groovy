@@ -2743,15 +2743,13 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("true", alter_result[0][7])
     sql """drop stats alter_test"""
     alter_result = sql """show table stats alter_test"""
-    assertEquals("false", alter_result[0][7])
+    assertEquals("", alter_result[0][7])
     sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='0.0', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
     alter_result = sql """show column stats alter_test(id)"""
     logger.info("show column alter_test(id) stats: " + alter_result)
     assertEquals(1, alter_result.size())
     alter_result = sql """show column cached stats alter_test(id)"""
-    assertEquals(0, alter_result.size())
-    alter_result = sql """show column cached stats alter_test(id)"""
-    assertEquals(0, alter_result.size())
+    assertEquals(1, alter_result.size())
     sql """alter table alter_test modify column id set stats ('row_count'='100', 'ndv'='0', 'num_nulls'='100', 'data_size'='2.69975443E8', 'min_value'='1', 'max_value'='2');"""
     alter_result = sql """show column stats alter_test(id)"""
     logger.info("show column alter_test(id) stats: " + alter_result)

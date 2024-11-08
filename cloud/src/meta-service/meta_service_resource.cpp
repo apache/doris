@@ -254,6 +254,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
         }
     }
 
+    response->set_enable_storage_vault(instance.enable_storage_vault());
+
     // Iterate all the resources to return to the rpc caller
     if (!instance.resource_ids().empty()) {
         std::string storage_vault_start = storage_vault_key({instance.instance_id(), ""});
@@ -568,6 +570,15 @@ static int alter_hdfs_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tr
     }
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+
+    if (!new_vault.has_hdfs_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << name << " is not hdfs storage vault";
+        msg = ss.str();
+        return -1;
+    }
+
     auto origin_vault_info = new_vault.DebugString();
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
@@ -669,6 +680,14 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     }
     StorageVaultPB new_vault;
     new_vault.ParseFromString(val);
+    if (!new_vault.has_obj_info()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        std::stringstream ss;
+        ss << name << " is not s3 storage vault";
+        msg = ss.str();
+        return -1;
+    }
+
     if (vault.has_alter_name()) {
         if (!is_valid_storage_vault_name(vault.alter_name())) {
             code = MetaServiceCode::INVALID_ARGUMENT;
@@ -699,6 +718,9 @@ static int alter_s3_storage_vault(InstanceInfoPB& instance, std::unique_ptr<Tran
     new_vault.mutable_obj_info()->set_ak(cipher_ak_sk_pair.first);
     new_vault.mutable_obj_info()->set_sk(cipher_ak_sk_pair.second);
     new_vault.mutable_obj_info()->mutable_encryption_info()->CopyFrom(encryption_info);
+    if (obj_info.has_use_path_style()) {
+        new_vault.mutable_obj_info()->set_use_path_style(obj_info.use_path_style());
+    }
 
     auto new_vault_info = new_vault.DebugString();
     val = new_vault.SerializeAsString();
@@ -987,6 +1009,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(vault.id());
             instance.set_default_storage_vault_name(vault.name());
         }
+        response->set_storage_vault_id(vault.id());
         LOG_INFO("try to put storage vault_id={}, vault_name={}, vault_key={}", vault.id(),
                  vault.name(), hex(vault_key));
     } break;
@@ -1004,6 +1027,7 @@ void MetaServiceImpl::alter_storage_vault(google::protobuf::RpcController* contr
             instance.set_default_storage_vault_id(*instance.resource_ids().rbegin());
             instance.set_default_storage_vault_name(*instance.storage_vault_names().rbegin());
         }
+        response->set_storage_vault_id(request->vault().id());
         break;
     }
     case AlterObjStoreInfoRequest::ADD_BUILT_IN_VAULT: {
@@ -2336,9 +2360,8 @@ void MetaServiceImpl::get_cluster(google::protobuf::RpcController* controller,
         std::find_if(instance.storage_vault_names().begin(), instance.storage_vault_names().end(),
                      [](const std::string& name) { return name == BUILT_IN_STORAGE_VAULT_NAME; }) ==
                 instance.storage_vault_names().end()) {
-        code = MetaServiceCode::STORAGE_VAULT_NOT_FOUND;
-        msg = "instance has no built in storage vault";
-        return;
+        LOG_EVERY_N(INFO, 100) << "There is no builtin vault in instance "
+                               << instance.instance_id();
     }
 
     auto get_cluster_mysql_user = [](const ClusterPB& c, std::set<std::string>* mysql_users) {

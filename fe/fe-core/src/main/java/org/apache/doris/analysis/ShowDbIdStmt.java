@@ -28,7 +28,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 // SHOW DATABASE ID
-public class ShowDbIdStmt extends ShowStmt {
+public class ShowDbIdStmt extends ShowStmt implements NotFallbackInParser {
     private long dbId;
 
     public ShowDbIdStmt(long dbId) {

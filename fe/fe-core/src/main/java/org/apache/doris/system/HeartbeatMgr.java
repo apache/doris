@@ -95,6 +95,10 @@ public class HeartbeatMgr extends MasterDaemon {
         tMasterInfo.setHttpPort(Config.http_port);
         long flags = heartbeatFlags.getHeartbeatFlags();
         tMasterInfo.setHeartbeatFlags(flags);
+        if (Config.isCloudMode()) {
+            // Set the endpoint for the metadata service in cloud mode
+            tMasterInfo.setMetaServiceEndpoint(Config.meta_service_endpoint);
+        }
         masterInfo.set(tMasterInfo);
     }
 
@@ -246,6 +250,11 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
                 copiedMasterInfo.setFrontendInfos(feInfos);
+                if (Config.isCloudMode()) {
+                    String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
+                    copiedMasterInfo.setCloudUniqueId(cloudUniqueId);
+                    copiedMasterInfo.setTabletReportInactiveDurationMs(Config.rehash_tablet_after_be_dead_seconds);
+                }
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
                     client = ClientPool.backendHeartbeatPool.borrowObject(beAddr);
@@ -307,13 +316,13 @@ public class HeartbeatMgr extends MasterDaemon {
                             System.currentTimeMillis(), beStartTime, version, nodeRole,
                             fragmentNum, lastFragmentUpdateTime, isShutDown, arrowFlightSqlPort, beMemory);
                 } else {
-                    return new BackendHbResponse(backendId, backend.getHost(),
+                    return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                             result.getStatus().getErrorMsgs().isEmpty()
                                     ? "Unknown error" : result.getStatus().getErrorMsgs().get(0));
                 }
             } catch (Exception e) {
                 LOG.warn("backend heartbeat got exception", e);
-                return new BackendHbResponse(backendId, backend.getHost(),
+                return new BackendHbResponse(backendId, backend.getHost(), backend.getLastUpdateMs(),
                         Strings.isNullOrEmpty(e.getMessage()) ? "got exception" : e.getMessage());
             } finally {
                 if (client != null) {

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
@@ -40,12 +41,21 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
+import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -59,6 +69,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitExplainCommand(ExplainCommand explain, C context) {
         return visitCommand(explain, context);
+    }
+
+    default R visitReplayCommand(ReplayCommand replay, C context) {
+        return visitCommand(replay, context);
     }
 
     default R visitCreatePolicyCommand(CreatePolicyCommand createPolicy, C context) {
@@ -106,6 +120,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateMTMVCommand(CreateMTMVCommand createMTMVCommand, C context) {
         return visitCommand(createMTMVCommand, context);
+    }
+
+    default R visitCreateJobCommand(CreateJobCommand createJobCommand, C context) {
+        return visitCommand(createJobCommand, context);
     }
 
     default R visitAlterMTMVCommand(AlterMTMVCommand alterMTMVCommand, C context) {
@@ -184,11 +202,44 @@ public interface CommandVisitor<R, C> {
         return visitCommand(unsupportedCommand, context);
     }
 
+    default R visitUnsetVariableCommand(UnsetVariableCommand unsetVariableCommand, C context) {
+        return visitCommand(unsetVariableCommand, context);
+    }
+
+    default R visitUnsetDefaultStorageVaultCommand(UnsetDefaultStorageVaultCommand unsetDefaultStorageVaultCommand,
+                                                   C context) {
+        return visitCommand(unsetDefaultStorageVaultCommand, context);
+    }
+
     default R visitCreateTableLikeCommand(CreateTableLikeCommand createTableLikeCommand, C context) {
         return visitCommand(createTableLikeCommand, context);
     }
 
     default R visitShowConfigCommand(ShowConfigCommand showConfigCommand, C context) {
         return visitCommand(showConfigCommand, context);
+    }
+
+    default R visitSetOptionsCommand(SetOptionsCommand setOptionsCommand, C context) {
+        return visitCommand(setOptionsCommand, context);
+    }
+
+    default R visitSetTransactionCommand(SetTransactionCommand setTransactionCommand, C context) {
+        return visitCommand(setTransactionCommand, context);
+    }
+
+    default R visitSetUserPropertiesCommand(SetUserPropertiesCommand setUserPropertiesCommand, C context) {
+        return visitCommand(setUserPropertiesCommand, context);
+    }
+
+    default R visitSetDefaultStorageVault(SetDefaultStorageVaultCommand setDefaultStorageVaultCommand, C context) {
+        return visitCommand(setDefaultStorageVaultCommand, context);
+    }
+
+    default R visitShowVariablesCommand(ShowVariablesCommand showVariablesCommand, C context) {
+        return visitCommand(showVariablesCommand, context);
+    }
+
+    default R visitShowViewCommand(ShowViewCommand showViewCommand, C context) {
+        return visitCommand(showViewCommand, context);
     }
 }

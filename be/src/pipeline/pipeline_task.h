@@ -41,7 +41,7 @@ class PipelineFragmentContext;
 
 namespace doris::pipeline {
 
-class TaskQueue;
+class MultiCoreTaskQueue;
 class PriorityTaskQueue;
 class Dependency;
 
@@ -130,15 +130,16 @@ public:
 
     void wake_up();
 
-    DataSinkOperatorXPtr sink() const { return _sink; }
+    DataSinkOperatorPtr sink() const { return _sink; }
 
     int task_id() const { return _index; };
     bool is_finalized() const { return _finalized; }
 
-    void clear_blocking_state() {
+    void clear_blocking_state(bool wake_up_by_downstream = false) {
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
+        _wake_up_by_downstream = _wake_up_by_downstream || wake_up_by_downstream;
         if (!_finalized) {
             _execution_dep->set_always_ready();
             for (auto* dep : _filter_dependencies) {
@@ -158,8 +159,8 @@ public:
         }
     }
 
-    void set_task_queue(TaskQueue* task_queue);
-    TaskQueue* get_task_queue() { return _task_queue; }
+    void set_task_queue(MultiCoreTaskQueue* task_queue) { _task_queue = task_queue; }
+    MultiCoreTaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
 
@@ -223,6 +224,8 @@ public:
 
     RuntimeState* runtime_state() const { return _state; }
 
+    RuntimeProfile* get_task_profile() const { return _task_profile.get(); }
+
     std::string task_name() const { return fmt::format("task{}({})", _index, _pipeline->_name); }
 
     void stop_if_finished() {
@@ -230,6 +233,10 @@ public:
             clear_blocking_state();
         }
     }
+
+    PipelineId pipeline_id() const { return _pipeline->id(); }
+
+    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
 
 private:
     friend class RuntimeFilterDependency;
@@ -250,7 +257,7 @@ private:
     uint32_t _schedule_time = 0;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context = nullptr;
-    TaskQueue* _task_queue = nullptr;
+    MultiCoreTaskQueue* _task_queue = nullptr;
 
     // used for priority queue
     // it may be visited by different thread but there is no race condition
@@ -282,10 +289,10 @@ private:
 
     MonotonicStopWatch _pipeline_task_watcher;
 
-    OperatorXs _operators; // left is _source, right is _root
+    Operators _operators; // left is _source, right is _root
     OperatorXBase* _source;
     OperatorXBase* _root;
-    DataSinkOperatorXPtr _sink;
+    DataSinkOperatorPtr _sink;
 
     // `_read_dependencies` is stored as same order as `_operators`
     std::vector<std::vector<Dependency*>> _read_dependencies;
@@ -306,11 +313,12 @@ private:
 
     Dependency* _execution_dep = nullptr;
 
-    std::atomic<bool> _finalized {false};
+    std::atomic<bool> _finalized = false;
     std::mutex _dependency_lock;
 
-    std::atomic<bool> _running {false};
-    std::atomic<bool> _eos {false};
+    std::atomic<bool> _running = false;
+    std::atomic<bool> _eos = false;
+    std::atomic<bool> _wake_up_by_downstream = false;
 };
 
 } // namespace doris::pipeline

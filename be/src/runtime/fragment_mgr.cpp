@@ -106,7 +106,6 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
-bvar::Adder<int64_t> g_pipeline_fragment_instances_count("doris_pipeline_fragment_instances_count");
 
 bvar::Adder<uint64_t> g_fragment_executing_count("fragment_executing_count");
 bvar::Status<uint64_t> g_fragment_last_active_time(
@@ -300,6 +299,10 @@ Status FragmentMgr::trigger_pipeline_context_report(
 // including the final status when execution finishes.
 void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     DCHECK(req.status.ok() || req.done); // if !status.ok() => done
+    if (req.coord_addr.hostname == "external") {
+        // External query (flink/spark read tablets) not need to report to FE.
+        return;
+    }
     Status exec_status = req.status;
     Status coord_status;
     FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
@@ -322,204 +325,167 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_status(exec_status.to_thrift());
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
+    params.__isset.profile = false;
 
     DCHECK(req.runtime_state != nullptr);
 
-    if (req.runtime_state->query_type() == TQueryType::LOAD && !req.done && req.status.ok()) {
-        // this is a load plan, and load is not finished, just make a brief report
+    if (req.runtime_state->query_type() == TQueryType::LOAD) {
         params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
         params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
     } else {
-        if (req.runtime_state->query_type() == TQueryType::LOAD) {
-            params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
-            params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
-        }
-        params.__isset.detailed_report = true;
         DCHECK(!req.runtime_states.empty());
-        const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
-        if (enable_profile) {
-            params.__isset.profile = true;
-            params.__isset.loadChannelProfile = false;
-            for (auto* rs : req.runtime_states) {
-                DCHECK(req.load_channel_profile);
-                TDetailedReportParams detailed_param;
-                rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
-                // merge all runtime_states.loadChannelProfile to req.load_channel_profile
-                req.load_channel_profile->update(detailed_param.loadChannelProfile);
-            }
-            req.load_channel_profile->to_thrift(&params.loadChannelProfile);
-        } else {
-            params.__isset.profile = false;
-        }
-
-        if (enable_profile) {
-            DCHECK(req.profile != nullptr);
-            TDetailedReportParams detailed_param;
-            detailed_param.__isset.fragment_instance_id = false;
-            detailed_param.__isset.profile = true;
-            detailed_param.__isset.loadChannelProfile = false;
-            detailed_param.__set_is_fragment_level(true);
-            req.profile->to_thrift(&detailed_param.profile);
-            params.detailed_report.push_back(detailed_param);
-            for (auto pipeline_profile : req.runtime_state->pipeline_id_to_profile()) {
-                TDetailedReportParams detailed_param;
-                detailed_param.__isset.fragment_instance_id = false;
-                detailed_param.__isset.profile = true;
-                detailed_param.__isset.loadChannelProfile = false;
-                pipeline_profile->to_thrift(&detailed_param.profile);
-                params.detailed_report.push_back(std::move(detailed_param));
-            }
-        }
         if (!req.runtime_state->output_files().empty()) {
             params.__isset.delta_urls = true;
             for (auto& it : req.runtime_state->output_files()) {
                 params.delta_urls.push_back(to_http_path(it));
             }
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                for (auto& it : rs->output_files()) {
-                    params.delta_urls.push_back(to_http_path(it));
-                }
-            }
-            if (!params.delta_urls.empty()) {
-                params.__isset.delta_urls = true;
-            }
         }
-
-        // load rows
-        static std::string s_dpp_normal_all = "dpp.norm.ALL";
-        static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
-        static std::string s_unselected_rows = "unselected.rows";
-        int64_t num_rows_load_success = 0;
-        int64_t num_rows_load_filtered = 0;
-        int64_t num_rows_load_unselected = 0;
-        int64_t num_finished_ranges = 0;
-        if (req.runtime_state->num_rows_load_total() > 0 ||
-            req.runtime_state->num_rows_load_filtered() > 0 ||
-            req.runtime_state->num_finished_range() > 0) {
-            params.__isset.load_counters = true;
-
-            num_rows_load_success = req.runtime_state->num_rows_load_success();
-            num_rows_load_filtered = req.runtime_state->num_rows_load_filtered();
-            num_rows_load_unselected = req.runtime_state->num_rows_load_unselected();
-            num_finished_ranges = req.runtime_state->num_finished_range();
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
-                    req.runtime_state->num_finished_range() > 0) {
-                    params.__isset.load_counters = true;
-                    num_rows_load_success += rs->num_rows_load_success();
-                    num_rows_load_filtered += rs->num_rows_load_filtered();
-                    num_rows_load_unselected += rs->num_rows_load_unselected();
-                    num_finished_ranges += rs->num_finished_range();
-                }
-            }
+        if (!params.delta_urls.empty()) {
+            params.__isset.delta_urls = true;
         }
-        params.__set_finished_scan_ranges(num_finished_ranges);
-        params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
-        params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
-        params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
-
-        if (!req.runtime_state->get_error_log_file_path().empty()) {
-            params.__set_tracking_url(
-                    to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->get_error_log_file_path().empty()) {
-                    params.__set_tracking_url(
-                            to_load_error_http_path(rs->get_error_log_file_path()));
-                }
-                if (rs->wal_id() > 0) {
-                    params.__set_txn_id(rs->wal_id());
-                    params.__set_label(rs->import_label());
-                }
-            }
-        }
-        if (!req.runtime_state->export_output_files().empty()) {
-            params.__isset.export_files = true;
-            params.export_files = req.runtime_state->export_output_files();
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->export_output_files().empty()) {
-                    params.__isset.export_files = true;
-                    params.export_files.insert(params.export_files.end(),
-                                               rs->export_output_files().begin(),
-                                               rs->export_output_files().end());
-                }
-            }
-        }
-        if (!req.runtime_state->tablet_commit_infos().empty()) {
-            params.__isset.commitInfos = true;
-            params.commitInfos.reserve(req.runtime_state->tablet_commit_infos().size());
-            for (auto& info : req.runtime_state->tablet_commit_infos()) {
-                params.commitInfos.push_back(info);
-            }
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->tablet_commit_infos().empty()) {
-                    params.__isset.commitInfos = true;
-                    params.commitInfos.insert(params.commitInfos.end(),
-                                              rs->tablet_commit_infos().begin(),
-                                              rs->tablet_commit_infos().end());
-                }
-            }
-        }
-        if (!req.runtime_state->error_tablet_infos().empty()) {
-            params.__isset.errorTabletInfos = true;
-            params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
-            for (auto& info : req.runtime_state->error_tablet_infos()) {
-                params.errorTabletInfos.push_back(info);
-            }
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->error_tablet_infos().empty()) {
-                    params.__isset.errorTabletInfos = true;
-                    params.errorTabletInfos.insert(params.errorTabletInfos.end(),
-                                                   rs->error_tablet_infos().begin(),
-                                                   rs->error_tablet_infos().end());
-                }
-            }
-        }
-
-        if (!req.runtime_state->hive_partition_updates().empty()) {
-            params.__isset.hive_partition_updates = true;
-            params.hive_partition_updates.reserve(
-                    req.runtime_state->hive_partition_updates().size());
-            for (auto& hive_partition_update : req.runtime_state->hive_partition_updates()) {
-                params.hive_partition_updates.push_back(hive_partition_update);
-            }
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->hive_partition_updates().empty()) {
-                    params.__isset.hive_partition_updates = true;
-                    params.hive_partition_updates.insert(params.hive_partition_updates.end(),
-                                                         rs->hive_partition_updates().begin(),
-                                                         rs->hive_partition_updates().end());
-                }
-            }
-        }
-
-        if (!req.runtime_state->iceberg_commit_datas().empty()) {
-            params.__isset.iceberg_commit_datas = true;
-            params.iceberg_commit_datas.reserve(req.runtime_state->iceberg_commit_datas().size());
-            for (auto& iceberg_commit_data : req.runtime_state->iceberg_commit_datas()) {
-                params.iceberg_commit_datas.push_back(iceberg_commit_data);
-            }
-        } else if (!req.runtime_states.empty()) {
-            for (auto* rs : req.runtime_states) {
-                if (!rs->iceberg_commit_datas().empty()) {
-                    params.__isset.iceberg_commit_datas = true;
-                    params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
-                                                       rs->iceberg_commit_datas().begin(),
-                                                       rs->iceberg_commit_datas().end());
-                }
-            }
-        }
-
-        // Send new errors to coordinator
-        req.runtime_state->get_unreported_errors(&(params.error_log));
-        params.__isset.error_log = (params.error_log.size() > 0);
     }
+
+    // load rows
+    static std::string s_dpp_normal_all = "dpp.norm.ALL";
+    static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+    static std::string s_unselected_rows = "unselected.rows";
+    int64_t num_rows_load_success = 0;
+    int64_t num_rows_load_filtered = 0;
+    int64_t num_rows_load_unselected = 0;
+    if (req.runtime_state->num_rows_load_total() > 0 ||
+        req.runtime_state->num_rows_load_filtered() > 0 ||
+        req.runtime_state->num_finished_range() > 0) {
+        params.__isset.load_counters = true;
+
+        num_rows_load_success = req.runtime_state->num_rows_load_success();
+        num_rows_load_filtered = req.runtime_state->num_rows_load_filtered();
+        num_rows_load_unselected = req.runtime_state->num_rows_load_unselected();
+        params.__isset.fragment_instance_reports = true;
+        TFragmentInstanceReport t;
+        t.__set_fragment_instance_id(req.runtime_state->fragment_instance_id());
+        t.__set_num_finished_range(req.runtime_state->num_finished_range());
+        t.__set_loaded_rows(req.runtime_state->num_rows_load_total());
+        t.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
+        params.fragment_instance_reports.push_back(t);
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
+                req.runtime_state->num_finished_range() > 0) {
+                params.__isset.load_counters = true;
+                num_rows_load_success += rs->num_rows_load_success();
+                num_rows_load_filtered += rs->num_rows_load_filtered();
+                num_rows_load_unselected += rs->num_rows_load_unselected();
+                params.__isset.fragment_instance_reports = true;
+                TFragmentInstanceReport t;
+                t.__set_fragment_instance_id(rs->fragment_instance_id());
+                t.__set_num_finished_range(rs->num_finished_range());
+                t.__set_loaded_rows(rs->num_rows_load_total());
+                t.__set_loaded_bytes(rs->num_bytes_load_total());
+                params.fragment_instance_reports.push_back(t);
+            }
+        }
+    }
+    params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
+    params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
+    params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
+
+    if (!req.runtime_state->get_error_log_file_path().empty()) {
+        params.__set_tracking_url(
+                to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->get_error_log_file_path().empty()) {
+                params.__set_tracking_url(to_load_error_http_path(rs->get_error_log_file_path()));
+            }
+            if (rs->wal_id() > 0) {
+                params.__set_txn_id(rs->wal_id());
+                params.__set_label(rs->import_label());
+            }
+        }
+    }
+    if (!req.runtime_state->export_output_files().empty()) {
+        params.__isset.export_files = true;
+        params.export_files = req.runtime_state->export_output_files();
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->export_output_files().empty()) {
+                params.__isset.export_files = true;
+                params.export_files.insert(params.export_files.end(),
+                                           rs->export_output_files().begin(),
+                                           rs->export_output_files().end());
+            }
+        }
+    }
+    if (!req.runtime_state->tablet_commit_infos().empty()) {
+        params.__isset.commitInfos = true;
+        params.commitInfos.reserve(req.runtime_state->tablet_commit_infos().size());
+        for (auto& info : req.runtime_state->tablet_commit_infos()) {
+            params.commitInfos.push_back(info);
+        }
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->tablet_commit_infos().empty()) {
+                params.__isset.commitInfos = true;
+                params.commitInfos.insert(params.commitInfos.end(),
+                                          rs->tablet_commit_infos().begin(),
+                                          rs->tablet_commit_infos().end());
+            }
+        }
+    }
+    if (!req.runtime_state->error_tablet_infos().empty()) {
+        params.__isset.errorTabletInfos = true;
+        params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
+        for (auto& info : req.runtime_state->error_tablet_infos()) {
+            params.errorTabletInfos.push_back(info);
+        }
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->error_tablet_infos().empty()) {
+                params.__isset.errorTabletInfos = true;
+                params.errorTabletInfos.insert(params.errorTabletInfos.end(),
+                                               rs->error_tablet_infos().begin(),
+                                               rs->error_tablet_infos().end());
+            }
+        }
+    }
+
+    if (!req.runtime_state->hive_partition_updates().empty()) {
+        params.__isset.hive_partition_updates = true;
+        params.hive_partition_updates.reserve(req.runtime_state->hive_partition_updates().size());
+        for (auto& hive_partition_update : req.runtime_state->hive_partition_updates()) {
+            params.hive_partition_updates.push_back(hive_partition_update);
+        }
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->hive_partition_updates().empty()) {
+                params.__isset.hive_partition_updates = true;
+                params.hive_partition_updates.insert(params.hive_partition_updates.end(),
+                                                     rs->hive_partition_updates().begin(),
+                                                     rs->hive_partition_updates().end());
+            }
+        }
+    }
+
+    if (!req.runtime_state->iceberg_commit_datas().empty()) {
+        params.__isset.iceberg_commit_datas = true;
+        params.iceberg_commit_datas.reserve(req.runtime_state->iceberg_commit_datas().size());
+        for (auto& iceberg_commit_data : req.runtime_state->iceberg_commit_datas()) {
+            params.iceberg_commit_datas.push_back(iceberg_commit_data);
+        }
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->iceberg_commit_datas().empty()) {
+                params.__isset.iceberg_commit_datas = true;
+                params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
+                                                   rs->iceberg_commit_datas().begin(),
+                                                   rs->iceberg_commit_datas().end());
+            }
+        }
+    }
+
+    // Send new errors to coordinator
+    req.runtime_state->get_unreported_errors(&(params.error_log));
+    params.__isset.error_log = (!params.error_log.empty());
 
     if (_exec_env->master_info()->__isset.backend_id) {
         params.__set_backend_id(_exec_env->master_info()->backend_id);
@@ -610,13 +576,19 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     }
 }
 
+// Stage 2. prepare finished. then get FE instruction to execute
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
-    std::lock_guard<std::mutex> lock(_lock);
     TUniqueId query_id;
     query_id.__set_hi(request->query_id().hi());
     query_id.__set_lo(request->query_id().lo());
-    if (auto q_ctx = _get_or_erase_query_ctx(query_id)) {
+    std::shared_ptr<QueryContext> q_ctx = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        q_ctx = _get_or_erase_query_ctx(query_id);
+    }
+    if (q_ctx) {
         q_ctx->set_ready_to_execute(Status::OK());
+        LOG_INFO("Query {} start execution", print_id(query_id));
     } else {
         return Status::InternalError(
                 "Failed to get query fragments context. Query may be "
@@ -631,18 +603,12 @@ void FragmentMgr::remove_pipeline_context(
     {
         std::lock_guard<std::mutex> lock(_lock);
         auto query_id = f_context->get_query_id();
-        std::vector<TUniqueId> ins_ids;
-        f_context->instance_ids(ins_ids);
         int64 now = duration_cast<std::chrono::milliseconds>(
                             std::chrono::system_clock::now().time_since_epoch())
                             .count();
         g_fragment_executing_count << -1;
         g_fragment_last_active_time.set_value(now);
-        for (const auto& ins_id : ins_ids) {
-            LOG_INFO("Removing query {} instance {}", print_id(query_id), print_id(ins_id));
-            _pipeline_map.erase(ins_id);
-            g_pipeline_fragment_instances_count << -1;
-        }
+        _pipeline_map.erase({query_id, f_context->get_fragment_id()});
     }
 }
 
@@ -695,6 +661,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             return Status::OK();
         }
 
+        // First time a fragment of a query arrived. print logs.
         LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
                   << ", total fragment num on current host: " << params.fragment_num_on_host
                   << ", fe process uuid: " << params.query_options.fe_process_uuid
@@ -704,7 +671,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         // This may be a first fragment request of the query.
         // Create the query fragments context.
         query_ctx = QueryContext::create_shared(query_id, _exec_env, params.query_options,
-                                                params.coord, pipeline, params.is_nereids,
+                                                params.coord, params.is_nereids,
                                                 params.current_connect_fe, query_source);
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_ctx->query_mem_tracker);
         RETURN_IF_ERROR(DescriptorTbl::create(&(query_ctx->obj_pool), params.desc_tbl,
@@ -723,7 +690,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         _set_scan_concurrency(params, query_ctx.get());
-        const bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
@@ -734,21 +700,14 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                 RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
-
-                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << ", use workload group: " << workload_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline);
             } else {
-                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << " carried group info but can not find group in be";
+                LOG(WARNING) << "Query/load id: " << print_id(query_ctx->query_id())
+                             << "can't find its workload group " << tg_id;
             }
         }
         // There is some logic in query ctx's dctor, we could not check if exists and delete the
         // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
         _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
-        LOG(INFO) << "Register query/load memory tracker, query/load id: "
-                  << print_id(query_ctx->query_id())
-                  << " limit: " << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
     }
     return Status::OK();
 }
@@ -776,11 +735,10 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
                 continue;
             }
             auto timeout_second = it.second->timeout_second();
-            fmt::format_to(debug_string_buffer,
-                           "No.{} (elapse_second={}s, query_timeout_second={}s, instance_id="
-                           "{}, is_timeout={}) : {}\n",
-                           i, elapsed, timeout_second, print_id(it.first),
-                           it.second->is_timeout(now), it.second->debug_string());
+            fmt::format_to(
+                    debug_string_buffer,
+                    "No.{} (elapse_second={}s, query_timeout_second={}s, is_timeout={}) : {}\n", i,
+                    elapsed, timeout_second, it.second->is_timeout(now), it.second->debug_string());
             i++;
         }
     }
@@ -816,7 +774,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     {
         SCOPED_RAW_TIMER(&duration_ns);
         Status prepare_st = Status::OK();
-        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(params), prepare_st);
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(params, _thread_pool.get()),
+                                         prepare_st);
         if (!prepare_st.ok()) {
             query_ctx->cancel(prepare_st, params.fragment_id);
             query_ctx->set_execution_dependency_ready();
@@ -836,36 +795,33 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         query_ctx->set_merge_controller_handler(handler);
     }
 
-    for (const auto& local_param : params.local_params) {
-        const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
+    {
+        // (query_id, fragment_id) is executed only on one BE, locks _pipeline_map.
         std::lock_guard<std::mutex> lock(_lock);
-        auto iter = _pipeline_map.find(fragment_instance_id);
-        if (iter != _pipeline_map.end()) {
-            return Status::InternalError(
-                    "exec_plan_fragment input duplicated fragment_instance_id({})",
-                    UniqueId(fragment_instance_id).to_string());
+        for (const auto& local_param : params.local_params) {
+            const TUniqueId& fragment_instance_id = local_param.fragment_instance_id;
+            auto iter = _pipeline_map.find({params.query_id, params.fragment_id});
+            if (iter != _pipeline_map.end()) {
+                return Status::InternalError(
+                        "exec_plan_fragment query_id({}) input duplicated fragment_id({})",
+                        print_id(params.query_id), params.fragment_id);
+            }
+            query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
         }
-        query_ctx->fragment_instance_ids.push_back(fragment_instance_id);
+
+        int64 now = duration_cast<std::chrono::milliseconds>(
+                            std::chrono::system_clock::now().time_since_epoch())
+                            .count();
+        g_fragment_executing_count << 1;
+        g_fragment_last_active_time.set_value(now);
+        // TODO: simplify this mapping
+        _pipeline_map.insert({{params.query_id, params.fragment_id}, context});
     }
 
     if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
         query_ctx->set_ready_to_execute_only();
     }
 
-    int64 now = duration_cast<std::chrono::milliseconds>(
-                        std::chrono::system_clock::now().time_since_epoch())
-                        .count();
-    {
-        g_fragment_executing_count << 1;
-        g_fragment_last_active_time.set_value(now);
-        std::lock_guard<std::mutex> lock(_lock);
-        std::vector<TUniqueId> ins_ids;
-        context->instance_ids(ins_ids);
-        // TODO: simplify this mapping
-        for (const auto& ins_id : ins_ids) {
-            _pipeline_map.insert({ins_id, context});
-        }
-    }
     query_ctx->set_pipeline_context(params.fragment_id, context);
 
     RETURN_IF_ERROR(context->submit());
@@ -909,31 +865,6 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
               << " is cancelled and removed. Reason: " << reason.to_string();
 }
 
-void FragmentMgr::cancel_instance(const TUniqueId instance_id, const Status reason) {
-    std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_ctx;
-    {
-        std::lock_guard<std::mutex> state_lock(_lock);
-        DCHECK(!_pipeline_map.contains(instance_id))
-                << " Pipeline tasks should be canceled by query instead of instance! Query ID: "
-                << print_id(_pipeline_map[instance_id]->get_query_id());
-        const bool is_pipeline_instance = _pipeline_map.contains(instance_id);
-        if (is_pipeline_instance) {
-            auto itr = _pipeline_map.find(instance_id);
-            if (itr != _pipeline_map.end()) {
-                pipeline_ctx = itr->second;
-            } else {
-                LOG(WARNING) << "Could not find the pipeline instance id:" << print_id(instance_id)
-                             << " to cancel";
-                return;
-            }
-        }
-    }
-
-    if (pipeline_ctx != nullptr) {
-        pipeline_ctx->cancel(reason);
-    }
-}
-
 void FragmentMgr::cancel_worker() {
     LOG(INFO) << "FragmentMgr cancel worker start working.";
 
@@ -961,11 +892,20 @@ void FragmentMgr::cancel_worker() {
             running_queries_on_all_fes.clear();
         }
 
+        std::vector<std::shared_ptr<pipeline::PipelineFragmentContext>> ctx;
         {
             std::lock_guard<std::mutex> lock(_lock);
+            ctx.reserve(_pipeline_map.size());
             for (auto& pipeline_itr : _pipeline_map) {
-                pipeline_itr.second->clear_finished_tasks();
+                ctx.push_back(pipeline_itr.second);
             }
+        }
+        for (auto& c : ctx) {
+            c->clear_finished_tasks();
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(_lock);
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
                 if (auto q_ctx = it->second.lock()) {
                     if (q_ctx->is_timeout(now)) {
@@ -1100,6 +1040,7 @@ void FragmentMgr::debug(std::stringstream& ss) {}
  */
 Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
                                                 const TQueryPlanInfo& t_query_plan_info,
+                                                const TUniqueId& query_id,
                                                 const TUniqueId& fragment_instance_id,
                                                 std::vector<TScanColumnDesc>* selected_columns) {
     // set up desc tbl
@@ -1140,8 +1081,9 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
 
     // assign the param used for executing of PlanFragment-self
     TPipelineInstanceParams fragment_exec_params;
-    exec_fragment_params.query_id = t_query_plan_info.query_id;
+    exec_fragment_params.query_id = query_id;
     fragment_exec_params.fragment_instance_id = fragment_instance_id;
+    exec_fragment_params.coord.hostname = "external";
     std::map<::doris::TPlanNodeId, std::vector<TScanRangeParams>> per_node_scan_ranges;
     std::vector<TScanRangeParams> scan_ranges;
     std::vector<int64_t> tablet_ids = params.tablet_ids;
@@ -1191,7 +1133,6 @@ Status FragmentMgr::exec_external_plan_fragment(const TScanOpenParams& params,
 
 Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                                    butil::IOBufAsZeroCopyInputStream* attach_data) {
-    bool is_pipeline = request->has_is_pipeline() && request->is_pipeline();
     int64_t start_apply = MonotonicMillis();
 
     std::shared_ptr<pipeline::PipelineFragmentContext> pip_context;
@@ -1199,27 +1140,22 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
 
-    const auto& fragment_instance_ids = request->fragment_instance_ids();
+    const auto& fragment_ids = request->fragment_ids();
     {
         std::unique_lock<std::mutex> lock(_lock);
-        for (UniqueId fragment_instance_id : fragment_instance_ids) {
-            TUniqueId tfragment_instance_id = fragment_instance_id.to_thrift();
-
-            if (is_pipeline) {
-                auto iter = _pipeline_map.find(tfragment_instance_id);
-                if (iter == _pipeline_map.end()) {
-                    continue;
-                }
-                pip_context = iter->second;
-
-                DCHECK(pip_context != nullptr);
-                runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
-                query_thread_context = {pip_context->get_query_ctx()->query_id(),
-                                        pip_context->get_query_ctx()->query_mem_tracker,
-                                        pip_context->get_query_ctx()->workload_group()};
-            } else {
-                return Status::InternalError("Non-pipeline is disabled!");
+        for (auto fragment_id : fragment_ids) {
+            auto iter =
+                    _pipeline_map.find({UniqueId(request->query_id()).to_thrift(), fragment_id});
+            if (iter == _pipeline_map.end()) {
+                continue;
             }
+            pip_context = iter->second;
+
+            DCHECK(pip_context != nullptr);
+            runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
+            query_thread_context = {pip_context->get_query_ctx()->query_id(),
+                                    pip_context->get_query_ctx()->query_mem_tracker,
+                                    pip_context->get_query_ctx()->workload_group()};
             break;
         }
     }

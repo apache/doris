@@ -24,6 +24,8 @@ import com.lmax.disruptor.WaitStrategy;
 import com.lmax.disruptor.WorkHandler;
 import com.lmax.disruptor.dsl.Disruptor;
 import com.lmax.disruptor.dsl.ProducerType;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.concurrent.ThreadFactory;
 
@@ -33,6 +35,7 @@ import java.util.concurrent.ThreadFactory;
  * @param <T> the type of the event handled by the Disruptor
  */
 public class TaskDisruptor<T> {
+    private static final Logger LOG = LogManager.getLogger(TaskDisruptor.class);
     private final Disruptor<T> disruptor;
     private final EventTranslatorVararg<T> eventTranslator;
 
@@ -68,9 +71,15 @@ public class TaskDisruptor<T> {
      *
      * @param args the arguments for the event
      */
-    public void publishEvent(Object... args) {
-        RingBuffer<T> ringBuffer = disruptor.getRingBuffer();
-        ringBuffer.publishEvent(eventTranslator, args);
+    public boolean publishEvent(Object... args) {
+        try {
+            RingBuffer<T> ringBuffer = disruptor.getRingBuffer();
+            return ringBuffer.tryPublishEvent(eventTranslator, args);
+        } catch (Exception e) {
+            LOG.warn("Failed to publish event", e);
+            // Handle the exception, e.g., retry or alert
+        }
+        return false;
     }
 
     /**

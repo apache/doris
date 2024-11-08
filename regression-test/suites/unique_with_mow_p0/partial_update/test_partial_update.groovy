@@ -176,7 +176,7 @@ suite("test_primary_key_partial_update", "p0") {
                     assertEquals("Fail", json.Status)
                     assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
                     assertEquals(3, json.NumberTotalRows)
-                    assertEquals(1, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberLoadedRows)
                     assertEquals(2, json.NumberFilteredRows)
                 }
             }
@@ -207,7 +207,7 @@ suite("test_primary_key_partial_update", "p0") {
 
             qt_select_timestamp "select count(*) from ${tableName} where `ctime` > \"1970-01-01\""
 
-            sql "set time_zone = 'America/New_York'"
+            sql "set time_zone = 'Asia/Tokyo'"
 
             Thread.sleep(5000)
 

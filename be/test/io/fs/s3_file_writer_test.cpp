@@ -625,7 +625,7 @@ TEST_F(S3FileWriterTest, multi_part_open_error) {
 //     auto cache = std::make_unique<io::BlockFileCache>(cache_base_path, settings);
 //     ASSERT_TRUE(cache->initialize());
 //     while (true) {
-//         if (cache->get_lazy_open_success()) {
+//         if (cache->get_async_open_success()) {
 //             break;
 //         };
 //         std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -710,7 +710,7 @@ TEST_F(S3FileWriterTest, multi_part_open_error) {
 //     auto cache = std::make_unique<io::BlockFileCache>(cache_base_path, settings);
 //     ASSERT_TRUE(cache->initialize());
 //     while (true) {
-//         if (cache->get_lazy_open_success()) {
+//         if (cache->get_async_open_success()) {
 //             break;
 //         };
 //         std::this_thread::sleep_for(std::chrono::milliseconds(1));

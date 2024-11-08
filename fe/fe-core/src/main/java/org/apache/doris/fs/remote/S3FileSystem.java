@@ -20,6 +20,8 @@ package org.apache.doris.fs.remote;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -34,6 +36,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
@@ -58,8 +61,15 @@ public class S3FileSystem extends ObjFileSystem {
 
     @Override
     protected FileSystem nativeFileSystem(String remotePath) throws UserException {
+        //todo Extracting a common method to achieve logic reuse
+        if (closed.get()) {
+            throw new UserException("FileSystem is closed.");
+        }
         if (dfsFileSystem == null) {
             synchronized (this) {
+                if (closed.get()) {
+                    throw new UserException("FileSystem is closed.");
+                }
                 if (dfsFileSystem == null) {
                     Configuration conf = DFSFileSystem.getHdfsConf(ifNotSetFallbackToSimpleAuth());
                     System.setProperty("com.amazonaws.services.s3.enableV4", "true");
@@ -67,8 +77,17 @@ public class S3FileSystem extends ObjFileSystem {
                     PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
                             .filter(entry -> entry.getKey() != null && entry.getValue() != null)
                             .forEach(entry -> conf.set(entry.getKey(), entry.getValue()));
+                    AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(conf);
+                    HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
                     try {
-                        dfsFileSystem = FileSystem.get(new Path(remotePath).toUri(), conf);
+                        dfsFileSystem = authenticator.doAs(() -> {
+                            try {
+                                return FileSystem.get(new Path(remotePath).toUri(), conf);
+                            } catch (IOException e) {
+                                throw new RuntimeException(e);
+                            }
+                        });
+                        RemoteFSPhantomManager.registerPhantomReference(this);
                     } catch (Exception e) {
                         throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
                     }

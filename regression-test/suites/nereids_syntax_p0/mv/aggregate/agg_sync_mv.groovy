@@ -44,10 +44,7 @@ suite("agg_sync_mv") {
     qt_select_approx_count_distinct """select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync3 on agg_mv_test;"""
     createMV("""create materialized view mv_sync3 as select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;""")
-    explain {
-        sql("select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;")
-        contains "(mv_sync3)"
-    }
+    mv_rewrite_success("select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;", "mv_sync3")
     qt_select_approx_count_distinct_mv """select id, approx_count_distinct(kint) from agg_mv_test group by id order by id;"""
 
     qt_select_collect_set """select id, collect_set(kint) from agg_mv_test group by id order by id;"""
@@ -238,6 +235,15 @@ suite("agg_sync_mv") {
         contains "(mv_sync24)"
     }
     qt_select_group_concat_mv """select id, group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;"""
+
+    qt_select_linear_histogram """select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;"""
+    sql """drop materialized view if exists mv_sync on agg_mv_test;"""
+    createMV("""create materialized view mv_sync as select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;""")
+    explain {
+        sql("select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;")
+        contains "(mv_sync)"
+    }
+    qt_select_linear_histogram_mv """select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;"""
 
     qt_select_multi_distinct_group_concat """select id, multi_distinct_group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync25 on agg_mv_test;"""
@@ -453,7 +459,9 @@ suite("agg_sync_mv") {
     createMV("""create materialized view mv_sync48 as select id, var_pop(kint) from agg_mv_test group by id order by id;""")
     explain {
         sql("select id, var_pop(kint) from agg_mv_test group by id order by id;")
-        contains "(mv_sync47)"
+        check { result ->
+            result.contains("(mv_sync47)") || result.contains("(mv_sync48)")
+        }
     }
     qt_select_var_pop_mv """select id, var_pop(kint) from agg_mv_test group by id order by id;"""
 
@@ -484,25 +492,23 @@ suite("agg_sync_mv") {
     }
     qt_select_window_funnel_mv """select id, window_funnel(3600 * 3, 'default', kdtm, kint = 1, kint = 2) from agg_mv_test group by id order by id;"""
 
-    // map_agg is not supported yet
-    // qt_select_map_agg """select id, map_agg(kint, kstr) from agg_mv_test group by id order by id;"""
-    // sql """drop materialized view if exists mv_sync52 on agg_mv_test;"""
-    // createMV("""create materialized view mv_sync52 as select id, map_agg(kint, kstr) from agg_mv_test group by id order by id;""")
-    // explain {
-    //     sql("select id, map_agg(kint, kstr) from agg_mv_test group by id order by id;")
-    //     contains "(mv_sync52)"
-    // }
-    // qt_select_map_agg_mv """select id, map_agg(kint, kstr) from agg_mv_test group by id order by id;"""
+    qt_select_map_agg """select id, map_agg(kint, kstr) from agg_mv_test group by id order by id;"""
+    sql """drop materialized view if exists mv_sync52 on agg_mv_test;"""
+    createMV("""create materialized view mv_sync52 as select id, map_agg(kint, kstr) from agg_mv_test group by id order by id;""")
+    explain {
+        sql("select id, map_agg(kint, kstr) from agg_mv_test group by id order by id;")
+        contains "(mv_sync52)"
+    }
+    qt_select_map_agg_mv """select id, map_agg(kint, kstr) from agg_mv_test group by id order by id;"""
 
-    // array_agg is not supported yet
-    // qt_select_array_agg """select id, array_agg(kstr) from agg_mv_test group by id order by id;"""
-    // sql """drop materialized view if exists mv_sync53 on agg_mv_test;"""
-    // createMV("""create materialized view mv_sync53 as select id, array_agg(kstr) from agg_mv_test group by id order by id;""")
-    // explain {
-    //     sql("select id, array_agg(kstr) from agg_mv_test group by id order by id;")
-    //     contains "(mv_sync53)"
-    // }
-    // qt_select_array_agg_mv """select id, array_agg(kstr) from agg_mv_test group by id order by id;"""
+    qt_select_array_agg """select id, array_agg(kstr) from agg_mv_test group by id order by id;"""
+    sql """drop materialized view if exists mv_sync53 on agg_mv_test;"""
+    createMV("""create materialized view mv_sync53 as select id, array_agg(kstr) from agg_mv_test group by id order by id;""")
+    explain {
+    sql("select id, array_agg(kstr) from agg_mv_test group by id order by id;")
+        contains "(mv_sync53)"
+    }
+    qt_select_array_agg_mv """select id, array_agg(kstr) from agg_mv_test group by id order by id;"""
 
     qt_select_retention """select id, retention(kdtm = '2012-03-11', kdtm = '2012-03-12') from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync54 on agg_mv_test;"""
@@ -531,4 +537,9 @@ suite("agg_sync_mv") {
             '''
         file "../agg_mv_test.dat"
     }
+
+
+    sql "insert into agg_mv_test select * from agg_mv_test;"
+    sql "set parallel_pipeline_task_num=1"
+    qt_test "select kbint, map_agg(id, kstr) from agg_mv_test group by kbint order by kbint;"
 }

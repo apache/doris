@@ -79,8 +79,8 @@ struct RowsetWriterContext {
 
     int64_t newest_write_timestamp = -1;
     bool enable_unique_key_merge_on_write = false;
-    // store column_unique_id to skip write inverted index
-    std::set<int32_t> skip_inverted_index;
+    // store column_unique_id to do index compaction
+    std::set<int32_t> columns_to_do_index_compaction;
     DataWriteType write_type = DataWriteType::TYPE_DEFAULT;
     BaseTabletSPtr tablet = nullptr;
 
@@ -108,6 +108,7 @@ struct RowsetWriterContext {
     std::shared_ptr<std::mutex> schema_lock;
 
     int64_t compaction_level = 0;
+    int64_t storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
 
     // For local rowset
     std::string tablet_path;

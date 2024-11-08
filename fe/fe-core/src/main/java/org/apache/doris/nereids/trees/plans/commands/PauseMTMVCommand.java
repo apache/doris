@@ -30,7 +30,7 @@ import java.util.Objects;
 /**
  * pause mtmv
  */
-public class PauseMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
+public class PauseMTMVCommand extends Command implements ForwardWithSync {
     private final PauseMTMVInfo pauseMTMVInfo;
 
     public PauseMTMVCommand(PauseMTMVInfo pauseMTMVInfo) {

@@ -181,8 +181,8 @@ public:
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
-
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     Field get_default() const override;
@@ -595,10 +595,11 @@ void convert_from_decimal(typename ToDataType::FieldType* dst,
                 dst[i] = static_cast<ToFieldType>(src[i].value) / multiplier.value;
             }
         }
-        FromDataType from_data_type(precision, scale);
         if constexpr (narrow_integral) {
+            FromDataType from_data_type(precision, scale);
             for (size_t i = 0; i < size; i++) {
-                if (dst[i] < min_result || dst[i] > max_result) {
+                if (std::isnan(dst[i]) || std::isinf(dst[i]) || dst[i] < min_result ||
+                    dst[i] > max_result) {
                     THROW_DECIMAL_CONVERT_OVERFLOW_EXCEPTION(from_data_type.to_string(src[i]),
                                                              from_data_type.get_name(),
                                                              ToDataType {}.get_name());

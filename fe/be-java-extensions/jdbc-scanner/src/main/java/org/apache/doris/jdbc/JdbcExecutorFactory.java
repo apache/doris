@@ -41,6 +41,8 @@ public class JdbcExecutorFactory {
             case TRINO:
             case PRESTO:
                 return "org/apache/doris/jdbc/TrinoJdbcExecutor";
+            case GBASE:
+                return "org/apache/doris/jdbc/GbaseJdbcExecutor";
             default:
                 throw new IllegalArgumentException("Unsupported jdbc type: " + type);
         }

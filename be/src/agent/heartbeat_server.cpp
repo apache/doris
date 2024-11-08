@@ -26,6 +26,8 @@
 #include <ostream>
 #include <string>
 
+#include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "olap/storage_engine.h"
@@ -237,6 +239,46 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                 "Heartbeat from {}:{} does not have frontend_infos, this may because we are "
                 "upgrading cluster",
                 master_info.network_address.hostname, master_info.network_address.port);
+    }
+
+    if (master_info.__isset.meta_service_endpoint != config::is_cloud_mode()) {
+        LOG(WARNING) << "Detected mismatch in cloud mode configuration between FE and BE. "
+                     << "FE cloud mode: "
+                     << (master_info.__isset.meta_service_endpoint ? "true" : "false")
+                     << ", BE cloud mode: " << (config::is_cloud_mode() ? "true" : "false")
+                     << ". If fe is earlier than version 3.0.2, the message can be ignored.";
+    }
+
+    if (master_info.__isset.meta_service_endpoint) {
+        if (config::meta_service_endpoint.empty() && !master_info.meta_service_endpoint.empty()) {
+            auto st = config::set_config("meta_service_endpoint", master_info.meta_service_endpoint,
+                                         true);
+            LOG(INFO) << "set config meta_service_endpoing " << master_info.meta_service_endpoint
+                      << " " << st;
+        }
+
+        if (master_info.meta_service_endpoint != config::meta_service_endpoint) {
+            LOG(WARNING) << "Detected mismatch in meta_service_endpoint configuration between FE "
+                            "and BE. "
+                         << "FE meta_service_endpoint: " << master_info.meta_service_endpoint
+                         << ", BE meta_service_endpoint: " << config::meta_service_endpoint;
+            return Status::InvalidArgument<false>(
+                    "fe and be do not work in same mode, fe meta_service_endpoint: {},"
+                    " be meta_service_endpoint: {}",
+                    master_info.meta_service_endpoint, config::meta_service_endpoint);
+        }
+    }
+
+    if (master_info.__isset.cloud_unique_id &&
+        config::cloud_unique_id != master_info.cloud_unique_id &&
+        config::enable_use_cloud_unique_id_from_fe) {
+        auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
+        LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
+    }
+
+    if (master_info.__isset.tablet_report_inactive_duration_ms) {
+        doris::g_tablet_report_inactive_duration_ms =
+                master_info.tablet_report_inactive_duration_ms;
     }
 
     if (need_report) {

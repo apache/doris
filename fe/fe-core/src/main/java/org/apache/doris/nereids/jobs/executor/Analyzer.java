@@ -26,7 +26,6 @@ import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.analysis.BindSink;
-import org.apache.doris.nereids.rules.analysis.BuildAggForRandomDistributedTable;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
@@ -36,13 +35,16 @@ import org.apache.doris.nereids.rules.analysis.EliminateDistinctConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.FillUpQualifyMissingSlot;
 import org.apache.doris.nereids.rules.analysis.HavingToFilter;
 import org.apache.doris.nereids.rules.analysis.LeadingJoin;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
+import org.apache.doris.nereids.rules.analysis.NormalizeGenerate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
 import org.apache.doris.nereids.rules.analysis.ProjectWithDistinctToAggregate;
+import org.apache.doris.nereids.rules.analysis.QualifyToFilter;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
@@ -125,6 +127,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
             bottomUp(new AddInitMaterializationHook()),
+            topDown(new FillUpQualifyMissingSlot()),
             bottomUp(
                     new ProjectToGlobalAggregate(),
                     // this rule check's the logicalProject node's isDistinct property
@@ -163,16 +166,16 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new EliminateGroupByConstant()),
 
             topDown(new SimplifyAggGroupBy()),
-            // run BuildAggForRandomDistributedTable before NormalizeAggregate in order to optimize the agg plan
-            topDown(new BuildAggForRandomDistributedTable()),
             topDown(new NormalizeAggregate()),
             topDown(new HavingToFilter()),
+            topDown(new QualifyToFilter()),
             bottomUp(new SemiJoinCommute()),
             bottomUp(
                     new CollectSubQueryAlias(),
                     new CollectJoinConstraint()
             ),
             topDown(new LeadingJoin()),
+            bottomUp(new NormalizeGenerate()),
             bottomUp(new SubqueryToApply()),
             topDown(new MergeProjects())
         );

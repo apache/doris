@@ -130,6 +130,14 @@ public class TableNameInfo implements Writable {
     }
 
     /**
+     * set a new database name
+     * @param db new database name
+     */
+    public void setDb(String db) {
+        this.db = db;
+    }
+
+    /**
      * get table name
      * @return tableName
      */
@@ -161,5 +169,28 @@ public class TableNameInfo implements Writable {
         ctl = fromJson.ctl;
         db = fromJson.db;
         tbl = fromJson.tbl;
+    }
+
+    /**
+     * equals
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        TableNameInfo that = (TableNameInfo) o;
+        return tbl.equals(that.tbl) && db.equals(that.db) && ctl.equals(that.ctl);
+    }
+
+    /**
+     * hashCode
+     */
+    @Override
+    public int hashCode() {
+        return Objects.hash(tbl, db, ctl);
     }
 }

@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include "agent/be_exec_version_manager.h"
 #define POP true
 #define NOTPOP false
@@ -120,8 +122,6 @@ struct BaseData {
         count += 1;
     }
 
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
-
     double sum_x;
     double sum_y;
     double sum_xy;
@@ -134,20 +134,7 @@ struct PopData : Data {
         auto& col = assert_cast<ColumnFloat64&>(to);
         col.get_data().push_back(this->get_pop_result());
     }
-};
-
-template <typename T, typename Data>
-struct SampData_OLDER : Data {
-    void insert_result_into(IColumn& to) const {
-        ColumnNullable& nullable_column = assert_cast<ColumnNullable&>(to);
-        if (this->count == 1 || this->count == 0) {
-            nullable_column.insert_default();
-        } else {
-            auto& col = assert_cast<ColumnFloat64&>(nullable_column.get_nested_column());
-            col.get_data().push_back(this->get_samp_result());
-            nullable_column.get_null_map_data().push_back(0);
-        }
-    }
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 };
 
 template <typename T, typename Data>
@@ -160,6 +147,7 @@ struct SampData : Data {
             col.get_data().push_back(this->get_samp_result());
         }
     }
+    static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 };
 
 template <typename Data>
@@ -184,17 +172,7 @@ public:
 
     String get_name() const override { return Data::name(); }
 
-    DataTypePtr get_return_type() const override {
-        if constexpr (is_pop) {
-            return Data::get_return_type();
-        } else {
-            if (IAggregateFunction::version < AGG_FUNCTION_NULLABLE) {
-                return make_nullable(Data::get_return_type());
-            } else {
-                return Data::get_return_type();
-            }
-        }
-    }
+    DataTypePtr get_return_type() const override { return Data::get_return_type(); }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
@@ -202,12 +180,30 @@ public:
             this->data(place).add(columns[0], columns[1], row_num);
         } else {
             if constexpr (is_nullable) { //this if check could remove with old function
+                // nullable means at least one child is null.
+                // so here, maybe JUST ONE OF ups is null. so nullptr perhaps in ..._x or ..._y!
                 const auto* nullable_column_x = check_and_get_column<ColumnNullable>(columns[0]);
                 const auto* nullable_column_y = check_and_get_column<ColumnNullable>(columns[1]);
-                if (!nullable_column_x->is_null_at(row_num) &&
-                    !nullable_column_y->is_null_at(row_num)) {
-                    this->data(place).add(&nullable_column_x->get_nested_column(),
-                                          &nullable_column_y->get_nested_column(), row_num);
+
+                if (nullable_column_x && nullable_column_y) { // both nullable
+                    if (!nullable_column_x->is_null_at(row_num) &&
+                        !nullable_column_y->is_null_at(row_num)) {
+                        this->data(place).add(&nullable_column_x->get_nested_column(),
+                                              &nullable_column_y->get_nested_column(), row_num);
+                    }
+                } else if (nullable_column_x) { // x nullable
+                    if (!nullable_column_x->is_null_at(row_num)) {
+                        this->data(place).add(&nullable_column_x->get_nested_column(), columns[1],
+                                              row_num);
+                    }
+                } else if (nullable_column_y) { // y nullable
+                    if (!nullable_column_y->is_null_at(row_num)) {
+                        this->data(place).add(columns[0], &nullable_column_y->get_nested_column(),
+                                              row_num);
+                    }
+                } else {
+                    throw Exception(ErrorCode::INTERNAL_ERROR,
+                                    "Nullable function {} get non-nullable columns!", get_name());
                 }
             } else {
                 this->data(place).add(columns[0], columns[1], row_num);
@@ -234,14 +230,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
-};
-
-template <typename Data, bool is_nullable>
-class AggregateFunctionSamp_OLDER final
-        : public AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable> {
-public:
-    AggregateFunctionSamp_OLDER(const DataTypes& argument_types_)
-            : AggregateFunctionSampCovariance<NOTPOP, Data, is_nullable>(argument_types_) {}
 };
 
 template <typename Data, bool is_nullable>

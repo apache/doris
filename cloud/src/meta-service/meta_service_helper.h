@@ -58,6 +58,9 @@ void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request
                          std::is_same_v<Request, GetTabletRequest>) {
         VLOG_DEBUG << "begin " << func_name << " from " << ctrl->remote_side()
                    << " request=" << req->ShortDebugString();
+    } else if constexpr (std::is_same_v<Request, RemoveDeleteBitmapRequest>) {
+        LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
+                  << " tablet_id=" << req->tablet_id() << " rowset_size=" << req->rowset_ids_size();
     } else {
         LOG(INFO) << "begin " << func_name << " from " << ctrl->remote_side()
                   << " request=" << req->ShortDebugString();
@@ -89,6 +92,12 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
         VLOG_DEBUG << "finish " << func_name << " from " << ctrl->remote_side()
                    << " response=" << res->ShortDebugString();
     } else if constexpr (std::is_same_v<Response, GetDeleteBitmapResponse>) {
+        if (res->status().code() != MetaServiceCode::OK) {
+            res->clear_rowset_ids();
+            res->clear_segment_ids();
+            res->clear_versions();
+            res->clear_segment_delete_bitmaps();
+        }
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " status=" << res->status().ShortDebugString()
                   << " delete_bitmap_size=" << res->segment_delete_bitmaps_size();

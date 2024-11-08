@@ -170,6 +170,16 @@ extHdfsPort = 4007
 extHiveServerPort= 7001
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
+dfsNameservices=""
+dfsNameservicesPort=8020
+dfsHaNamenodesHdfsCluster=""
+dfsNamenodeRpcAddress1=""
+dfsNamenodeRpcAddress2=""
+dfsNamenodeRpcAddress3=""
+hadoopSecurityAuthentication = ""
+hadoopKerberosKeytabPath = ""
+hadoopKerberosPrincipal = ""
+
 
 //paimon catalog test config for bigdata
 enableExternalPaimonTest = false
@@ -207,7 +217,7 @@ txYunSk="***********"
 
 //arrow flight sql test config
 extArrowFlightSqlHost = "127.0.0.1"
-extArrowFlightSqlPort = 8080
+extArrowFlightSqlPort = 8081
 extArrowFlightSqlUser = "root"
 extArrowFlightSqlPassword= ""
 
@@ -242,3 +252,7 @@ lakesoulMinioAK="*******"
 lakesoulMinioSK="*******"
 lakesoulMinioEndpoint="*******"
 
+// cloud
+metaServiceToken = "greedisgood9999"
+instanceId = "default_instance_id"
+multiClusterInstance = "default_instance_id"

@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -116,4 +118,16 @@ public abstract class Command extends AbstractPlan implements LogicalPlan, Block
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         throw new RuntimeException("Command do not implement withGroupExpression");
     }
+
+    public void verifyCommandSupported() throws DdlException {
+        // check command has been supported in cloud mode
+        if (Config.isCloudMode()) {
+            checkSupportedInCloudMode();
+        }
+    }
+
+    // check if the command is supported in cloud mode
+    // see checkStmtSupported() in fe/fe-core/src/main/java/org/apache/doris/qe/ShowExecutor.java
+    // override this method if the command is not supported in cloud mode
+    protected void checkSupportedInCloudMode() throws DdlException {}
 }

@@ -39,6 +39,7 @@
 #include "olap/rowset/rowset_reader_context.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
@@ -71,54 +72,31 @@ Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     return res;
 }
 
-bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
-    std::string cur_max_key;
+bool BlockReader::_rowsets_mono_asc_disjoint(const ReaderParams& read_params) {
+    std::string cur_rs_last_key;
     const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
     for (const auto& rs_split : rs_splits) {
-        // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_split.rs_reader->rowset()->version().second == 1) {
-            continue;
-        }
         if (rs_split.rs_reader->rowset()->num_rows() == 0) {
             continue;
         }
         if (rs_split.rs_reader->rowset()->is_segments_overlapping()) {
             return true;
         }
-        std::string min_key;
-        bool has_min_key = rs_split.rs_reader->rowset()->min_key(&min_key);
-        if (!has_min_key) {
+        std::string rs_first_key;
+        bool has_first_key = rs_split.rs_reader->rowset()->first_key(&rs_first_key);
+        if (!has_first_key) {
             return true;
         }
-        if (min_key <= cur_max_key) {
+        if (rs_first_key <= cur_rs_last_key) {
             return true;
         }
-        CHECK(rs_split.rs_reader->rowset()->max_key(&cur_max_key));
+        bool has_last_key = rs_split.rs_reader->rowset()->last_key(&cur_rs_last_key);
+        CHECK(has_last_key);
     }
 
-    for (const auto& rs_reader : rs_splits) {
-        // version 0-1 of every tablet is empty, just skip this rowset
-        if (rs_reader.rs_reader->rowset()->version().second == 1) {
-            continue;
-        }
-        if (rs_reader.rs_reader->rowset()->num_rows() == 0) {
-            continue;
-        }
-        if (rs_reader.rs_reader->rowset()->is_segments_overlapping()) {
-            return true;
-        }
-        std::string min_key;
-        bool has_min_key = rs_reader.rs_reader->rowset()->min_key(&min_key);
-        if (!has_min_key) {
-            return true;
-        }
-        if (min_key <= cur_max_key) {
-            return true;
-        }
-        CHECK(rs_reader.rs_reader->rowset()->max_key(&cur_max_key));
-    }
     return false;
 }
+
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
@@ -130,13 +108,18 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
         return res;
     }
     // check if rowsets are noneoverlapping
-    _is_rowsets_overlapping = _rowsets_overlapping(read_params);
+    _is_rowsets_overlapping = _rowsets_mono_asc_disjoint(read_params);
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
+    RuntimeState* runtime_state = read_params.runtime_state;
 
     for (int i = 0; i < read_params.rs_splits.size(); ++i) {
+        if (runtime_state != nullptr && runtime_state->is_cancelled()) {
+            return runtime_state->cancel_reason();
+        }
+
         auto& rs_split = read_params.rs_splits[i];
 
         // _vcollect_iter.topn_next() will init rs_reader by itself
@@ -179,8 +162,8 @@ Status BlockReader::_init_agg_state(const ReaderParams& read_params) {
     for (auto idx : _agg_columns_idx) {
         auto column = tablet_schema.column(
                 read_params.origin_return_columns->at(_return_columns_loc[idx]));
-        AggregateFunctionPtr function =
-                column.get_aggregate_function(vectorized::AGG_READER_SUFFIX);
+        AggregateFunctionPtr function = column.get_aggregate_function(
+                vectorized::AGG_READER_SUFFIX, read_params.get_be_exec_version());
 
         // to avoid coredump when something goes wrong(i.e. column missmatch)
         if (!function) {

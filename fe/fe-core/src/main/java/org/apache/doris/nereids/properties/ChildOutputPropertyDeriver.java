@@ -505,12 +505,15 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
 
         switch (hashJoin.getJoinType()) {
             case INNER_JOIN:
+            case CROSS_JOIN:
                 if (shuffleSide == ShuffleSide.LEFT) {
-                    return new PhysicalProperties(DistributionSpecHash.merge(
-                            rightHashSpec, leftHashSpec, outputShuffleType));
+                    return new PhysicalProperties(
+                            DistributionSpecHash.merge(rightHashSpec, leftHashSpec, outputShuffleType)
+                    );
                 } else {
-                    return new PhysicalProperties(DistributionSpecHash.merge(
-                            leftHashSpec, rightHashSpec, outputShuffleType));
+                    return new PhysicalProperties(
+                            DistributionSpecHash.merge(leftHashSpec, rightHashSpec, outputShuffleType)
+                    );
                 }
             case LEFT_SEMI_JOIN:
             case LEFT_ANTI_JOIN:
@@ -526,12 +529,13 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
-                if (shuffleSide == ShuffleSide.RIGHT) {
-                    return new PhysicalProperties(
-                            rightHashSpec.withShuffleTypeAndForbidColocateJoin(outputShuffleType)
-                    );
-                } else {
+                if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts())) {
                     return new PhysicalProperties(rightHashSpec);
+                } else {
+                    // retain left shuffle type, since coordinator use left most node to schedule fragment
+                    // forbid colocate join, since right table already shuffle
+                    return new PhysicalProperties(rightHashSpec.withShuffleTypeAndForbidColocateJoin(
+                            leftHashSpec.getShuffleType()));
                 }
             case FULL_OUTER_JOIN:
                 return PhysicalProperties.createAnyFromHash(leftHashSpec, rightHashSpec);
@@ -562,6 +566,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                         return ShuffleSide.NONE;
                     case STORAGE_BUCKETED:
                         // use storage hash to shuffle right to left to do bucket shuffle join
+                        return ShuffleSide.RIGHT;
+                    case EXECUTION_BUCKETED:
+                        // compatible old ut
                         return ShuffleSide.RIGHT;
                     default:
                 }

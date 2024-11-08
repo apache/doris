@@ -35,6 +35,8 @@ import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.SwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.THiveLocationParams;
 import org.apache.doris.thrift.THivePartitionUpdate;
 import org.apache.doris.thrift.TS3MPUPendingUpload;
 import org.apache.doris.thrift.TUpdateMode;
@@ -63,6 +65,7 @@ import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -87,6 +90,8 @@ public class HMSTransaction implements Transaction {
     private final FileSystem fs;
     private Optional<SummaryProfile> summaryProfile = Optional.empty();
     private String queryId;
+    private boolean isOverwrite = false;
+    TFileType fileType;
 
     private final Map<SimpleTableInfo, Action<TableAndMore>> tableActions = new HashMap<>();
     private final Map<SimpleTableInfo, Map<List<String>, Action<PartitionAndMore>>>
@@ -96,7 +101,8 @@ public class HMSTransaction implements Transaction {
     private final Executor fileSystemExecutor;
     private HmsCommitter hmsCommitter;
     private List<THivePartitionUpdate> hivePartitionUpdates = Lists.newArrayList();
-    private String declaredIntentionsToWrite;
+    private Optional<String> stagingDirectory;
+    private boolean isMockedPartitionUpdate = false;
 
     private static class UncompletedMpuPendingUpload {
 
@@ -178,11 +184,46 @@ public class HMSTransaction implements Transaction {
     }
 
     public void beginInsertTable(HiveInsertCommandContext ctx) {
-        declaredIntentionsToWrite = ctx.getWritePath();
         queryId = ctx.getQueryId();
+        isOverwrite = ctx.isOverwrite();
+        fileType = ctx.getFileType();
+        if (fileType == TFileType.FILE_S3) {
+            stagingDirectory = Optional.empty();
+        } else {
+            stagingDirectory = Optional.of(ctx.getWritePath());
+        }
     }
 
     public void finishInsertTable(SimpleTableInfo tableInfo) {
+        Table table = getTable(tableInfo);
+        if (hivePartitionUpdates.isEmpty() && isOverwrite && table.getPartitionKeysSize() == 0) {
+            // use an empty hivePartitionUpdate to clean source table
+            isMockedPartitionUpdate = true;
+            THivePartitionUpdate emptyUpdate = new THivePartitionUpdate() {{
+                    setUpdateMode(TUpdateMode.OVERWRITE);
+                    setFileSize(0);
+                    setRowCount(0);
+                    setFileNames(Collections.emptyList());
+                    if (fileType == TFileType.FILE_S3) {
+                        setS3MpuPendingUploads(Lists.newArrayList(new TS3MPUPendingUpload()));
+                        setLocation(new THiveLocationParams() {{
+                                setWritePath(table.getSd().getLocation());
+                            }
+                        });
+                    } else {
+                        stagingDirectory.ifPresent((v) -> {
+                            fs.makeDir(v);
+                            setLocation(new THiveLocationParams() {{
+                                    setWritePath(v);
+                                }
+                            });
+                        });
+                    }
+                }
+            };
+            hivePartitionUpdates = Lists.newArrayList(emptyUpdate);
+        }
+
         List<THivePartitionUpdate> mergedPUs = mergePartitions(hivePartitionUpdates);
         for (THivePartitionUpdate pu : mergedPUs) {
             if (pu.getS3MpuPendingUploads() != null) {
@@ -192,7 +233,6 @@ public class HMSTransaction implements Transaction {
                 }
             }
         }
-        Table table = getTable(tableInfo);
         List<Pair<THivePartitionUpdate, HivePartitionStatistics>> insertExistsPartitions = new ArrayList<>();
         for (THivePartitionUpdate pu : mergedPUs) {
             TUpdateMode updateMode = pu.getUpdateMode();
@@ -609,15 +649,23 @@ public class HMSTransaction implements Transaction {
         if (!deleteResult.getNotDeletedEligibleItems().isEmpty()) {
             LOG.warn("Failed to delete directory {}. Some eligible items can't be deleted: {}.",
                     directory.toString(), deleteResult.getNotDeletedEligibleItems());
+            throw new RuntimeException(
+                "Failed to delete directory for files: " + deleteResult.getNotDeletedEligibleItems());
         } else if (deleteEmptyDir && !deleteResult.dirNotExists()) {
             LOG.warn("Failed to delete directory {} due to dir isn't empty", directory.toString());
+            throw new RuntimeException("Failed to delete directory for empty dir: " + directory.toString());
         }
     }
 
     private DeleteRecursivelyResult recursiveDeleteFiles(Path directory, boolean deleteEmptyDir, boolean reverse) {
         try {
-            if (!fs.directoryExists(directory.toString()).ok()) {
+            Status status = fs.directoryExists(directory.toString());
+            if (status.getErrCode().equals(Status.ErrCode.NOT_FOUND)) {
                 return new DeleteRecursivelyResult(true, ImmutableList.of());
+            } else if (!status.ok()) {
+                ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
+                notDeletedEligibleItems.add(directory.toString() + "/*");
+                return new DeleteRecursivelyResult(false, notDeletedEligibleItems.build());
             }
         } catch (Exception e) {
             ImmutableList.Builder<String> notDeletedEligibleItems = ImmutableList.builder();
@@ -1413,7 +1461,7 @@ public class HMSTransaction implements Transaction {
         }
 
         private void pruneAndDeleteStagingDirectories() {
-            recursiveDeleteItems(new Path(declaredIntentionsToWrite), true, false);
+            stagingDirectory.ifPresent((v) -> recursiveDeleteItems(new Path(v), true, false));
         }
 
         private void abortMultiUploads() {
@@ -1450,6 +1498,8 @@ public class HMSTransaction implements Transaction {
             runS3cleanWhenSuccess();
             doAddPartitionsTask();
             doUpdateStatisticsTasks();
+            //delete write path
+            pruneAndDeleteStagingDirectories();
             doNothing();
         }
 
@@ -1556,6 +1606,12 @@ public class HMSTransaction implements Transaction {
 
     private void s3Commit(Executor fileSystemExecutor, List<CompletableFuture<?>> asyncFileSystemTaskFutures,
             AtomicBoolean fileSystemTaskCancelled, THivePartitionUpdate hivePartitionUpdate, String path) {
+
+        List<TS3MPUPendingUpload> s3MpuPendingUploads = hivePartitionUpdate.getS3MpuPendingUploads();
+        if (isMockedPartitionUpdate) {
+            return;
+        }
+
         S3FileSystem s3FileSystem = (S3FileSystem) ((SwitchingFileSystem) fs).fileSystem(path);
         S3Client s3Client;
         try {
@@ -1564,7 +1620,7 @@ public class HMSTransaction implements Transaction {
             throw new RuntimeException(e);
         }
 
-        for (TS3MPUPendingUpload s3MPUPendingUpload : hivePartitionUpdate.getS3MpuPendingUploads()) {
+        for (TS3MPUPendingUpload s3MPUPendingUpload : s3MpuPendingUploads) {
             asyncFileSystemTaskFutures.add(CompletableFuture.runAsync(() -> {
                 if (fileSystemTaskCancelled.get()) {
                     return;

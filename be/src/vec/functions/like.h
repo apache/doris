@@ -157,7 +157,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) const override;
+                        uint32_t result, size_t /*input_rows_count*/) const override;
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
@@ -255,6 +255,10 @@ public:
     String get_name() const override { return name; }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
+
+    static Status construct_like_const_state(FunctionContext* ctx, const StringRef& pattern,
+                                             std::shared_ptr<LikeState>& state,
+                                             bool try_hyperscan = true);
 
     friend struct LikeSearchState;
     friend struct VectorAllpassSearchState;

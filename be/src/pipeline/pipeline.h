@@ -25,12 +25,13 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "pipeline/exec/operator.h"
 #include "util/runtime_profile.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 class PipelineFragmentContext;
 class Pipeline;
 
@@ -43,25 +44,27 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
     friend class PipelineFragmentContext;
 
 public:
-    explicit Pipeline(PipelineId pipeline_id, int num_tasks,
-                      std::weak_ptr<PipelineFragmentContext> context)
-            : _pipeline_id(pipeline_id), _num_tasks(num_tasks) {
+    explicit Pipeline(PipelineId pipeline_id, int num_tasks, int num_tasks_of_parent)
+            : _pipeline_id(pipeline_id),
+              _num_tasks(num_tasks),
+              _num_tasks_of_parent(num_tasks_of_parent) {
         _init_profile();
+        _tasks.resize(_num_tasks, nullptr);
     }
 
     // Add operators for pipelineX
-    Status add_operator(OperatorXPtr& op);
+    Status add_operator(OperatorPtr& op, const int parallelism);
     // prepare operators for pipelineX
     Status prepare(RuntimeState* state);
 
-    Status set_sink(DataSinkOperatorXPtr& sink_operator);
+    Status set_sink(DataSinkOperatorPtr& sink_operator);
 
-    DataSinkOperatorXBase* sink_x() { return _sink_x.get(); }
-    OperatorXs& operator_xs() { return operatorXs; }
-    DataSinkOperatorXPtr sink_shared_pointer() { return _sink_x; }
+    DataSinkOperatorXBase* sink() { return _sink.get(); }
+    Operators& operators() { return _operators; }
+    DataSinkOperatorPtr sink_shared_pointer() { return _sink; }
 
     [[nodiscard]] const RowDescriptor& output_row_desc() const {
-        return operatorXs.back()->row_desc();
+        return _operators.back()->row_desc();
     }
 
     [[nodiscard]] PipelineId id() const { return _pipeline_id; }
@@ -70,30 +73,10 @@ public:
         return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
     }
 
-    bool need_to_local_exchange(const DataDistribution target_data_distribution) const {
-        if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
-            target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {
-            return true;
-        } else if (operatorXs.front()->ignore_data_hash_distribution()) {
-            if (_data_distribution.distribution_type ==
-                        target_data_distribution.distribution_type &&
-                (_data_distribution.partition_exprs.empty() ||
-                 target_data_distribution.partition_exprs.empty())) {
-                return true;
-            }
-            return _data_distribution.distribution_type !=
-                           target_data_distribution.distribution_type &&
-                   !(is_hash_exchange(_data_distribution.distribution_type) &&
-                     is_hash_exchange(target_data_distribution.distribution_type));
-        } else {
-            return _data_distribution.distribution_type !=
-                           target_data_distribution.distribution_type &&
-                   !(is_hash_exchange(_data_distribution.distribution_type) &&
-                     is_hash_exchange(target_data_distribution.distribution_type));
-        }
-    }
+    bool need_to_local_exchange(const DataDistribution target_data_distribution,
+                                const int idx) const;
     void init_data_distribution() {
-        set_data_distribution(operatorXs.front()->required_data_distribution());
+        set_data_distribution(_operators.front()->required_data_distribution());
     }
     void set_data_distribution(const DataDistribution& data_distribution) {
         _data_distribution = data_distribution;
@@ -102,29 +85,51 @@ public:
 
     std::vector<std::shared_ptr<Pipeline>>& children() { return _children; }
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
-    void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
+    void set_children(std::vector<std::shared_ptr<Pipeline>> children) {
+        _children = std::move(children);
+    }
 
-    void incr_created_tasks() { _num_tasks_created++; }
-    bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
+    void incr_created_tasks(int i, PipelineTask* task) {
+        _num_tasks_created++;
+        _num_tasks_running++;
+        DCHECK_LT(i, _tasks.size());
+        _tasks[i] = task;
+    }
+
+    void make_all_runnable();
+
     void set_num_tasks(int num_tasks) {
         _num_tasks = num_tasks;
-        for (auto& op : operatorXs) {
+        _tasks.resize(_num_tasks, nullptr);
+        for (auto& op : _operators) {
             op->set_parallel_tasks(_num_tasks);
         }
+
+#ifndef NDEBUG
+        if (num_tasks > 1 &&
+            std::any_of(_operators.begin(), _operators.end(),
+                        [&](OperatorPtr op) -> bool { return op->is_serial_operator(); })) {
+            DCHECK(false) << debug_string();
+        }
+#endif
     }
     int num_tasks() const { return _num_tasks; }
+    bool close_task() { return _num_tasks_running.fetch_sub(1) == 1; }
 
-    std::string debug_string() {
+    std::string debug_string() const {
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(debug_string_buffer,
                        "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}]", _pipeline_id,
                        _num_tasks, _num_tasks_created);
-        for (size_t i = 0; i < operatorXs.size(); i++) {
-            fmt::format_to(debug_string_buffer, "\n{}", operatorXs[i]->debug_string(i));
+        for (int i = 0; i < _operators.size(); i++) {
+            fmt::format_to(debug_string_buffer, "\n{}", _operators[i]->debug_string(i));
         }
-        fmt::format_to(debug_string_buffer, "\n{}", _sink_x->debug_string(operatorXs.size()));
+        fmt::format_to(debug_string_buffer, "\n{}",
+                       _sink->debug_string(cast_set<int>(_operators.size())));
         return fmt::to_string(debug_string_buffer);
     }
+
+    int num_tasks_of_parent() const { return _num_tasks_of_parent; }
 
 private:
     void _init_profile();
@@ -146,12 +151,10 @@ private:
 
     // Operators for pipelineX. All pipeline tasks share operators from this.
     // [SourceOperator -> ... -> SinkOperator]
-    OperatorXs operatorXs;
-    DataSinkOperatorXPtr _sink_x = nullptr;
+    Operators _operators;
+    DataSinkOperatorPtr _sink = nullptr;
 
     std::shared_ptr<ObjectPool> _obj_pool;
-
-    Operators _operators;
 
     // Input data distribution of this pipeline. We do local exchange when input data distribution
     // does not match the target data distribution.
@@ -160,7 +163,13 @@ private:
     // How many tasks should be created ?
     int _num_tasks = 1;
     // How many tasks are already created?
-    int _num_tasks_created = 0;
+    std::atomic<int> _num_tasks_created = 0;
+    // How many tasks are already created and not finished?
+    std::atomic<int> _num_tasks_running = 0;
+    // Tasks in this pipeline.
+    std::vector<PipelineTask*> _tasks;
+    // Parallelism of parent pipeline.
+    const int _num_tasks_of_parent;
 };
-
+#include "common/compile_check_end.h"
 } // namespace doris::pipeline

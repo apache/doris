@@ -204,7 +204,8 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
         // 2. if there is a PREPARE transaction, check if this is a retry request.
         // 3. if there is a non-aborted transaction, throw label already used exception.
 
-        for (auto& cur_txn_id : label_pb.txn_ids()) {
+        for (auto it = label_pb.txn_ids().rbegin(); it != label_pb.txn_ids().rend(); ++it) {
+            int64_t cur_txn_id = *it;
             const std::string cur_info_key = txn_info_key({instance_id, db_id, cur_txn_id});
             std::string cur_info_val;
             err = txn->get(cur_info_key, &cur_info_val);
@@ -235,8 +236,19 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
             }
 
             VLOG_DEBUG << "cur_txn_info=" << cur_txn_info.ShortDebugString();
+            LOG(INFO) << " size=" << label_pb.txn_ids().size()
+                      << " status=" << cur_txn_info.status() << " txn_id=" << txn_id
+                      << " label=" << label;
             if (cur_txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
-                continue;
+                if (label_pb.txn_ids().size() >= config::max_num_aborted_txn) {
+                    code = MetaServiceCode::INVALID_ARGUMENT;
+                    ss << "too many aborted txn for label=" << label << " txn_id=" << txn_id
+                       << ", please check your data quality";
+                    msg = ss.str();
+                    LOG(WARNING) << msg << " label_pb=" << label_pb.ShortDebugString();
+                    return;
+                }
+                break;
             }
 
             if (cur_txn_info.status() == TxnStatusPB::TXN_STATUS_PREPARED ||
@@ -254,9 +266,11 @@ void MetaServiceImpl::begin_txn(::google::protobuf::RpcController* controller,
                 }
                 // clang-format on
             }
+            response->set_txn_status(cur_txn_info.status());
             code = MetaServiceCode::TXN_LABEL_ALREADY_USED;
             ss << "Label [" << label << "] has already been used, relate to txn ["
-               << cur_txn_info.txn_id() << "]";
+               << cur_txn_info.txn_id() << "], status=[" << TxnStatusPB_Name(cur_txn_info.status())
+               << "]";
             msg = ss.str();
             return;
         }
@@ -479,8 +493,8 @@ void MetaServiceImpl::precommit_txn(::google::protobuf::RpcController* controlle
         return;
     }
 
-    LOG(INFO) << "xxx put running_key=" << hex(running_key) << " txn_id=" << txn_id;
     txn->put(running_key, running_val);
+    LOG(INFO) << "xxx put running_key=" << hex(running_key) << " txn_id=" << txn_id;
 
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
@@ -569,8 +583,6 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
         new_statistic_info->set_task_execution_time_ms(commit_attachment.task_execution_time_ms());
     }
 
-    LOG(INFO) << "routine load new progress: " << new_progress_info.ShortDebugString();
-
     if (!new_progress_info.SerializeToString(&new_progress_val)) {
         code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
         ss << "failed to serialize new progress val, txn_id=" << txn_id;
@@ -579,6 +591,8 @@ void put_routine_load_progress(MetaServiceCode& code, std::string& msg,
     }
 
     txn->put(rl_progress_key, new_progress_val);
+    LOG(INFO) << "put rl_progress_key key=" << hex(rl_progress_key)
+              << " routine load new progress: " << new_progress_info.ShortDebugString();
 }
 
 void MetaServiceImpl::get_rl_task_commit_attach(::google::protobuf::RpcController* controller,
@@ -689,6 +703,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
 
     if (request->partition_to_offset().size() == 0) {
         txn->remove(rl_progress_key);
+        LOG(INFO) << "remove rl_progress_key key=" << hex(rl_progress_key);
     }
 
     if (request->partition_to_offset().size() > 0) {
@@ -738,6 +753,7 @@ void MetaServiceImpl::reset_rl_progress(::google::protobuf::RpcController* contr
             return;
         }
         txn->put(rl_progress_key, new_progress_val);
+        LOG(INFO) << "put rl_progress_key key=" << hex(rl_progress_key);
     }
 
     err = txn->commit();
@@ -892,6 +908,7 @@ void update_tablet_stats(const StatsTabletKeyInfo& info, const TabletStats& stat
         stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
         stats_pb.SerializeToString(&val);
         txn->put(key, val);
+        LOG(INFO) << "put stats_tablet_key key=" << hex(key);
     }
 }
 
@@ -913,13 +930,15 @@ void commit_txn_immediately(
         const CommitTxnRequest* request, CommitTxnResponse* response,
         std::shared_ptr<TxnKv>& txn_kv, std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer,
         MetaServiceCode& code, std::string& msg, const std::string& instance_id, int64_t db_id,
-        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta) {
+        std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta,
+        TxnErrorCode& err) {
     std::stringstream ss;
     int64_t txn_id = request->txn_id();
     do {
+        TEST_SYNC_POINT_CALLBACK("commit_txn_immediately:begin", &txn_id);
         int64_t last_pending_txn_id = 0;
         std::unique_ptr<Transaction> txn;
-        TxnErrorCode err = txn_kv->create_txn(&txn);
+        err = txn_kv->create_txn(&txn);
         if (err != TxnErrorCode::TXN_OK) {
             code = cast_as<ErrCategory::CREATE>(err);
             ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
@@ -1096,13 +1115,15 @@ void commit_txn_immediately(
 
         if (last_pending_txn_id > 0) {
             txn.reset();
+            TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::advance_last_pending_txn_id",
+                                     &last_pending_txn_id);
             std::shared_ptr<TxnLazyCommitTask> task =
                     txn_lazy_committer->submit(instance_id, last_pending_txn_id);
 
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
-                             << " code=" << code << "msg=" << msg;
+                             << " code=" << code << " msg=" << msg;
                 return;
             }
             last_pending_txn_id = 0;
@@ -1146,7 +1167,7 @@ void commit_txn_immediately(
 
             // Accumulate affected rows
             auto& stats = tablet_stats[tablet_id];
-            stats.data_size += i.data_disk_size();
+            stats.data_size += i.total_disk_size();
             stats.num_rows += i.num_rows();
             ++stats.num_rowsets;
             stats.num_segs += i.num_segments();
@@ -1342,6 +1363,7 @@ void commit_txn_immediately(
                   << " num_del_keys=" << txn->num_del_keys()
                   << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
 
+        TEST_SYNC_POINT_RETURN_WITH_VOID("commit_txn_immediately::before_commit", &err, &code);
         // Finally we are done...
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -1367,6 +1389,7 @@ void commit_txn_immediately(
                        << " updated_row_count=" << stats_pb->updated_row_count();
         }
         response->mutable_txn_info()->CopyFrom(txn_info);
+        TEST_SYNC_POINT_CALLBACK("commit_txn_immediately::finish", &code);
         break;
     } while (true);
 } // end commit_txn_immediately
@@ -1514,6 +1537,7 @@ void repair_tablet_index(
             return;
         }
     }
+    code = MetaServiceCode::OK;
 }
 
 void commit_txn_eventually(
@@ -1521,11 +1545,19 @@ void commit_txn_eventually(
         std::shared_ptr<TxnKv>& txn_kv, std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer,
         MetaServiceCode& code, std::string& msg, const std::string& instance_id, int64_t db_id,
         const std::vector<std::pair<std::string, doris::RowsetMetaCloudPB>>& tmp_rowsets_meta) {
+    StopWatch sw;
+    std::unique_ptr<int, std::function<void(int*)>> defer_status((int*)0x01, [&](int*) {
+        if (config::use_detailed_metrics && !instance_id.empty()) {
+            g_bvar_ms_commit_txn_eventually.put(instance_id, sw.elapsed_us());
+        }
+    });
+
     std::stringstream ss;
     TxnErrorCode err = TxnErrorCode::TXN_OK;
     int64_t txn_id = request->txn_id();
 
     do {
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually:begin", &txn_id);
         int64_t last_pending_txn_id = 0;
         std::unique_ptr<Transaction> txn;
         err = txn_kv->create_txn(&txn);
@@ -1549,6 +1581,8 @@ void commit_txn_eventually(
             return;
         }
 
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::need_repair_tablet_idx",
+                                 &need_repair_tablet_idx);
         if (need_repair_tablet_idx) {
             txn.reset();
             repair_tablet_index(txn_kv, code, msg, instance_id, db_id, txn_id, tmp_rowsets_meta);
@@ -1608,8 +1642,12 @@ void commit_txn_eventually(
             new_versions[version_keys[i]] = version;
             last_pending_txn_id = 0;
         }
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::last_pending_txn_id",
+                                 &last_pending_txn_id);
 
         if (last_pending_txn_id > 0) {
+            TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::advance_last_pending_txn_id",
+                                     &last_pending_txn_id);
             txn.reset();
             std::shared_ptr<TxnLazyCommitTask> task =
                     txn_lazy_committer->submit(instance_id, last_pending_txn_id);
@@ -1617,7 +1655,7 @@ void commit_txn_eventually(
             std::tie(code, msg) = task->wait();
             if (code != MetaServiceCode::OK) {
                 LOG(WARNING) << "advance_last_txn failed last_txn=" << last_pending_txn_id
-                             << " code=" << code << "msg=" << msg;
+                             << " code=" << code << " msg=" << msg;
                 return;
             }
 
@@ -1836,10 +1874,10 @@ void commit_txn_eventually(
                       << " txn_id=" << txn_id;
         }
 
-        LOG(INFO) << "commit_txn_eventually put_size=" << txn->put_bytes()
-                  << " del_size=" << txn->delete_bytes() << " num_put_keys=" << txn->num_put_keys()
-                  << " num_del_keys=" << txn->num_del_keys()
-                  << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
+        VLOG_DEBUG << "put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
+                   << " num_put_keys=" << txn->num_put_keys()
+                   << " num_del_keys=" << txn->num_del_keys()
+                   << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
 
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
@@ -1849,11 +1887,14 @@ void commit_txn_eventually(
             return;
         }
 
+        TEST_SYNC_POINT_RETURN_WITH_VOID("commit_txn_eventually::txn_lazy_committer_submit",
+                                         &txn_id);
         std::shared_ptr<TxnLazyCommitTask> task = txn_lazy_committer->submit(instance_id, txn_id);
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::txn_lazy_committer_wait", &txn_id);
         std::pair<MetaServiceCode, std::string> ret = task->wait();
         if (ret.first != MetaServiceCode::OK) {
             LOG(WARNING) << "txn lazy commit failed txn_id=" << txn_id << " code=" << ret.first
-                         << "msg=" << ret.second;
+                         << " msg=" << ret.second;
         }
 
         std::unordered_map<int64_t, TabletStats> tablet_stats; // tablet_id -> stats
@@ -1885,6 +1926,7 @@ void commit_txn_eventually(
         // txn set visible for fe callback
         txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
         response->mutable_txn_info()->CopyFrom(txn_info);
+        TEST_SYNC_POINT_CALLBACK("commit_txn_eventually::finish", &code, &txn_id);
         break;
     } while (true);
 }
@@ -2370,6 +2412,7 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
             stats_pb.set_num_segments(stats_pb.num_segments() + stats.num_segs);
             stats_pb.SerializeToString(&val);
             txn->put(key, val);
+            LOG(INFO) << "put stats_tablet_key, key=" << hex(key);
         };
     }
     for (auto& [tablet_id, stats] : tablet_stats) {
@@ -2405,8 +2448,9 @@ void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse*
         return;
     }
     txn->put(recycle_key, recycle_val);
+    LOG(INFO) << "xxx commit_txn put recycle_txn_key key=" << hex(recycle_key)
+              << " txn_id=" << txn_id;
 
-    LOG(INFO) << "xxx commit_txn put recycle_key key=" << hex(recycle_key) << " txn_id=" << txn_id;
     LOG(INFO) << "commit_txn put_size=" << txn->put_bytes() << " del_size=" << txn->delete_bytes()
               << " num_put_keys=" << txn->num_put_keys() << " num_del_keys=" << txn->num_del_keys()
               << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
@@ -2512,18 +2556,31 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
         return;
     }
 
-    if (request->has_is_2pc() && !request->is_2pc() && request->has_enable_txn_lazy_commit() &&
-        request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit &&
-        (tmp_rowsets_meta.size() >= config::txn_lazy_commit_rowsets_thresold)) {
-        LOG(INFO) << "txn_id=" << txn_id << " commit_txn_eventually"
-                  << " size=" << tmp_rowsets_meta.size();
-        commit_txn_eventually(request, response, txn_kv_, txn_lazy_committer_, code, msg,
-                              instance_id, db_id, tmp_rowsets_meta);
-        return;
+    TxnErrorCode err = TxnErrorCode::TXN_OK;
+    bool allow_txn_lazy_commit =
+            (request->has_is_2pc() && !request->is_2pc() && request->has_enable_txn_lazy_commit() &&
+             request->enable_txn_lazy_commit() && config::enable_cloud_txn_lazy_commit);
+
+    if (!allow_txn_lazy_commit ||
+        (tmp_rowsets_meta.size() <= config::txn_lazy_commit_rowsets_thresold)) {
+        commit_txn_immediately(request, response, txn_kv_, txn_lazy_committer_, code, msg,
+                               instance_id, db_id, tmp_rowsets_meta, err);
+        if ((MetaServiceCode::OK == code) || (TxnErrorCode::TXN_BYTES_TOO_LARGE != err) ||
+            !allow_txn_lazy_commit) {
+            return;
+        }
+        DCHECK(code != MetaServiceCode::OK);
+        DCHECK(allow_txn_lazy_commit);
+        DCHECK(err == TxnErrorCode::TXN_BYTES_TOO_LARGE);
+        LOG(INFO) << "txn_id=" << txn_id << " fallthrough commit_txn_eventually";
     }
 
-    commit_txn_immediately(request, response, txn_kv_, txn_lazy_committer_, code, msg, instance_id,
-                           db_id, tmp_rowsets_meta);
+    LOG(INFO) << "txn_id=" << txn_id << " commit_txn_eventually"
+              << " tmp_rowsets_meta.size=" << tmp_rowsets_meta.size();
+    code = MetaServiceCode::OK;
+    msg.clear();
+    commit_txn_eventually(request, response, txn_kv_, txn_lazy_committer_, code, msg, instance_id,
+                          db_id, tmp_rowsets_meta);
 }
 
 static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* request,
@@ -2541,7 +2598,7 @@ static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* re
     //1. abort txn by txn id
     //2. abort txn by label and db_id
     if (txn_id > 0) {
-        VLOG_DEBUG << "abort_txn by txn_id";
+        VLOG_DEBUG << "abort_txn by txn_id, txn_id=" << txn_id;
         //abort txn by txn id
         // Get db id with txn id
 
@@ -2610,7 +2667,7 @@ static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* re
             return;
         }
     } else {
-        VLOG_DEBUG << "abort_txn by db_id and txn label";
+        VLOG_DEBUG << "abort_txn db_id and label, db_id=" << db_id << " label=" << label;
         //abort txn by label.
         std::string label_key = txn_label_key({instance_id, db_id, label});
         std::string label_val;
@@ -2726,7 +2783,7 @@ static void _abort_txn(const std::string& instance_id, const AbortTxnRequest* re
         return;
     }
     txn->put(recycle_key, recycle_val);
-    LOG(INFO) << "xxx put recycle_key=" << hex(recycle_key)
+    LOG(INFO) << "put recycle_txn_key=" << hex(recycle_key)
               << " txn_id=" << return_txn_info.txn_id();
 }
 

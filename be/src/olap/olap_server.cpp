@@ -78,6 +78,7 @@
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "util/countdown_latch.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/thread.h"
@@ -1036,6 +1037,12 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                         : _base_compaction_thread_pool;
         auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
                                             compaction_type, permits, force, this]() {
+            if (!tablet->can_do_compaction(tablet->data_dir()->path_hash(), compaction_type)) {
+                LOG(INFO) << "Tablet state has been changed, no need to begin this compaction "
+                             "task, tablet_id="
+                          << tablet->tablet_id() << "tablet_state=" << tablet->tablet_state();
+                return;
+            }
             tablet->compaction_stage = CompactionStage::EXECUTING;
             TEST_SYNC_POINT_RETURN_WITH_VOID("olap_server::execute_compaction");
             tablet->execute_compaction(*compaction);
@@ -1128,6 +1135,8 @@ Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWo
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
     auto tablet_id = request.tablet_id;
     TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
+    DBUG_EXECUTE_IF("StorageEngine::process_index_change_task_tablet_nullptr",
+                    { tablet = nullptr; })
     if (tablet == nullptr) {
         LOG(WARNING) << "tablet: " << tablet_id << " not exist";
         return Status::InternalError("tablet not exist, tablet_id={}.", tablet_id);

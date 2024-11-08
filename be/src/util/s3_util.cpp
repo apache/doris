@@ -370,7 +370,8 @@ Status S3ClientFactory::convert_properties_to_s3_conf(
         }
     }
     if (auto it = properties.find(S3_PROVIDER); it != properties.end()) {
-        if (0 == strcmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
+        // S3 Provider properties should be case insensitive.
+        if (0 == strcasecmp(it->second.c_str(), AZURE_PROVIDER_STRING)) {
             s3_conf->client_conf.provider = io::ObjStorageType::AZURE;
         }
     }
@@ -400,15 +401,15 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     S3Conf ret {
             .bucket = info.bucket(),
             .prefix = info.prefix(),
-            .client_conf {
-                    .endpoint = info.endpoint(),
-                    .region = info.region(),
-                    .ak = info.ak(),
-                    .sk = info.sk(),
-                    .token {},
-                    .bucket = info.bucket(),
-                    .provider = io::ObjStorageType::AWS,
-            },
+            .client_conf {.endpoint = info.endpoint(),
+                          .region = info.region(),
+                          .ak = info.ak(),
+                          .sk = info.sk(),
+                          .token {},
+                          .bucket = info.bucket(),
+                          .provider = io::ObjStorageType::AWS,
+                          .use_virtual_addressing =
+                                  info.has_use_path_style() ? !info.use_path_style() : true},
             .sse_enabled = info.sse_enabled(),
     };
 

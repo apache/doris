@@ -294,11 +294,15 @@ public:
     // create root with type and column if missing
     void create_root(const DataTypePtr& type, MutableColumnPtr&& column);
 
+    DataTypePtr get_most_common_type() const;
+
     // root is null or type nothing
     bool is_null_root() const;
 
     // Only single scalar root column
     bool is_scalar_variant() const;
+
+    bool is_exclusive() const override;
 
     ColumnPtr get_root() const { return subcolumns.get_root()->data.get_finalized_column_ptr(); }
 

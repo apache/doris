@@ -596,6 +596,7 @@ public enum PrimitiveType {
         // ipv4
         builder.put(IPV4, VARCHAR);
         builder.put(IPV4, STRING);
+        builder.put(IPV4, IPV6);
 
         // ipv6
         builder.put(IPV6, VARCHAR);

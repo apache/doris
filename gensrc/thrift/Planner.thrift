@@ -23,6 +23,7 @@ include "Exprs.thrift"
 include "DataSinks.thrift"
 include "PlanNodes.thrift"
 include "Partitions.thrift"
+include "QueryCache.thrift"
 
 // TPlanFragment encapsulates info needed to execute a particular
 // plan fragment, including how to produce and how to partition its output.
@@ -61,6 +62,8 @@ struct TPlanFragment {
   // sink) in a single instance of this fragment. This is used for an optimization in
   // InitialReservation. Measured in bytes. required in V1
   8: optional i64 initial_reservation_total_claims
+
+  9: optional QueryCache.TQueryCacheParam query_cache_param
 }
 
 // location information for a single scan range

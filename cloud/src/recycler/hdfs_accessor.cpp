@@ -354,8 +354,27 @@ int HdfsAccessor::init() {
 }
 
 int HdfsAccessor::delete_prefix(const std::string& path_prefix, int64_t expiration_time) {
-    LOG_INFO("delete prefix").tag("uri", to_uri(path_prefix)); // Audit log
-    return 0;
+    auto uri = to_uri(path_prefix);
+    LOG(INFO) << "delete prefix, uri=" << uri;
+    std::unique_ptr<ListIterator> list_iter;
+    int ret = list_all(&list_iter);
+    if (ret != 0) {
+        LOG(WARNING) << "delete prefix, failed to list" << uri;
+        return ret;
+    }
+    size_t num_listed = 0, num_deleted = 0;
+    for (auto file = list_iter->next(); file; file = list_iter->next()) {
+        ++num_listed;
+        if (file->path.find(path_prefix) != 0) continue;
+        if (int del_ret = delete_file(file->path); del_ret != 0) {
+            ret = del_ret;
+            break;
+        }
+        ++num_deleted;
+    }
+    LOG(INFO) << "delete prefix " << (ret != 0 ? "failed" : "succ") << " ret=" << ret
+              << " uri=" << uri << " num_listed=" << num_listed << " num_deleted=" << num_deleted;
+    return ret;
 }
 
 int HdfsAccessor::delete_directory_impl(const std::string& dir_path) {

@@ -30,6 +30,10 @@ public interface DistributedPlanWorker extends Comparable<DistributedPlanWorker>
 
     int port();
 
+    String brpcAddress();
+
+    int brpcPort();
+
     // whether is this worker alive?
     boolean available();
 

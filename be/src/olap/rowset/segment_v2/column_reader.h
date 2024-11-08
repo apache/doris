@@ -47,7 +47,6 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
 #include "vec/columns/subcolumn_tree.h"
-#include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/data_types/data_type.h"
 #include "vec/json/path_in_data.h"
 
@@ -85,6 +84,8 @@ struct ColumnReaderOptions {
     bool verify_checksum = true;
     // for in memory olap table, use DURABLE CachePriority in page cache
     bool kept_in_memory = false;
+
+    int be_exec_version = -1;
 };
 
 struct ColumnIteratorOptions {
@@ -109,7 +110,7 @@ struct ColumnIteratorOptions {
 // we should do our best to reduce resource usage through share
 // same information, such as OrdinalPageIndex and Page data.
 // This will cache data shared by all reader
-class ColumnReader {
+class ColumnReader : public MetadataAdder<ColumnReader> {
 public:
     // Create an initialized ColumnReader in *reader.
     // This should be a lightweight operation without I/O.
@@ -206,7 +207,7 @@ public:
 
 private:
     ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& meta, uint64_t num_rows,
-                 io::FileReaderSPtr file_reader, vectorized::DataTypePtr agg_state_ptr = nullptr);
+                 io::FileReaderSPtr file_reader);
     Status init(const ColumnMetaPB* meta);
 
     // Read column inverted indexes into memory
@@ -242,12 +243,15 @@ private:
 
     Status _calculate_row_ranges(const std::vector<uint32_t>& page_indexes, RowRanges* row_ranges);
 
+    int64_t get_metadata_size() const override;
+
 private:
     int64_t _meta_length;
     FieldType _meta_type;
     FieldType _meta_children_column_type;
     bool _meta_is_nullable;
     bool _use_index_page_cache;
+    int _be_exec_version = -1;
 
     PagePointer _meta_dict_page;
     CompressionTypePB _meta_compression;
@@ -275,8 +279,6 @@ private:
     std::shared_ptr<BloomFilterIndexReader> _bloom_filter_index;
 
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
-
-    vectorized::DataTypePtr _agg_state_ptr;
 
     DorisCallOnce<Status> _set_dict_encoding_type_once;
 };
@@ -653,6 +655,9 @@ public:
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
 
 private:
+    Status _process_root_column(vectorized::MutableColumnPtr& dst,
+                                vectorized::MutableColumnPtr& root_column,
+                                const vectorized::DataTypePtr& most_common_type);
     std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 
@@ -722,7 +727,7 @@ private:
 class DefaultNestedColumnIterator : public ColumnIterator {
 public:
     DefaultNestedColumnIterator(std::unique_ptr<ColumnIterator>&& sibling,
-                                DataTypePtr file_column_type)
+                                vectorized::DataTypePtr file_column_type)
             : _sibling_iter(std::move(sibling)), _file_column_type(std::move(file_column_type)) {}
 
     Status init(const ColumnIteratorOptions& opts) override {
