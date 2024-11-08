@@ -1272,6 +1272,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new LoadCommand(labelName, dataDescriptions.build(), bulkDesc, properties, comment);
     }
 
+    /* ********************************************************************************************
+     * Plan parsing
+     * ******************************************************************************************** */
+
     /**
      * process lateral view, add a {@link org.apache.doris.nereids.trees.plans.logical.LogicalGenerate} on plan.
      */
@@ -1418,6 +1422,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return Qualifier.ALL;
         }
     }
+    private static LogicalPlan logicalPlanCombiner(LogicalPlan left, LogicalPlan right, Qualifier qualifier) {
+        return new LogicalUnion(qualifier, ImmutableList.of(left, right));
+    }
+
+    /**
+     * construct avl union tree
+     */
+    public static LogicalPlan reduceToLogicalPlanTree(int low, int high,
+            List<LogicalPlan> logicalPlans, Qualifier qualifier) {
+        switch (high - low) {
+            case 0:
+                return logicalPlans.get(low);
+            case 1:
+                return logicalPlanCombiner(logicalPlans.get(low), logicalPlans.get(high), qualifier);
+            default:
+                int mid = low + (high - low) / 2;
+                return logicalPlanCombiner(
+                        reduceToLogicalPlanTree(low, mid, logicalPlans, qualifier),
+                        reduceToLogicalPlanTree(mid + 1, high, logicalPlans, qualifier),
+                        qualifier
+                );
+        }
+    }
 
     @Override
     public LogicalPlan visitSubquery(SubqueryContext ctx) {
@@ -1545,6 +1572,15 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return plan;
     }
+
+    public static String stripQuotes(String str) {
+        if ((str.charAt(0) == '\'' && str.charAt(str.length() - 1) == '\'')
+                || (str.charAt(0) == '\"' && str.charAt(str.length() - 1) == '\"')) {
+            str = str.substring(1, str.length() - 1);
+        }
+        return str;
+    }
+
 
     @Override
     public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
