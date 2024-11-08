@@ -103,7 +103,9 @@ std::string get_instance_id(const std::shared_ptr<ResourceManager>& rc_mgr,
 
         // check instance_id valid by get fdb
         if (config::enable_check_instance_id && !rc_mgr->is_instance_id_registered(id)) {
-            LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed";
+            LOG(WARNING) << "use degraded format cloud_unique_id, but check instance failed, "
+                            "cloud_unique_id="
+                         << cloud_unique_id;
             return "";
         }
         return id;
