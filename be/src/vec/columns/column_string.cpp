@@ -22,7 +22,6 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <ostream>
 
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
@@ -134,34 +133,41 @@ void ColumnStr<T>::insert_range_from(const IColumn& src, size_t start, size_t le
     if (length == 0) {
         return;
     }
-
-    const auto& src_concrete = assert_cast<const ColumnStr<T>&>(src);
-
-    if (start + length > src_concrete.offsets.size()) {
-        throw doris::Exception(
-                doris::ErrorCode::INTERNAL_ERROR,
-                "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
-    }
-
-    size_t nested_offset = src_concrete.offset_at(start);
-    size_t nested_length = src_concrete.offsets[start + length - 1] - nested_offset;
-
-    size_t old_chars_size = chars.size();
-    check_chars_length(old_chars_size + nested_length, offsets.size() + length);
-    chars.resize(old_chars_size + nested_length);
-    memcpy(&chars[old_chars_size], &src_concrete.chars[nested_offset], nested_length);
-
-    if (start == 0 && offsets.empty()) {
-        offsets.assign(src_concrete.offsets.begin(), src_concrete.offsets.begin() + length);
-    } else {
-        size_t old_size = offsets.size();
-        size_t prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
-        offsets.resize(old_size + length);
-
-        for (size_t i = 0; i < length; ++i) {
-            offsets[old_size + i] =
-                    src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
+    auto do_insert = [&](const auto& src_concrete) {
+        const auto& src_offsets = src_concrete.get_offsets();
+        const auto& src_chars = src_concrete.get_chars();
+        if (start + length > src_offsets.size()) {
+            throw doris::Exception(
+                    doris::ErrorCode::INTERNAL_ERROR,
+                    "Parameter out of bound in IColumnStr<T>::insert_range_from method.");
         }
+        size_t nested_offset = src_offsets[static_cast<ssize_t>(start) - 1];
+        size_t nested_length = src_offsets[start + length - 1] - nested_offset;
+
+        size_t old_chars_size = chars.size();
+        check_chars_length(old_chars_size + nested_length, offsets.size() + length);
+        chars.resize(old_chars_size + nested_length);
+        memcpy(&chars[old_chars_size], &src_chars[nested_offset], nested_length);
+
+        using OffsetsType = std::decay_t<decltype(src_offsets)>;
+        if (std::is_same_v<T, typename OffsetsType::value_type> && start == 0 && offsets.empty()) {
+            offsets.assign(src_offsets.begin(), src_offsets.begin() + length);
+        } else {
+            size_t old_size = offsets.size();
+            size_t prev_max_offset = offsets.back(); /// -1th index is Ok, see PaddedPODArray
+            offsets.resize(old_size + length);
+
+            for (size_t i = 0; i < length; ++i) {
+                offsets[old_size + i] = src_offsets[start + i] - nested_offset + prev_max_offset;
+            }
+        }
+    };
+    // insert_range_from maybe called by ColumnArray::insert_indices_from(which is used by hash join operator),
+    // so we need to support both ColumnStr<uint32_t> and ColumnStr<uint64_t>
+    if (src.is_column_string64()) {
+        do_insert(assert_cast<const ColumnStr<uint64_t>&>(src));
+    } else {
+        do_insert(assert_cast<const ColumnStr<uint32_t>&>(src));
     }
 }
 
