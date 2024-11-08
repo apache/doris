@@ -158,6 +158,7 @@ public:
 
         // used for compaction to record row ids
         bool record_rowids = false;
+        RowIdConversion* rowid_conversion;
         // flag for enable topn opt
         bool use_topn_opt = false;
         std::vector<int> topn_filter_source_node_ids;
