@@ -571,38 +571,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         this.selectHintMap = selectHintMap;
     }
 
-    private static LogicalPlan logicalPlanCombiner(LogicalPlan left, LogicalPlan right, Qualifier qualifier) {
-        return new LogicalUnion(qualifier, ImmutableList.of(left, right));
-    }
-
-    /**
-     * construct avl union tree
-     */
-    public static LogicalPlan reduceToLogicalPlanTree(int low, int high,
-            List<LogicalPlan> logicalPlans, Qualifier qualifier) {
-        switch (high - low) {
-            case 0:
-                return logicalPlans.get(low);
-            case 1:
-                return logicalPlanCombiner(logicalPlans.get(low), logicalPlans.get(high), qualifier);
-            default:
-                int mid = low + (high - low) / 2;
-                return logicalPlanCombiner(
-                        reduceToLogicalPlanTree(low, mid, logicalPlans, qualifier),
-                        reduceToLogicalPlanTree(mid + 1, high, logicalPlans, qualifier),
-                        qualifier
-                );
-        }
-    }
-
-    public static String stripQuotes(String str) {
-        if ((str.charAt(0) == '\'' && str.charAt(str.length() - 1) == '\'')
-                || (str.charAt(0) == '\"' && str.charAt(str.length() - 1) == '\"')) {
-            str = str.substring(1, str.length() - 1);
-        }
-        return str;
-    }
-
     @SuppressWarnings("unchecked")
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
