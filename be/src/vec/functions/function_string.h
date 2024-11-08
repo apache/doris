@@ -40,6 +40,7 @@
 #include <variant>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/status.h"
@@ -107,11 +108,14 @@
 #include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
-
+#include "common/compile_check_begin.h"
 struct StringOP {
+    // In the functions within StringOP, since push_value_string has already
+    // checked that the size is within range, a direct cast is used here.
+
     static void push_empty_string(size_t index, ColumnString::Chars& chars,
                                   ColumnString::Offsets& offsets) {
-        offsets[index] = chars.size();
+        offsets[index] = (ColumnString::Offset)chars.size();
     }
 
     static void push_null_string(size_t index, ColumnString::Chars& chars,
@@ -125,7 +129,7 @@ struct StringOP {
         ColumnString::check_chars_length(chars.size() + string_value.size(), offsets.size());
 
         chars.insert(string_value.data(), string_value.data() + string_value.size());
-        offsets[index] = chars.size();
+        offsets[index] = (ColumnString::Offset)chars.size();
     }
 
     static void push_value_string_reserved_and_allow_overflow(const std::string_view& string_value,
@@ -134,24 +138,24 @@ struct StringOP {
                                                               ColumnString::Offsets& offsets) {
         chars.insert_assume_reserved_and_allow_overflow(string_value.data(),
                                                         string_value.data() + string_value.size());
-        offsets[index] = chars.size();
+        offsets[index] = (ColumnString::Offset)chars.size();
     }
 
     static void fast_repeat(uint8_t* dst, const uint8_t* src, size_t src_size,
-                            int32_t repeat_times) {
+                            int64_t repeat_times) {
         if (UNLIKELY(repeat_times <= 0)) {
             return;
         }
         uint8_t* dst_begin = dst;
         uint8_t* dst_curr = dst;
-        int32_t k = 0;
-        int32_t is_odd = repeat_times & 1;
+        int64_t k = 0;
+        int64_t is_odd = repeat_times & 1;
         repeat_times >>= 1;
 
         memcpy(dst_curr, src, src_size);
         dst_curr += src_size;
         for (; repeat_times > 0; k += 1, is_odd = repeat_times & 1, repeat_times >>= 1) {
-            int32_t len = src_size * (1 << k);
+            int64_t len = src_size * (1 << k);
             memcpy(dst_curr, dst_begin, len);
             dst_curr += len;
             if (is_odd) {
@@ -260,7 +264,8 @@ private:
                 continue;
             }
             if (fixed_pos < 0) {
-                fixed_pos = index.size() + fixed_pos + 1;
+                // Here, the size of index does not exceed str_size.
+                fixed_pos = (int)index.size() + fixed_pos + 1;
             }
 
             byte_pos = index[fixed_pos - 1];
@@ -459,8 +464,17 @@ private:
             res_s += '_';
         }
         for (int i = 0; i < s.length(); i++) {
-            char ch = s[i];
-            if (std::isalnum(ch)) {
+            char ch = static_cast<char>(s[i]);
+            /*
+                https://en.cppreference.com/w/cpp/string/byte/isalnum
+                Like all other functions from <cctype>, the behavior of std::isalnum is undefined if the argument's value is neither representable as unsigned char nor equal to EOF. 
+                To use these functions safely with plain chars (or signed chars), the argument should first be converted to unsigned char:
+                bool my_isalnum(char ch)
+                {
+                    return std::isalnum(static_cast<unsigned char>(ch));
+                }
+            */
+            if (std::isalnum(static_cast<unsigned char>(ch))) {
                 res_s += ch;
             } else {
                 int unicodeValue = _get_code_point_at(s, i);
@@ -516,11 +530,12 @@ private:
             }
 
             // check the name of length
-            int len = res_p.size();
-            if (len > 50) [[unlikely]] {
+            if (res_p.size() > 50) [[unlikely]] {
                 return Status::InvalidArgument(
                         "The list partition name cannot exceed 50 characters");
             }
+            // res_p.size() is less than 50.
+            int len = (int)res_p.size();
             curr_len += len;
             res_data.resize(curr_len);
             memcpy(&res_data[res_offset[row - 1]], res_p.c_str(), len);
@@ -817,7 +832,7 @@ public:
                         "function {} only accept non-negative input for 2nd argument but got {}",
                         name, col.get_int(0));
             }
-            n = col.get_int(0);
+            n = cast_set<int>(col.get_int(0));
         }
 
         if (n == -1) { // no 2nd arg, just mask all
@@ -1045,7 +1060,7 @@ public:
 
         // Optimize function calls like this:
         // concat(col, "123", "abc", "456") -> tail = "123abc456"
-        for (size_t i = 1; i < context->get_num_args(); i++) {
+        for (int i = 1; i < context->get_num_args(); i++) {
             const auto* column_string = context->get_constant_col(i);
             if (column_string == nullptr) {
                 state->use_state = false;
@@ -1098,7 +1113,7 @@ public:
 
     Status execute_vecotr(Block& block, const ColumnNumbers& arguments, size_t result,
                           size_t input_rows_count) const {
-        int argument_size = arguments.size();
+        int argument_size = (int)arguments.size();
         std::vector<ColumnPtr> argument_columns(argument_size);
 
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
@@ -1134,7 +1149,7 @@ public:
         res_data.resize(res_reserve_size);
 
         auto* data = res_data.data();
-        size_t dst_offset = 0;
+        ColumnString::Offset dst_offset = 0;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             for (size_t j = 0; j < argument_size; ++j) {
@@ -1179,7 +1194,7 @@ public:
 
         const auto& tail = concat_state->tail;
         auto* data = res_data.data();
-        size_t dst_offset = 0;
+        ColumnString::Offset dst_offset = 0;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             const auto idx = index_check_const<is_const>(i);
@@ -1212,7 +1227,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        int arguent_size = arguments.size();
+        int arguent_size = (int)arguments.size();
         int num_children = arguent_size - 1;
         auto res = ColumnString::create();
 
@@ -1443,7 +1458,8 @@ private:
             auto& sep_nullmap = *null_list[0];
 
             if (sep_nullmap[i]) {
-                res_offset[i] = res_data.size();
+                // No check is needed here, as this is handling for null values.
+                res_offset[i] = (ColumnString::Offset)res_data.size();
                 current_src_array_offset += src_array_offsets[i] - src_array_offsets[i - 1];
                 continue;
             }
@@ -1490,7 +1506,8 @@ private:
             auto& sep_chars = *chars_list[0];
             auto& sep_nullmap = *null_list[0];
             if (sep_nullmap[i]) {
-                res_offset[i] = res_data.size();
+                // No check is needed here, as this is handling for null values.
+                res_offset[i] = (ColumnString::Offset)res_data.size();
                 continue;
             }
 
@@ -1549,8 +1566,11 @@ public:
                 return Status::OK();
             } else if (const auto* col2_const =
                                check_and_get_column<ColumnConst>(*argument_ptr[1])) {
-                DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
-                int repeat = col2_const->get_int(0);
+                //VARCHAR repeat(VARCHAR str, INT count)
+                const auto* col_32 =
+                        (check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
+                DCHECK(col_32);
+                int repeat = col_32->get_element(0);
                 if (repeat <= 0) {
                     null_map->get_data().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
@@ -1697,7 +1717,7 @@ public:
 
         fmt::memory_buffer buffer;
         buffer.resize(strcol_chars.size());
-        size_t buffer_len = 0;
+        ColumnString::Offset buffer_len = 0;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (!pad_const) {
@@ -1835,8 +1855,8 @@ public:
             if (part_number > 0) {
                 if (delimiter.size == 1) {
                     // If delimiter is a char, use memchr to split
-                    int32_t pre_offset = -1;
-                    int32_t offset = -1;
+                    int64_t pre_offset = -1;
+                    int64_t offset = -1;
                     int32_t num = 0;
                     while (num < part_number) {
                         pre_offset = offset;
@@ -1864,8 +1884,8 @@ public:
                     }
                 } else {
                     // If delimiter is a string, use memmem to split
-                    int32_t pre_offset = -delimiter.size;
-                    int32_t offset = -delimiter.size;
+                    int64_t pre_offset = -delimiter.size;
+                    int64_t offset = -delimiter.size;
                     int32_t num = 0;
                     while (num < part_number) {
                         pre_offset = offset;
@@ -1896,8 +1916,8 @@ public:
             } else {
                 part_number = -part_number;
                 auto str_str = str.to_string();
-                int32_t offset = str.size;
-                int32_t pre_offset = offset;
+                int64_t offset = str.size;
+                int64_t pre_offset = offset;
                 int32_t num = 0;
                 auto substr = str_str;
                 while (num <= part_number && offset >= 0) {
@@ -1971,7 +1991,7 @@ public:
         [[maybe_unused]] const auto& [delimiter_col, delimiter_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         auto delimiter = delimiter_col->get_data_at(0);
-        int32_t delimiter_size = delimiter.size;
+        int64_t delimiter_size = delimiter.size;
 
         [[maybe_unused]] const auto& [part_num_col, part_const] =
                 unpack_if_const(block.get_by_position(arguments[2]).column);
@@ -1986,7 +2006,7 @@ public:
                 // If delimiter is a char, use memchr to split
                 for (size_t i = 0; i < input_rows_count; ++i) {
                     auto str = str_col->get_data_at(i);
-                    int32_t offset = -1;
+                    int64_t offset = -1;
                     int32_t num = 0;
                     while (num < part_number) {
                         size_t n = str.size - offset - 1;
@@ -2017,7 +2037,7 @@ public:
                 StringSearch search(&delimiter_ref);
                 for (size_t i = 0; i < input_rows_count; ++i) {
                     auto str = str_col->get_data_at(i);
-                    int32_t offset = -delimiter_size;
+                    int64_t offset = -delimiter_size;
                     int32_t num = 0;
                     while (num < part_number) {
                         size_t n = str.size - offset - delimiter_size;
@@ -2050,8 +2070,8 @@ public:
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto str = str_col->get_data_at(i);
                 auto str_str = str.to_string();
-                int32_t offset = str.size;
-                int32_t pre_offset = offset;
+                int64_t offset = str.size;
+                int64_t pre_offset = offset;
                 int32_t num = 0;
                 auto substr = str_str;
                 while (num <= part_number && offset >= 0) {
@@ -2513,7 +2533,7 @@ public:
                         size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
 
-        int argument_size = arguments.size();
+        int argument_size = (int)arguments.size();
         std::vector<ColumnPtr> argument_columns(argument_size);
 
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
@@ -2649,7 +2669,7 @@ public:
 private:
     template <typename T>
     void execute_base(const ColumnString::Chars& data, const ColumnString::Offsets& offset,
-                      int input_rows_count, ColumnString::Chars& res_data,
+                      size_t input_rows_count, ColumnString::Chars& res_data,
                       ColumnString::Offsets& res_offset) const {
         T digest;
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -2741,7 +2761,7 @@ public:
         const auto* part_col = assert_cast<const ColumnString*>(argument_columns[1].get());
         const bool part_const = col_const[1];
         std::vector<UrlParser::UrlPart> url_parts;
-        const int part_nums = part_const ? 1 : input_rows_count;
+        const int part_nums = part_const ? 1 : (int)input_rows_count;
 
         url_parts.resize(part_nums);
         for (int i = 0; i < part_nums; i++) {
@@ -2787,7 +2807,7 @@ public:
     }
     template <bool url_const, bool part_const>
     static Status vector_parse(const ColumnString* url_col,
-                               std::vector<UrlParser::UrlPart>& url_parts, const int size,
+                               std::vector<UrlParser::UrlPart>& url_parts, const size_t size,
                                ColumnUInt8::Container& null_map_data,
                                ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
         for (size_t i = 0; i < size; ++i) {
@@ -2807,7 +2827,7 @@ public:
     template <bool url_const, bool part_const, bool key_const>
     static Status vector_parse_key(const ColumnString* url_col,
                                    std::vector<UrlParser::UrlPart>& url_parts,
-                                   const ColumnString* key_col, const int size,
+                                   const ColumnString* key_col, const size_t size,
                                    ColumnUInt8::Container& null_map_data,
                                    ColumnString::Chars& res_chars,
                                    ColumnString::Offsets& res_offsets) {
@@ -3063,7 +3083,7 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
 
     char local[N];
     char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
-    const Int32 integer_str_len = N - (p - local);
+    const Int32 integer_str_len = cast_set<Int32>(N - (p - local));
     const Int32 frac_str_len = 2;
     const Int32 whole_decimal_str_len =
             (append_sign_manually ? 1 : 0) + integer_str_len + 1 + frac_str_len;
@@ -3077,21 +3097,24 @@ StringRef do_money_format(FunctionContext* context, UInt32 scale, T int_value, T
 
     memcpy(result_data + (append_sign_manually ? 1 : 0), p, integer_str_len);
     *(result_data + whole_decimal_str_len - 3) = '.';
-    *(result_data + whole_decimal_str_len - 2) = '0' + std::abs(static_cast<int>(frac_value / 10));
-    *(result_data + whole_decimal_str_len - 1) = '0' + std::abs(static_cast<int>(frac_value % 10));
+    *(result_data + whole_decimal_str_len - 2) =
+            '0' + (char)std::abs(static_cast<int>(frac_value / 10));
+    *(result_data + whole_decimal_str_len - 1) =
+            '0' + (char)std::abs(static_cast<int>(frac_value % 10));
     return result;
 };
 
 // Note string value must be valid decimal string which contains two digits after the decimal point
 static StringRef do_money_format(FunctionContext* context, const string& value) {
     bool is_positive = (value[0] != '-');
-    int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
+    int32_t result_len =
+            cast_set<int32_t>(value.size() + (value.size() - (is_positive ? 4 : 5)) / 3);
     StringRef result = context->create_temp_string_val(result_len);
     char* result_data = const_cast<char*>(result.data);
     if (!is_positive) {
         *result_data = '-';
     }
-    for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3) {
+    for (int64_t i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3) {
         *(result_data + j) = *(value.data() + i);
         if (i - 1 < 0) {
             break;
@@ -3389,7 +3412,7 @@ private:
         int32_t match_pos = search_ptr->search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
-            size_t len = std::min(adjusted_str.size, (size_t)match_pos);
+            int len = std::min((int)adjusted_str.size, match_pos);
             return start_pos + simd::VStringFunctions::get_char_len(adjusted_str.data, len);
         } else {
             return 0;
@@ -3696,9 +3719,11 @@ struct SubReplaceThreeImpl {
         }
         const auto* str_column = assert_cast<const ColumnString*>(str_col.get());
         // use utf8 len
+        const auto& chars = str_column->get_chars();
+        const auto& offsets = str_column->get_offsets();
         for (int i = 0; i < input_rows_count; ++i) {
-            StringRef str_ref = str_column->get_data_at(i);
-            strlen_data[i] = simd::VStringFunctions::get_char_len(str_ref.data, str_ref.size);
+            strlen_data[i] = simd::VStringFunctions::get_char_len(
+                    (const char*)&chars[offsets[i - 1]], offsets[i] - offsets[i - 1]);
         }
 
         block.insert({std::move(params), std::make_shared<DataTypeInt32>(), "strlen"});
@@ -3768,7 +3793,7 @@ public:
         ColumnString::check_chars_length(str_chars.size() * 2 + input_rows_count, 0);
         res_chars.resize(str_chars.size() * 2 + input_rows_count);
 
-        size_t in_len = 0, out_len = 0;
+        ColumnString::Offset in_len = 0, out_len = 0;
         for (int i = 0; i < input_rows_count; ++i) {
             in_len = str_offset[i] - str_offset[i - 1];
             const char* in = reinterpret_cast<const char*>(&str_chars[str_offset[i - 1]]);
@@ -3781,7 +3806,8 @@ public:
         return Status::OK();
     }
 
-    void _utf8_to_pinyin(const char* in, size_t in_len, char* out, size_t* out_len) const {
+    void _utf8_to_pinyin(const char* in, size_t in_len, char* out,
+                         ColumnString::Offset* out_len) const {
         auto do_memcpy = [](char*& dest, const char*& from, size_t size) {
             memcpy_small_allow_read_write_overflow15(dest, from, size);
             dest += size;
@@ -3819,7 +3845,7 @@ public:
             }
         }
 
-        *out_len = dest - out;
+        *out_len = cast_set<ColumnString::Offset>(dest - out);
     }
 };
 
@@ -3948,7 +3974,7 @@ public:
                         size_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 2);
 
-        int argument_size = arguments.size();
+        int argument_size = (int)arguments.size();
         std::vector<ColumnPtr> str_columns(argument_size - 1);
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size - 1);
         std::vector<const ColumnString::Chars*> chars_list(argument_size - 1);
@@ -3974,7 +4000,7 @@ public:
                         int_column = assert_cast<const ColumnVector<Int32>*>(
                                 &const_column->get_data_column());
                     }
-                    int int_val = int_column->get_int(0);
+                    int int_val = int_column->get_element(0);
                     integer_to_char_(0, &int_val, chars, offsets);
                     str_columns[i - 1] =
                             ColumnConst::create(std::move(str_column), input_rows_count);
@@ -4097,7 +4123,7 @@ public:
     }
 
 private:
-    void integer_to_char_(int line_num, const int* num, ColumnString::Chars& chars,
+    void integer_to_char_(int64_t line_num, const int* num, ColumnString::Chars& chars,
                           IColumn::Offsets& offsets) const {
         if (0 == *num) {
             chars.push_back('\0');
@@ -4190,7 +4216,9 @@ private:
             return {true, str_size};
         }
         if (len < 0 || pos + len - 1 >= str_size) {
-            len = str_size - pos + 1;
+            // Here, len is a function parameter with a fixed type of int.
+            // VARCHAR Overlay (VARCHAR str, INT pos, INT len, VARCHAR newstr)
+            len = cast_set<int>(str_size - pos + 1);
             return {false, pos + ins_size - 1};
         }
         return {false, str_size - len + ins_size};
@@ -4333,12 +4361,12 @@ private:
                     get_text_set(text, gram_num, pattern_map, restore_map);
 
             // 2 * |Intersection| / (|text substr set| + |pattern substr set|)
-            res_data[i] = 2.0 * intersection_count / (text_count + pattern_count);
+            res_data[i] = 2.0 * (double)intersection_count / double(text_count + pattern_count);
         }
     }
 
-    size_t get_pattern_set(NgramMap& pattern_map, StringRef& pattern, int gram_num) const {
-        size_t pattern_count = 0;
+    uint32_t get_pattern_set(NgramMap& pattern_map, StringRef& pattern, int gram_num) const {
+        uint32_t pattern_count = 0;
         for (int i = 0; i + gram_num <= pattern.size; i++) {
             uint32_t cur_hash = sub_str_hash(pattern.data + i, gram_num);
             if (!pattern_map.contains(cur_hash)) {
@@ -4550,3 +4578,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"
