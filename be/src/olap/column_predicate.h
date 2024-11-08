@@ -325,7 +325,7 @@ protected:
         _judge_filter_rows = 0;
     }
 
-    void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) const {
+    void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) const {
         if ((_judge_counter--) == 0) {
             reset_judge_selectivity();
         }
@@ -352,8 +352,8 @@ protected:
     // without recalculating. At the beginning of the next period,
     // reset_judge_selectivity is used to reset these variables.
     mutable int _judge_counter = 0;
-    mutable int _judge_input_rows = 0;
-    mutable int _judge_filter_rows = 0;
+    mutable uint64_t _judge_input_rows = 0;
+    mutable uint64_t _judge_filter_rows = 0;
     mutable bool _always_true = false;
 };
 

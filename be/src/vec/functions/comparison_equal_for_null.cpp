@@ -66,7 +66,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& col_left = block.get_by_position(arguments[0]);
         ColumnWithTypeAndName& col_right = block.get_by_position(arguments[1]);
 

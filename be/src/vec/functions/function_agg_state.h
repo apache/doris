@@ -61,7 +61,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto col = _agg_function->create_serialize_column();
         std::vector<const IColumn*> agg_columns;
         std::vector<ColumnPtr> save_columns;

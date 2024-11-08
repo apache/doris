@@ -90,8 +90,8 @@ private:
     DataTypePtr _return_type = nullptr;
     ColumnPtr _array_result_column = nullptr;
     ColumnArrayExecutionData _array_column_detail;
-    size_t _result_column_idx = 0; // _array_result_column pos in block
-    size_t _array_offset = 0;      // start offset of array[row_idx]
+    uint32_t _result_column_idx = 0; // _array_result_column pos in block
+    size_t _array_offset = 0;        // start offset of array[row_idx]
 };
 
 } // namespace doris::vectorized

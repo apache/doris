@@ -157,7 +157,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) const override;
+                        uint32_t result, size_t /*input_rows_count*/) const override;
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 

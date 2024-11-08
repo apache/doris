@@ -22,10 +22,9 @@
 
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <memory>
-#include <ostream>
 #include <string>
 #include <utility>
 
@@ -95,7 +94,7 @@ public:
     virtual String get_name() const = 0;
 
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count, bool dry_run) const = 0;
+                           uint32_t result, size_t input_rows_count, bool dry_run) const = 0;
 };
 
 using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
@@ -103,7 +102,7 @@ using PreparedFunctionPtr = std::shared_ptr<IPreparedFunction>;
 class PreparedFunctionImpl : public IPreparedFunction {
 public:
     Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                   size_t result, size_t input_rows_count, bool dry_run = false) const final;
+                   uint32_t result, size_t input_rows_count, bool dry_run = false) const final;
 
     /** If the function have non-zero number of arguments,
       *  and if all arguments are constant, that we could automatically provide default implementation:
@@ -120,13 +119,13 @@ public:
 
 protected:
     virtual Status execute_impl_dry_run(FunctionContext* context, Block& block,
-                                        const ColumnNumbers& arguments, size_t result,
+                                        const ColumnNumbers& arguments, uint32_t result,
                                         size_t input_rows_count) const {
         return execute_impl(context, block, arguments, result, input_rows_count);
     }
 
     virtual Status execute_impl(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, size_t result,
+                                const ColumnNumbers& arguments, uint32_t result,
                                 size_t input_rows_count) const = 0;
 
     /** Default implementation in presence of Nullable arguments or NULL constants as arguments is the following:
@@ -150,18 +149,18 @@ protected:
 
 private:
     Status default_implementation_for_nulls(FunctionContext* context, Block& block,
-                                            const ColumnNumbers& args, size_t result,
+                                            const ColumnNumbers& args, uint32_t result,
                                             size_t input_rows_count, bool dry_run,
                                             bool* executed) const;
     Status default_implementation_for_constant_arguments(FunctionContext* context, Block& block,
-                                                         const ColumnNumbers& args, size_t result,
+                                                         const ColumnNumbers& args, uint32_t result,
                                                          size_t input_rows_count, bool dry_run,
                                                          bool* executed) const;
     Status execute_without_low_cardinality_columns(FunctionContext* context, Block& block,
-                                                   const ColumnNumbers& arguments, size_t result,
+                                                   const ColumnNumbers& arguments, uint32_t result,
                                                    size_t input_rows_count, bool dry_run) const;
     Status _execute_skipped_constant_deal(FunctionContext* context, Block& block,
-                                          const ColumnNumbers& args, size_t result,
+                                          const ColumnNumbers& args, uint32_t result,
                                           size_t input_rows_count, bool dry_run) const;
 };
 
@@ -179,7 +178,7 @@ public:
     /// Do preparations and return executable.
     /// sample_block should contain data types of arguments and values of constants, if relevant.
     virtual PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
-                                        const ColumnNumbers& arguments, size_t result) const = 0;
+                                        const ColumnNumbers& arguments, uint32_t result) const = 0;
 
     /// Override this when function need to store state in the `FunctionContext`, or do some
     /// preparation work according to information from `FunctionContext`.
@@ -189,7 +188,7 @@ public:
 
     /// TODO: make const
     virtual Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                           size_t result, size_t input_rows_count, bool dry_run = false) const {
+                           uint32_t result, size_t input_rows_count, bool dry_run = false) const {
         return prepare(context, block, arguments, result)
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
@@ -367,7 +366,7 @@ protected:
     virtual FunctionBasePtr build_impl(const ColumnsWithTypeAndName& arguments,
                                        const DataTypePtr& return_type) const = 0;
 
-    virtual DataTypes get_variadic_argument_types_impl() const { return DataTypes(); }
+    virtual DataTypes get_variadic_argument_types_impl() const { return {}; }
 
 private:
     DataTypePtr get_return_type_without_low_cardinality(
@@ -388,9 +387,8 @@ public:
     String get_name() const override = 0;
 
     /// Notice: We should not change the column in the block, because the column may be shared by multiple expressions or exec nodes.
-    virtual Status execute_impl(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, size_t result,
-                                size_t input_rows_count) const override = 0;
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override = 0;
 
     /// Override this functions to change default implementation behavior. See details in IMyFunction.
     bool use_default_implementation_for_nulls() const override { return true; }
@@ -415,7 +413,7 @@ public:
     [[noreturn]] PreparedFunctionPtr prepare(FunctionContext* context,
                                              const Block& /*sample_block*/,
                                              const ColumnNumbers& /*arguments*/,
-                                             size_t /*result*/) const final {
+                                             uint32_t /*result*/) const final {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "prepare is not implemented for IFunction {}", get_name());
         __builtin_unreachable();
@@ -459,7 +457,7 @@ public:
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const final {
+                        uint32_t result, size_t input_rows_count) const final {
         return function->execute_impl(context, block, arguments, result, input_rows_count);
     }
 
@@ -473,7 +471,7 @@ protected:
     }
 
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
-                                const ColumnNumbers& arguments, size_t result,
+                                const ColumnNumbers& arguments, uint32_t result,
                                 size_t input_rows_count) const final {
         return function->execute_impl_dry_run(context, block, arguments, result, input_rows_count);
     }
@@ -517,7 +515,7 @@ public:
     // return a default wrapper for IFunction.
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
-                                size_t /*result*/) const override {
+                                uint32_t /*result*/) const override {
         return std::make_shared<DefaultExecutable>(function);
     }
 
@@ -614,7 +612,7 @@ using FunctionPtr = std::shared_ptr<IFunction>;
   * Or ColumnConst(ColumnNullable) if the result is always NULL or if the result is constant and always not NULL.
   */
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
-                           size_t result, size_t input_rows_count);
+                           uint32_t result, size_t input_rows_count);
 
 #define NUMERIC_TYPE_TO_COLUMN_TYPE(M) \
     M(UInt8, ColumnUInt8)              \

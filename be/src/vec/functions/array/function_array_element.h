@@ -17,6 +17,7 @@
 // This file is copied from
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/array/arrayElement.cpp
 // and modified by Doris
+
 #pragma once
 
 #include <glog/logging.h>
@@ -96,7 +97,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         UInt8* dst_null_map = dst_null_column->get_data().data();
         const UInt8* src_null_map = nullptr;

@@ -56,6 +56,7 @@ class IColumn;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <class FunctionType>
 AggregateFunctionPtr get_agg_state_function(const DataTypes& argument_types,
@@ -362,11 +363,11 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
     }
 }
 
-Status AggFnEvaluator::check_agg_fn_output(int64_t key_size,
+Status AggFnEvaluator::check_agg_fn_output(uint32_t key_size,
                                            const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
                                            const RowDescriptor& output_row_desc) {
     auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);
-    for (int i = key_size, j = 0; i < name_and_types.size(); i++, j++) {
+    for (uint32_t i = key_size, j = 0; i < name_and_types.size(); i++, j++) {
         auto&& [name, column_type] = name_and_types[i];
         auto agg_return_type = agg_fn[j]->function()->get_return_type();
         if (!column_type->equals(*agg_return_type)) {
@@ -381,4 +382,6 @@ Status AggFnEvaluator::check_agg_fn_output(int64_t key_size,
     }
     return Status::OK();
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
