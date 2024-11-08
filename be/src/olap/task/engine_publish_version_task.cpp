@@ -81,7 +81,7 @@ EnginePublishVersionTask::EnginePublishVersionTask(
           _succ_tablets(succ_tablets),
           _discontinuous_version_tablets(discontinuous_version_tablets),
           _table_id_to_num_delta_rows(table_id_to_num_delta_rows) {
-    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
+    _mem_tracker = MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                     "TabletPublishTxnTask");
 }
 
@@ -231,16 +231,22 @@ Status EnginePublishVersionTask::execute() {
                         int64_t missed_txn_id =
                                 StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
                                         tablet->tablet_id(), missed_version);
-                        auto msg = fmt::format(
-                                "uniq key with merge-on-write version not continuous, "
-                                "missed version={}, it's transaction_id={}, current publish "
-                                "version={}, tablet_id={}, transaction_id={}",
-                                missed_version, missed_txn_id, version.second, tablet->tablet_id(),
-                                _publish_version_req.transaction_id);
-                        if (first_time_update) {
-                            LOG(INFO) << msg;
-                        } else {
-                            LOG_EVERY_SECOND(INFO) << msg;
+                        bool need_log =
+                                (config::publish_version_gap_logging_threshold < 0 ||
+                                 max_version + config::publish_version_gap_logging_threshold >=
+                                         version.second);
+                        if (need_log) {
+                            auto msg = fmt::format(
+                                    "uniq key with merge-on-write version not continuous, "
+                                    "missed version={}, it's transaction_id={}, current publish "
+                                    "version={}, tablet_id={}, transaction_id={}",
+                                    missed_version, missed_txn_id, version.second,
+                                    tablet->tablet_id(), _publish_version_req.transaction_id);
+                            if (first_time_update) {
+                                LOG(INFO) << msg;
+                            } else {
+                                LOG_EVERY_SECOND(INFO) << msg;
+                            }
                         }
                     };
                     // The versions during the schema change period need to be also continuous
@@ -370,7 +376,7 @@ TabletPublishTxnTask::TabletPublishTxnTask(EnginePublishVersionTask* engine_task
           _transaction_id(transaction_id),
           _version(version),
           _tablet_info(tablet_info),
-          _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::SCHEMA_CHANGE,
+          _mem_tracker(MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::OTHER,
                                                         "TabletPublishTxnTask")) {
     _stats.submit_time_us = MonotonicMicros();
 }

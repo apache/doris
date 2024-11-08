@@ -155,6 +155,7 @@ suite("test_index_compaction_dup_keys", "nonConcurrent") {
         sql """ INSERT INTO ${tableName} VALUES (2, "bason", "bason hate pear", 99); """
         sql """ INSERT INTO ${tableName} VALUES (3, "andy", "andy love apple", 100); """
         sql """ INSERT INTO ${tableName} VALUES (3, "bason", "bason hate pear", 99); """
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_sql """ select * from ${tableName} order by id, name, hobbies, score """
         qt_sql """ select * from ${tableName} where name match "andy" order by id, name, hobbies, score """

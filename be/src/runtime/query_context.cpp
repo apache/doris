@@ -99,6 +99,7 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     register_memory_statistics();
     register_cpu_statistics();
+    DorisMetrics::instance()->query_ctx_cnt->increment(1);
 }
 
 void QueryContext::_init_query_mem_tracker() {
@@ -183,7 +184,7 @@ QueryContext::~QueryContext() {
     obj_pool.clear();
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
-
+    DorisMetrics::instance()->query_ctx_cnt->increment(-1);
     LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
@@ -276,6 +277,33 @@ Status QueryContext::cancel_pipeline_context(const int fragment_id,
         pipeline_ctx->cancel(reason, msg);
     }
     return Status::OK();
+}
+
+std::string QueryContext::print_all_pipeline_context() {
+    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_print;
+    fmt::memory_buffer debug_string_buffer;
+    size_t i = 0;
+    {
+        fmt::format_to(debug_string_buffer, "{} pipeline fragment contexts in query {}. \n",
+                       _fragment_id_to_pipeline_ctx.size(), print_id(_query_id));
+
+        {
+            std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
+            for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
+                ctx_to_print.push_back(f_context);
+            }
+        }
+        for (auto& f_context : ctx_to_print) {
+            if (auto pipeline_ctx = f_context.lock()) {
+                auto elapsed = pipeline_ctx->elapsed_time() / 1000000000.0;
+                fmt::format_to(debug_string_buffer,
+                               "No.{} (elapse_second={}s, fragment_id={}) : {}\n", i, elapsed,
+                               pipeline_ctx->get_fragment_id(), pipeline_ctx->debug_string());
+                i++;
+            }
+        }
+    }
+    return fmt::to_string(debug_string_buffer);
 }
 
 void QueryContext::set_pipeline_context(

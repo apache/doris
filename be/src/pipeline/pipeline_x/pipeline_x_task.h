@@ -138,7 +138,8 @@ public:
 
     int task_id() const { return _index; };
 
-    void clear_blocking_state() {
+    void clear_blocking_state(bool wake_up_by_downstream = false) override {
+        _wake_up_by_downstream = _wake_up_by_downstream || wake_up_by_downstream;
         _state->get_query_ctx()->get_execution_dependency()->set_always_ready();
         // We use a lock to assure all dependencies are not deconstructed here.
         std::unique_lock<std::mutex> lc(_dependency_lock);
@@ -175,6 +176,8 @@ public:
     }
 
     static bool should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes);
+
+    bool wake_up_by_downstream() const { return _wake_up_by_downstream; }
 
 private:
     friend class RuntimeFilterDependency;
@@ -252,6 +255,7 @@ private:
 
     std::atomic<bool> _finished {false};
     std::mutex _dependency_lock;
+    std::atomic<bool> _wake_up_by_downstream = false;
 };
 
 } // namespace doris::pipeline

@@ -47,7 +47,7 @@ using namespace ErrorCode;
 
 static const uint32_t MAX_PATH_LEN = 1024;
 static const uint32_t TABLET_ID = 12345;
-static StorageEngine* s_engine;
+static StorageEngine* s_engine = nullptr;
 static const std::string lTestDir = "./data_test/data/segcompaction_mow_test";
 
 class SegCompactionMoWTest : public ::testing::TestWithParam<std::string> {
@@ -81,14 +81,17 @@ public:
         Status s = s_engine->open();
         EXPECT_TRUE(s.ok()) << s.to_string();
 
+        s = ThreadPoolBuilder("SegCompactionTaskThreadPool")
+                    .set_min_threads(config::segcompaction_num_threads)
+                    .set_max_threads(config::segcompaction_num_threads)
+                    .build(&s_engine->_seg_compaction_thread_pool);
+        EXPECT_TRUE(s.ok()) << s.to_string();
+
         _data_dir = new DataDir(lTestDir, 1000000000);
         static_cast<void>(_data_dir->init());
         static_cast<void>(_data_dir->update_capacity());
 
         EXPECT_TRUE(io::global_local_filesystem()->create_directory(lTestDir).ok());
-
-        s = s_engine->start_bg_threads();
-        EXPECT_TRUE(s.ok()) << s.to_string();
     }
 
     void TearDown() {

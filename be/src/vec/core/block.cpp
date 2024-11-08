@@ -440,13 +440,9 @@ size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
         if (!elem.column) {
-            std::stringstream ss;
-            for (const auto& e : data) {
-                ss << e.name + " ";
-            }
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
-                            elem.name, ss.str());
+            // Sometimes if expr failed, then there will be a nullptr
+            // column left in the block.
+            continue;
         }
         res += elem.column->allocated_bytes();
     }

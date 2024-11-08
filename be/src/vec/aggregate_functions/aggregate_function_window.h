@@ -497,9 +497,9 @@ template <typename Data, bool arg_ignore_null = false>
 struct WindowFunctionLastImpl : Data {
     void add_range_single_place(int64_t partition_start, int64_t partition_end, int64_t frame_start,
                                 int64_t frame_end, const IColumn** columns) {
-        if ((frame_start <= frame_end) &&
-            ((frame_end <= partition_start) ||
-             (frame_start >= partition_end))) { //beyond or under partition, set null
+        DCHECK_LE(frame_start, frame_end);
+        if ((frame_end <= partition_start) ||
+            (frame_start >= partition_end)) { //beyond or under partition, set null
             this->set_is_null();
             return;
         }

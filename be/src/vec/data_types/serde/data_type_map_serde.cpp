@@ -97,13 +97,17 @@ Status DataTypeMapSerDe::deserialize_one_cell_from_hive_text(
          *
          *  So i use 'kv <= from' in order to get _map_kv_delimiter that appears first.
          * */
-        if (i < slice.size && slice[i] == map_kv_delimiter && kv <= from) {
+        if (i < slice.size && slice[i] == map_kv_delimiter && kv <= from &&
+            (options.escape_char == 0 || i == 0 || slice[i - 1] != options.escape_char)) {
             kv = i;
             continue;
         }
         if ((i == slice.size || slice[i] == collection_delimiter) && i >= kv + 1) {
-            key_slices.push_back({slice.data + from, kv - from});
-            value_slices.push_back({slice.data + kv + 1, i - 1 - kv});
+            if (options.escape_char != 0 && i > 0 && slice[i - 1] == options.escape_char) {
+                continue;
+            }
+            key_slices.emplace_back(slice.data + from, kv - from);
+            value_slices.emplace_back(slice.data + kv + 1, i - 1 - kv);
             from = i + 1;
             kv = from;
         }
@@ -138,7 +142,7 @@ Status DataTypeMapSerDe::deserialize_column_from_hive_text_vector(
     return Status::OK();
 }
 
-void DataTypeMapSerDe::serialize_one_cell_to_hive_text(
+Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
         const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -163,12 +167,13 @@ void DataTypeMapSerDe::serialize_one_cell_to_hive_text(
         if (i != start) {
             bw.write(collection_delimiter);
         }
-        key_serde->serialize_one_cell_to_hive_text(nested_keys_column, i, bw, options,
-                                                   hive_text_complex_type_delimiter_level + 2);
+        RETURN_IF_ERROR(key_serde->serialize_one_cell_to_hive_text(
+                nested_keys_column, i, bw, options, hive_text_complex_type_delimiter_level + 2));
         bw.write(map_kv_delimiter);
-        value_serde->serialize_one_cell_to_hive_text(nested_values_column, i, bw, options,
-                                                     hive_text_complex_type_delimiter_level + 2);
+        RETURN_IF_ERROR(value_serde->serialize_one_cell_to_hive_text(
+                nested_values_column, i, bw, options, hive_text_complex_type_delimiter_level + 2));
     }
+    return Status::OK();
 }
 
 Status DataTypeMapSerDe::deserialize_column_from_json_vector(IColumn& column,

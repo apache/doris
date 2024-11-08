@@ -376,7 +376,7 @@ public:
     // MUST hold EXCLUSIVE `_meta_lock`
     void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
     // MUST hold EXCLUSIVE `_meta_lock`
-    void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
+    Status delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
 
     // MUST hold SHARED `_meta_lock`
     const auto& rowset_map() const { return _rs_version_map; }
@@ -438,7 +438,8 @@ public:
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           RowLocation* row_location, uint32_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                          RowsetSharedPtr* rowset = nullptr, bool with_rowid = true);
+                          RowsetSharedPtr* rowset = nullptr, bool with_rowid = true,
+                          bool is_partial_update = false);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -553,6 +554,7 @@ public:
                                        std::string_view rowset_id) const;
     Status get_rowset_binlog_metas(const std::vector<int64_t>& binlog_versions,
                                    RowsetBinlogMetasPB* metas_pb);
+    Status get_rowset_binlog_metas(Version binlog_versions, RowsetBinlogMetasPB* metas_pb);
     std::string get_segment_filepath(std::string_view rowset_id,
                                      std::string_view segment_index) const;
     std::string get_segment_filepath(std::string_view rowset_id, int64_t segment_index) const;

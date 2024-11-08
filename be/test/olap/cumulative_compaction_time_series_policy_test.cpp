@@ -404,7 +404,7 @@ TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calc_cumulative_compaction_scor
     const uint32_t score = _tablet->calc_compaction_score(CompactionType::CUMULATIVE_COMPACTION,
                                                           cumulative_compaction_policy);
 
-    EXPECT_EQ(0, score);
+    EXPECT_EQ(9, score);
 }
 
 TEST_F(TestTimeSeriesCumulativeCompactionPolicy, calc_cumulative_compaction_score_big_rowset) {

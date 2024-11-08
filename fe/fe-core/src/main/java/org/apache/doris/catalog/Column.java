@@ -810,6 +810,11 @@ public class Column implements Writable, GsonPostProcessable {
                 sb.append(" DEFAULT \"").append(defaultValue).append("\"");
             }
         }
+        if (getDataType() == PrimitiveType.BITMAP && defaultValue != null) {
+            if (defaultValueExprDef != null) {
+                sb.append(" DEFAULT ").append(defaultValueExprDef.getExprName()).append("");
+            }
+        }
         if (hasOnUpdateDefaultValue) {
             sb.append(" ON UPDATE ").append(defaultValue).append("");
         }
@@ -1023,5 +1028,11 @@ public class Column implements Writable, GsonPostProcessable {
     public boolean isMaterializedViewColumn() {
         return getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
                 || getName().startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    public void setDefaultValueInfo(Column refColumn) {
+        this.defaultValue = refColumn.defaultValue;
+        this.defaultValueExprDef = refColumn.defaultValueExprDef;
+        this.realDefaultValue = refColumn.realDefaultValue;
     }
 }

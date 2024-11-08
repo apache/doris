@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
-import org.apache.doris.plugin.audit.AuditEvent;
+import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.thrift.TQueryStatistics;
 import org.apache.doris.thrift.TReportWorkloadRuntimeStatusParams;
 

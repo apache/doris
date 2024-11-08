@@ -31,10 +31,13 @@ import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
+import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -57,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -67,8 +71,10 @@ import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -107,7 +113,8 @@ public class BindSink implements AnalysisRuleFactory {
                 // TODO: bind hive taget table
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
-                    unboundIcebergTableSink().thenApply(this::bindIcebergTableSink))
+                    unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
+                RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink))
         );
     }
 
@@ -125,7 +132,8 @@ public class BindSink implements AnalysisRuleFactory {
                 && table.getSequenceMapCol() != null
                 && sink.getColNames().contains(table.getSequenceMapCol());
         Pair<List<Column>, Integer> bindColumnsResult =
-                bindTargetColumns(table, sink.getColNames(), childHasSeqCol, needExtraSeqCol);
+                bindTargetColumns(table, sink.getColNames(), childHasSeqCol, needExtraSeqCol,
+                        sink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT);
         List<Column> bindColumns = bindColumnsResult.first;
         int extraColumnsNum = bindColumnsResult.second;
 
@@ -175,8 +183,12 @@ public class BindSink implements AnalysisRuleFactory {
                             .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
                             .findFirst();
                 } else {
-                    if (!sink.getColNames().isEmpty()) {
-                        if (sink.getColNames().stream()
+                    // ATTN: must use bindColumns here. Because of insert into from group_commit tvf submitted by BE
+                    //   do not follow any column list with target table, but it contains all inviable data in sink's
+                    //   child. THis is different with other insert action that contain non-inviable data by default.
+                    if (!bindColumns.isEmpty()) {
+                        if (bindColumns.stream()
+                                .map(Column::getName)
                                 .anyMatch(c -> c.equalsIgnoreCase(Column.SEQUENCE_COL))) {
                             haveInputSeqCol = true; // case2.a
                         } // else case2.b
@@ -187,9 +199,12 @@ public class BindSink implements AnalysisRuleFactory {
                 // including the following cases:
                 // 1. it's a load job with `partial_columns=true`
                 // 2. UPDATE and DELETE, planner will automatically add these hidden columns
+                // 3. session value `require_sequence_in_insert` is false
                 if (!haveInputSeqCol && !isPartialUpdate && (
                         boundSink.getDmlCommandType() != DMLCommandType.UPDATE
-                                && boundSink.getDmlCommandType() != DMLCommandType.DELETE)) {
+                                && boundSink.getDmlCommandType() != DMLCommandType.DELETE) && (
+                        boundSink.getDmlCommandType() != DMLCommandType.INSERT
+                                || ConnectContext.get().getSessionVariable().isRequireSequenceInInsert())) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                             || !seqColInTable.get().getDefaultValue()
                             .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
@@ -204,7 +219,8 @@ public class BindSink implements AnalysisRuleFactory {
 
         Map<String, NamedExpression> columnToOutput = getColumnToOutput(
                 ctx, table, isPartialUpdate, boundSink, child);
-        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(
+                table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 
@@ -266,39 +282,31 @@ public class BindSink implements AnalysisRuleFactory {
         // we need to insert all the columns of the target table
         // although some columns are not mentions.
         // so we add a projects to supply the default value.
-
         Map<Column, NamedExpression> columnToChildOutput = Maps.newHashMap();
         for (int i = 0; i < child.getOutput().size(); ++i) {
             columnToChildOutput.put(boundSink.getCols().get(i), child.getOutput().get(i));
         }
-
         Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        Map<String, NamedExpression> columnToReplaced = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+        Map<Expression, Expression> replaceMap = Maps.newHashMap();
         NereidsParser expressionParser = new NereidsParser();
-
+        List<Column> materializedViewColumn = Lists.newArrayList();
         // generate slots not mentioned in sql, mv slots and shaded slots.
         for (Column column : boundSink.getTargetTable().getFullSchema()) {
             if (column.isMaterializedViewColumn()) {
-                List<SlotRef> refs = column.getRefColumns();
-                // now we have to replace the column to slots.
-                Preconditions.checkArgument(refs != null,
-                        "mv column %s 's ref column cannot be null", column);
-                Expression parsedExpression = expressionParser.parseExpression(
-                        column.getDefineExpr().toSqlWithoutTbl());
-                // the boundSlotExpression is an expression whose slots are bound but function
-                // may not be bound, we have to bind it again.
-                // for example: to_bitmap.
-                Expression boundExpression = new CustomExpressionAnalyzer(
-                        boundSink, ctx.cascadesContext, columnToOutput).analyze(parsedExpression);
-                if (boundExpression instanceof Alias) {
-                    boundExpression = ((Alias) boundExpression).child();
-                }
-                NamedExpression slot = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
-                columnToOutput.put(column.getName(), slot);
-            } else if (columnToChildOutput.containsKey(column)
+                materializedViewColumn.add(column);
+                continue;
+            }
+            if (columnToChildOutput.containsKey(column)
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
                     && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
-                columnToOutput.put(column.getName(), columnToChildOutput.get(column));
+                Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                        columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
+                        column.getName());
+                columnToOutput.put(column.getName(), output);
+                columnToReplaced.put(column.getName(), output.toSlot());
+                replaceMap.put(output.toSlot(), output.child());
             } else {
                 if (table instanceof OlapTable && ((OlapTable) table).hasSequenceCol()
                         && column.getName().equals(Column.SEQUENCE_COL)
@@ -319,6 +327,8 @@ public class BindSink implements AnalysisRuleFactory {
                             seqColumn = new Alias(seqColumn, column.getName());
                         }
                         columnToOutput.put(column.getName(), seqColumn);
+                        columnToReplaced.put(column.getName(), seqColumn.toSlot());
+                        replaceMap.put(seqColumn.toSlot(), seqColumn.child(0));
                     }
                 } else if (isPartialUpdate) {
                     // If the current load is a partial update, the values of unmentioned
@@ -335,9 +345,12 @@ public class BindSink implements AnalysisRuleFactory {
                         Expression defualtValueExpression = ExpressionAnalyzer.analyzeFunction(
                                 boundSink, ctx.cascadesContext, unboundFunctionDefaultValue
                         );
-                        columnToOutput.put(column.getName(),
-                                new Alias(defualtValueExpression, column.getName())
-                        );
+                        Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
+                                defualtValueExpression, DataType.fromCatalogType(column.getType())),
+                                column.getName());
+                        columnToOutput.put(column.getName(), output);
+                        columnToReplaced.put(column.getName(), output.toSlot());
+                        replaceMap.put(output.toSlot(), output.child());
                     } else {
                         continue;
                     }
@@ -350,10 +363,11 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                     // Otherwise, the unmentioned columns should be filled with default values
                     // or null values
-                    columnToOutput.put(column.getName(), new Alias(
-                            new NullLiteral(DataType.fromCatalogType(column.getType())),
-                            column.getName()
-                    ));
+                    Alias output = new Alias(new NullLiteral(DataType.fromCatalogType(column.getType())),
+                            column.getName());
+                    columnToOutput.put(column.getName(), output);
+                    columnToReplaced.put(column.getName(), output.toSlot());
+                    replaceMap.put(output.toSlot(), output.child());
                 } else {
                     try {
                         // it comes from the original planner, if default value expression is
@@ -372,13 +386,40 @@ public class BindSink implements AnalysisRuleFactory {
                             if (defualtValueExpression instanceof Alias) {
                                 defualtValueExpression = ((Alias) defualtValueExpression).child();
                             }
-                            columnToOutput.put(column.getName(),
-                                    new Alias(defualtValueExpression, column.getName()));
+                            Alias output = new Alias((TypeCoercionUtils.castIfNotSameType(
+                                    defualtValueExpression, DataType.fromCatalogType(column.getType()))),
+                                    column.getName());
+                            columnToOutput.put(column.getName(), output);
+                            columnToReplaced.put(column.getName(), output.toSlot());
+                            replaceMap.put(output.toSlot(), output.child());
                         }
                     } catch (Exception e) {
                         throw new AnalysisException(e.getMessage(), e.getCause());
                     }
                 }
+            }
+        }
+        for (Column column : materializedViewColumn) {
+            if (column.isMaterializedViewColumn()) {
+                List<SlotRef> refs = column.getRefColumns();
+                // now we have to replace the column to slots.
+                Preconditions.checkArgument(refs != null,
+                        "mv column %s 's ref column cannot be null", column);
+                Expression parsedExpression = expressionParser.parseExpression(
+                        column.getDefineExpr().toSqlWithoutTbl());
+                // the boundSlotExpression is an expression whose slots are bound but function
+                // may not be bound, we have to bind it again.
+                // for example: to_bitmap.
+                Expression boundExpression = new CustomExpressionAnalyzer(
+                        boundSink, ctx.cascadesContext, columnToReplaced).analyze(parsedExpression);
+                if (boundExpression instanceof Alias) {
+                    boundExpression = ((Alias) boundExpression).child();
+                }
+                boundExpression = ExpressionUtils.replace(boundExpression, replaceMap);
+                boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
+                        DataType.fromCatalogType(column.getType()));
+                Alias output = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
+                columnToOutput.put(column.getName(), output);
             }
         }
         return columnToOutput;
@@ -470,6 +511,64 @@ public class BindSink implements AnalysisRuleFactory {
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
     }
 
+    private Plan bindJdbcTableSink(MatchingContext<UnboundJdbcTableSink<Plan>> ctx) {
+        UnboundJdbcTableSink<?> sink = ctx.root;
+        Pair<JdbcExternalDatabase, JdbcExternalTable> pair = bind(ctx.cascadesContext, sink);
+        JdbcExternalDatabase database = pair.first;
+        JdbcExternalTable table = pair.second;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        List<Column> bindColumns;
+        if (sink.getColNames().isEmpty()) {
+            bindColumns = table.getBaseSchema(true).stream().collect(ImmutableList.toImmutableList());
+        } else {
+            bindColumns = sink.getColNames().stream().map(cn -> {
+                Column column = table.getColumn(cn);
+                if (column == null) {
+                    throw new AnalysisException(String.format("column %s is not found in table %s",
+                            cn, table.getName()));
+                }
+                return column;
+            }).collect(ImmutableList.toImmutableList());
+        }
+        LogicalJdbcTableSink<?> boundSink = new LogicalJdbcTableSink<>(
+                database,
+                table,
+                bindColumns,
+                child.getOutput().stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(ImmutableList.toImmutableList()),
+                sink.getDMLCommandType(),
+                Optional.empty(),
+                Optional.empty(),
+                child);
+        // we need to insert all the columns of the target table
+        if (boundSink.getCols().size() != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        Map<String, NamedExpression> columnToOutput = getJdbcColumnToOutput(bindColumns, child);
+        // We don't need to insert unmentioned columns, only user specified columns
+        LogicalProject<?> outputProject = getOutputProjectByCoercion(bindColumns, child, columnToOutput);
+        return boundSink.withChildAndUpdateOutput(outputProject);
+    }
+
+    private static Map<String, NamedExpression> getJdbcColumnToOutput(
+            List<Column> bindColumns, LogicalPlan child) {
+        Map<String, NamedExpression> columnToOutput = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
+
+        for (int i = 0; i < bindColumns.size(); i++) {
+            Column column = bindColumns.get(i);
+            NamedExpression outputExpr = child.getOutput().get(i);
+            Alias output = new Alias(
+                    TypeCoercionUtils.castIfNotSameType(outputExpr, DataType.fromCatalogType(column.getType())),
+                    column.getName()
+            );
+            columnToOutput.put(column.getName(), output);
+        }
+
+        return columnToOutput;
+    }
+
     private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, UnboundTableSink<? extends Plan> sink) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
@@ -513,6 +612,18 @@ public class BindSink implements AnalysisRuleFactory {
         throw new AnalysisException("the target table of insert into is not an iceberg table");
     }
 
+    private Pair<JdbcExternalDatabase, JdbcExternalTable> bind(CascadesContext cascadesContext,
+            UnboundJdbcTableSink<? extends Plan> sink) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                sink.getNameParts());
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+                cascadesContext.getConnectContext().getEnv());
+        if (pair.second instanceof JdbcExternalTable) {
+            return Pair.of(((JdbcExternalDatabase) pair.first), (JdbcExternalTable) pair.second);
+        }
+        throw new AnalysisException("the target table of insert into is not an jdbc table");
+    }
+
     private List<Long> bindPartitionIds(OlapTable table, List<String> partitions, boolean temp) {
         return partitions.isEmpty()
                 ? ImmutableList.of()
@@ -527,12 +638,14 @@ public class BindSink implements AnalysisRuleFactory {
     }
 
     private Pair<List<Column>, Integer> bindTargetColumns(OlapTable table, List<String> colsName,
-            boolean childHasSeqCol, boolean needExtraSeqCol) {
+            boolean childHasSeqCol, boolean needExtraSeqCol, boolean isGroupCommit) {
         // if the table set sequence column in stream load phase, the sequence map column is null, we query it.
         if (colsName.isEmpty()) {
+            // ATTN: group commit without column list should return all base index column
+            //   because it already prepares data for these columns.
             return Pair.of(table.getBaseSchema(true).stream()
-                .filter(c -> validColumn(c, childHasSeqCol))
-                .collect(ImmutableList.toImmutableList()), 0);
+                    .filter(c -> isGroupCommit || validColumn(c, childHasSeqCol))
+                    .collect(ImmutableList.toImmutableList()), 0);
         } else {
             int extraColumnsNum = (needExtraSeqCol ? 1 : 0);
             List<String> processedColsName = Lists.newArrayList(colsName);

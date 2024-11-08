@@ -86,16 +86,33 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
         return Status::Error<INVALID_ARGUMENT>("output parameter cannot be null");
     }
 
-    TabletSharedPtr ref_tablet =
+    TabletSharedPtr target_tablet =
             StorageEngine::instance()->tablet_manager()->get_tablet(request.tablet_id);
 
-    DBUG_EXECUTE_IF("SnapshotManager::make_snapshot.inject_failure", { ref_tablet = nullptr; })
+    DBUG_EXECUTE_IF("SnapshotManager::make_snapshot.inject_failure", { target_tablet = nullptr; })
 
-    if (ref_tablet == nullptr) {
+    if (target_tablet == nullptr) {
         return Status::Error<TABLE_NOT_FOUND>("failed to get tablet. tablet={}", request.tablet_id);
     }
 
-    res = _create_snapshot_files(ref_tablet, request, snapshot_path, allow_incremental_clone);
+    TabletSharedPtr ref_tablet = target_tablet;
+    if (request.__isset.ref_tablet_id) {
+        int64_t ref_tablet_id = request.ref_tablet_id;
+        TabletSharedPtr base_tablet =
+                StorageEngine::instance()->tablet_manager()->get_tablet(ref_tablet_id);
+
+        // Some tasks, like medium migration, cause the target tablet and base tablet to stay on
+        // different disks. In this case, we fall through to the normal restore path.
+        //
+        // Otherwise, we can directly link the rowset files from the base tablet to the target tablet.
+        if (base_tablet != nullptr &&
+            base_tablet->data_dir()->path() == target_tablet->data_dir()->path()) {
+            ref_tablet = std::move(base_tablet);
+        }
+    }
+
+    res = _create_snapshot_files(ref_tablet, target_tablet, request, snapshot_path,
+                                 allow_incremental_clone);
 
     if (!res.ok()) {
         LOG(WARNING) << "failed to make snapshot. res=" << res << " tablet=" << request.tablet_id;
@@ -368,6 +385,7 @@ Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets) {
 }
 
 Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet,
+                                               const TabletSharedPtr& target_tablet,
                                                const TSnapshotRequest& request,
                                                string* snapshot_path,
                                                bool* allow_incremental_clone) {
@@ -387,10 +405,10 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         timeout_s = request.timeout;
     }
     std::string snapshot_id_path;
-    res = _calc_snapshot_id_path(ref_tablet, timeout_s, &snapshot_id_path);
+    res = _calc_snapshot_id_path(target_tablet, timeout_s, &snapshot_id_path);
     if (!res.ok()) {
-        LOG(WARNING) << "failed to calc snapshot_id_path, ref tablet="
-                     << ref_tablet->data_dir()->path();
+        LOG(WARNING) << "failed to calc snapshot_id_path, tablet="
+                     << target_tablet->data_dir()->path();
         return res;
     }
 
@@ -398,12 +416,12 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
     // schema_full_path_desc.filepath:
     //      /snapshot_id_path/tablet_id/schema_hash/
-    auto schema_full_path = get_schema_hash_full_path(ref_tablet, snapshot_id_path);
+    auto schema_full_path = get_schema_hash_full_path(target_tablet, snapshot_id_path);
     // header_path:
     //      /schema_full_path/tablet_id.hdr
-    auto header_path = _get_header_full_path(ref_tablet, schema_full_path);
+    auto header_path = _get_header_full_path(target_tablet, schema_full_path);
     //      /schema_full_path/tablet_id.hdr.json
-    auto json_header_path = _get_json_header_full_path(ref_tablet, schema_full_path);
+    auto json_header_path = _get_json_header_full_path(target_tablet, schema_full_path);
     bool exists = true;
     RETURN_IF_ERROR(io::global_local_filesystem()->exists(schema_full_path, &exists));
     if (exists) {
@@ -415,13 +433,13 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     string snapshot_id;
     RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(snapshot_id_path, &snapshot_id));
 
+    std::vector<RowsetSharedPtr> consistent_rowsets;
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
             res = Status::Error<MEM_ALLOC_FAILED>("fail to malloc TabletMeta.");
             break;
         }
-        std::vector<RowsetSharedPtr> consistent_rowsets;
         DeleteBitmap delete_bitmap_snapshot(new_tablet_meta->tablet_id());
 
         /// If set missing_version, try to get all missing version.
@@ -585,7 +603,9 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         << rs->rowset_meta()->empty();
         }
         if (!res.ok()) {
-            LOG(WARNING) << "fail to create hard link. [path=" << snapshot_id_path << "]";
+            LOG(WARNING) << "fail to create hard link. path=" << snapshot_id_path
+                         << " tablet=" << target_tablet->tablet_id()
+                         << " ref tablet=" << ref_tablet->tablet_id();
             break;
         }
 
@@ -630,17 +650,16 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         }
 
         RowsetBinlogMetasPB rowset_binlog_metas_pb;
-        if (request.__isset.missing_version) {
-            res = ref_tablet->get_rowset_binlog_metas(request.missing_version,
-                                                      &rowset_binlog_metas_pb);
-        } else {
-            std::vector<TVersion> missing_versions;
-            res = ref_tablet->get_rowset_binlog_metas(missing_versions, &rowset_binlog_metas_pb);
+        for (auto& rs : consistent_rowsets) {
+            if (!rs->is_local()) {
+                continue;
+            }
+            res = ref_tablet->get_rowset_binlog_metas(rs->version(), &rowset_binlog_metas_pb);
+            if (!res.ok()) {
+                break;
+            }
         }
-        if (!res.ok()) {
-            break;
-        }
-        if (rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
+        if (!res.ok() || rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
             break;
         }
 

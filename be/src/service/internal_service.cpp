@@ -189,9 +189,11 @@ concept CanCancel = requires(T* response) { response->mutable_status(); };
 template <CanCancel T>
 void offer_failed(T* response, google::protobuf::Closure* done, const FifoThreadPool& pool) {
     brpc::ClosureGuard closure_guard(done);
-    response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
-    response->mutable_status()->add_error_msgs("fail to offer request to the work pool, pool=" +
-                                               pool.get_info());
+    // Should use status to generate protobuf message, because it will encoding Backend Info
+    // into the error message and then we could know which backend's pool is full.
+    Status st = Status::Error<TStatusCode::CANCELLED>(
+            "fail to offer request to the work pool, pool={}", pool.get_info());
+    st.to_protobuf(response->mutable_status());
     LOG(WARNING) << "cancelled due to fail to offer request to the work pool, pool="
                  << pool.get_info();
 }
@@ -784,8 +786,9 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         const TFileScanRangeParams& params = file_scan_range.params;
 
         std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
-                MemTrackerLimiter::Type::SCHEMA_CHANGE,
-                fmt::format("{}#{}", params.format_type, params.file_type));
+                MemTrackerLimiter::Type::OTHER,
+                fmt::format("InternalService::fetch_table_schema:{}#{}", params.format_type,
+                            params.file_type));
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(mem_tracker);
 
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
@@ -1110,6 +1113,11 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                 std::shared_ptr<PBackendService_Stub> stub(
                         ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
                                 host, brpc_port));
+                if (stub == nullptr) {
+                    LOG(WARNING) << "Failed to init rpc to " << host << ":" << brpc_port;
+                    st = Status::InternalError("Failed to init rpc to {}:{}", host, brpc_port);
+                    continue;
+                }
                 rpc_contexts[i].cid = rpc_contexts[i].cntl.call_id();
                 rpc_contexts[i].cntl.set_timeout_ms(config::fetch_remote_schema_rpc_timeout_ms);
                 stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
@@ -1676,17 +1684,11 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
                                       const PHandShakeRequest* request,
                                       PHandShakeResponse* response,
                                       google::protobuf::Closure* done) {
-    bool ret = _light_work_pool.try_offer([request, response, done]() {
-        brpc::ClosureGuard closure_guard(done);
-        if (request->has_hello()) {
-            response->set_hello(request->hello());
-        }
-        response->mutable_status()->set_status_code(0);
-    });
-    if (!ret) {
-        offer_failed(response, done, _light_work_pool);
-        return;
+    brpc::ClosureGuard closure_guard(done);
+    if (request->has_hello()) {
+        response->set_hello(request->hello());
     }
+    response->mutable_status()->set_status_code(0);
 }
 
 constexpr char HttpProtocol[] = "http://";
@@ -1975,7 +1977,7 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveDoneRequest* request,
         PTabletWriteSlaveDoneResult* response, google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+    bool ret = _light_work_pool.try_offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         VLOG_CRITICAL << "receive the result of slave replica pull rowset from slave replica. "
                          "slave server="

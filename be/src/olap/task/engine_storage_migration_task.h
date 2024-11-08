@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
 #define DORIS_BE_SRC_OLAP_TASK_ENGINE_STORAGE_MIGRATION_TASK_H
 
+#include <gen_cpp/olap_file.pb.h>
 #include <stdint.h>
 
 #include <mutex>
@@ -73,7 +74,8 @@ private:
     // TODO: hkp
     // rewrite this function
     Status _copy_index_and_data_files(const std::string& full_path,
-                                      const std::vector<RowsetSharedPtr>& consistent_rowsets) const;
+                                      const std::vector<RowsetSharedPtr>& consistent_rowsets,
+                                      RowsetBinlogMetasPB* all_binlog_metas_pb) const;
 
 private:
     // tablet to do migrated

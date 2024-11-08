@@ -169,6 +169,9 @@ Status DataTypeArraySerDe::deserialize_one_cell_from_hive_text(
     for (int idx = 0, start = 0; idx <= slice.size; idx++) {
         char c = (idx == slice.size) ? collection_delimiter : slice[idx];
         if (c == collection_delimiter) {
+            if (options.escape_char != 0 && idx > 0 && slice[idx - 1] == options.escape_char) {
+                continue;
+            }
             slices.emplace_back(slice.data + start, idx - start);
             start = idx + 1;
         }
@@ -189,7 +192,7 @@ Status DataTypeArraySerDe::deserialize_column_from_hive_text_vector(
     return Status::OK();
 }
 
-void DataTypeArraySerDe::serialize_one_cell_to_hive_text(
+Status DataTypeArraySerDe::serialize_one_cell_to_hive_text(
         const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -209,9 +212,10 @@ void DataTypeArraySerDe::serialize_one_cell_to_hive_text(
         if (i != start) {
             bw.write(delimiter);
         }
-        nested_serde->serialize_one_cell_to_hive_text(nested_column, i, bw, options,
-                                                      hive_text_complex_type_delimiter_level + 1);
+        RETURN_IF_ERROR(nested_serde->serialize_one_cell_to_hive_text(
+                nested_column, i, bw, options, hive_text_complex_type_delimiter_level + 1));
     }
+    return Status::OK();
 }
 
 void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
@@ -229,20 +233,24 @@ void DataTypeArraySerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWri
 Status DataTypeArraySerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
                                                   rapidjson::Document::AllocatorType& allocator,
                                                   Arena& mem_pool, int row_num) const {
-    // Use allocator instead of stack memory, since rapidjson hold the reference of String value
-    // otherwise causes stack use after free
-    auto& column_array = static_cast<const ColumnArray&>(column);
-    if (row_num > column_array.size()) {
-        return Status::InternalError("row num {} out of range {}!", row_num, column_array.size());
-    }
-    // void* mem = allocator.Malloc(sizeof(vectorized::Field));
-    void* mem = mem_pool.alloc(sizeof(vectorized::Field));
-    if (!mem) {
-        return Status::InternalError("Malloc failed");
-    }
-    vectorized::Field* array = new (mem) vectorized::Field(column_array[row_num]);
+    auto res = check_column_const_set_readability(column, row_num);
+    ColumnPtr ptr = res.first;
+    row_num = res.second;
 
-    convert_field_to_rapidjson(*array, result, allocator);
+    const auto& data_column = assert_cast<const ColumnArray&>(*ptr);
+    const auto& offsets = data_column.get_offsets();
+
+    size_t offset = offsets[row_num - 1];
+    size_t next_offset = offsets[row_num];
+
+    const IColumn& nested_column = data_column.get_data();
+    result.SetArray();
+    for (size_t i = offset; i < next_offset; ++i) {
+        rapidjson::Value val;
+        RETURN_IF_ERROR(
+                nested_serde->write_one_cell_to_json(nested_column, val, allocator, mem_pool, i));
+        result.PushBack(val, allocator);
+    }
     return Status::OK();
 }
 

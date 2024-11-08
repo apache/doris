@@ -71,6 +71,7 @@ import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.MinMaxPriorityQueue;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import org.apache.logging.log4j.LogManager;
@@ -81,9 +82,9 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * TabletScheduler saved the tablets produced by TabletChecker and try to schedule them.
@@ -120,7 +121,7 @@ public class TabletScheduler extends MasterDaemon {
      *
      * pendingTablets, allTabletTypes, runningTablets and schedHistory are protected by 'synchronized'
      */
-    private PriorityQueue<TabletSchedCtx> pendingTablets = new PriorityQueue<>();
+    private MinMaxPriorityQueue<TabletSchedCtx> pendingTablets = MinMaxPriorityQueue.create();
     private Map<Long, TabletSchedCtx.Type> allTabletTypes = Maps.newHashMap();
     // contains all tabletCtxs which state are RUNNING
     private Map<Long, TabletSchedCtx> runningTablets = Maps.newHashMap();
@@ -149,6 +150,7 @@ public class TabletScheduler extends MasterDaemon {
         ADDED, // success to add
         ALREADY_IN, // already added, skip
         LIMIT_EXCEED, // number of pending tablets exceed the limit
+        REPLACE_ADDED,  // succ to add, and envit a lowest task
         DISABLED // scheduler has been disabled.
     }
 
@@ -268,12 +270,22 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.ALREADY_IN;
         }
 
+        AddResult addResult = AddResult.ADDED;
         // if this is not a force add,
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
-        if (!force && (pendingTablets.size() > Config.max_scheduling_tablets
-                || runningTablets.size() > Config.max_scheduling_tablets)) {
-            return AddResult.LIMIT_EXCEED;
+        if (!force && (pendingTablets.size() >= Config.max_scheduling_tablets
+                || runningTablets.size() >= Config.max_scheduling_tablets)) {
+            // For a sched tablet, if its compare value is bigger, it will be more close to queue's tail position,
+            // and its priority is lower.
+            TabletSchedCtx lowestPriorityTablet = pendingTablets.peekLast();
+            if (lowestPriorityTablet == null || lowestPriorityTablet.compareTo(tablet) <= 0) {
+                return AddResult.LIMIT_EXCEED;
+            }
+            addResult = AddResult.REPLACE_ADDED;
+            pendingTablets.pollLast();
+            finalizeTabletCtx(lowestPriorityTablet, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE,
+                    "envit lower priority sched tablet because pending queue is full");
         }
 
         if (!contains || tablet.getType() == TabletSchedCtx.Type.REPAIR) {
@@ -285,7 +297,7 @@ public class TabletScheduler extends MasterDaemon {
             LOG.info("Add tablet to pending queue, {}", tablet);
         }
 
-        return AddResult.ADDED;
+        return addResult;
     }
 
 
@@ -306,11 +318,12 @@ public class TabletScheduler extends MasterDaemon {
      * Iterate current tablets, change their priority to VERY_HIGH if necessary.
      */
     public synchronized void changeTabletsPriorityToVeryHigh(long dbId, long tblId, List<Long> partitionIds) {
-        PriorityQueue<TabletSchedCtx> newPendingTablets = new PriorityQueue<>();
+        MinMaxPriorityQueue<TabletSchedCtx> newPendingTablets = MinMaxPriorityQueue.create();
         for (TabletSchedCtx tabletCtx : pendingTablets) {
             if (tabletCtx.getDbId() == dbId && tabletCtx.getTblId() == tblId
                     && partitionIds.contains(tabletCtx.getPartitionId())) {
                 tabletCtx.setPriority(Priority.VERY_HIGH);
+                tabletCtx.setLastVisitedTime(1L);
             }
             newPendingTablets.add(tabletCtx);
         }
@@ -1508,7 +1521,13 @@ public class TabletScheduler extends MasterDaemon {
         List<BePathLoadStatPair> allFitPaths =
                 !allFitPathsSameMedium.isEmpty() ? allFitPathsSameMedium : allFitPathsDiffMedium;
         if (allFitPaths.isEmpty()) {
-            throw new SchedException(Status.UNRECOVERABLE, "unable to find dest path for new replica");
+            List<String> backendsInfo = Env.getCurrentSystemInfo().getAllBackends().stream()
+                    .filter(be -> be.getLocationTag() == tag)
+                    .map(Backend::getDetailsForCreateReplica)
+                    .collect(Collectors.toList());
+            throw new SchedException(Status.UNRECOVERABLE, String.format("unable to find dest path for new replica"
+                    + " for replica allocation { %s } with tag %s storage medium %s, backends on this tag is: %s",
+                    tabletCtx.getReplicaAlloc(), tag, tabletCtx.getStorageMedium(), backendsInfo));
         }
 
         BePathLoadStatPairComparator comparator = new BePathLoadStatPairComparator(allFitPaths);
@@ -1745,7 +1764,7 @@ public class TabletScheduler extends MasterDaemon {
             slotNum = 1;
         }
         while (list.size() < Config.schedule_batch_size && slotNum > 0) {
-            TabletSchedCtx tablet = pendingTablets.poll();
+            TabletSchedCtx tablet = pendingTablets.pollFirst();
             if (tablet == null) {
                 // no more tablets
                 break;
@@ -1945,6 +1964,11 @@ public class TabletScheduler extends MasterDaemon {
             // so need to reset replica state.
             finalizeTabletCtx(t, TabletSchedCtx.State.CANCELLED, Status.UNRECOVERABLE, t.getErrMsg());
         });
+    }
+
+    // only use for fe ut
+    public MinMaxPriorityQueue<TabletSchedCtx> getPendingTabletQueue() {
+        return pendingTablets;
     }
 
     public List<List<String>> getPendingTabletsInfo(int limit) {

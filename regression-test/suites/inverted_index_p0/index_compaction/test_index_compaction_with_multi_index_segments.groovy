@@ -135,6 +135,7 @@ suite("test_index_compaction_with_multi_index_segments", "nonConcurrent") {
         // check config
         check_config.call("inverted_index_compaction_enable", "true")
         check_config.call("inverted_index_max_buffered_docs", "5")
+        sql """ set enable_common_expr_pushdown = true """
 
         /**
         * test duplicated tables

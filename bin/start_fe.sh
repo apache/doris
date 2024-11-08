@@ -194,7 +194,7 @@ java_version="$(
 final_java_opt="${JAVA_OPTS}"
 if [[ "${java_version}" -gt 16 ]]; then
     if [[ -z "${JAVA_OPTS_FOR_JDK_17}" ]]; then
-        log "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf"
+        echo "JAVA_OPTS_FOR_JDK_17 is not set in fe.conf"
         exit 1
     fi
     final_java_opt="${JAVA_OPTS_FOR_JDK_17}"

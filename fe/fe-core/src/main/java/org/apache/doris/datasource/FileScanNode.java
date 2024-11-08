@@ -81,7 +81,7 @@ public abstract class FileScanNode extends ExternalScanNode {
         initFileSplitSize();
     }
 
-    private void initFileSplitSize() {
+    protected void initFileSplitSize() {
         this.fileSplitSize = ConnectContext.get().getSessionVariable().getFileSplitSize();
         this.isSplitSizeSetBySession = this.fileSplitSize > 0;
         if (this.fileSplitSize <= 0) {
@@ -124,13 +124,14 @@ public abstract class FileScanNode extends ExternalScanNode {
         output.append(prefix);
         if (isBatchMode()) {
             output.append("(approximate)");
+            splitAssignment.stop();
         }
         output.append("inputSplitNum=").append(selectedSplitNum).append(", totalFileSize=")
             .append(totalFileSize).append(", scanRanges=").append(scanRangeLocations.size()).append("\n");
         output.append(prefix).append("partition=").append(selectedPartitionNum).append("/").append(totalPartitionNum)
             .append("\n");
 
-        if (detailLevel == TExplainLevel.VERBOSE) {
+        if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
             output.append(prefix).append("backends:").append("\n");
             Multimap<Long, TFileRangeDesc> scanRangeLocationsMap = ArrayListMultimap.create();
             // 1. group by backend id

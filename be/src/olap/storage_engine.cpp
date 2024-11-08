@@ -77,6 +77,7 @@
 #include "olap/txn_manager.h"
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
+#include "util/mem_info.h"
 #include "util/metrics.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
@@ -138,6 +139,9 @@ StorageEngine::StorageEngine(const EngineOptions& options)
     });
 
     _broken_paths = options.broken_paths;
+
+    _memory_limitation_bytes_for_schema_change =
+            static_cast<int64_t>(MemInfo::soft_mem_limit() * config::schema_change_mem_limit_frac);
 }
 
 StorageEngine::~StorageEngine() {
@@ -168,6 +172,11 @@ Status StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
         }
     }
     return Status::OK();
+}
+
+int64_t StorageEngine::memory_limitation_bytes_per_thread_for_schema_change() const {
+    return std::max(_memory_limitation_bytes_for_schema_change / config::alter_tablet_worker_count,
+                    config::memory_limitation_per_thread_for_schema_change_bytes);
 }
 
 Status StorageEngine::_open() {

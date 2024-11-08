@@ -235,7 +235,7 @@ fi
 
 for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
     if [[ -n ${!var} ]]; then
-        log "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
         exit 1
     fi
 done
@@ -267,7 +267,8 @@ fi
 export AWS_MAX_ATTEMPTS=2
 
 ## set asan and ubsan env to generate core file
-export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0
+## detect_container_overflow=0, https://github.com/google/sanitizers/issues/193
+export ASAN_OPTIONS=symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:detect_container_overflow=0:check_malloc_usable_size=0
 export UBSAN_OPTIONS=print_stacktrace=1
 
 ## set TCMALLOC_HEAP_LIMIT_MB to limit memory used by tcmalloc
@@ -302,7 +303,7 @@ set_tcmalloc_heap_limit() {
     fi
 
     if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
-        log "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
+        echo "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
         return 1
     fi
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}

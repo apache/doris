@@ -63,16 +63,47 @@ suite("test_array_contains_with_inverted_index"){
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', '0974e7a82e30d1af83205e474fadd0a2', '[\"w\"]'); """
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', '26823b3995ee38bd145ddd910b2f6300', '[\"x\"]'); """
     sql """ INSERT INTO `${indexTblName}`(`apply_date`, `id`, `inventors`) VALUES ('2019-01-01', 'ee27ee1da291e46403c408e220bed6e1', '[\"y\"]'); """
+    sql """ set enable_common_expr_pushdown = true """
 
     qt_sql """ select count() from ${indexTblName}"""
-    order_qt_sql """ select * from tai where array_contains(inventors, 's') order by id; """
+    def param_contains = ["\'s\'", "\'\'", null]
+    for (i = 0 ; i < param_contains.size(); ++i) {
+        def p = param_contains[i]
+        log.info("param: ${p}")
+        order_qt_sql """ select * from tai where array_contains(inventors, ${p}) order by id; """
+        order_qt_sql """ select * from tai where array_contains(inventors, ${p}) and apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select * from tai where array_contains(inventors, ${p}) and apply_date = '2019-01-01' order by id; """
+        order_qt_sql """ select * from tai where array_contains(inventors, ${p}) or apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select * from tai where !array_contains(inventors, ${p}) order by id; """
+        order_qt_sql """ select * from tai where !array_contains(inventors, ${p}) and apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select * from tai where !array_contains(inventors, ${p}) and apply_date = '2019-01-01' order by id; """
+        order_qt_sql """ select * from tai where !array_contains(inventors, ${p}) or apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select * from tai where (array_contains(inventors, ${p}) and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
+    }
 
-    order_qt_sql """ select * from tai where array_contains(inventors, 's') and apply_date = '2017-01-01' order by id; """
-    order_qt_sql """ select * from tai where array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """
-    order_qt_sql """ select * from tai where array_contains(inventors, 's') or apply_date = '2017-01-01' order by id; """
-    order_qt_sql """ select * from tai where !array_contains(inventors, 's') order by id; """
-    order_qt_sql """ select * from tai where !array_contains(inventors, 's') and apply_date = '2017-01-01' order by id; """
-    order_qt_sql """ select * from tai where !array_contains(inventors, 's') and apply_date = '2019-01-01' order by id; """
-    order_qt_sql """ select * from tai where !array_contains(inventors, 's') or apply_date = '2017-01-01' order by id; """
-    order_qt_sql """ select * from tai where (array_contains(inventors, 's') and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
+    // test arrays_overlap with inverted index
+    // now if we use inverted index we will not eval exprs
+    def param = [["\'s\'", "\'t\'"], [], null, ["\'s\'", "\'\'", "\'t\'"], ["\'s\'", null, "\'t\'"], [null, "\'\'"], ["\'s\'", null, "\'t\'", "\'\'"]] // null for arrays_overlap will return null which in predicate will lead to return empty set
+    for (i = 0 ; i < param.size(); ++i) {
+        def p = param[i]
+        log.info("param: ${p}")
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where arrays_overlap(inventors, ${p}) order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ * from tai where arrays_overlap(inventors, ${p}) order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where arrays_overlap(inventors, ${p}) and apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ * from tai where arrays_overlap(inventors, ${p}) and apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where arrays_overlap(inventors, ${p}) and apply_date = '2019-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ * from tai where arrays_overlap(inventors, ${p}) and apply_date = '2019-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where arrays_overlap(inventors, ${p}) or apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ * from tai where arrays_overlap(inventors, ${p}) or apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where !arrays_overlap(inventors, ${p}) order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ * from tai where !arrays_overlap(inventors, ${p}) order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where !arrays_overlap(inventors, ${p}) and apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ * from tai where !arrays_overlap(inventors, ${p}) and apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where !arrays_overlap(inventors, ${p}) and apply_date = '2019-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ * from tai where !arrays_overlap(inventors, ${p}) and apply_date = '2019-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where !arrays_overlap(inventors, ${p}) or apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ * from tai where !arrays_overlap(inventors, ${p}) or apply_date = '2017-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = true)*/ * from tai where (arrays_overlap(inventors, ${p}) and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
+        order_qt_sql """ select /*+SET_VAR(enable_common_expr_pushdown = false)*/ * from tai where (arrays_overlap(inventors, ${p}) and apply_date = '2017-01-01') or apply_date = '2019-01-01' order by id; """
+    }
 }

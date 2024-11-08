@@ -54,7 +54,7 @@ public:
     ~LRUFileCache() override {
         _close = true;
         if (_cache_background_load_thread.joinable()) {
-            _cache_background_thread.join();
+            _cache_background_load_thread.join();
         }
         if (_cache_background_thread.joinable()) {
             _cache_background_thread.join();

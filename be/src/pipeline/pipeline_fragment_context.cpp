@@ -813,7 +813,7 @@ void PipelineFragmentContext::close_if_prepare_failed(Status /*st*/) {
         DCHECK(!task->is_pending_finish());
         WARN_IF_ERROR(task->close(Status::OK()),
                       fmt::format("Query {} closed since prepare failed", print_id(_query_id)));
-        close_a_pipeline();
+        close_a_pipeline(task->pipeline_id());
     }
 }
 
@@ -846,6 +846,10 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
         break;
     }
     case TDataSinkType::GROUP_COMMIT_BLOCK_SINK: {
+#ifndef NDEBUG
+        DCHECK(state->get_query_ctx() != nullptr);
+        state->get_query_ctx()->query_mem_tracker->is_group_commit_load = true;
+#endif
         sink_ = std::make_shared<GroupCommitBlockSinkOperatorBuilder>(next_operator_builder_id(),
                                                                       _sink.get());
         break;
@@ -956,7 +960,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
             std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 
-void PipelineFragmentContext::close_a_pipeline() {
+void PipelineFragmentContext::close_a_pipeline(PipelineId pipeline_id) {
     std::lock_guard<std::mutex> l(_task_mutex);
     g_pipeline_tasks_count << -1;
     ++_closed_tasks;

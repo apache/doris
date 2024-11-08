@@ -122,6 +122,7 @@ public:
                                      const std::string& msg);
     Status cancel_pipeline_context(const int fragment_id, const PPlanFragmentCancelReason& reason,
                                    const std::string& msg);
+    std::string print_all_pipeline_context();
     void set_pipeline_context(const int fragment_id,
                               std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
     void cancel(std::string msg, Status new_status, int fragment_id = -1);

@@ -82,6 +82,7 @@ LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profil
 }
 
 LoadStreamWriter::~LoadStreamWriter() {
+    g_load_stream_file_writer_cnt << -_segment_file_writers.size();
     g_load_stream_writer_cnt << -1;
 }
 
@@ -152,7 +153,6 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
         _is_canceled = true;
         return st;
     }
-    g_load_stream_file_writer_cnt << -1;
     LOG(INFO) << "segment " << segid << " path " << file_writer->path().native()
               << "closed, written " << file_writer->bytes_appended() << " bytes";
     if (file_writer->bytes_appended() == 0) {

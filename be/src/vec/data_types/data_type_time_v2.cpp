@@ -116,13 +116,15 @@ void DataTypeDateV2::cast_to_date_time_v2(const UInt32 from, UInt64& to) {
 void DataTypeDateV2::cast_from_date(const Int64 from, UInt32& to) {
     auto& to_value = (DateV2Value<DateV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
-    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0, 0);
+    to_value.unchecked_set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0,
+                                0);
 }
 
 void DataTypeDateV2::cast_from_date_time(const Int64 from, UInt32& to) {
     auto& to_value = (DateV2Value<DateV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
-    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0, 0);
+    to_value.unchecked_set_time(from_value.year(), from_value.month(), from_value.day(), 0, 0, 0,
+                                0);
 }
 
 bool DataTypeDateTimeV2::equals(const IDataType& rhs) const {
@@ -202,15 +204,15 @@ void DataTypeDateTimeV2::cast_to_date(const UInt64 from, Int64& to) {
 void DataTypeDateTimeV2::cast_from_date(const Int64 from, UInt64& to) {
     auto& to_value = (DateV2Value<DateTimeV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
-    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), from_value.hour(),
-                      from_value.minute(), from_value.second(), 0);
+    to_value.unchecked_set_time(from_value.year(), from_value.month(), from_value.day(),
+                                from_value.hour(), from_value.minute(), from_value.second(), 0);
 }
 
 void DataTypeDateTimeV2::cast_from_date_time(const Int64 from, UInt64& to) {
     auto& to_value = (DateV2Value<DateTimeV2ValueType>&)(to);
     auto from_value = binary_cast<Int64, VecDateTimeValue>(from);
-    to_value.set_time(from_value.year(), from_value.month(), from_value.day(), from_value.hour(),
-                      from_value.minute(), from_value.second(), 0);
+    to_value.unchecked_set_time(from_value.year(), from_value.month(), from_value.day(),
+                                from_value.hour(), from_value.minute(), from_value.second(), 0);
 }
 
 void DataTypeDateTimeV2::cast_to_date_v2(const UInt64 from, UInt32& to) {

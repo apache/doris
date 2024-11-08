@@ -79,11 +79,6 @@ public class HistogramTask extends BaseAnalysisTask {
                 tbl.getDatabase().getCatalog().getId(), tbl.getDatabase().getId(), tbl.getId(), -1, col.getName());
     }
 
-    @Override
-    protected void afterExecution() {
-        // DO NOTHING
-    }
-
     private String getSampleRateFunction() {
         if (info.analysisMethod == AnalysisMethod.FULL) {
             return "0";

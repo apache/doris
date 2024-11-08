@@ -70,9 +70,7 @@ import java.util.Optional;
  */
 public class OlapInsertExecutor extends AbstractInsertExecutor {
     private static final Logger LOG = LogManager.getLogger(OlapInsertExecutor.class);
-    private static final long INVALID_TXN_ID = -1L;
-    private long txnId = INVALID_TXN_ID;
-    private TransactionStatus txnStatus = TransactionStatus.ABORTED;
+    protected TransactionStatus txnStatus = TransactionStatus.ABORTED;
 
     /**
      * constructor
@@ -80,10 +78,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     public OlapInsertExecutor(ConnectContext ctx, Table table,
             String labelName, NereidsPlanner planner, Optional<InsertCommandContext> insertCtx, boolean emptyInsert) {
         super(ctx, table, labelName, planner, insertCtx, emptyInsert);
-    }
-
-    public long getTxnId() {
-        return txnId;
     }
 
     @Override
@@ -180,6 +174,7 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
                         .createLocation(database.getId(), olapTableSink.getDstTable());
                 dataStreamSink.setTabletSinkLocationParam(locationParams.get(0));
                 dataStreamSink.setTabletSinkTxnId(olapTableSink.getTxnId());
+                dataStreamSink.setTabletSinkExprs(fragment.getOutputExprs());
             }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);

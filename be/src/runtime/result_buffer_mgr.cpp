@@ -32,6 +32,7 @@
 
 #include "arrow/record_batch.h"
 #include "arrow/type_fwd.h"
+#include "common/status.h"
 #include "runtime/buffer_control_block.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
@@ -150,13 +151,13 @@ Status ResultBufferMgr::fetch_arrow_data(const TUniqueId& finst_id,
     return Status::OK();
 }
 
-void ResultBufferMgr::cancel(const TUniqueId& query_id) {
+void ResultBufferMgr::cancel(const TUniqueId& query_id, const Status& reason) {
     {
         std::unique_lock<std::shared_mutex> wlock(_buffer_map_lock);
         BufferMap::iterator iter = _buffer_map.find(query_id);
 
         if (_buffer_map.end() != iter) {
-            iter->second->cancel();
+            iter->second->cancel(reason);
             _buffer_map.erase(iter);
         }
     }
@@ -206,7 +207,7 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (int i = 0; i < query_to_cancel.size(); ++i) {
-            cancel(query_to_cancel[i]);
+            cancel(query_to_cancel[i], Status::TimedOut("Query tiemout"));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

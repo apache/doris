@@ -26,6 +26,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
@@ -149,17 +150,15 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         colToColStatsMeta.remove(Pair.of(indexName, colName));
     }
 
-    public void removeAllColumn() {
-        colToColStatsMeta.clear();
-    }
-
     public Set<Pair<String, String>> analyzeColumns() {
         return colToColStatsMeta.keySet();
     }
 
     public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
         updatedTime = analyzedJob.tblUpdateTime;
-        userInjected = analyzedJob.userInject;
+        if (analyzedJob.userInject) {
+            userInjected = true;
+        }
         for (Pair<String, String> colPair : analyzedJob.jobColumns) {
             ColStatsMeta colStatsMeta = colToColStatsMeta.get(colPair);
             if (colStatsMeta == null) {
@@ -179,14 +178,17 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
                 indexesRowCount.putAll(analyzedJob.indexesRowCount);
                 clearStaleIndexRowCount((OlapTable) tableIf);
             }
-            if (analyzedJob.emptyJob) {
-                return;
-            }
             if (analyzedJob.jobColumns.containsAll(
                     tableIf.getColumnIndexPairs(
-                    tableIf.getSchemaAllIndexes(false).stream().map(Column::getName).collect(Collectors.toSet())))) {
+                    tableIf.getSchemaAllIndexes(false).stream()
+                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                            .map(Column::getName).collect(Collectors.toSet())))) {
                 updatedRows.set(0);
                 newPartitionLoaded.set(false);
+            }
+            // Set userInject back to false after manual analyze.
+            if (JobType.MANUAL.equals(jobType) && !analyzedJob.userInject) {
+                userInjected = false;
             }
         }
     }
@@ -212,18 +214,19 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         return indexesRowCount.getOrDefault(indexId, -1L);
     }
 
-    public void clearIndexesRowCount() {
-        indexesRowCount.clear();
-    }
-
-    private void clearStaleIndexRowCount(OlapTable table) {
+    protected void clearStaleIndexRowCount(OlapTable table) {
         Iterator<Long> iterator = indexesRowCount.keySet().iterator();
-        List<Long> indexIds = table.getIndexIds();
+        List<Long> indexIds = table.getIndexIdList();
         while (iterator.hasNext()) {
             long key = iterator.next();
-            if (indexIds.contains(key)) {
+            if (!indexIds.contains(key)) {
                 iterator.remove();
             }
         }
+    }
+
+    // For unit test only.
+    protected void addIndexRowForTest(long indexId, long rowCount) {
+        indexesRowCount.put(indexId, rowCount);
     }
 }

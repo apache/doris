@@ -49,4 +49,10 @@ suite("fold_constant_by_be") {
     qt_sql "explain select sleep(sign(1)*100);"
     sql 'set query_timeout=12;'
     qt_sql "select sleep(sign(1)*10);"
+    
+    explain {
+        sql("verbose select substring('123456', 1, 3)")
+        contains "varchar(3)"
+    }
+
 }

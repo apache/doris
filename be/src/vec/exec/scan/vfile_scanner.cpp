@@ -382,8 +382,8 @@ Status VFileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool*
                 // or not found in the file column schema.
                 RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
             }
-            break;
         }
+        break;
     } while (true);
 
     // Update filtered rows and unselected rows for load, reset counter.
@@ -481,8 +481,9 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
                 remove_nullable(return_type)->get_type_as_type_descriptor());
         ColumnsWithTypeAndName arguments {
                 arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
-        auto func_cast =
-                SimpleFunctionFactory::instance().get_function("CAST", arguments, return_type);
+        auto func_cast = SimpleFunctionFactory::instance().get_function(
+                "CAST", arguments, return_type,
+                {.enable_decimal256 = runtime_state()->enable_decimal256()});
         idx = _src_block_name_to_idx[slot_desc->col_name()];
         RETURN_IF_ERROR(
                 func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
@@ -801,6 +802,9 @@ Status VFileScanner::_get_next_reader() {
                 range.table_format_params.table_format_type == "max_compute") {
                 const auto* mc_desc = static_cast<const MaxComputeTableDescriptor*>(
                         _real_tuple_desc->table_desc());
+                if (!mc_desc->init_status()) {
+                    return mc_desc->init_status();
+                }
                 std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
                         mc_desc, range.table_format_params.max_compute_params, _file_slot_descs,
                         range, _state, _profile);
@@ -826,7 +830,7 @@ Status VFileScanner::_get_next_reader() {
             std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                     _profile, *_params, range, _state->query_options().batch_size,
                     const_cast<cctz::time_zone*>(&_state->timezone_obj()), _io_ctx.get(), _state,
-                    _shoudl_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
+                    _should_enable_file_meta_cache() ? ExecEnv::GetInstance()->file_meta_cache()
                                                      : nullptr,
                     _state->query_options().enable_parquet_lazy_mat);
             {
@@ -841,7 +845,7 @@ Status VFileScanner::_get_next_reader() {
                 std::unique_ptr<IcebergParquetReader> iceberg_reader =
                         IcebergParquetReader::create_unique(std::move(parquet_reader), _profile,
                                                             _state, *_params, range, _kv_cache,
-                                                            _io_ctx.get(), _get_push_down_count());
+                                                            _io_ctx.get());
                 init_status = iceberg_reader->init_reader(
                         _file_col_names, _col_id_name_map, _colname_to_value_range,
                         _push_down_conjuncts, _real_tuple_desc, _default_val_row_desc.get(),
@@ -911,9 +915,9 @@ Status VFileScanner::_get_next_reader() {
                 _cur_reader = std::move(tran_orc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "iceberg") {
-                std::unique_ptr<IcebergOrcReader> iceberg_reader = IcebergOrcReader::create_unique(
-                        std::move(orc_reader), _profile, _state, *_params, range, _kv_cache,
-                        _io_ctx.get(), _get_push_down_count());
+                std::unique_ptr<IcebergOrcReader> iceberg_reader =
+                        IcebergOrcReader::create_unique(std::move(orc_reader), _profile, _state,
+                                                        *_params, range, _kv_cache, _io_ctx.get());
 
                 init_status = iceberg_reader->init_reader(
                         _file_col_names, _col_id_name_map, _colname_to_value_range,

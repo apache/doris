@@ -321,7 +321,7 @@ public class Config extends ConfigBase {
                     + "The connection is abandoned if the clock skew is larger than this value."})
     public static long max_bdbje_clock_delta_ms = 5000; // 5s
 
-    @ConfField(description = {"是否启用所有 http 接口的认证",
+    @ConfField(mutable = true, description = {"是否启用所有 http 接口的认证",
             "Whether to enable all http interface authentication"}, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_all_http_auth = false;
 
@@ -494,6 +494,10 @@ public class Config extends ConfigBase {
             "print log interval for publish transaction failed interval"})
     public static long publish_fail_log_interval_second = 5 * 60;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"一个 PUBLISH_VERSION 任务打印失败日志的次数上限",
+            "the upper limit of failure logs of PUBLISH_VERSION task"})
+    public static long publish_version_task_failed_log_threshold = 80;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -552,6 +556,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交数据量，单位是字节，默认128M",
             "Default commit data bytes for group commit"})
     public static int group_commit_data_bytes_default_value = 134217728;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "内部攒批的超时时间为table的group_commit_interval_ms的倍数",
+            "The internal group commit timeout is the multiple of table's group_commit_interval_ms"})
+    public static int group_commit_timeout_multipler = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
@@ -1195,6 +1204,12 @@ public class Config extends ConfigBase {
     public static int max_routine_load_task_num_per_be = 1024;
 
     /**
+     * routine load timeout is equal to maxBatchIntervalS * routine_load_task_timeout_multiplier.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int routine_load_task_timeout_multiplier = 10;
+
+    /**
      * the max timeout of get kafka meta.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1527,6 +1542,22 @@ public class Config extends ConfigBase {
     public static int max_backup_restore_job_num_per_db = 10;
 
     /**
+     * A internal config, to reduce the restore job size during serialization by compress.
+     *
+     * WARNING: Once this option is enabled and a restore is performed, the FE version cannot be rolled back.
+     */
+    @ConfField(mutable = false)
+    public static boolean restore_job_compressed_serialization = false;
+
+    /**
+     * A internal config, to reduce the backup job size during serialization by compress.
+     *
+     * WARNING: Once this option is enabled and a backup is performed, the FE version cannot be rolled back.
+     */
+    @ConfField(mutable = false)
+    public static boolean backup_job_compressed_serialization = false;
+
+    /**
      * Control the max num of tablets per backup job involved.
      */
     @ConfField(mutable = true, masterOnly = true, description = {
@@ -1713,7 +1744,7 @@ public class Config extends ConfigBase {
      * corresponding type of job
      * The value should be greater than 0, if it is 0 or <=0, set it to 5
      */
-    @ConfField(description = {"用于分发定时任务的线程数",
+    @ConfField(masterOnly = true, description = {"用于分发定时任务的线程数",
             "The number of threads used to dispatch timer job."})
     public static int job_dispatch_timer_job_thread_num = 2;
 
@@ -1724,24 +1755,34 @@ public class Config extends ConfigBase {
      * {@code @dispatch_timer_job_thread_num}
      * The value should be greater than 0, if it is 0 or <=0, set it to 1024
      */
-    @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
+    @ConfField(masterOnly = true, description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
-    @ConfField(description = {"一个 Job 的 task 最大的持久化数量，超过这个限制将会丢弃旧的 task 记录, 如果值 < 1, 将不会持久化。",
+    @ConfField(masterOnly = true, description = {"一个 Job 的 task 最大的持久化数量，超过这个限制将会丢弃旧的 task 记录, 如果值 < 1, 将不会持久化。",
             "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
                    + "If the value is less than 1, it will not be persisted." })
     public static int max_persistence_task_count = 100;
-    @ConfField(description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
+    @ConfField(masterOnly = true, description = {"MV task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近的"
+            + " 2 的幂次方数", "The size of the MV task's waiting queue If the size is negative, 1024 will be used. If "
+            + "the size is not a power of two, the nearest power of the size will be"
+            + " automatically selected."})
+    public static int mtmv_task_queue_size = 1024;
+    @ConfField(masterOnly = true, description = {"Insert task 的等待队列大小，如果是负数，则会使用 1024，如果不是 2 的幂，则会自动选择一个最接近"
+            + " 的 2 的幂次方数", "The size of the Insert task's waiting queue If the size is negative, 1024 will be used."
+            + " If the size is not a power of two, the nearest power of the size will "
+            + "be automatically selected."})
+    public static int insert_task_queue_size = 1024;
+    @ConfField(masterOnly = true, description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
             "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
     public static int finished_job_cleanup_threshold_time_hour = 24;
 
-    @ConfField(description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为5",
+    @ConfField(masterOnly = true, description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为10",
             "The number of threads used to consume Insert tasks, "
-                    + "the value should be greater than 0, if it is <=0, default is 5."})
+                    + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_insert_task_consumer_thread_num = 10;
 
-    @ConfField(description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为5",
+    @ConfField(masterOnly = true, description = {"用于执行 MTMV 任务的线程数,值应该大于0，否则默认为10",
             "The number of threads used to consume mtmv tasks, "
-                    + "the value should be greater than 0, if it is <=0, default is 5."})
+                    + "the value should be greater than 0, if it is <=0, default is 10."})
     public static int job_mtmv_task_consumer_thread_num = 10;
 
     /* job test config */
@@ -1849,7 +1890,7 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 5;
+    public static int max_be_exec_version = 6;
 
     /**
      * Min data version of backends serialize block.
@@ -2320,6 +2361,11 @@ public class Config extends ConfigBase {
             "Whether to enable binlog feature"})
     public static boolean enable_feature_binlog = false;
 
+    @ConfField(mutable = false, description = {
+            "是否默认为 Database/Table 启用binlog特性",
+            "Whether to enable binlog feature for Database/Table by default"})
+    public static boolean force_enable_feature_binlog = false;
+
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
         "设置 binlog 消息最字节长度",
         "Set the maximum byte length of binlog message"})
@@ -2612,6 +2658,13 @@ public class Config extends ConfigBase {
     })
     public static int restore_download_task_num_per_be = 3;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "备份恢复过程中，单次 RPC 分配给每个be的任务最大个数，默认值为10000个。",
+            "The max number of batched tasks per RPC assigned to each be during the backup/restore process, "
+            + "the default value is 10000."
+    })
+    public static int backup_restore_batch_task_num_per_rpc = 10000;
+
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
@@ -2802,4 +2855,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"表示最大锁持有时间，超过该时间会打印告警日志，单位秒",
             "Maximum lock hold time; logs a warning if exceeded"})
     public static long  max_lock_hold_threshold_seconds = 10;
+
+    @ConfField(mutable = true, description = {"元数据同步是否开启安全模式",
+            "Is metadata synchronization enabled in safe mode"})
+    public static boolean meta_helper_security_mode = false;
+
+    @ConfField(mutable = true, description = {
+            "设置为 true，如果查询无法选择到健康副本时，会打印出该tablet所有副本的详细信息，"})
+    public static boolean sql_block_rule_ignore_admin = false;
+
+    @ConfField(description = {"用于测试，强制将所有的查询forward到master以验证forward query的行为",
+            "For testing purposes, all queries are forcibly forwarded to the master to verify"
+                    + "the behavior of forwarding queries."})
+    public static boolean force_forward_all_queries = false;
 }

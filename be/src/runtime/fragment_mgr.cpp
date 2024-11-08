@@ -289,6 +289,7 @@ std::string FragmentMgr::to_http_path(const std::string& file_name) {
 Status FragmentMgr::trigger_pipeline_context_report(
         const ReportStatusRequest req, std::shared_ptr<pipeline::PipelineFragmentContext>&& ctx) {
     return _async_report_thread_pool->submit_func([this, req, ctx]() {
+        SCOPED_ATTACH_TASK(ctx->get_query_ctx()->query_mem_tracker);
         coordinator_callback(req);
         if (!req.done) {
             ctx->refresh_next_report_time();
@@ -401,7 +402,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         int64_t num_rows_load_success = 0;
         int64_t num_rows_load_filtered = 0;
         int64_t num_rows_load_unselected = 0;
-        int64_t num_finished_ranges = 0;
         if (req.runtime_state->num_rows_load_total() > 0 ||
             req.runtime_state->num_rows_load_filtered() > 0 ||
             req.runtime_state->num_finished_range() > 0) {
@@ -410,7 +410,13 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             num_rows_load_success = req.runtime_state->num_rows_load_success();
             num_rows_load_filtered = req.runtime_state->num_rows_load_filtered();
             num_rows_load_unselected = req.runtime_state->num_rows_load_unselected();
-            num_finished_ranges = req.runtime_state->num_finished_range();
+            params.__isset.fragment_instance_reports = true;
+            TFragmentInstanceReport t;
+            t.__set_fragment_instance_id(req.runtime_state->fragment_instance_id());
+            t.__set_num_finished_range(req.runtime_state->num_finished_range());
+            t.__set_loaded_rows(req.runtime_state->num_rows_load_total());
+            t.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
+            params.fragment_instance_reports.push_back(t);
         } else if (!req.runtime_states.empty()) {
             for (auto* rs : req.runtime_states) {
                 if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
@@ -419,11 +425,16 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                     num_rows_load_success += rs->num_rows_load_success();
                     num_rows_load_filtered += rs->num_rows_load_filtered();
                     num_rows_load_unselected += rs->num_rows_load_unselected();
-                    num_finished_ranges += rs->num_finished_range();
+                    params.__isset.fragment_instance_reports = true;
+                    TFragmentInstanceReport t;
+                    t.__set_fragment_instance_id(rs->fragment_instance_id());
+                    t.__set_num_finished_range(rs->num_finished_range());
+                    t.__set_loaded_rows(rs->num_rows_load_total());
+                    t.__set_loaded_bytes(rs->num_bytes_load_total());
+                    params.fragment_instance_reports.push_back(t);
                 }
             }
         }
-        params.__set_finished_scan_ranges(num_finished_ranges);
         params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
         params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
         params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
@@ -687,18 +698,22 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 }
 
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
-    std::lock_guard<std::mutex> lock(_lock);
-    TUniqueId query_id;
-    query_id.__set_hi(request->query_id().hi());
-    query_id.__set_lo(request->query_id().lo());
-    auto search = _query_ctx_map.find(query_id);
-    if (search == _query_ctx_map.end()) {
-        return Status::InternalError(
-                "Failed to get query fragments context. Query may be "
-                "timeout or be cancelled. host: {}",
-                BackendOptions::get_localhost());
+    std::shared_ptr<QueryContext> q_ctx = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        TUniqueId query_id;
+        query_id.__set_hi(request->query_id().hi());
+        query_id.__set_lo(request->query_id().lo());
+        auto search = _query_ctx_map.find(query_id);
+        if (search == _query_ctx_map.end()) {
+            return Status::InternalError(
+                    "Failed to get query fragments context. Query may be "
+                    "timeout or be cancelled. host: {}",
+                    BackendOptions::get_localhost());
+        }
+        q_ctx = search->second;
     }
-    search->second->set_ready_to_execute(false);
+    q_ctx->set_ready_to_execute(false);
     return Status::OK();
 }
 
@@ -937,6 +952,14 @@ std::string FragmentMgr::dump_pipeline_tasks(int64_t duration) {
     return fmt::to_string(debug_string_buffer);
 }
 
+std::string FragmentMgr::dump_pipeline_tasks(TUniqueId& query_id) {
+    if (auto q_ctx = get_query_context(query_id)) {
+        return q_ctx->print_all_pipeline_context();
+    } else {
+        return fmt::format("Query context (query id = {}) not found. \n", print_id(query_id));
+    }
+}
+
 Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                        QuerySource query_source, const FinishCallback& cb) {
     VLOG_ROW << "query: " << print_id(params.query_id) << " exec_plan_fragment params is "
@@ -962,7 +985,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                                 std::placeholders::_1, std::placeholders::_2));
         {
             SCOPED_RAW_TIMER(&duration_ns);
-            auto prepare_st = context->prepare(params);
+            auto prepare_st = context->prepare(params, _thread_pool.get());
             if (!prepare_st.ok()) {
                 context->close_if_prepare_failed(prepare_st);
                 query_ctx->set_execution_dependency_ready();
@@ -1238,7 +1261,7 @@ void FragmentMgr::cancel_worker() {
     clock_gettime(CLOCK_MONOTONIC, &check_invalid_query_last_timestamp);
 
     do {
-        std::vector<TUniqueId> to_cancel;
+        std::vector<TUniqueId> queries_timeout;
         std::vector<TUniqueId> queries_to_cancel;
         std::vector<TUniqueId> queries_pipeline_task_leak;
         // Fe process uuid -> set<QueryId>
@@ -1263,7 +1286,7 @@ void FragmentMgr::cancel_worker() {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& fragment_instance_itr : _fragment_instance_map) {
                 if (fragment_instance_itr.second->is_timeout(now)) {
-                    to_cancel.push_back(fragment_instance_itr.second->fragment_instance_id());
+                    queries_timeout.push_back(fragment_instance_itr.second->fragment_instance_id());
                 }
             }
             for (auto& pipeline_itr : _pipeline_map) {
@@ -1272,7 +1295,7 @@ void FragmentMgr::cancel_worker() {
                     reinterpret_cast<pipeline::PipelineXFragmentContext*>(pipeline_itr.second.get())
                             ->instance_ids(ins_ids);
                     for (auto& ins_id : ins_ids) {
-                        to_cancel.push_back(ins_id);
+                        queries_timeout.push_back(ins_id);
                     }
                 } else {
                     pipeline_itr.second->clear_finished_tasks();
@@ -1385,9 +1408,9 @@ void FragmentMgr::cancel_worker() {
 
         // TODO(zhiqiang): It seems that timeout_canceled_fragment_count is
         // designed to count canceled fragment of non-pipeline query.
-        timeout_canceled_fragment_count->increment(to_cancel.size());
-        for (auto& id : to_cancel) {
-            cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT);
+        timeout_canceled_fragment_count->increment(queries_timeout.size());
+        for (auto& id : queries_timeout) {
+            cancel_instance(id, PPlanFragmentCancelReason::TIMEOUT, "Query timeout");
             LOG(INFO) << "FragmentMgr cancel worker going to cancel timeout instance "
                       << print_id(id);
         }

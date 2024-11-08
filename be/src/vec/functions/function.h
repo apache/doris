@@ -47,6 +47,10 @@ struct FuncExprParams;
 
 namespace doris::vectorized {
 
+struct FunctionAttr {
+    bool enable_decimal256 {false};
+};
+
 #define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
     bool is_nullable = false;                                                            \
     bool is_datev2 = false;                                                              \
@@ -57,6 +61,11 @@ namespace doris::vectorized {
     }                                                                                    \
     return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())           \
                                      : std::make_shared<TYPE>();
+
+#define SET_NULLMAP_IF_FALSE(EXPR) \
+    if (!EXPR) [[unlikely]] {      \
+        null_map[i] = true;        \
+    }
 
 class Field;
 class VExpr;
@@ -185,6 +194,14 @@ public:
                 ->execute(context, block, arguments, result, input_rows_count, dry_run);
     }
 
+    virtual Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        return Status::OK();
+    }
+
     /// Do cleaning work when function is finished, i.e., release state variables in the
     /// `FunctionContext` which are registered in `prepare` phase.
     virtual Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
@@ -220,12 +237,6 @@ public:
     }
 
     virtual bool can_push_down_to_index() const { return false; }
-
-    virtual Status eval_inverted_index(VExpr* context, segment_v2::FuncExprParams& params,
-                                       std::shared_ptr<roaring::Roaring>& result) {
-        return Status::NotSupported("eval_inverted_index is not supported in function: ",
-                                    get_name());
-    }
 };
 
 using FunctionBasePtr = std::shared_ptr<IFunctionBase>;
@@ -441,6 +452,16 @@ protected:
                         size_t result, size_t input_rows_count) const final {
         return function->execute_impl(context, block, arguments, result, input_rows_count);
     }
+
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
+        return function->evaluate_inverted_index(arguments, data_type_with_names, iterators,
+                                                 num_rows, bitmap_result);
+    }
+
     Status execute_impl_dry_run(FunctionContext* context, Block& block,
                                 const ColumnNumbers& arguments, size_t result,
                                 size_t input_rows_count) const final {
@@ -498,6 +519,15 @@ public:
         return function->close(context, scope);
     }
 
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& args,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
+        return function->evaluate_inverted_index(args, data_type_with_names, iterators, num_rows,
+                                                 bitmap_result);
+    }
+
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                                            const Field& right) const override {
         return function->get_monotonicity_for_range(type, left, right);
@@ -508,11 +538,6 @@ public:
     }
 
     bool can_push_down_to_index() const override { return function->can_push_down_to_index(); }
-
-    Status eval_inverted_index(VExpr* expr, segment_v2::FuncExprParams& params,
-                               std::shared_ptr<roaring::Roaring>& result) override {
-        return function->eval_inverted_index(expr, params, result);
-    }
 
 private:
     std::shared_ptr<IFunction> function;

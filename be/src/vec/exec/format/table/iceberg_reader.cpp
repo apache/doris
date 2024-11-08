@@ -76,15 +76,14 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
                                        RuntimeProfile* profile, RuntimeState* state,
                                        const TFileScanRangeParams& params,
                                        const TFileRangeDesc& range, ShardedKVCache* kv_cache,
-                                       io::IOContext* io_ctx, int64_t push_down_count)
+                                       io::IOContext* io_ctx)
         : TableFormatReader(std::move(file_format_reader)),
           _profile(profile),
           _state(state),
           _params(params),
           _range(range),
           _kv_cache(kv_cache),
-          _io_ctx(io_ctx),
-          _remaining_push_down_count(push_down_count) {
+          _io_ctx(io_ctx) {
     static const char* iceberg_profile = "IcebergProfile";
     ADD_TIMER(_profile, iceberg_profile);
     _iceberg_profile.num_delete_files =
@@ -95,6 +94,11 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
             ADD_CHILD_TIMER(_profile, "DeleteFileReadTime", iceberg_profile);
     _iceberg_profile.delete_rows_sort_time =
             ADD_CHILD_TIMER(_profile, "DeleteRowsSortTime", iceberg_profile);
+    if (range.table_format_params.iceberg_params.__isset.row_count) {
+        _remaining_push_down_count = range.table_format_params.iceberg_params.row_count;
+    } else {
+        _remaining_push_down_count = -1;
+    }
 }
 
 Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {

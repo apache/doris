@@ -98,6 +98,7 @@ public class ColumnDef {
         // default "CURRENT_TIMESTAMP", only for DATETIME type
         public static String CURRENT_TIMESTAMP = "CURRENT_TIMESTAMP";
         public static String NOW = "now";
+        public static String BITMAP_EMPTY = "BITMAP_EMPTY";
         public static DefaultValue CURRENT_TIMESTAMP_DEFAULT_VALUE = new DefaultValue(true, CURRENT_TIMESTAMP, NOW);
         // no default value
         public static DefaultValue NOT_SET = new DefaultValue(false, null);
@@ -107,7 +108,7 @@ public class ColumnDef {
         // default "value", "0" means empty hll
         public static DefaultValue HLL_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
         // default "value", "0" means empty bitmap
-        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO);
+        public static DefaultValue BITMAP_EMPTY_DEFAULT_VALUE = new DefaultValue(true, ZERO, BITMAP_EMPTY);
         // default "value", "[]" means empty array
         public static DefaultValue ARRAY_EMPTY_DEFAULT_VALUE = new DefaultValue(true, "[]");
 
@@ -165,6 +166,17 @@ public class ColumnDef {
                         .format(DateTimeFormatter.ofPattern(format));
             }
             return value;
+        }
+
+        public String toSql() {
+            StringBuilder sb = new StringBuilder();
+            sb.append("DEFAULT ");
+            if (value != null) {
+                sb.append('"').append(value).append('"');
+            } else {
+                sb.append("NULL");
+            }
+            return sb.toString();
         }
     }
 
@@ -582,7 +594,7 @@ public class ColumnDef {
         }
 
         if (defaultValue.isSet) {
-            sb.append("DEFAULT \"").append(defaultValue.value).append("\" ");
+            sb.append(defaultValue.toSql()).append(" ");
         }
         sb.append("COMMENT \"").append(comment).append("\"");
 

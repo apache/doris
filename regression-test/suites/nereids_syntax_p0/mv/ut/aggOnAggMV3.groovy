@@ -44,17 +44,19 @@ suite ("aggOnAggMV3") {
 
     sleep(3000)
 
-    explain {
-        sql("select * from aggOnAggMV3 order by empid;")
-        contains "(aggOnAggMV3)"
-    }
+    sql "analyze table aggOnAggMV3 with sync;"
+    sql """set enable_stats=false;"""
+
+    mv_rewrite_fail("select * from aggOnAggMV3 order by empid;", "aggOnAggMV3_mv")
     order_qt_select_star "select * from aggOnAggMV3 order by empid;"
 
-
-   explain {
-        sql("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;")
-        contains "(aggOnAggMV3_mv)"
-    }
+    mv_rewrite_success("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;",
+            "aggOnAggMV3_mv")
     order_qt_select_mv "select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;"
 
+    sql """set enable_stats=true;"""
+    mv_rewrite_fail("select * from aggOnAggMV3 order by empid;", "aggOnAggMV3_mv")
+
+    mv_rewrite_success("select commission, sum(salary) from aggOnAggMV3 where commission * (deptno + commission) = 100 group by commission order by commission;",
+            "aggOnAggMV3_mv")
 }

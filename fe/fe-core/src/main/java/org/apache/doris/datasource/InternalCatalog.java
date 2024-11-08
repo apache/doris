@@ -56,6 +56,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.TypeDef;
+import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.ColocateGroupSchema;
@@ -899,8 +900,14 @@ public class InternalCatalog implements CatalogIf<Database> {
                 OlapTable olapTable = (OlapTable) table;
                 if ((olapTable.getState() != OlapTableState.NORMAL)) {
                     throw new DdlException("The table [" + tableName + "]'s state is " + olapTable.getState()
-                            + ", cannot be dropped." + " please cancel the operation on olap table firstly."
+                            + ", cannot be dropped. please cancel the operation on olap table firstly."
                             + " If you want to forcibly drop(cannot be recovered),"
+                            + " please use \"DROP table FORCE\".");
+                }
+                if (olapTable.isInAtomicRestore()) {
+                    throw new DdlException("The table [" + tableName + "]'s state is in atomic restore"
+                            + ", cannot be dropped. please cancel the restore operation on olap table"
+                            + " firstly. If you want to forcibly drop(cannot be recovered),"
                             + " please use \"DROP table FORCE\".");
                 }
             }
@@ -965,9 +972,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
         Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                 db.getId(), table.getId());
-
-        Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
-
         DropInfo info = new DropInfo(db.getId(), table.getId(), tableName, -1L, forceDrop, recycleTime);
         Env.getCurrentEnv().getEditLog().logDropTable(info);
         Env.getCurrentEnv().getMtmvService().dropTable(table);
@@ -997,7 +1001,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table.getType() == TableType.MATERIALIZED_VIEW) {
             Env.getCurrentEnv().getMtmvService().deregisterMTMV((MTMV) table);
         }
-
+        Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         db.unregisterTable(table.getName());
         StopWatch watch = StopWatch.createStarted();
         Env.getCurrentRecycleBin().recycleTable(db.getId(), table, isReplay, isForceDrop, recycleTime);
@@ -1015,7 +1019,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             unprotectDropTable(db, table, isForceDrop, isReplay, recycleTime);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentInternalCatalog().getId(), db.getId(), tableId);
-            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
         } finally {
             table.writeUnlock();
             db.writeUnlock();
@@ -1167,6 +1170,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
+        }
+        if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(tableName)).isPresent()) {
+            ErrorReport.reportDdlException(
+                    "table[{}] is in atomic restore, please cancel the restore operation firstly",
+                    ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
         }
 
         if (engineName.equals("olap")) {
@@ -1579,13 +1587,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, olapTable.getStoragePolicy());
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
-                TStorageMedium tableStorageMedium = olapTable.getStorageMedium();
-                if (tableStorageMedium != null) {
-                    properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
-                            tableStorageMedium.name().toLowerCase());
-                }
-            }
 
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
@@ -1889,7 +1890,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         // it does not affect the logic of deleting the partition
         try {
             Env.getCurrentEnv().getEventProcessor().processEvent(
-                    new DropPartitionEvent(db.getCatalog().getId(), db.getId(), olapTable.getId()));
+                    new DropPartitionEvent(db.getCatalog().getId(), db.getId(), olapTable.getId(), isTempPartition));
         } catch (Throwable t) {
             // According to normal logic, no exceptions will be thrown,
             // but in order to avoid bugs affecting the original logic, all exceptions are caught
@@ -2358,6 +2359,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         // use light schema change optimization
         olapTable.setEnableLightSchemaChange(enableLightSchemaChange);
 
+        // check if light schema change is disabled, variant type rely on light schema change
+        if (!enableLightSchemaChange) {
+            for (Column column : baseSchema) {
+                if (column.getType().isVariantType()) {
+                    throw new DdlException("Variant type rely on light schema change, "
+                            + " please use light_schema_change = true.");
+                }
+            }
+        }
+
         boolean disableAutoCompaction = false;
         try {
             disableAutoCompaction = PropertyAnalyzer.analyzeDisableAutoCompaction(properties);
@@ -2744,7 +2755,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     throw new DdlException("Sequence type only support integer types and date types");
                 }
                 olapTable.setSequenceMapCol(col.getName());
-                olapTable.setSequenceInfo(col.getType());
+                olapTable.setSequenceInfo(col.getType(), col);
             }
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
@@ -2758,7 +2769,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 throw new DdlException("The sequence_col and sequence_type cannot be set at the same time");
             }
             if (sequenceColType != null) {
-                olapTable.setSequenceInfo(sequenceColType);
+                olapTable.setSequenceInfo(sequenceColType, null);
             }
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
@@ -2859,8 +2870,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                             .getDynamicPartitionProperty();
                     if (dynamicProperty.isExist() && dynamicProperty.getEnable()
                             && partitionDesc.isAutoCreatePartitions()) {
-                        throw new AnalysisException(
-                                "Can't use Dynamic Partition and Auto Partition at the same time");
+                        String dynamicUnit = dynamicProperty.getTimeUnit();
+                        ArrayList<Expr> autoExprs = partitionDesc.getPartitionExprs();
+                        // check same interval. fail will leading to AnalysisException
+                        DynamicPartitionUtil.partitionIntervalCompatible(dynamicUnit, autoExprs);
                     }
                 } catch (AnalysisException e) {
                     throw new DdlException(e.getMessage());
@@ -3438,13 +3451,12 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             // replace
-            truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
+            List<Partition> oldPartitions = truncateTableInternal(olapTable, newPartitions, truncateEntireTable);
 
             // write edit log
             TruncateTableInfo info =
                     new TruncateTableInfo(db.getId(), db.getFullName(), olapTable.getId(), olapTable.getName(),
-                            newPartitions,
-                            truncateEntireTable, truncateTableStmt.toSqlWithoutTable());
+                            newPartitions, truncateEntireTable, truncateTableStmt.toSqlWithoutTable(), oldPartitions);
             Env.getCurrentEnv().getEditLog().logTruncateTable(info);
         } catch (DdlException e) {
             failedCleanCallback.run();
@@ -3467,11 +3479,14 @@ public class InternalCatalog implements CatalogIf<Database> {
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 
-    private void truncateTableInternal(OlapTable olapTable, List<Partition> newPartitions, boolean isEntireTable) {
+    private List<Partition> truncateTableInternal(
+            OlapTable olapTable, List<Partition> newPartitions, boolean isEntireTable) {
         // use new partitions to replace the old ones.
+        List<Partition> oldPartitions = Lists.newArrayList();
         Set<Long> oldTabletIds = Sets.newHashSet();
         for (Partition newPartition : newPartitions) {
             Partition oldPartition = olapTable.replacePartition(newPartition);
+            oldPartitions.add(oldPartition);
             // save old tablets to be removed
             for (MaterializedIndex index : oldPartition.getMaterializedIndices(IndexExtState.ALL)) {
                 index.getTablets().forEach(t -> {
@@ -3489,6 +3504,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         for (Long tabletId : oldTabletIds) {
             Env.getCurrentInvertedIndex().deleteTablet(tabletId);
         }
+        return oldPartitions;
     }
 
     public void replayTruncateTable(TruncateTableInfo info) throws MetaNotFoundException {

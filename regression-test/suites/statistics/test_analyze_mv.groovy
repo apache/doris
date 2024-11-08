@@ -111,6 +111,7 @@ suite("test_analyze_mv") {
     sql """drop database if exists test_analyze_mv"""
     sql """create database test_analyze_mv"""
     sql """use test_analyze_mv"""
+    sql """set global enable_auto_analyze=false"""
 
     sql """CREATE TABLE mvTestDup (
             key1 bigint NOT NULL,
@@ -386,6 +387,30 @@ suite("test_analyze_mv") {
     assertEquals("5", result_sample[0][7])
     assertEquals("5001", result_sample[0][8])
     assertEquals("FULL", result_sample[0][9])
+
+    // Test drop mv and other indexes' row still exist.
+    sql """DROP MATERIALIZED VIEW mv1 ON mvTestAgg;"""
+    sql """analyze table mvTestAgg with sync;"""
+    result_row = sql """show index stats mvTestAgg mvTestAgg"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestAgg", result_row[0][0])
+    assertEquals("mvTestAgg", result_row[0][1])
+    assertEquals("5", result_row[0][2])
+    result_row = sql """show index stats mvTestAgg mv3"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestAgg", result_row[0][0])
+    assertEquals("mv3", result_row[0][1])
+    assertEquals("5", result_row[0][2])
+    result_row = sql """show index stats mvTestAgg mv6"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestAgg", result_row[0][0])
+    assertEquals("mv6", result_row[0][1])
+    assertEquals("4", result_row[0][2])
+    result_row = sql """show index stats mvTestAgg rollup1"""
+    assertEquals(1, result_row.size())
+    assertEquals("mvTestAgg", result_row[0][0])
+    assertEquals("rollup1", result_row[0][1])
+    assertEquals("4", result_row[0][2])
 
 
     sql """

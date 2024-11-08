@@ -500,7 +500,8 @@ public class NativeInsertStmt extends InsertStmt {
                 }
 
                 if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
-                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()
+                        && analyzer.getContext().getSessionVariable().isRequireSequenceInInsert()) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                             || !seqColInTable.get().getDefaultValue()
                             .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
@@ -594,7 +595,8 @@ public class NativeInsertStmt extends InsertStmt {
             }
             // hll column must in mentionedColumns
             for (Column col : targetTable.getBaseSchema()) {
-                if (col.getType().isObjectStored() && !mentionedColumns.contains(col.getName())) {
+                if (col.getType().isObjectStored() && !col.hasDefaultValue() && !mentionedColumns.contains(
+                        col.getName())) {
                     throw new AnalysisException(
                             "object-stored column " + col.getName() + " must in insert into columns");
                 }

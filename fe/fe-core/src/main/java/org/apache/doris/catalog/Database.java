@@ -90,7 +90,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private final Map<Long, Table> idToTable;
     @SerializedName(value = "nameToTable")
     private Map<String, Table> nameToTable;
-    // table name lower cast -> table name
+    // table name lower case -> table name
     private final Map<String, String> lowerCaseToTableName;
 
     // user define function
@@ -213,6 +213,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return fullQualifiedName;
     }
 
+    public String getName() {
+        return ClusterNamespace.getNameFromFullName(fullQualifiedName);
+    }
+
     public void setNameWithLock(String newName) {
         writeLock();
         try {
@@ -269,6 +273,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public void setDbProperties(DatabaseProperty dbProperties) {
         this.dbProperties = dbProperties;
+        if (PropertyAnalyzer.hasBinlogConfig(dbProperties.getProperties())) {
+            binlogConfig = dbProperties.getBinlogConfig();
+        }
     }
 
     public long getUsedDataQuotaWithLock() {

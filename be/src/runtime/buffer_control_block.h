@@ -86,8 +86,8 @@ public:
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
     Status close(Status exec_status);
-    // this is called by RPC, called from coordinator
-    virtual void cancel();
+
+    virtual void cancel(const Status& reason);
 
     [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
 
@@ -152,7 +152,7 @@ public:
 
     Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) override;
 
-    void cancel() override;
+    void cancel(const Status& reason) override;
 
     void set_dependency(std::shared_ptr<pipeline::Dependency> result_sink_dependency);
 

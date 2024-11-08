@@ -113,13 +113,16 @@ public class BeLoadRebalancer extends Rebalancer {
                 numOfLowPaths += pathSlot.getTotalAvailBalanceSlotNum();
             }
         }
-        LOG.info("get number of low load paths: {}, with medium: {}", numOfLowPaths, medium);
+        LOG.info("get number of low load paths: {}, with medium: {}, tag: {}, isUrgent {}",
+                numOfLowPaths, medium, clusterStat.getTag(), isUrgent);
 
         List<String> alternativeTabletInfos = Lists.newArrayList();
         int clusterAvailableBEnum = infoService.getAllBackendIds(true).size();
         List<Set<Long>> lowBETablets = lowBEs.stream()
                 .map(beStat -> Sets.newHashSet(invertedIndex.getTabletIdsByBackendId(beStat.getBeId())))
                 .collect(Collectors.toList());
+
+        boolean hasCandidateTablet = false;
 
         // choose tablets from high load backends.
         // BackendLoadStatistic is sorted by load score in ascend order,
@@ -222,6 +225,8 @@ public class BeLoadRebalancer extends Rebalancer {
                         continue;
                     }
 
+                    hasCandidateTablet = true;
+
                     // for urgent disk, pick tablets order by size,
                     // then it may always pick tablets that was on the low backends.
                     if (!lowBETablets.isEmpty()
@@ -270,6 +275,9 @@ public class BeLoadRebalancer extends Rebalancer {
         if (!alternativeTablets.isEmpty()) {
             LOG.info("select alternative tablets, medium: {}, is urgent: {}, num: {}, detail: {}",
                     medium, isUrgent, alternativeTablets.size(), alternativeTabletInfos);
+        } else if (isUrgent && !hasCandidateTablet) {
+            LOG.info("urgent balance cann't found candidate tablets. medium: {}, tag: {}",
+                    medium, clusterStat.getTag());
         }
         return alternativeTablets;
     }

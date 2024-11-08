@@ -323,7 +323,6 @@ private:
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
-    std::shared_ptr<MemTrackerLimiter> _mem_tracker;
     Metrics _profile_metrics;
     bool _binary_row_format = false;
 };

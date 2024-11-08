@@ -413,7 +413,6 @@ void VNodeChannel::_open_internal(bool is_incremental) {
 
     request->set_num_senders(_parent->_num_senders);
     request->set_need_gen_rollup(false); // Useless but it is a required field in pb
-    request->set_load_mem_limit(_parent->_load_mem_limit);
     request->set_load_channel_timeout_s(_parent->_load_channel_timeout_s);
     request->set_is_high_priority(_parent->_is_high_priority);
     request->set_sender_ip(BackendOptions::get_localhost());
@@ -700,11 +699,30 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
             return;
         }
 
+        std::string host = _node_info.host;
+        auto dns_cache = ExecEnv::GetInstance()->dns_cache();
+        if (dns_cache == nullptr) {
+            LOG(WARNING) << "DNS cache is not initialized, skipping hostname resolve";
+        } else if (!is_valid_ip(_node_info.host)) {
+            Status status = dns_cache->get(_node_info.host, &host);
+            if (!status.ok()) {
+                LOG(WARNING) << "failed to get ip from host " << _node_info.host << ": "
+                             << status.to_string();
+                _send_block_callback->clear_in_flight();
+                return;
+            }
+        }
         //format an ipv6 address
-        std::string brpc_url = get_brpc_http_url(_node_info.host, _node_info.brpc_port);
+        std::string brpc_url = get_brpc_http_url(host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");
+        if (_brpc_http_stub == nullptr) {
+            cancel(fmt::format("{}, failed to open brpc http client to {}", channel_info(),
+                               brpc_url));
+            _send_block_callback->clear_in_flight();
+            return;
+        }
         _send_block_callback->cntl_->http_request().uri() =
                 brpc_url + "/PInternalServiceImpl/tablet_writer_add_block_by_http";
         _send_block_callback->cntl_->http_request().set_method(brpc::HTTP_METHOD_POST);
@@ -1126,6 +1144,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _schema.reset(new OlapTableSchemaParam());
     RETURN_IF_ERROR(_schema->init(table_sink.schema));
     _schema->set_timestamp_ms(state->timestamp_ms());
+    _schema->set_nano_seconds(state->nano_seconds());
     _schema->set_timezone(state->timezone());
     _location = _pool->add(new OlapTableLocationParam(table_sink.location));
     _nodes_info = _pool->add(new DorisNodesInfo(table_sink.nodes_info));
@@ -1226,7 +1245,6 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _max_wait_exec_timer = ADD_TIMER(profile, "MaxWaitExecTime");
     _add_batch_number = ADD_COUNTER(profile, "NumberBatchAdded", TUnit::UNIT);
     _num_node_channels = ADD_COUNTER(profile, "NumberNodeChannels", TUnit::UNIT);
-    _load_mem_limit = state->get_load_mem_limit();
 
 #ifdef DEBUG
     // check: tablet ids should be unique

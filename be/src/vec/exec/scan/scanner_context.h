@@ -58,11 +58,13 @@ class ScanTask {
 public:
     ScanTask(std::weak_ptr<ScannerDelegate> delegate_scanner) : scanner(delegate_scanner) {
         _query_thread_context.init();
+        DorisMetrics::instance()->scanner_task_cnt->increment(1);
     }
 
     ~ScanTask() {
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_thread_context.query_mem_tracker);
         cached_blocks.clear();
+        DorisMetrics::instance()->scanner_task_cnt->increment(-1);
     }
 
 private:
@@ -105,7 +107,7 @@ public:
     ScannerContext(RuntimeState* state, VScanNode* parent, const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue, const int num_parallel_instances = 1,
+                   bool ignore_data_distribution, bool is_file_scan_operator,
                    pipeline::ScanLocalStateBase* local_state = nullptr);
 
     ~ScannerContext() override {
@@ -116,6 +118,7 @@ public:
             // do nothing
         }
         block.reset();
+        DorisMetrics::instance()->scanner_ctx_cnt->increment(-1);
     }
     virtual Status init();
 
@@ -139,7 +142,7 @@ public:
     // set the next scanned block to `ScanTask::current_block`
     // set the error state to `ScanTask::status`
     // set the `eos` to `ScanTask::eos` if there is no more data in current scanner
-    void submit_scan_task(std::shared_ptr<ScanTask> scan_task);
+    Status submit_scan_task(std::shared_ptr<ScanTask> scan_task);
 
     // append the running scanner and its cached block to `_blocks_queue`
     virtual void append_block_to_queue(std::shared_ptr<ScanTask> scan_task);
@@ -155,14 +158,11 @@ public:
 
     RuntimeState* state() { return _state; }
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
-
     std::string parent_name();
 
     virtual bool empty_in_queue(int id);
 
-    SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
-
-    SimplifiedScanScheduler* get_remote_scan_scheduler() { return _remote_scan_task_scheduler; }
+    SimplifiedScanScheduler* get_scan_scheduler() { return _scanner_scheduler; }
 
     void stop_scanners(RuntimeState* state);
 
@@ -183,7 +183,7 @@ protected:
     ScannerContext(RuntimeState* state_, const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners_, int64_t limit_,
-                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
+                   bool ignore_data_distribution, bool is_file_scan_operator,
                    pipeline::ScanLocalStateBase* local_state);
 
     /// Four criteria to determine whether to increase the parallelism of the scanners
@@ -192,8 +192,7 @@ protected:
     /// 3. `_free_blocks_memory_usage` < `_max_bytes_in_queue`, remains enough memory to scale up
     /// 4. At most scale up `MAX_SCALE_UP_RATIO` times to `_max_thread_num`
     virtual void _set_scanner_done() {};
-
-    void _try_to_scale_up();
+    Status _try_to_scale_up();
 
     RuntimeState* _state = nullptr;
     VScanNode* _parent = nullptr;
@@ -219,17 +218,15 @@ protected:
     int64_t limit;
 
     int32_t _max_thread_num = 0;
-    int64_t _max_bytes_in_queue;
-    doris::vectorized::ScannerScheduler* _scanner_scheduler;
-    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr;
-    SimplifiedScanScheduler* _remote_scan_task_scheduler = nullptr;
+    int64_t _max_bytes_in_queue = 0;
+    doris::vectorized::ScannerScheduler* _scanner_scheduler_global = nullptr;
+    SimplifiedScanScheduler* _scanner_scheduler = nullptr;
     moodycamel::ConcurrentQueue<std::weak_ptr<ScannerDelegate>> _scanners;
     int32_t _num_scheduled_scanners = 0;
     int32_t _num_finished_scanners = 0;
     int32_t _num_running_scanners = 0;
     // weak pointer for _scanners, used in stop function
     std::vector<std::weak_ptr<ScannerDelegate>> _all_scanners;
-    const int _num_parallel_instances;
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
@@ -237,6 +234,8 @@ protected:
     RuntimeProfile::Counter* _scanner_ctx_sched_time = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     QueryThreadContext _query_thread_context;
+    bool _ignore_data_distribution = false;
+    bool _is_file_scan_operator;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;

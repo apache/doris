@@ -97,4 +97,13 @@ suite("test_case_when_decimal") {
 
     sql """ DROP TABLE IF EXISTS `decimal_to_double_table1`; """
     sql """ DROP TABLE IF EXISTS `decimal_to_double_table2`; """
+
+
+    qt_sql4 """
+        select ifnull(cast(123 as time) , cast(300 as time)) , coalesce(cast(123 as time) , cast(300 as time)) , if(true ,cast(123 as time) , cast(300 as time)) , nullif(cast(123 as time) , cast(300 as time));
+    """
+
+    qt_sql5 """
+        select ifnull(cast(123 as time) , cast(300 as time)) , coalesce(cast(123 as time) , cast(300 as time)) , if(true ,cast(123 as time) , cast(300 as time)) , nullif(cast(123 as time) , cast(300 as time));
+    """
 }

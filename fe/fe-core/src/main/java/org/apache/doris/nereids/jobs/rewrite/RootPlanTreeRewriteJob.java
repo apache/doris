@@ -129,6 +129,10 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
         }
     }
 
+    public List<Rule> getRules() {
+        return rules;
+    }
+
     /** use to assemble the rewriting plan */
     private static class LinkPlanJob extends Job {
         LinkPlanJob parentJob;

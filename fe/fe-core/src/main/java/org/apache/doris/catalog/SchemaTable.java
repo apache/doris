@@ -303,7 +303,8 @@ public class SchemaTable extends Table {
                                     .column("PARTITION_NAME", ScalarType.createVarchar(64))
                                     .column("SUBPARTITION_NAME", ScalarType.createVarchar(64))
                                     .column("PARTITION_ORDINAL_POSITION", ScalarType.createType(PrimitiveType.INT))
-                                    .column("SUBPARTITION_ORDINAL_POSITION", ScalarType.createType(PrimitiveType.INT))
+                                    .column("SUBPARTITION_ORDINAL_POSITION",
+                                            ScalarType.createType(PrimitiveType.INT))
                                     .column("PARTITION_METHOD", ScalarType.createVarchar(13))
                                     .column("SUBPARTITION_METHOD", ScalarType.createVarchar(13))
                                     .column("PARTITION_EXPRESSION", ScalarType.createVarchar(2048))
@@ -558,6 +559,18 @@ public class SchemaTable extends Table {
                                     .column("METRIC_VALUE", ScalarType.createStringType())
                                     .build())
             )
+            .put("table_options",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "table_options", TableType.SCHEMA,
+                            builder().column("TABLE_CATALOG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_SCHEMA", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                                    .column("TABLE_MODEL", ScalarType.createStringType())
+                                    .column("TABLE_MODEL_KEY", ScalarType.createStringType())
+                                    .column("DISTRIBUTE_KEY", ScalarType.createStringType())
+                                    .column("DISTRIBUTE_TYPE", ScalarType.createStringType())
+                                    .column("BUCKETS_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .column("PARTITION_NUM", ScalarType.createType(PrimitiveType.INT))
+                                    .build()))
             .build();
 
     private boolean fetchAllFe = false;

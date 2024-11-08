@@ -549,13 +549,26 @@ public class SystemInfoService {
             if (!failedEntries.isEmpty()) {
                 String failedMsg = Joiner.on("\n").join(failedEntries);
                 throw new DdlException("Failed to find enough backend, please check the replication num,"
-                        + "replication tag and storage medium and avail capacity of backends.\n"
+                        + "replication tag and storage medium and avail capacity of backends "
+                        + "or maybe all be on same host." + getDetailsForCreateReplica(replicaAlloc) + "\n"
                         + "Create failed replications:\n" + failedMsg);
             }
         }
 
         Preconditions.checkState(totalReplicaNum == replicaAlloc.getTotalReplicaNum());
         return Pair.of(chosenBackendIds, storageMedium);
+    }
+
+    public String getDetailsForCreateReplica(ReplicaAllocation replicaAlloc) {
+        StringBuilder sb = new StringBuilder(" Backends details: ");
+        for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
+            sb.append("backends with tag ").append(tag).append(" is ");
+            sb.append(idToBackendRef.values().stream().filter(be -> be.getLocationTag() == tag)
+                    .map(Backend::getDetailsForCreateReplica)
+                    .collect(Collectors.toList()));
+            sb.append(", ");
+        }
+        return sb.toString();
     }
 
     /**

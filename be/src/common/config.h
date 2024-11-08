@@ -133,6 +133,9 @@ DECLARE_String(mem_limit);
 // Soft memory limit as a fraction of hard memory limit.
 DECLARE_Double(soft_mem_limit_frac);
 
+// Schema change memory limit as a fraction of soft memory limit.
+DECLARE_Double(schema_change_mem_limit_frac);
+
 // Many modern allocators (for example) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
 // you to increase performance and reduce memory consumption during realloc.
@@ -185,12 +188,19 @@ DECLARE_mBool(disable_memory_gc);
 // if alloc failed using Doris Allocator, will print stacktrace in error log.
 // if is -1, disable print stacktrace when alloc large memory.
 DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
+
 // when alloc memory larger than crash_in_alloc_large_memory_bytes will crash, default -1 means disabled.
 // if you need a core dump to analyze large memory allocation,
 // modify this parameter to crash when large memory allocation occur will help
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
 
+// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+DECLARE_mBool(crash_in_memory_tracker_inaccurate);
+
 // default is true. if any memory tracking in Orphan mem tracker will report error.
+// !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
+// allocator free memory not need to check, because when the thread memory tracker label is Orphan,
+// use the tracker saved in Allocator.
 DECLARE_mBool(enable_memory_orphan_check);
 
 // The maximum time a thread waits for a full GC. Currently only query will wait for full gc.
@@ -277,6 +287,12 @@ DECLARE_Int32(sys_log_verbose_level);
 DECLARE_Int32(sys_log_verbose_flags_v);
 // log buffer level
 DECLARE_String(log_buffer_level);
+// log enable custom date time format
+DECLARE_Bool(sys_log_enable_custom_date_time_format);
+// log custom date time format (https://en.cppreference.com/w/cpp/io/manip/put_time)
+DECLARE_String(sys_log_custom_date_time_format);
+// log custom date time milliseconds format (fmt::format)
+DECLARE_String(sys_log_custom_date_time_ms_format);
 
 // number of threads available to serve backend execution requests
 DECLARE_Int32(be_service_threads);
@@ -319,6 +335,8 @@ DECLARE_mInt32(doris_scanner_queue_size);
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
+// single read execute fragment max run time millseconds
+DECLARE_mInt32(doris_scanner_max_run_time_ms);
 DECLARE_mInt32(min_bytes_in_scanner_queue);
 // number of max scan keys
 DECLARE_mInt32(doris_max_scan_key_num);
@@ -994,6 +1012,8 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 
+DECLARE_Bool(enable_brpc_builtin_services);
+
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
 // This parameter is usually only used when the FE loses connection,
@@ -1038,10 +1058,6 @@ DECLARE_Bool(enable_fuzzy_mode);
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
-
-// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
-// Will remove after fully test.
-DECLARE_Bool(enable_index_apply_preds_except_leafnode_of_andnode);
 
 // block file cache
 DECLARE_Bool(enable_file_cache);
@@ -1149,6 +1165,7 @@ DECLARE_mString(kerberos_krb5_conf_path);
 
 // Values include `none`, `glog`, `boost`, `glibc`, `libunwind`
 DECLARE_mString(get_stack_trace_tool);
+DECLARE_mBool(enable_address_sanitizers_with_stack_trace);
 
 // DISABLED: Don't resolve location info.
 // FAST: Perform CU lookup using .debug_aranges (might be incomplete).
@@ -1189,13 +1206,13 @@ DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
+// When the version is not continuous for MOW table in publish phase and the gap between
+// current txn's publishing version and the max version of the tablet exceeds this value,
+// don't print warning log
+DECLARE_mInt32(publish_version_gap_logging_threshold);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
-
-// This threshold determines how many partitions will be allocated for window function get topn.
-// and if this threshold is exceeded, the remaining data will be pass through to other node directly.
-DECLARE_Int32(partition_topn_partition_threshold);
 
 // If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
 // as an abnormal fe, this will cause be to cancel this fe's related query.
@@ -1364,6 +1381,9 @@ DECLARE_mBool(ignore_not_found_file_in_external_table);
 DECLARE_mInt64(tablet_meta_serialize_size_limit);
 
 DECLARE_mInt64(pipeline_task_leakage_detect_period_secs);
+// To be compatible with hadoop's block compression
+DECLARE_mInt32(snappy_compression_block_size);
+DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
 

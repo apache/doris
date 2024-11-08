@@ -89,7 +89,7 @@ public:
 
     Status prepare(const doris::TPipelineFragmentParams& request, size_t idx);
 
-    virtual Status prepare(const doris::TPipelineFragmentParams& request) {
+    virtual Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool) {
         return Status::InternalError("Pipeline fragment context do not implement prepare");
     }
 
@@ -110,7 +110,7 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
-    void close_a_pipeline();
+    virtual void close_a_pipeline(PipelineId pipeline_id);
 
     virtual void clear_finished_tasks() {}
 
@@ -138,6 +138,8 @@ public:
     virtual std::string debug_string();
 
     uint64_t create_time() const { return _create_time; }
+
+    uint64_t elapsed_time() const { return _fragment_watcher.elapsed_time(); }
 
 protected:
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
@@ -168,7 +170,7 @@ protected:
     int _closed_tasks = 0;
     // After prepared, `_total_tasks` is equal to the size of `_tasks`.
     // When submit fail, `_total_tasks` is equal to the number of tasks submitted.
-    int _total_tasks = 0;
+    std::atomic<int> _total_tasks = 0;
 
     int32_t _next_operator_builder_id = 10000;
 

@@ -95,6 +95,9 @@ DEFINE_String(mem_limit, "90%");
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
+// Schema change memory limit as a fraction of soft memory limit.
+DEFINE_Double(schema_change_mem_limit_frac, "0.6");
+
 // Many modern allocators (for example, tcmalloc) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
 // you to increase performance and reduce memory consumption during realloc.
@@ -137,6 +140,13 @@ DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
+// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+DEFINE_mBool(crash_in_memory_tracker_inaccurate, "false");
+
+// default is true. if any memory tracking in Orphan mem tracker will report error.
+// !! not modify the default value of this conf!! otherwise memory errors cannot be detected in time.
+// allocator free memory not need to check, because when the thread memory tracker label is Orphan,
+// use the tracker saved in Allocator.
 DEFINE_mBool(enable_memory_orphan_check, "true");
 
 // The maximum time a thread waits for full GC. Currently only query will wait for full gc.
@@ -220,6 +230,12 @@ DEFINE_Int32(sys_log_verbose_level, "10");
 DEFINE_Int32(sys_log_verbose_flags_v, "-1");
 // log buffer level
 DEFINE_String(log_buffer_level, "");
+// log enable custom date time format
+DEFINE_Bool(sys_log_enable_custom_date_time_format, "false");
+// log custom date time format (https://en.cppreference.com/w/cpp/io/manip/put_time)
+DEFINE_String(sys_log_custom_date_time_format, "%Y-%m-%d %H:%M:%S");
+// log custom date time milliseconds format (fmt::format)
+DEFINE_String(sys_log_custom_date_time_ms_format, ",{:03d}");
 
 // number of threads available to serve backend execution requests
 DEFINE_Int32(be_service_threads, "64");
@@ -268,6 +284,8 @@ DEFINE_mInt32(doris_scanner_queue_size, "1024");
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
+// single read execute fragment max run time millseconds
+DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
 DEFINE_mInt32(min_bytes_in_scanner_queue, "67108864");
 // number of max scan keys
 DEFINE_mInt32(doris_max_scan_key_num, "48");
@@ -507,8 +525,12 @@ DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 
+//Enable brpc builtin services, see:
+//https://brpc.apache.org/docs/server/basics/#disable-built-in-services-completely
+DEFINE_Bool(enable_brpc_builtin_services, "true");
+
 // The maximum amount of data that can be processed by a stream load
-DEFINE_mInt64(streaming_load_max_mb, "10240");
+DEFINE_mInt64(streaming_load_max_mb, "102400");
 // Some data formats, such as JSON, cannot be streamed.
 // Therefore, it is necessary to limit the maximum number of
 // such data when using stream load to prevent excessive memory consumption.
@@ -982,10 +1004,6 @@ DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
-// Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
-// Will remove after fully test.
-DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
-
 DEFINE_mBool(variant_enable_flatten_nested, "false");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
@@ -1022,7 +1040,7 @@ DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
 DEFINE_Bool(enable_write_index_searcher_cache, "true");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
-DEFINE_Int32(inverted_index_fd_number_limit_percent, "40"); // 40%
+DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
 // inverted index match bitmap cache size
@@ -1070,9 +1088,9 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_Int32(segment_cache_capacity, "-1");
-DEFINE_Int32(segment_cache_fd_percentage, "40");
-DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
-DEFINE_Int32(segment_cache_memory_percentage, "2");
+DEFINE_Int32(segment_cache_fd_percentage, "20");
+DEFINE_mInt32(estimated_mem_per_column_reader, "512");
+DEFINE_Int32(segment_cache_memory_percentage, "5");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1097,6 +1115,7 @@ DEFINE_mString(kerberos_krb5_conf_path, "/etc/krb5.conf");
 
 DEFINE_mString(get_stack_trace_tool, "libunwind");
 DEFINE_mString(dwarf_location_info_mode, "FAST");
+DEFINE_mBool(enable_address_sanitizers_with_stack_trace, "true");
 
 // the ratio of _prefetch_size/_batch_size in AutoIncIDBuffer
 DEFINE_mInt64(auto_inc_prefetch_size_ratio, "10");
@@ -1120,11 +1139,13 @@ DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
+// When the version is not continuous for MOW table in publish phase and the gap between
+// current txn's publishing version and the max version of the tablet exceeds this value,
+// don't print warning log
+DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
-
-DEFINE_Int32(partition_topn_partition_threshold, "1024");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
@@ -1279,6 +1300,8 @@ DEFINE_Validator(tablet_meta_serialize_size_limit,
                  [](const int64_t config) -> bool { return config < 1717986918; });
 
 DEFINE_mInt64(pipeline_task_leakage_detect_period_secs, "60");
+DEFINE_mInt32(snappy_compression_block_size, "262144");
+DEFINE_mInt32(lz4_compression_block_size, "262144");
 
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 

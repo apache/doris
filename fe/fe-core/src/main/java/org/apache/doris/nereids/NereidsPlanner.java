@@ -22,6 +22,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
@@ -46,10 +47,12 @@ import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
@@ -69,6 +72,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -171,6 +176,7 @@ public class NereidsPlanner extends Planner {
                 ExplainLevel explainLevel, boolean showPlanProcess,
                 Consumer<Plan> lockCallback) {
         try {
+            long beforePlanGcTime = getGarbageCollectionTime();
             if (plan instanceof LogicalSqlCache) {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
@@ -198,6 +204,10 @@ public class NereidsPlanner extends Planner {
             try (Lock lock = new Lock(plan, cascadesContext)) {
                 Plan resultPlan = planWithoutLock(plan, explainLevel, showPlanProcess, requireProperties);
                 lockCallback.accept(resultPlan);
+                if (statementContext.getConnectContext().getExecutor() != null) {
+                    statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                            .setNereidsGarbageCollectionTime(getGarbageCollectionTime() - beforePlanGcTime);
+                }
                 return resultPlan;
             }
         } finally {
@@ -242,7 +252,17 @@ public class NereidsPlanner extends Planner {
                 return rewrittenPlan;
             }
         }
-
+        // if we cannot get table row count, skip join reorder
+        // except:
+        //   1. user set leading hint
+        //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
+        if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest
+                && !cascadesContext.isLeadingDisableJoinReorder()) {
+            List<CatalogRelation> scans = cascadesContext.getRewritePlan()
+                    .collectToList(CatalogRelation.class::isInstance);
+            Optional<String> reason = StatsCalculator.disableJoinReorderIfStatsInvalid(scans, cascadesContext);
+            reason.ifPresent(LOG::info);
+        }
         optimize();
         if (statementContext.getConnectContext().getExecutor() != null) {
             statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsOptimizeTime();
@@ -445,6 +465,15 @@ public class NereidsPlanner extends Planner {
         }
     }
 
+    private long getGarbageCollectionTime() {
+        List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        long initialGCTime = 0;
+        for (GarbageCollectorMXBean gcBean : gcMxBeans) {
+            initialGCTime += gcBean.getCollectionTime();
+        }
+        return initialGCTime;
+    }
+
     /**
      * getting hints explain string, which specified by enumerate and show in lists
      * @param hints hint map recorded in statement context
@@ -485,6 +514,13 @@ public class NereidsPlanner extends Planner {
     public String getExplainString(ExplainOptions explainOptions) {
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
         String plan = "";
+        String mvSummary = "";
+        if ((this.getPhysicalPlan() != null || this.getOptimizedPlan() != null) && cascadesContext != null) {
+            mvSummary = cascadesContext.getMaterializationContexts().isEmpty() ? "" :
+                    "\n\n========== MATERIALIZATIONS ==========\n"
+                            + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
+                            this.getPhysicalPlan() == null ? this.getOptimizedPlan() : this.getPhysicalPlan());
+        }
         switch (explainLevel) {
             case PARSED_PLAN:
                 plan = parsedPlan.treeString();
@@ -496,22 +532,16 @@ public class NereidsPlanner extends Planner {
                 plan = rewrittenPlan.treeString();
                 break;
             case OPTIMIZED_PLAN:
-                plan = "cost = " + cost + "\n" + optimizedPlan.treeString();
+                plan = "cost = " + cost + "\n" + optimizedPlan.treeString() + mvSummary;
                 break;
             case SHAPE_PLAN:
                 plan = optimizedPlan.shape("");
                 break;
             case MEMO_PLAN:
-                StringBuilder materializationStringBuilder = new StringBuilder();
-                materializationStringBuilder.append("materializationContexts:").append("\n");
-                for (MaterializationContext ctx : cascadesContext.getMaterializationContexts()) {
-                    materializationStringBuilder.append("\n").append(ctx).append("\n");
-                }
                 plan = cascadesContext.getMemo().toString()
                         + "\n\n========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString()
-                        + "\n\n========== MATERIALIZATIONS ==========\n"
-                        + materializationStringBuilder;
+                        + mvSummary;
                 break;
             case ALL_PLAN:
                 plan = "========== PARSED PLAN "
@@ -525,18 +555,20 @@ public class NereidsPlanner extends Planner {
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN "
                         + getTimeMetricString(SummaryProfile::getPrettyNereidsOptimizeTime) + " ==========\n"
-                        + optimizedPlan.treeString();
+                        + optimizedPlan.treeString() + "\n\n";
+                plan += mvSummary;
                 break;
             default:
-                plan = super.getExplainString(explainOptions)
-                        + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                        this.getPhysicalPlan());
+                plan = super.getExplainString(explainOptions);
+                plan += mvSummary;
                 if (statementContext != null) {
                     if (statementContext.isHasUnknownColStats()) {
-                        plan += "\n\nStatistics\n planed with unknown column statistics\n";
+                        plan += "\n\n\n========== STATISTICS ==========\n";
+                        plan += "planed with unknown column statistics\n";
                     }
                 }
         }
+
         if (statementContext != null) {
             if (!statementContext.getHints().isEmpty()) {
                 String hint = getHintExplainString(statementContext.getHints());
@@ -576,7 +608,7 @@ public class NereidsPlanner extends Planner {
         if (physicalPlan instanceof ComputeResultSet) {
             Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
             Optional<ResultSet> resultSet = ((ComputeResultSet) physicalPlan)
-                    .computeResultInFe(cascadesContext, sqlCacheContext);
+                    .computeResultInFe(cascadesContext, sqlCacheContext, physicalPlan.getOutput());
             if (resultSet.isPresent()) {
                 return resultSet;
             }

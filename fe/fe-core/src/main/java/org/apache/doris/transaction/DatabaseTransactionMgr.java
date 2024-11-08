@@ -92,7 +92,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -125,14 +124,6 @@ public class DatabaseTransactionMgr {
 
     // transactionId -> running TransactionState
     private final Map<Long, TransactionState> idToRunningTransactionState = Maps.newHashMap();
-
-    /**
-     * the multi table ids that are in transaction, used to check whether a table is in transaction
-     * multi table transaction state
-     * txnId -> tableId list
-     */
-    private final ConcurrentHashMap<Long, List<Long>> multiTableRunningTransactionTableIdMaps =
-            new ConcurrentHashMap<>();
 
     // transactionId -> final status TransactionState
     private final Map<Long, TransactionState> idToFinalStatusTransactionState = Maps.newHashMap();
@@ -472,8 +463,13 @@ public class DatabaseTransactionMgr {
         checkCommitStatus(tableList, transactionState, tabletCommitInfos, txnCommitAttachment, errorReplicaIds,
                           tableToPartition, totalInvolvedBackends);
 
-        unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
-                totalInvolvedBackends, db);
+        writeLock();
+        try {
+            unprotectedPreCommitTransaction2PC(transactionState, errorReplicaIds, tableToPartition,
+                    totalInvolvedBackends, db);
+        } finally {
+            writeUnlock();
+        }
         LOG.info("transaction:[{}] successfully pre-committed", transactionState);
     }
 

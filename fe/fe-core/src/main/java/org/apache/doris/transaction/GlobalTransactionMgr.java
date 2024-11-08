@@ -211,7 +211,7 @@ public class GlobalTransactionMgr implements Writable {
         }
     }
 
-    public void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId,
+    private void preCommitTransaction2PC(long dbId, List<Table> tableList, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         if (Config.disable_load_job) {
@@ -225,6 +225,7 @@ public class GlobalTransactionMgr implements Writable {
         dbTransactionMgr.preCommitTransaction2PC(tableList, transactionId, tabletCommitInfos, txnCommitAttachment);
     }
 
+    @Deprecated
     public void commitTransaction(long dbId, List<Table> tableList,
             long transactionId, List<TabletCommitInfo> tabletCommitInfos)
             throws UserException {
@@ -692,6 +693,7 @@ public class GlobalTransactionMgr implements Writable {
                 TransactionState transactionState = dbTransactionMgr.getTransactionState(txnInfo.second);
                 long coordStartTime = transactionState.getCoordinator().startTime;
                 if (coordStartTime < beStartTime) {
+                    // does not hold table write lock
                     dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE restart", null);
                 }
             } catch (UserException e) {
@@ -709,6 +711,7 @@ public class GlobalTransactionMgr implements Writable {
                 = getPrepareTransactionIdByCoordinateBe(coordinateBeId, coordinateHost, limit);
         for (Pair<Long, Long> txnInfo : transactionIdByCoordinateBe) {
             try {
+                // does not hold table write lock
                 DatabaseTransactionMgr dbTransactionMgr = getDatabaseTransactionMgr(txnInfo.first);
                 dbTransactionMgr.abortTransaction(txnInfo.second, "coordinate BE is down", null);
             } catch (UserException e) {

@@ -132,7 +132,6 @@ public:
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;
         std::vector<std::pair<string, std::shared_ptr<BitmapFilterFuncBase>>> bitmap_filters;
         std::vector<std::pair<string, std::shared_ptr<HybridSetBase>>> in_filters;
-        std::vector<TCondition> conditions_except_leafnode_of_andnode;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
@@ -159,6 +158,7 @@ public:
 
         // used for compaction to record row ids
         bool record_rowids = false;
+        RowIdConversion* rowid_conversion;
         // flag for enable topn opt
         bool use_topn_opt = false;
         std::vector<int> topn_filter_source_node_ids;
@@ -244,8 +244,6 @@ protected:
 
     Status _init_conditions_param(const ReaderParams& read_params);
 
-    Status _init_conditions_param_except_leafnode_of_andnode(const ReaderParams& read_params);
-
     ColumnPredicate* _parse_to_predicate(
             const std::pair<std::string, std::shared_ptr<BloomFilterFuncBase>>& bloom_filter);
 
@@ -288,7 +286,6 @@ protected:
     std::vector<bool> _is_lower_keys_included;
     std::vector<bool> _is_upper_keys_included;
     std::vector<ColumnPredicate*> _col_predicates;
-    std::vector<ColumnPredicate*> _col_preds_except_leafnode_of_andnode;
     std::vector<ColumnPredicate*> _value_col_predicates;
     DeleteHandler _delete_handler;
 

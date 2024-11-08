@@ -126,9 +126,6 @@ Status Channel<Parent>::init_stub(RuntimeState* state) {
         _is_local &= state->query_options().enable_local_exchange;
     }
     if (_is_local) {
-        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                              _fragment_instance_id, _dest_node_id, &_local_recvr),
-                      "");
         return Status::OK();
     }
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
@@ -149,6 +146,11 @@ Status Channel<Parent>::init_stub(RuntimeState* state) {
 
 template <typename Parent>
 Status Channel<Parent>::open(RuntimeState* state) {
+    if (_is_local) {
+        WARN_IF_ERROR(_parent->state()->exec_env()->vstream_mgr()->find_recvr(
+                              _fragment_instance_id, _dest_node_id, &_local_recvr),
+                      "");
+    }
     _be_number = state->be_number();
     _brpc_request = std::make_shared<PTransmitDataParams>();
     // initialize brpc request
@@ -229,7 +231,7 @@ Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
 }
 
 template <typename Parent>
-Status Channel<Parent>::send_local_block(Block* block) {
+Status Channel<Parent>::send_local_block(Block* block, bool can_be_moved) {
     SCOPED_TIMER(_parent->local_send_timer());
     if (_recvr_is_valid()) {
         if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
@@ -237,7 +239,7 @@ Status Channel<Parent>::send_local_block(Block* block) {
             COUNTER_UPDATE(_parent->local_sent_rows(), block->rows());
             COUNTER_UPDATE(_parent->blocks_sent_counter(), 1);
         }
-        _local_recvr->add_block(block, _parent->sender_id(), false);
+        _local_recvr->add_block(block, _parent->sender_id(), can_be_moved);
         return Status::OK();
     } else {
         return _receiver_status;
@@ -644,7 +646,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 Status status;
                 for (auto channel : _channels) {
                     if (!channel->is_receiver_eof()) {
-                        status = channel->send_local_block(block);
+                        status = channel->send_local_block(block, false);
                         HANDLE_CHANNEL_STATUS(state, channel, status);
                     }
                 }
@@ -669,7 +671,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                     for (auto channel : _channels) {
                         if (!channel->is_receiver_eof()) {
                             if (channel->is_local()) {
-                                status = channel->send_local_block(&cur_block);
+                                status = channel->send_local_block(&cur_block, false);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                 status = channel->send_broadcast_block(block_holder, eos);
@@ -696,7 +698,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 for (auto channel : _channels) {
                     if (!channel->is_receiver_eof()) {
                         if (channel->is_local()) {
-                            status = channel->send_local_block(&cur_block);
+                            status = channel->send_local_block(&cur_block, false);
                         } else {
                             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                             status = channel->send_remote_block(_cur_pb_block, false);
@@ -715,7 +717,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             if (current_channel->is_local()) {
-                auto status = current_channel->send_local_block(block);
+                auto status = current_channel->send_local_block(block, false);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
             } else {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -827,7 +829,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
                 for (auto channel : _channels) {
                     if (!channel->is_receiver_eof()) {
                         if (channel->is_local()) {
-                            status = channel->send_local_block(&block);
+                            status = channel->send_local_block(&block, false);
                         } else {
                             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                             status = channel->send_remote_block(_cur_pb_block, false);

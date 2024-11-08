@@ -211,7 +211,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped
-    _runtime_query_statistics_mgr = new RuntimeQueryStatiticsMgr();
+    _runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
+    CgroupCpuCtl::init_doris_cgroup_path();
 
     std::vector<doris::CachePath> cache_paths;
     init_file_cache_factory(cache_paths);
@@ -239,7 +240,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
             new BrpcClientCache<PFunctionService_Stub>(config::function_service_protocol);
     _stream_load_executor = StreamLoadExecutor::create_shared(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
-    RETURN_IF_ERROR(_routine_load_task_executor->init());
+    RETURN_IF_ERROR(_routine_load_task_executor->init(MemInfo::mem_limit()));
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
     _block_spill_mgr = new BlockSpillManager(store_paths);
     _group_commit_mgr = new GroupCommitMgr(this);
@@ -529,12 +530,18 @@ void ExecEnv::init_mem_tracker() {
             std::make_shared<MemTracker>("IOBufBlockMemory", _details_mem_tracker_set.get());
     _segcompaction_mem_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SegCompaction");
+    _point_query_executor_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "PointQueryExecutor");
+    _block_compression_mem_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "BlockCompression");
     _rowid_storage_reader_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "RowIdStorageReader");
     _subcolumns_tree_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "SubcolumnsTree");
     _s3_file_buffer_tracker =
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::GLOBAL, "S3FileBuffer");
+    _stream_load_pipe_tracker =
+            MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
 }
 
 void ExecEnv::_register_metrics() {

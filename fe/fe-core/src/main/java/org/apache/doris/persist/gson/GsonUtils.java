@@ -78,6 +78,7 @@ import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonDLFExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
@@ -241,7 +242,8 @@ public class GsonUtils {
             .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
             .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
             .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
-            .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName());
+            .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName())
+            .registerSubtype(PaimonDLFExternalCatalog.class, PaimonDLFExternalCatalog.class.getSimpleName());
 
     // routine load data source
     private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =

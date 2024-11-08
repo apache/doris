@@ -124,6 +124,7 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CascadesContext> parent;
 
     private final Set<MaterializationContext> materializationContexts;
+    private final Set<List<String>> materializationRewrittenSuccessSet = new HashSet<>();
     private boolean isLeadingJoin = false;
 
     private boolean isLeadingDisableJoinReorder = false;
@@ -148,7 +149,7 @@ public class CascadesContext implements ScheduleContext {
      */
     private CascadesContext(Optional<CascadesContext> parent, Optional<CTEId> currentTree,
             StatementContext statementContext, Plan plan, Memo memo,
-            CTEContext cteContext, PhysicalProperties requireProperties) {
+            CTEContext cteContext, PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
         this.parent = Objects.requireNonNull(parent, "parent should not null");
         this.currentTree = Objects.requireNonNull(currentTree, "currentTree should not null");
         this.statementContext = Objects.requireNonNull(statementContext, "statementContext should not null");
@@ -169,6 +170,10 @@ public class CascadesContext implements ScheduleContext {
         } else {
             this.isEnableExprTrace = false;
         }
+        if (parent.isPresent()) {
+            this.tables = parent.get().tables;
+        }
+        this.isLeadingDisableJoinReorder = isLeadingDisableJoinReorder;
     }
 
     /**
@@ -177,7 +182,7 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext initContext(StatementContext statementContext,
             Plan initPlan, PhysicalProperties requireProperties) {
         return newContext(Optional.empty(), Optional.empty(), statementContext,
-                initPlan, new CTEContext(), requireProperties);
+                initPlan, new CTEContext(), requireProperties, false);
     }
 
     /**
@@ -186,14 +191,15 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newContextWithCteContext(CascadesContext cascadesContext,
             Plan initPlan, CTEContext cteContext) {
         return newContext(Optional.of(cascadesContext), Optional.empty(),
-                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY
+                cascadesContext.getStatementContext(), initPlan, cteContext, PhysicalProperties.ANY,
+                cascadesContext.isLeadingDisableJoinReorder
         );
     }
 
     public static CascadesContext newCurrentTreeContext(CascadesContext context) {
         return CascadesContext.newContext(context.getParent(), context.getCurrentTree(), context.getStatementContext(),
                 context.getRewritePlan(), context.getCteContext(),
-                context.getCurrentJobContext().getRequiredProperties());
+                context.getCurrentJobContext().getRequiredProperties(), context.isLeadingDisableJoinReorder);
     }
 
     /**
@@ -202,14 +208,14 @@ public class CascadesContext implements ScheduleContext {
     public static CascadesContext newSubtreeContext(Optional<CTEId> subtree, CascadesContext context,
             Plan plan, PhysicalProperties requireProperties) {
         return CascadesContext.newContext(Optional.of(context), subtree, context.getStatementContext(),
-                plan, context.getCteContext(), requireProperties);
+                plan, context.getCteContext(), requireProperties, context.isLeadingDisableJoinReorder);
     }
 
     private static CascadesContext newContext(Optional<CascadesContext> parent, Optional<CTEId> subtree,
             StatementContext statementContext, Plan initPlan, CTEContext cteContext,
-            PhysicalProperties requireProperties) {
+            PhysicalProperties requireProperties, boolean isLeadingDisableJoinReorder) {
         return new CascadesContext(parent, subtree, statementContext, initPlan, null,
-            cteContext, requireProperties);
+            cteContext, requireProperties, isLeadingDisableJoinReorder);
     }
 
     public CascadesContext getRoot() {
@@ -363,6 +369,14 @@ public class CascadesContext implements ScheduleContext {
 
     public void addMaterializationContext(MaterializationContext materializationContext) {
         this.materializationContexts.add(materializationContext);
+    }
+
+    public Set<List<String>> getMaterializationRewrittenSuccessSet() {
+        return materializationRewrittenSuccessSet;
+    }
+
+    public void addMaterializationRewrittenSuccess(List<String> materializationQualifier) {
+        this.materializationRewrittenSuccessSet.add(materializationQualifier);
     }
 
     /**

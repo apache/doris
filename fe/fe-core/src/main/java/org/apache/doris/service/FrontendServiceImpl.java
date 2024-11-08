@@ -1712,13 +1712,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = new ArrayList<>();
-        List<String> tables = new ArrayList<>();
         // if table was dropped, transaction must be aborted
-        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        for (Table table : tableList) {
-            tables.add(table.getName());
-        }
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
@@ -1726,6 +1721,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
+            List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -1901,12 +1897,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = new ArrayList<>();
-        List<String> tables = new ArrayList<>();
-        tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
-        for (Table table : tableList) {
-            tables.add(table.getName());
-        }
+        List<Table> tableList = db.getTablesOnIdOrderOrThrowException(tableIdList);
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
@@ -1914,6 +1905,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
+            List<String> tables = tableList.stream().map(Table::getName).collect(Collectors.toList());
             checkPasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(), tables,
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -2350,7 +2342,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TFrontendPingFrontendResult ping(TFrontendPingFrontendRequest request) throws TException {
         boolean isReady = Env.getCurrentEnv().isReady();
         TFrontendPingFrontendResult result = new TFrontendPingFrontendResult();
+        // The following fields are required in thrift.
+        // So must give them a default value to avoid "Required field xx was not present" error.
         result.setStatus(TFrontendPingFrontendStatusCode.OK);
+        result.setMsg("");
+        result.setQueryPort(0);
+        result.setRpcPort(0);
+        result.setReplayedJournalId(0);
+        result.setVersion(Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
         if (isReady) {
             if (request.getClusterId() != Env.getCurrentEnv().getClusterId()) {
                 result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
@@ -3118,6 +3117,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isCleanTables()) {
             properties.put(RestoreStmt.PROP_CLEAN_TABLES, "true");
         }
+        if (request.isAtomicRestore()) {
+            properties.put(RestoreStmt.PROP_ATOMIC_RESTORE, "true");
+        }
 
         AbstractBackupTableRefClause restoreTableRefClause = null;
         if (request.isSetTableRefs()) {
@@ -3134,7 +3136,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         RestoreStmt restoreStmt = new RestoreStmt(label, repoName, restoreTableRefClause, properties, request.getMeta(),
                 request.getJobInfo());
         restoreStmt.setIsBeingSynced();
-        LOG.trace("restore snapshot info, restoreStmt: {}", restoreStmt);
+        LOG.debug("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
             ConnectContext ctx = new ConnectContext();
             ctx.setQualifiedUser(request.getUser());
@@ -3145,13 +3147,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             restoreStmt.analyze(analyzer);
             DdlExecutor.execute(Env.getCurrentEnv(), restoreStmt);
         } catch (UserException e) {
-            LOG.warn("failed to restore: {}", e.getMessage(), e);
+            LOG.warn("failed to restore: {}, stmt: {}", e.getMessage(), restoreStmt, e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
-            status.addToErrorMsgs(e.getMessage());
+            status.addToErrorMsgs(e.getMessage() + ", stmt: " + restoreStmt.toString());
         } catch (Throwable e) {
-            LOG.warn("catch unknown result.", e);
+            LOG.warn("catch unknown result. stmt: {}", restoreStmt, e);
             status.setStatusCode(TStatusCode.INTERNAL_ERROR);
-            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()) + ", stmt: " + restoreStmt.toString());
         } finally {
             ConnectContext.remove();
         }
@@ -3421,9 +3423,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         InvalidateStatsTarget target = GsonUtils.GSON.fromJson(request.key, InvalidateStatsTarget.class);
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         TableStatsMeta tableStats = analysisManager.findTableStatsStatus(target.tableId);
-        if (tableStats == null) {
-            return new TStatus(TStatusCode.OK);
-        }
         analysisManager.invalidateLocalStats(target.catalogId, target.dbId, target.tableId, target.columns, tableStats);
         return new TStatus(TStatusCode.OK);
     }

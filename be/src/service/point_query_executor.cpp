@@ -37,6 +37,7 @@
 #include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "runtime/thread_context.h"
 #include "util/key_util.h"
 #include "util/runtime_profile.h"
 #include "util/simd/bits.h"
@@ -166,7 +167,8 @@ void RowCache::erase(const RowCacheKey& key) {
 }
 
 PointQueryExecutor::~PointQueryExecutor() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(
+            ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     _tablet.reset();
     _reusable.reset();
     _result_block.reset();
@@ -180,10 +182,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     // using cache
     __int128_t uuid =
             static_cast<__int128_t>(request->uuid().uuid_high()) << 64 | request->uuid().uuid_low();
-    _mem_tracker = MemTrackerLimiter::create_shared(
-            MemTrackerLimiter::Type::QUERY,
-            fmt::format("PointQueryExecutor:{}#{}", uuid, request->tablet_id()));
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     auto cache_handle = LookupConnectionCache::instance()->get(uuid);
     _binary_row_format = request->is_binary_row();
     _tablet = StorageEngine::instance()->tablet_manager()->get_tablet(request->tablet_id());
@@ -234,7 +233,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
 }
 
 Status PointQueryExecutor::lookup_up() {
-    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->point_query_executor_mem_tracker());
     RETURN_IF_ERROR(_lookup_row_key());
     RETURN_IF_ERROR(_lookup_row_data());
     RETURN_IF_ERROR(_output_data());

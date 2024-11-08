@@ -83,10 +83,16 @@ Status IndexBuilder::update_inverted_index_info() {
                 auto column_name = t_inverted_index.columns[0];
                 auto column_idx = output_rs_tablet_schema->field_index(column_name);
                 if (column_idx < 0) {
-                    LOG(WARNING) << "referenced column was missing. "
-                                 << "[column=" << column_name << " referenced_column=" << column_idx
-                                 << "]";
-                    continue;
+                    if (!t_inverted_index.column_unique_ids.empty()) {
+                        auto column_unique_id = t_inverted_index.column_unique_ids[0];
+                        column_idx = output_rs_tablet_schema->field_index(column_unique_id);
+                    }
+                    if (column_idx < 0) {
+                        LOG(WARNING) << "referenced column was missing. "
+                                     << "[column=" << column_name
+                                     << " referenced_column=" << column_idx << "]";
+                        continue;
+                    }
                 }
                 auto column = output_rs_tablet_schema->column(column_idx);
                 const auto* index_meta = output_rs_tablet_schema->get_inverted_index(column);
@@ -346,10 +352,16 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                 auto column_name = inverted_index.columns[0];
                 auto column_idx = output_rowset_schema->field_index(column_name);
                 if (column_idx < 0) {
-                    LOG(WARNING) << "referenced column was missing. "
-                                 << "[column=" << column_name << " referenced_column=" << column_idx
-                                 << "]";
-                    continue;
+                    if (!inverted_index.column_unique_ids.empty()) {
+                        column_idx = output_rowset_schema->field_index(
+                                inverted_index.column_unique_ids[0]);
+                    }
+                    if (column_idx < 0) {
+                        LOG(WARNING) << "referenced column was missing. "
+                                     << "[column=" << column_name
+                                     << " referenced_column=" << column_idx << "]";
+                        continue;
+                    }
                 }
                 auto column = output_rowset_schema->column(column_idx);
                 if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
@@ -478,9 +490,16 @@ Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, 
         auto column_name = inverted_index.columns[0];
         auto column_idx = tablet_schema->field_index(column_name);
         if (column_idx < 0) {
-            LOG(WARNING) << "referenced column was missing. "
-                         << "[column=" << column_name << " referenced_column=" << column_idx << "]";
-            continue;
+            if (!inverted_index.column_unique_ids.empty()) {
+                auto column_unique_id = inverted_index.column_unique_ids[0];
+                column_idx = tablet_schema->field_index(column_unique_id);
+            }
+            if (column_idx < 0) {
+                LOG(WARNING) << "referenced column was missing. "
+                             << "[column=" << column_name << " referenced_column=" << column_idx
+                             << "]";
+                continue;
+            }
         }
         auto column = tablet_schema->column(column_idx);
         auto writer_sign = std::make_pair(segment_idx, index_id);
@@ -540,6 +559,13 @@ Status IndexBuilder::_add_nullable(const std::string& column_name,
         } catch (const std::exception& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                     "CLuceneError occured: {}", e.what());
+        }
+        // we should refresh nullmap for array
+        for (int row_id = 0; row_id < num_rows; row_id++) {
+            if (null_map && null_map[row_id] == 1) {
+                RETURN_IF_ERROR(
+                        _inverted_index_builders[index_writer_sign]->add_array_nulls(row_id));
+            }
         }
         return Status::OK();
     }

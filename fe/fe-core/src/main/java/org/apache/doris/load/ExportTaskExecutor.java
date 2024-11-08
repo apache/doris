@@ -162,7 +162,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         }
         isCanceled.getAndSet(true);
         if (stmtExecutor != null) {
-            stmtExecutor.cancel();
+            stmtExecutor.cancel("export task cancelled");
         }
     }
 

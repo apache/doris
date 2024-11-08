@@ -278,6 +278,7 @@ terminal String
     KW_BIN,
     KW_BINLOG,
     KW_BITMAP,
+    KW_BITMAP_EMPTY,
     KW_BITMAP_UNION,
     KW_BLOB,
     KW_BOOLEAN,
@@ -961,6 +962,7 @@ nonterminal List<Map<String, String>> opt_with_analysis_properties;
 
 nonterminal String opt_db, procedure_or_function, opt_comment, opt_comment_null, opt_engine;
 nonterminal ColumnDef.DefaultValue opt_default_value;
+nonterminal Boolean opt_or_replace;
 nonterminal Boolean opt_if_exists, opt_if_not_exists;
 nonterminal Boolean opt_external;
 nonterminal Boolean opt_force;
@@ -1892,10 +1894,10 @@ create_stmt ::=
     {:
         RESULT = new CreateUserStmt(ifNotExists, user, userRole, passwdOptions, comment);
     :}
-    | KW_CREATE KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
+    | KW_CREATE opt_or_replace:orReplace KW_VIEW opt_if_not_exists:ifNotExists table_name:viewName
         opt_col_with_comment_list:columns opt_comment:comment KW_AS query_stmt:view_def
     {:
-        RESULT = new CreateViewStmt(ifNotExists, viewName, columns, comment, view_def);
+        RESULT = new CreateViewStmt(ifNotExists, orReplace, viewName, columns, comment, view_def);
     :}
     | KW_CREATE opt_read_only:isReadOnly KW_REPOSITORY ident:repoName KW_WITH storage_backend:storage
     {:
@@ -3751,6 +3753,10 @@ opt_default_value ::=
     {:
         RESULT = ColumnDef.DefaultValue.currentTimeStampDefaultValueWithPrecision(precision);
     :}
+    | KW_DEFAULT KW_BITMAP_EMPTY
+    {:
+        RESULT = ColumnDef.DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE;
+    :}
     ;
 
 opt_is_key ::=
@@ -3862,6 +3868,16 @@ opt_index_type ::=
     | KW_USING KW_INVERTED
     {:
         RESULT = IndexDef.IndexType.INVERTED;
+    :}
+    ;
+
+opt_or_replace ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_OR KW_REPLACE
+    {:
+        RESULT = true;
     :}
     ;
 
@@ -4193,6 +4209,10 @@ show_param ::=
     | KW_EXPORT opt_db:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowExportStmt(db, parser.where, orderByClause, limitClause);
+    :}
+    | KW_EXPORT from_or_in ident:ctl DOT ident:db opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowExportStmt(ctl, db, parser.where, orderByClause, limitClause);
     :}
     /* Show delete statement */
     | KW_DELETE opt_db:db
@@ -7732,6 +7752,8 @@ keyword ::=
     | KW_BIN:id
     {: RESULT = id; :}
     | KW_BITMAP:id
+    {: RESULT = id; :}
+    | KW_BITMAP_EMPTY:id
     {: RESULT = id; :}
     | KW_QUANTILE_STATE:id
     {: RESULT = id; :}

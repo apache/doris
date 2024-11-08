@@ -387,8 +387,8 @@ void ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     } else if (least_common_type.get_type_id() != base_type.idx && !base_type.is_nothing()) {
         if (schema_util::is_conversion_required_between_integers(base_type.idx,
                                                                  least_common_type.get_type_id())) {
-            LOG_EVERY_N(INFO, 100) << "Conversion between " << getTypeName(base_type.idx) << " and "
-                                   << getTypeName(least_common_type.get_type_id());
+            VLOG_DEBUG << "Conversion between " << getTypeName(base_type.idx) << " and "
+                       << getTypeName(least_common_type.get_type_id());
             DataTypePtr base_data_type;
             TypeIndex base_data_type_id;
             get_least_supertype<LeastSupertypeOnError::Jsonb>(
@@ -1150,8 +1150,9 @@ Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                 "failed to set value for path {}, expected type {}, but got {} at row {}",
                 path.get_path(), type->get_name(), column->get_name(), row);
     }
-    const auto* nullable = assert_cast<const ColumnNullable*>(column);
-    if (nullable->is_null_at(row) || (path.empty() && nullable->get_data_at(row).empty())) {
+    const auto* nullable = check_and_get_column<ColumnNullable>(column);
+    if (nullable != nullptr &&
+        (nullable->is_null_at(row) || (path.empty() && nullable->get_data_at(row).empty()))) {
         return Status::OK();
     }
     // TODO could cache the result of leaf nodes with it's path info
@@ -1562,6 +1563,12 @@ void ColumnObject::create_root(const DataTypePtr& type, MutableColumnPtr&& colum
     add_sub_column({}, std::move(column), type);
 }
 
+DataTypePtr ColumnObject::get_most_common_type() const {
+    auto type = is_nullable ? make_nullable(std::make_shared<MostCommonType>())
+                            : std::make_shared<MostCommonType>();
+    return type;
+}
+
 bool ColumnObject::is_null_root() const {
     auto* root = subcolumns.get_root();
     if (root == nullptr) {
@@ -1630,6 +1637,16 @@ void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) 
             callback(*part);
         }
     }
+}
+
+bool ColumnObject::is_exclusive() const {
+    bool is_exclusive = IColumn::is_exclusive();
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        if (!subcolumn.is_exclusive()) {
+            is_exclusive = false;
+        }
+    });
+    return is_exclusive;
 }
 
 void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {

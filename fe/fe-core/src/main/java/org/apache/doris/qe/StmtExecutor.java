@@ -145,9 +145,11 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -272,6 +274,7 @@ public class StmtExecutor {
     private boolean isHandleQueryInFe = false;
     // The profile of this execution
     private final Profile profile;
+    private Boolean isForwardedToMaster = null;
 
     private ExecuteStmt execStmt;
     PrepareStmtContext preparedStmtCtx = null;
@@ -379,7 +382,7 @@ public class StmtExecutor {
         builder.defaultCatalog(context.getCurrentCatalog().getName());
         builder.defaultDb(context.getDatabase());
         builder.workloadGroup(context.getWorkloadGroupName());
-        builder.sqlStatement(originStmt.originStmt);
+        builder.sqlStatement(originStmt == null ? "" : originStmt.originStmt);
         builder.isCached(isCached ? "Yes" : "No");
 
         Map<String, Integer> beToInstancesNum = coord == null ? Maps.newTreeMap() : coord.getBeToInstancesNum();
@@ -403,6 +406,13 @@ public class StmtExecutor {
     }
 
     public boolean isForwardToMaster() {
+        if (isForwardedToMaster == null) {
+            isForwardedToMaster = shouldForwardToMaster();
+        }
+        return isForwardedToMaster;
+    }
+
+    private boolean shouldForwardToMaster() {
         if (Env.getCurrentEnv().isMaster()) {
             return false;
         }
@@ -413,7 +423,7 @@ public class StmtExecutor {
 
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if (isQuery() && !Env.getCurrentEnv().isMaster()
-                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries())) {
+                && (!Env.getCurrentEnv().canRead() || debugForwardAllQueries() || Config.force_forward_all_queries)) {
             return true;
         }
 
@@ -426,7 +436,7 @@ public class StmtExecutor {
 
     private boolean debugForwardAllQueries() {
         DebugPoint debugPoint = DebugPointUtil.getDebugPoint("StmtExecutor.forward_all_queries");
-        return debugPoint != null && debugPoint.param("forwardAllQueries", true);
+        return debugPoint != null && debugPoint.param("forwardAllQueries", false);
     }
 
     public ByteBuffer getOutputPacket() {
@@ -479,10 +489,11 @@ public class StmtExecutor {
             return logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof InsertOverwriteTableCommand
                     || (logicalPlan instanceof CreateTableCommand
-                    && ((CreateTableCommand) logicalPlan).isCtasCommand());
+                    && ((CreateTableCommand) logicalPlan).isCtasCommand())
+                    || logicalPlan instanceof DeleteFromCommand;
         }
         return parsedStmt instanceof InsertStmt || parsedStmt instanceof InsertOverwriteTableStmt
-                || parsedStmt instanceof CreateTableAsSelectStmt;
+                || parsedStmt instanceof CreateTableAsSelectStmt || parsedStmt instanceof DeleteStmt;
     }
 
     public boolean isAnalyzeStmt() {
@@ -648,6 +659,8 @@ public class StmtExecutor {
         context.setQueryId(queryId);
         context.setStartTime();
         profile.getSummaryProfile().setQueryBeginTime();
+        List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
+        profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         parseByNereids();
@@ -666,7 +679,8 @@ public class StmtExecutor {
         // when we in transaction mode, we only support insert into command and transaction command
         if (context.isTxnModel()) {
             if (!(logicalPlan instanceof BatchInsertIntoTableCommand
-                    || logicalPlan instanceof InsertIntoTableCommand)) {
+                    || logicalPlan instanceof InsertIntoTableCommand
+                    || logicalPlan instanceof UnsupportedCommand)) {
                 String errMsg = "This is in a transaction, only insert, commit, rollback is acceptable.";
                 throw new NereidsException(errMsg, new AnalysisException(errMsg));
             }
@@ -744,6 +758,27 @@ public class StmtExecutor {
             }
         } else {
             context.getState().setIsQuery(true);
+            if (isForwardToMaster()) {
+                // some times the follower's meta data is out of date.
+                // so we need forward the query to master until the meta data is sync with master
+                if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+                    throw new UserException("Forward master command is not supported for prepare statement");
+                }
+                if (isProxy) {
+                    // This is already a stmt forwarded from other FE.
+                    // If we goes here, means we can't find a valid Master FE(some error happens).
+                    // To avoid endless forward, throw exception here.
+                    throw new NereidsException(new UserException("The statement has been forwarded to master FE("
+                            + Env.getCurrentEnv().getSelfNode().getHost() + ") and failed to execute"
+                            + " because Master FE is not ready. You may need to check FE's status"));
+                }
+                redirectStatus = RedirectStatus.NO_FORWARD;
+                forwardToMaster();
+                if (masterOpExecutor != null && masterOpExecutor.getQueryId() != null) {
+                    context.setQueryId(masterOpExecutor.getQueryId());
+                }
+                return;
+            }
             // create plan
             // Query following createting table would throw table not exist error.
             // For example.
@@ -1344,7 +1379,8 @@ public class StmtExecutor {
             }
             ExprRewriter rewriter = analyzer.getExprRewriter();
             rewriter.reset();
-            if (context.getSessionVariable().isEnableFoldConstantByBe()) {
+            if (context.getSessionVariable().isEnableFoldConstantByBe()
+                    && !context.getSessionVariable().isDebugSkipFoldConstant()) {
                 // fold constant expr
                 parsedStmt.foldConstant(rewriter, tQueryOptions);
             }
@@ -1449,10 +1485,15 @@ public class StmtExecutor {
     }
 
     // Because this is called by other thread
-    public void cancel() {
+    public void cancel(String message) {
+        Optional<InsertOverwriteTableCommand> insertOverwriteTableCommand = getInsertOverwriteTableCommand();
+        if (insertOverwriteTableCommand.isPresent()) {
+            // If the be scheduling has not been triggered yet, cancel the scheduling first
+            insertOverwriteTableCommand.get().cancel();
+        }
         Coordinator coordRef = coord;
         if (coordRef != null) {
-            coordRef.cancel();
+            coordRef.cancel(message);
         }
         if (mysqlLoadId != null) {
             Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
@@ -1460,6 +1501,22 @@ public class StmtExecutor {
         if (parsedStmt instanceof AnalyzeTblStmt || parsedStmt instanceof AnalyzeDBStmt) {
             Env.getCurrentEnv().getAnalysisManager().cancelSyncTask(context);
         }
+        if (insertOverwriteTableCommand.isPresent()) {
+            // Wait for the command to run or cancel completion
+            insertOverwriteTableCommand.get().waitNotRunning();
+        }
+    }
+
+    private Optional<InsertOverwriteTableCommand> getInsertOverwriteTableCommand() {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
+            LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+            if (logicalPlan instanceof InsertOverwriteTableCommand) {
+                InsertOverwriteTableCommand insertOverwriteTableCommand = (InsertOverwriteTableCommand) logicalPlan;
+                return Optional.of(insertOverwriteTableCommand);
+            }
+        }
+        return Optional.empty();
     }
 
     // Because this is called by other thread
@@ -1693,6 +1750,14 @@ public class StmtExecutor {
             handleExplainStmt(explainString, false);
             LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
             return;
+        }
+
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlanAdapter logicalPlanAdapter = (LogicalPlanAdapter) parsedStmt;
+            LogicalPlan logicalPlan = logicalPlanAdapter.getLogicalPlan();
+            if (logicalPlan instanceof org.apache.doris.nereids.trees.plans.algebra.SqlCache) {
+                isCached = true;
+            }
         }
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
@@ -3246,8 +3311,16 @@ public class StmtExecutor {
             httpStreamParams.setLabel(insertExecutor.getLabelName());
 
             PlanNode planRoot = planner.getFragments().get(0).getPlanRoot();
-            Preconditions.checkState(planRoot instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode,
-                    "Nereids' planNode cannot be converted to " + planRoot.getClass().getName());
+            boolean isValidPlan = !planner.getScanNodes().isEmpty();
+            for (ScanNode scanNode : planner.getScanNodes()) {
+                if (!(scanNode instanceof TVFScanNode || planRoot instanceof GroupCommitScanNode)) {
+                    isValidPlan = false;
+                    break;
+                }
+            }
+            if (!isValidPlan) {
+                throw new AnalysisException("plan is invalid: " + planRoot.getExplainString());
+            }
         } catch (QueryStateException e) {
             LOG.debug("Command(" + originStmt.originStmt + ") process failed.", e);
             context.setState(e.getQueryState());
@@ -3318,11 +3391,8 @@ public class StmtExecutor {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
-                    boolean isInsertIntoCommand = parsedStmt != null && parsedStmt instanceof LogicalPlanAdapter
-                            && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
                     if (e instanceof NereidsException
-                                && !context.getSessionVariable().enableFallbackToOriginalPlanner
-                                && !isInsertIntoCommand) {
+                            && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                         throw ((NereidsException) e).getException();
                     }
@@ -3393,17 +3463,13 @@ public class StmtExecutor {
         return ((ProxyMysqlChannel) context.getMysqlChannel()).getProxyResultBufferList();
     }
 
-    public boolean sendProxyQueryResult() throws IOException {
+    public void sendProxyQueryResult() throws IOException {
         if (masterOpExecutor == null) {
-            return false;
+            return;
         }
         List<ByteBuffer> queryResultBufList = masterOpExecutor.getQueryResultBufList();
-        if (queryResultBufList.isEmpty()) {
-            return false;
-        }
         for (ByteBuffer byteBuffer : queryResultBufList) {
             context.getMysqlChannel().sendOnePacket(byteBuffer);
         }
-        return true;
     }
 }

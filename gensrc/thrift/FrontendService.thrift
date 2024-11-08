@@ -417,6 +417,13 @@ struct TReportWorkloadRuntimeStatusParams {
     2: optional map<string, TQueryStatistics> query_statistics_map
 }
 
+struct TFragmentInstanceReport {
+  1: optional Types.TUniqueId fragment_instance_id;
+  2: optional i32 num_finished_range;
+  3: optional i64 loaded_rows
+  4: optional i64 loaded_bytes
+}
+
 // The results of an INSERT query, sent to the coordinator as part of
 // TReportExecStatusParams
 struct TReportExecStatusParams {
@@ -487,6 +494,8 @@ struct TReportExecStatusParams {
   26: optional list<DataSinks.THivePartitionUpdate> hive_partition_updates
 
   28: optional list<DataSinks.TIcebergCommitData> iceberg_commit_datas
+
+  31: optional list<TFragmentInstanceReport> fragment_instance_reports;
 }
 
 struct TFeResult {
@@ -958,6 +967,7 @@ enum TSchemaTableName {
   WORKLOAD_GROUP_PRIVILEGES = 7,
   TABLE_PROPERTIES = 8,
   CATALOG_META_CACHE_STATS = 9,
+  PARTITIONS = 10,
 }
 
 struct TMetadataTableRequestParams {
@@ -973,6 +983,7 @@ struct TMetadataTableRequestParams {
   10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
   11: optional PlanNodes.TPartitionsMetadataParams partitions_metadata_params
   12: optional PlanNodes.TMetaCacheStatsParams meta_cache_stats_params
+  13: optional PlanNodes.TPartitionValuesMetadataParams partition_values_metadata_params
 }
 
 struct TSchemaTableRequestParams {
@@ -1203,6 +1214,7 @@ struct TRestoreSnapshotRequest {
     12: optional binary job_info
     13: optional bool clean_tables
     14: optional bool clean_partitions
+    15: optional bool atomic_restore
 }
 
 struct TRestoreSnapshotResult {
@@ -1425,6 +1437,7 @@ struct TGetMetaDBMeta {
     3: optional list<TGetMetaTableMeta> tables
     4: optional list<i64> dropped_partitions
     5: optional list<i64> dropped_tables
+    6: optional list<i64> dropped_indexes
 }
 
 struct TGetMetaResult {

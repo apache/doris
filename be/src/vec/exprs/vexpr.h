@@ -115,6 +115,14 @@ public:
 
     virtual Status execute(VExprContext* context, Block* block, int* result_column_id) = 0;
 
+    // execute current expr with inverted index to filter block. Given a roaring bitmap of match rows
+    virtual Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
+        return Status::OK();
+    }
+
+    Status _evaluate_inverted_index(VExprContext* context, const FunctionBasePtr& function,
+                                    uint32_t segment_num_rows);
+
     // Only the 4th parameter is used in the runtime filter. In and MinMax need overwrite the
     // interface
     virtual Status execute_runtime_fitler(VExprContext* context, Block* block,
@@ -222,18 +230,10 @@ public:
     }
 
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
-    bool fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                      size_t input_rows_count, const std::string& function_name);
-
-    std::string gen_predicate_result_sign(Block& block, const ColumnNumbers& arguments,
-                                          const std::string& function_name) const;
+    bool fast_execute(doris::vectorized::VExprContext* context, doris::vectorized::Block* block,
+                      int* result_column_id);
 
     virtual bool can_push_down_to_index() const { return false; }
-    virtual bool can_fast_execute() const { return false; }
-    virtual Status eval_inverted_index(segment_v2::FuncExprParams& params,
-                                       std::shared_ptr<roaring::Roaring>& result) {
-        return Status::NotSupported("Not supported execute_with_inverted_index");
-    }
     virtual bool equals(const VExpr& other);
     void set_index_unique_id(uint32_t index_unique_id) { _index_unique_id = index_unique_id; }
     uint32_t index_unique_id() const { return _index_unique_id; }

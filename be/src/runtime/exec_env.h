@@ -80,7 +80,7 @@ class MemTracker;
 class StorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
-class RuntimeQueryStatiticsMgr;
+class RuntimeQueryStatisticsMgr;
 class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
@@ -162,7 +162,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
     WorkloadGroupMgr* workload_group_mgr() { return _workload_group_manager; }
     WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
-    RuntimeQueryStatiticsMgr* runtime_query_statistics_mgr() {
+    RuntimeQueryStatisticsMgr* runtime_query_statistics_mgr() {
         return _runtime_query_statistics_mgr;
     }
 
@@ -184,6 +184,15 @@ public:
     MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
     std::shared_ptr<MemTrackerLimiter> segcompaction_mem_tracker() {
         return _segcompaction_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> stream_load_pipe_tracker() {
+        return _stream_load_pipe_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> point_query_executor_mem_tracker() {
+        return _point_query_executor_mem_tracker;
+    }
+    std::shared_ptr<MemTrackerLimiter> block_compression_mem_tracker() {
+        return _block_compression_mem_tracker;
     }
     std::shared_ptr<MemTrackerLimiter> rowid_storage_reader_tracker() {
         return _rowid_storage_reader_tracker;
@@ -362,6 +371,11 @@ private:
     std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTrackerLimiter> _segcompaction_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _stream_load_pipe_tracker;
+
+    // Tracking memory may be shared between multiple queries.
+    std::shared_ptr<MemTrackerLimiter> _point_query_executor_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _block_compression_mem_tracker;
 
     // TODO, looking forward to more accurate tracking.
     std::shared_ptr<MemTrackerLimiter> _rowid_storage_reader_tracker;
@@ -444,7 +458,7 @@ private:
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 
-    RuntimeQueryStatiticsMgr* _runtime_query_statistics_mgr = nullptr;
+    RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
     std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;

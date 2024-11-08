@@ -85,7 +85,7 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
     return Status::OK();
 }
 
-Status SegmentFlusher::_parse_variant_columns(vectorized::Block& block) {
+Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block) {
     size_t num_rows = block.rows();
     if (num_rows == 0) {
         return Status::OK();

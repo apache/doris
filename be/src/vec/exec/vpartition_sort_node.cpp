@@ -239,8 +239,8 @@ Status VPartitionSortNode::sink(RuntimeState* state, vectorized::Block* input_bl
             //just simply use partition num to check
             //if is TWO_PHASE_GLOBAL, must be sort all data thought partition num threshold have been exceeded.
             if (_topn_phase != TPartTopNPhase::TWO_PHASE_GLOBAL &&
-                _num_partition > config::partition_topn_partition_threshold &&
-                child_input_rows < 10000 * _num_partition) {
+                _num_partition > state->partition_topn_max_partitions() &&
+                child_input_rows < state->partition_topn_per_partition_rows() * _num_partition) {
                 {
                     std::lock_guard<std::mutex> lock(_buffer_mutex);
                     _blocks_buffer.push(std::move(*input_block));

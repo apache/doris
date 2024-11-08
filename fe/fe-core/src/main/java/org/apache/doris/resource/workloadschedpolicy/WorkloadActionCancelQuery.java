@@ -32,7 +32,7 @@ public class WorkloadActionCancelQuery implements WorkloadAction {
                 && queryInfo.tUniqueId != null
                 && QeProcessorImpl.INSTANCE.getCoordinator(queryInfo.tUniqueId) != null) {
             LOG.info("cancel query {} triggered by query schedule policy.", queryInfo.queryId);
-            queryInfo.context.cancelQuery();
+            queryInfo.context.cancelQuery("cancel query by workload policy");
         }
     }
 

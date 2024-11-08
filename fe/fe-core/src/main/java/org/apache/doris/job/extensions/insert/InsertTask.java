@@ -221,7 +221,7 @@ public class InsertTask extends AbstractTask {
         }
         isCanceled.getAndSet(true);
         if (null != stmtExecutor) {
-            stmtExecutor.cancel();
+            stmtExecutor.cancel("insert task cancelled");
         }
     }
 

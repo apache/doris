@@ -53,6 +53,8 @@ Status OlapScanLocalState::_init_profile() {
     _read_compressed_counter = ADD_COUNTER(_segment_profile, "CompressedBytesRead", TUnit::BYTES);
     _read_uncompressed_counter =
             ADD_COUNTER(_segment_profile, "UncompressedBytesRead", TUnit::BYTES);
+    _scan_rows = ADD_COUNTER(_runtime_profile, "ScanRows", TUnit::UNIT);
+    _scan_bytes = ADD_COUNTER(_runtime_profile, "ScanBytes", TUnit::BYTES);
     _block_load_timer = ADD_TIMER(_segment_profile, "BlockLoadTime");
     _block_load_counter = ADD_COUNTER(_segment_profile, "BlocksLoad", TUnit::UNIT);
     _block_fetch_timer = ADD_TIMER(_scanner_profile, "BlockFetchTime");
@@ -314,7 +316,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
         for (auto& scanner : *scanners) {
             auto* olap_scanner = assert_cast<vectorized::NewOlapScanner*>(scanner.get());
             RETURN_IF_ERROR(olap_scanner->prepare(state(), _conjuncts));
-            olap_scanner->set_compound_filters(_compound_filters);
         }
         return Status::OK();
     }
@@ -336,7 +337,6 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
                               p._olap_scan_node.is_preaggregation,
                       });
         RETURN_IF_ERROR(scanner->prepare(state(), _conjuncts));
-        scanner->set_compound_filters(_compound_filters);
         scanners->push_back(scanner);
         return Status::OK();
     };
@@ -451,9 +451,13 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
         // we use `exact_range` to identify a key range is an exact range or not when we convert
         // it to `_scan_keys`. If `exact_range` is true, we can just discard it from `_olap_filters`.
         bool exact_range = true;
+
+        // If the `_scan_keys` cannot extend by the range of column, should stop.
+        bool should_break = false;
+
         bool eos = false;
-        for (int column_index = 0;
-             column_index < column_names.size() && !_scan_keys.has_range_value() && !eos;
+        for (int column_index = 0; column_index < column_names.size() &&
+                                   !_scan_keys.has_range_value() && !eos && !should_break;
              ++column_index) {
             auto iter = _colname_to_value_range.find(column_names[column_index]);
             if (_colname_to_value_range.end() == iter) {
@@ -467,8 +471,9 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         // but the original range may be converted to olap filters, if it's not a exact_range.
                         auto temp_range = range;
                         if (range.get_fixed_value_size() <= p._max_pushdown_conditions_per_column) {
-                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
-                                    temp_range, p._max_scan_key_num, &exact_range, &eos));
+                            RETURN_IF_ERROR(
+                                    _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
+                                                               &exact_range, &eos, &should_break));
                             if (exact_range) {
                                 _colname_to_value_range.erase(iter->first);
                             }
@@ -476,8 +481,9 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
                             // and will not erase from _colname_to_value_range, it must be not exact_range
                             temp_range.set_whole_value_range();
-                            RETURN_IF_ERROR(_scan_keys.extend_scan_key(
-                                    temp_range, p._max_scan_key_num, &exact_range, &eos));
+                            RETURN_IF_ERROR(
+                                    _scan_keys.extend_scan_key(temp_range, p._max_scan_key_num,
+                                                               &exact_range, &eos, &should_break));
                         }
                         return Status::OK();
                     },
@@ -494,22 +500,6 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
 
             for (const auto& filter : filters) {
                 _olap_filters.push_back(filter);
-            }
-        }
-
-        for (auto& iter : _compound_value_ranges) {
-            std::vector<TCondition> filters;
-            std::visit(
-                    [&](auto&& range) {
-                        if (range.is_in_compound_value_range()) {
-                            range.to_condition_in_compound(filters);
-                        } else if (range.is_match_value_range()) {
-                            range.to_match_condition(filters);
-                        }
-                    },
-                    iter);
-            for (const auto& filter : filters) {
-                _compound_filters.push_back(filter);
             }
         }
 

@@ -210,7 +210,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                     Status status;
                     for (auto channel : _channels) {
                         if (!channel->is_receiver_eof()) {
-                            status = channel->send_local_block(_output_block.get());
+                            status = channel->send_local_block(_output_block.get(), false);
                             HANDLE_CHANNEL_STATUS(state, channel, status);
                         }
                     }
@@ -234,7 +234,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
                         for (auto channel : _channels) {
                             if (!channel->is_receiver_eof()) {
                                 if (channel->is_local()) {
-                                    status = channel->send_local_block(&cur_block);
+                                    status = channel->send_local_block(&cur_block, false);
                                 } else {
                                     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                     status = channel->send_broadcast_block(_block_holder, true);

@@ -25,7 +25,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -204,15 +203,8 @@ public class MTMVTask extends AbstractTask {
             }
         } catch (Throwable e) {
             if (getStatus() == TaskStatus.RUNNING) {
-                StringBuilder errMsg = new StringBuilder();
-                // when env ctl/db not exist, need give client tips
-                Pair<Boolean, String> pair = MTMVPlanUtil.checkEnvInfo(mtmv.getEnvInfo(), ctx);
-                if (!pair.first) {
-                    errMsg.append(pair.second);
-                }
-                errMsg.append(e.getMessage());
-                LOG.warn("run task failed: ", errMsg.toString());
-                throw new JobException(errMsg.toString(), e);
+                LOG.warn("run task failed: ", e.getMessage());
+                throw new JobException(e.getMessage(), e);
             } else {
                 // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
                 LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
@@ -237,6 +229,10 @@ public class MTMVTask extends AbstractTask {
         ctx.setQueryId(queryId);
         ctx.getState().setNereids(true);
         command.run(ctx, executor);
+        if (getStatus() == TaskStatus.CANCELED) {
+            // Throwing an exception to interrupt subsequent partition update tasks
+            throw new JobException("task is CANCELED");
+        }
         if (ctx.getState().getStateType() != MysqlStateType.OK) {
             throw new JobException(ctx.getState().getErrorMessage());
         }
@@ -262,7 +258,7 @@ public class MTMVTask extends AbstractTask {
     protected synchronized void executeCancelLogic() {
         LOG.info("mtmv task cancel, taskId: {}", super.getTaskId());
         if (executor != null) {
-            executor.cancel();
+            executor.cancel("mtmv task cancelled");
         }
         after();
     }

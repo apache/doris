@@ -75,7 +75,6 @@ public enum SchemaTableType {
     SCH_WORKLOAD_GROUPS("WORKLOAD_GROUPS", "WORKLOAD_GROUPS", TSchemaTableType.SCH_WORKLOAD_GROUPS),
     SCHE_USER("user", "user", TSchemaTableType.SCH_USER),
     SCH_PROCS_PRIV("procs_priv", "procs_priv", TSchemaTableType.SCH_PROCS_PRIV),
-
     SCH_WORKLOAD_POLICY("WORKLOAD_POLICY", "WORKLOAD_POLICY",
             TSchemaTableType.SCH_WORKLOAD_POLICY),
     SCH_FILE_CACHE_STATISTICS("FILE_CACHE_STATISTICS", "FILE_CACHE_STATISTICS",
@@ -87,7 +86,9 @@ public enum SchemaTableType {
     SCH_TABLE_PROPERTIES("TABLE_PROPERTIES", "TABLE_PROPERTIES",
             TSchemaTableType.SCH_TABLE_PROPERTIES),
     SCH_CATALOG_META_CACHE_STATISTICS("CATALOG_META_CACHE_STATISTICS", "CATALOG_META_CACHE_STATISTICS",
-            TSchemaTableType.SCH_CATALOG_META_CACHE_STATISTICS);
+            TSchemaTableType.SCH_CATALOG_META_CACHE_STATISTICS),
+    SCH_TABLE_OPTIONS("TABLE_OPTIONS", "TABLE_OPTIONS",
+            TSchemaTableType.SCH_TABLE_OPTIONS);
 
     private static final String dbName = "INFORMATION_SCHEMA";
     private static SelectList fullSelectLists;

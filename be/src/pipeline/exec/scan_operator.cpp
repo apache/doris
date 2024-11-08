@@ -348,9 +348,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                             RETURN_IF_PUSH_DOWN(_normalize_noneq_binary_predicate(
                                                         cur_expr, context, slot, value_range, &pdt),
                                                 status);
-                            RETURN_IF_PUSH_DOWN(_normalize_match_predicate(cur_expr, context, slot,
-                                                                           value_range, &pdt),
-                                                status);
                             if (_is_key_column(slot->col_name())) {
                                 RETURN_IF_PUSH_DOWN(
                                         _normalize_bitmap_filter(cur_expr, context, slot, &pdt),
@@ -368,23 +365,6 @@ Status ScanLocalState<Derived>::_normalize_predicate(
                         *range);
                 RETURN_IF_ERROR(status);
             }
-
-            if (pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE &&
-                TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
-                _normalize_compound_predicate(cur_expr, context, &pdt, _is_runtime_filter_predicate,
-                                              in_predicate_checker, eq_predicate_checker);
-                output_expr = conjunct_expr_root; // remaining in conjunct tree
-                return Status::OK();
-            }
-
-            if (pdt == vectorized::VScanNode::PushDownType::ACCEPTABLE &&
-                TExprNodeType::MATCH_PRED == cur_expr->node_type()) {
-                // remaining it in the expr tree, in order to filter by function if the pushdown
-                // match_predicate failed to apply inverted index in the storage layer
-                output_expr = conjunct_expr_root; // remaining in conjunct tree
-                return Status::OK();
-            }
-
             if (pdt == vectorized::VScanNode::PushDownType::ACCEPTABLE && slotref != nullptr &&
                 slotref->type().is_variant_type()) {
                 // remaining it in the expr tree, in order to filter by function if the pushdown
@@ -1034,225 +1014,6 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
 }
 
 template <typename Derived>
-void ScanLocalState<Derived>::_normalize_compound_predicate(
-        vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx,
-        vectorized::VScanNode::PushDownType* pdt, bool _is_runtime_filter_predicate,
-        const std::function<bool(const vectorized::VExprSPtrs&,
-                                 std::shared_ptr<vectorized::VSlotRef>&, vectorized::VExprSPtr&)>&
-                in_predicate_checker,
-        const std::function<bool(const vectorized::VExprSPtrs&,
-                                 std::shared_ptr<vectorized::VSlotRef>&, vectorized::VExprSPtr&)>&
-                eq_predicate_checker) {
-    if (TExprNodeType::COMPOUND_PRED == expr->node_type()) {
-        auto compound_fn_name = expr->fn().name.function_name;
-        auto children_num = expr->children().size();
-        for (auto i = 0; i < children_num; ++i) {
-            auto* child_expr = expr->children()[i].get();
-            if (TExprNodeType::BINARY_PRED == child_expr->node_type() ||
-                TExprNodeType::IN_PRED == child_expr->node_type() ||
-                TExprNodeType::MATCH_PRED == child_expr->node_type()) {
-                SlotDescriptor* slot = nullptr;
-                ColumnValueRangeType* range_on_slot = nullptr;
-                if (_is_predicate_acting_on_slot(child_expr, in_predicate_checker, &slot,
-                                                 &range_on_slot) ||
-                    _is_predicate_acting_on_slot(child_expr, eq_predicate_checker, &slot,
-                                                 &range_on_slot)) {
-                    ColumnValueRangeType active_range =
-                            *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
-                    std::visit(
-                            [&](auto& value_range) {
-                                Defer mark_runtime_filter_flag {[&]() {
-                                    value_range.mark_runtime_filter_predicate(
-                                            _is_runtime_filter_predicate);
-                                }};
-                                if (TExprNodeType::BINARY_PRED == child_expr->node_type()) {
-                                    static_cast<void>(_normalize_binary_compound_predicate(
-                                            child_expr, expr_ctx, slot, value_range, pdt));
-                                } else if (TExprNodeType::IN_PRED == child_expr->node_type()) {
-                                    static_cast<void>(_normalize_in_and_not_in_compound_predicate(
-                                            child_expr, expr_ctx, slot, value_range, pdt));
-                                } else {
-                                    static_cast<void>(_normalize_match_compound_predicate(
-                                            child_expr, expr_ctx, slot, value_range, pdt));
-                                }
-                            },
-                            active_range);
-
-                    _compound_value_ranges.emplace_back(active_range);
-                }
-            } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
-                                              _is_runtime_filter_predicate, in_predicate_checker,
-                                              eq_predicate_checker);
-            }
-        }
-    }
-}
-
-template <typename Derived>
-template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_binary_compound_predicate(
-        vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-        ColumnValueRange<T>& range, vectorized::VScanNode::PushDownType* pdt) {
-    DCHECK(expr->children().size() == 2);
-    if (TExprNodeType::BINARY_PRED == expr->node_type()) {
-        auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
-        auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
-        auto noneq_checker = [](const std::string& fn_name) {
-            return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";
-        };
-
-        StringRef value;
-        int slot_ref_child = -1;
-        vectorized::VScanNode::PushDownType eq_pdt;
-        vectorized::VScanNode::PushDownType ne_pdt;
-        vectorized::VScanNode::PushDownType noneq_pdt;
-        RETURN_IF_ERROR(_should_push_down_binary_predicate(
-                reinterpret_cast<vectorized::VectorizedFnCall*>(expr), expr_ctx, &value,
-                &slot_ref_child, eq_checker, eq_pdt));
-        RETURN_IF_ERROR(_should_push_down_binary_predicate(
-                reinterpret_cast<vectorized::VectorizedFnCall*>(expr), expr_ctx, &value,
-                &slot_ref_child, ne_checker, ne_pdt));
-        RETURN_IF_ERROR(_should_push_down_binary_predicate(
-                reinterpret_cast<vectorized::VectorizedFnCall*>(expr), expr_ctx, &value,
-                &slot_ref_child, noneq_checker, noneq_pdt));
-        if (eq_pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE &&
-            ne_pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE &&
-            noneq_pdt == vectorized::VScanNode::PushDownType::UNACCEPTABLE) {
-            return Status::OK();
-        }
-        DCHECK(slot_ref_child >= 0);
-        const std::string& fn_name =
-                reinterpret_cast<vectorized::VectorizedFnCall*>(expr)->fn().name.function_name;
-        if (eq_pdt == vectorized::VScanNode::PushDownType::ACCEPTABLE ||
-            ne_pdt == vectorized::VScanNode::PushDownType::ACCEPTABLE ||
-            noneq_pdt == vectorized::VScanNode::PushDownType::ACCEPTABLE) {
-            if (value.data != nullptr) {
-                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
-                              T == TYPE_HLL) {
-                    auto val = StringRef(value.data, value.size);
-                    RETURN_IF_ERROR(_change_value_range<false>(
-                            range, reinterpret_cast<void*>(&val),
-                            ColumnValueRange<T>::add_compound_value_range, fn_name,
-                            slot_ref_child));
-                } else {
-                    RETURN_IF_ERROR(_change_value_range<false>(
-                            range, reinterpret_cast<void*>(const_cast<char*>(value.data)),
-                            ColumnValueRange<T>::add_compound_value_range, fn_name,
-                            slot_ref_child));
-                }
-            }
-            *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
-        }
-    }
-    return Status::OK();
-}
-
-template <typename Derived>
-template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_in_and_not_in_compound_predicate(
-        vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-        ColumnValueRange<T>& range, vectorized::VScanNode::PushDownType* pdt) {
-    if (TExprNodeType::IN_PRED == expr->node_type()) {
-        std::string fn_name = expr->op() == TExprOpcode::type::FILTER_IN ? "in" : "not_in";
-
-        HybridSetBase::IteratorBase* iter = nullptr;
-        auto hybrid_set = expr->get_set_func();
-
-        if (hybrid_set != nullptr) {
-            *pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
-            return Status::OK();
-        } else {
-            auto* pred = static_cast<vectorized::VInPredicate*>(expr);
-
-            auto* state = reinterpret_cast<vectorized::InState*>(
-                    expr_ctx->fn_context(pred->fn_context_index())
-                            ->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-
-            if (!state->use_set) {
-                return Status::OK();
-            }
-
-            iter = state->hybrid_set->begin();
-
-            if (state->hybrid_set->contain_null()) {
-                *pdt = vectorized::VScanNode::PushDownType::UNACCEPTABLE;
-                return Status::OK();
-            }
-        }
-
-        while (iter->has_next()) {
-            if (nullptr == iter->get_value()) {
-                iter->next();
-                continue;
-            }
-            auto* value = const_cast<void*>(iter->get_value());
-            RETURN_IF_ERROR(_change_value_range<false>(
-                    range, value, ColumnValueRange<T>::add_compound_value_range, fn_name, 0));
-            iter->next();
-        }
-        *pdt = vectorized::VScanNode::PushDownType::ACCEPTABLE;
-    }
-    return Status::OK();
-}
-
-template <typename Derived>
-template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_match_compound_predicate(
-        vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-        ColumnValueRange<T>& range, vectorized::VScanNode::PushDownType* pdt) {
-    DCHECK(expr->children().size() == 2);
-    if (TExprNodeType::MATCH_PRED == expr->node_type()) {
-        RETURN_IF_ERROR(_normalize_match_predicate(expr, expr_ctx, slot, range, pdt));
-    }
-
-    return Status::OK();
-}
-
-template <typename Derived>
-template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_match_predicate(
-        vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
-        ColumnValueRange<T>& range, vectorized::VScanNode::PushDownType* pdt) {
-    if (TExprNodeType::MATCH_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 2);
-
-        // create empty range as temp range, temp range should do intersection on range
-        auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                slot->is_nullable(), range.precision(), range.scale());
-        // Normalize match conjuncts like 'where col match value'
-
-        auto match_checker = [](const std::string& fn_name) { return is_match_condition(fn_name); };
-        StringRef value;
-        int slot_ref_child = -1;
-        vectorized::VScanNode::PushDownType temp_pdt;
-        RETURN_IF_ERROR(_should_push_down_binary_predicate(
-                reinterpret_cast<vectorized::VectorizedFnCall*>(expr), expr_ctx, &value,
-                &slot_ref_child, match_checker, temp_pdt));
-        if (temp_pdt != vectorized::VScanNode::PushDownType::UNACCEPTABLE) {
-            DCHECK(slot_ref_child >= 0);
-            if (value.data != nullptr) {
-                using CppType = typename PrimitiveTypeTraits<T>::CppType;
-                if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
-                              T == TYPE_HLL) {
-                    auto val = StringRef(value.data, value.size);
-                    ColumnValueRange<T>::add_match_value_range(temp_range,
-                                                               to_match_type(expr->op()),
-                                                               reinterpret_cast<CppType*>(&val));
-                } else {
-                    ColumnValueRange<T>::add_match_value_range(
-                            temp_range, to_match_type(expr->op()),
-                            reinterpret_cast<CppType*>(const_cast<char*>(value.data)));
-                }
-                range.intersection(temp_range);
-            }
-            *pdt = temp_pdt;
-        }
-    }
-    return Status::OK();
-}
-
-template <typename Derived>
 Status ScanLocalState<Derived>::_prepare_scanners() {
     std::list<vectorized::VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
@@ -1279,15 +1040,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = PipXScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            state()->scan_queue_mem_limit(), _scan_dependency,
-            // NOTE: This will logic makes _max_thread_num of ScannerContext to be C(num of cores) * 2
-            // For a query with C/2 instance and M scan node, scan task of this query will be C/2 * M * C*2
-            // and will be C*C*N at most.
-            // 1. If data distribution is ignored , we use 1 instance to scan.
-            // 2. Else, file scanner will consume much memory so we use config::doris_scanner_thread_pool_thread_num / query_parallel_instance_num scanners to scan.
-            p.ignore_data_distribution() && !p.is_file_scan_operator()
-                    ? 1
-                    : state()->query_parallel_instance_num());
+            _scan_dependency, p.ignore_data_distribution(), p.is_file_scan_operator());
     return Status::OK();
 }
 
@@ -1366,6 +1119,13 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _peak_running_scanner =
             _scanner_profile->AddHighWaterMarkCounter("PeakRunningScanner", TUnit::UNIT);
+
+    // Rows read from storage.
+    // Include the rows read from doris page cache.
+    _scan_rows = ADD_COUNTER(_runtime_profile, "ScanRows", TUnit::UNIT);
+    // Size of data that read from storage.
+    // Does not include rows that are cached by doris page cache.
+    _scan_bytes = ADD_COUNTER(_runtime_profile, "ScanBytes", TUnit::BYTES);
     return Status::OK();
 }
 
@@ -1549,6 +1309,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     if (*eos) {
         // reach limit, stop the scanners.
         local_state._scanner_ctx->stop_scanners(state);
+        local_state._scanner_profile->add_info_string("EOS", "True");
     }
 
     return Status::OK();

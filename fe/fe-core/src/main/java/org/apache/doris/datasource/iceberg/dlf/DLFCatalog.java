@@ -67,6 +67,9 @@ public class DLFCatalog extends HiveCompatibleCatalog {
                 .equalsIgnoreCase("true");
         // s3 file io just supports s3-like endpoint
         String s3Endpoint = endpoint.replace(region, "s3." + region);
+        if (!s3Endpoint.contains("://")) {
+            s3Endpoint = "http://" + s3Endpoint;
+        }
         URI endpointUri = URI.create(s3Endpoint);
         FileIO io = new S3FileIO(() -> S3Util.buildS3Client(endpointUri, region, credential, isUsePathStyle));
         io.initialize(properties);

@@ -60,4 +60,8 @@ public abstract class PartitionItem implements Comparable<PartitionItem>, Writab
     public abstract boolean isGreaterThanSpecifiedTime(int pos, Optional<String> dateFormatOptional,
             long nowTruncSubSec)
             throws AnalysisException;
+
+
+    //get the unique string of the partition item in sql format
+    public abstract String getItemsSql();
 }

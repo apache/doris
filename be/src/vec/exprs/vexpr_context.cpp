@@ -120,6 +120,16 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
     return _fn_contexts.size() - 1;
 }
 
+Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
+    Status st;
+    RETURN_IF_CATCH_EXCEPTION({ st = _root->evaluate_inverted_index(this, segment_num_rows); });
+    return st;
+}
+
+bool VExprContext::all_expr_inverted_index_evaluated() {
+    return _inverted_index_context->has_inverted_index_result_for_expr(_root.get());
+}
+
 Status VExprContext::filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep) {
     if (vexpr_ctx == nullptr || block->rows() == 0) {
         return Status::OK();

@@ -228,11 +228,18 @@ public:
     UIntGauge* group_local_scan_thread_pool_queue_size = nullptr;
     UIntGauge* group_local_scan_thread_pool_thread_num = nullptr;
 
+    IntAtomicCounter* query_ctx_cnt = nullptr;
+    IntAtomicCounter* scanner_ctx_cnt = nullptr;
+    IntAtomicCounter* scanner_cnt = nullptr;
+    IntAtomicCounter* scanner_task_cnt = nullptr;
+    IntAtomicCounter* scanner_task_queued = nullptr;
+    IntAtomicCounter* scanner_task_submit_failed = nullptr;
+    IntAtomicCounter* scanner_task_running = nullptr;
+
     static DorisMetrics* instance() {
         static DorisMetrics instance;
         return &instance;
     }
-
     // not thread-safe, call before calling metrics
     void initialize(
             bool init_system_metrics = false,

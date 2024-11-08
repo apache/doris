@@ -50,6 +50,7 @@ public:
                       std::weak_ptr<PipelineFragmentContext> context)
             : _pipeline_id(pipeline_id), _context(std::move(context)), _num_tasks(num_tasks) {
         _init_profile();
+        _tasks.resize(_num_tasks, nullptr);
     }
 
     void add_dependency(std::shared_ptr<Pipeline>& pipeline) {
@@ -155,15 +156,24 @@ public:
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
     void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
 
-    void incr_created_tasks() { _num_tasks_created++; }
-    bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
+    void incr_created_tasks(int i, PipelineTask* task) {
+        _num_tasks_created++;
+        _num_tasks_running++;
+        DCHECK_LT(i, _tasks.size());
+        _tasks[i] = task;
+    }
+
+    void make_all_runnable();
+
     void set_num_tasks(int num_tasks) {
         _num_tasks = num_tasks;
+        _tasks.resize(_num_tasks, nullptr);
         for (auto& op : operatorXs) {
             op->set_parallel_tasks(_num_tasks);
         }
     }
     int num_tasks() const { return _num_tasks; }
+    bool close_task() { return _num_tasks_running.fetch_sub(1) == 1; }
 
     std::string debug_string() {
         fmt::memory_buffer debug_string_buffer;
@@ -243,7 +253,11 @@ private:
     // How many tasks should be created ?
     int _num_tasks = 1;
     // How many tasks are already created?
-    int _num_tasks_created = 0;
+    std::atomic<int> _num_tasks_created = 0;
+    // How many tasks are already created and not finished?
+    std::atomic<int> _num_tasks_running = 0;
+    // Tasks in this pipeline.
+    std::vector<PipelineTask*> _tasks;
 };
 
 } // namespace doris::pipeline

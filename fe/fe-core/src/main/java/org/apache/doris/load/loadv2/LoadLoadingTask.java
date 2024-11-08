@@ -152,14 +152,6 @@ public class LoadLoadingTask extends LoadTask {
         curCoordinator.setExecMemoryLimit(execMemLimit);
         curCoordinator.setExecPipEngine(Config.enable_pipeline_load);
 
-        /*
-         * For broker load job, user only need to set mem limit by 'exec_mem_limit' property.
-         * And the variable 'load_mem_limit' does not make any effect.
-         * However, in order to ensure the consistency of semantics when executing on the BE side,
-         * and to prevent subsequent modification from incorrectly setting the load_mem_limit,
-         * here we use exec_mem_limit to directly override the load_mem_limit property.
-         */
-        curCoordinator.setLoadMemLimit(execMemLimit);
         curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
 
         long leftTimeMs = getLeftTimeMs();

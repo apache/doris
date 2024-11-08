@@ -90,6 +90,7 @@ sqlserver_2022_port=1433
 clickhouse_22_port=8123
 mariadb_10_port=3326
 db2_11_port=50000
+oceanbase_port=2881
 
 // hive catalog test config
 // To enable jdbc test, you need first start hive container.

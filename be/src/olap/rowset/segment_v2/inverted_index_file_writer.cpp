@@ -59,7 +59,8 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
     }
     if (exists) {
         LOG(ERROR) << "try to init a directory:" << lfs_index_path << " already exists";
-        return ResultError(Status::InternalError("init_fulltext_index directory already exists"));
+        return ResultError(
+                Status::InternalError("InvertedIndexFileWriter::open directory already exists"));
     }
 
     bool can_use_ram_dir = true;
@@ -67,8 +68,18 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
     auto* dir = DorisFSDirectoryFactory::getDirectory(_lfs, lfs_index_path.c_str(),
                                                       use_compound_file_writer, can_use_ram_dir,
                                                       nullptr, _fs, index_path.c_str());
-    _indices_dirs.emplace(std::make_pair(index_id, index_suffix),
-                          std::unique_ptr<DorisFSDirectory>(dir));
+    auto key = std::make_pair(index_id, index_suffix);
+    auto [it, inserted] = _indices_dirs.emplace(key, std::unique_ptr<DorisFSDirectory>(dir));
+    if (!inserted) {
+        LOG(ERROR) << "InvertedIndexFileWriter::open attempted to insert a duplicate key: ("
+                   << key.first << ", " << key.second << ")";
+        LOG(ERROR) << "Directories already in map: ";
+        for (const auto& entry : _indices_dirs) {
+            LOG(ERROR) << "Key: (" << entry.first.first << ", " << entry.first.second << ")";
+        }
+        return ResultError(Status::InternalError(
+                "InvertedIndexFileWriter::open attempted to insert a duplicate dir"));
+    }
     return dir;
 }
 

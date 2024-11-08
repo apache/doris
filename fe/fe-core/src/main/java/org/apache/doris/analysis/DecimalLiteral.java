@@ -270,7 +270,7 @@ public class DecimalLiteral extends NumericLiteralExpr {
 
     @Override
     public String getStringValue() {
-        return value.toString();
+        return value.toPlainString();
     }
 
     @Override

@@ -32,7 +32,7 @@ TEST(VDateTimeValueTest, date_v2_to_uint32_test) {
     uint8_t day = 24;
 
     DateV2Value<DateV2ValueType> date_v2;
-    date_v2.set_time(year, month, day, 0, 0, 0, 0);
+    date_v2.unchecked_set_time(year, month, day, 0, 0, 0, 0);
 
     EXPECT_TRUE(date_v2.year() == year);
     EXPECT_TRUE(date_v2.month() == month);
@@ -53,7 +53,7 @@ TEST(VDateTimeValueTest, datetime_v2_to_uint64_test) {
     uint32_t microsecond = 999999;
 
     DateV2Value<DateTimeV2ValueType> datetime_v2;
-    datetime_v2.set_time(year, month, day, hour, minute, second, microsecond);
+    datetime_v2.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
 
     EXPECT_TRUE(datetime_v2.year() == year);
     EXPECT_TRUE(datetime_v2.month() == month);
@@ -411,7 +411,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, 0, 0, 0, 0);
+        date_v2.unchecked_set_time(year, month, day, 0, 0, 0, 0);
 
         char buf[30];
         int len = date_v2.to_buffer(buf);
@@ -420,7 +420,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, ms);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, ms);
 
         char buf[30];
         int len = date_v2.to_buffer(buf);
@@ -429,7 +429,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, ms);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, ms);
 
         char buf[30];
         int len = date_v2.to_buffer(buf, 3);
@@ -438,7 +438,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, ms);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, ms);
 
         char buf[30];
         int len = date_v2.to_buffer(buf, 2);
@@ -447,7 +447,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, ms);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, ms);
 
         char buf[30];
         int len = date_v2.to_buffer(buf, 6);
@@ -456,7 +456,7 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
 
     {
         DateV2Value<DateTimeV2ValueType> date_v2;
-        date_v2.set_time(year, month, day, hour, minute, second, 0);
+        date_v2.unchecked_set_time(year, month, day, hour, minute, second, 0);
 
         char buf[30];
         int len = date_v2.to_buffer(buf);

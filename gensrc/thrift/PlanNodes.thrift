@@ -258,6 +258,7 @@ struct TFileTextScanRangeParams {
     4: optional string mapkv_delimiter;
     5: optional i8 enclose;
     6: optional i8 escape;
+    7: optional string null_format;
 }
 
 struct TFileScanSlotInfo {
@@ -306,6 +307,7 @@ struct TIcebergFileDesc {
     // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
     6: optional string original_file_path;
+    7: optional i64 row_count;
 }
 
 struct TPaimonDeletionFileDesc {
@@ -331,7 +333,10 @@ struct TPaimonFileDesc {
 }
 
 struct TMaxComputeFileDesc {
-    1: optional string partition_spec
+    1: optional string partition_spec // deprecated 
+    2: optional string session_id 
+    3: optional string table_batch_read_session
+
 }
 
 struct THudiFileDesc {
@@ -509,6 +514,12 @@ struct TPartitionsMetadataParams {
   3: optional string table
 }
 
+struct TPartitionValuesMetadataParams {
+  1: optional string catalog
+  2: optional string database
+  3: optional string table
+}
+
 struct TJobsMetadataParams {
   1: optional string type
   2: optional Types.TUserIdentity current_user_ident
@@ -526,6 +537,7 @@ struct TQueriesMetadataParams {
   4: optional TJobsMetadataParams jobs_params
   5: optional TTasksMetadataParams tasks_params
   6: optional TPartitionsMetadataParams partitions_params
+  7: optional TPartitionValuesMetadataParams partition_values_params
 }
 
 struct TMetaCacheStatsParams {
@@ -542,6 +554,7 @@ struct TMetaScanRange {
   8: optional TTasksMetadataParams tasks_params
   9: optional TPartitionsMetadataParams partitions_params
   10: optional TMetaCacheStatsParams meta_cache_stats_params
+  11: optional TPartitionValuesMetadataParams partition_values_params
 }
 
 // Specification of an individual data range which is held in its entirety

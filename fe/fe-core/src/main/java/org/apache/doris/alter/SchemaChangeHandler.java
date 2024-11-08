@@ -408,6 +408,18 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
 
+            // drop bloom filter column
+            Set<String> bfCols = olapTable.getCopiedBfColumns();
+            if (bfCols != null) {
+                Set<String> newBfCols = new HashSet<>();
+                for (String bfCol : bfCols) {
+                    if (!bfCol.equalsIgnoreCase(dropColName)) {
+                        newBfCols.add(bfCol);
+                    }
+                }
+                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
+            }
+
             for (int i = 1; i < indexIds.size(); i++) {
                 List<Column> rollupSchema = indexSchemaMap.get(indexIds.get(i));
                 Iterator<Column> iter = rollupSchema.iterator();
@@ -718,12 +730,6 @@ public class SchemaChangeHandler extends AlterHandler {
         } // end for handling other indices
 
         if (typeChanged && !lightSchemaChange) {
-            Optional<Column> autoIncCol = olapTable.getBaseSchema(true).stream()
-                    .filter(col -> col.isAutoInc()).findFirst();
-            if (autoIncCol.isPresent()) {
-                throw new DdlException("Can not modify column " + modColumn.getName() + " becasue table "
-                        + olapTable.getName() + " has auto-increment column " + autoIncCol.get().getName());
-            }
             /*
              * In new alter table process (AlterJobV2), any modified columns are treated as new columns.
              * But the modified columns' name does not changed. So in order to distinguish this, we will add
@@ -2006,6 +2012,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             index.setIndexId(existedIdx.getIndexId());
                             index.setColumns(existedIdx.getColumns());
                             index.setProperties(existedIdx.getProperties());
+                            index.setColumnUniqueIds(existedIdx.getColumnUniqueIds());
                             if (indexDef.getPartitionNames().isEmpty()) {
                                 invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                             } else {
@@ -2582,6 +2589,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite());
+                indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
@@ -2592,6 +2600,7 @@ public class SchemaChangeHandler extends AlterHandler {
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
         // there will use the column name in olapTable insead of the column name in CreateIndexClause.
         alterIndex.setColumns(indexDef.getColumns());
+        alterIndex.setColumnUniqueIds(indexDef.getColumnUniqueIds());
         newIndexes.add(alterIndex);
         return false;
     }
@@ -2742,6 +2751,7 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException(e.getMessage());
         }
 
+        schemaChangeJob.stateWait("FE.LIGHT_SCHEMA_CHANGE");
         // set Job state then add job
         schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
         schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
@@ -2756,11 +2766,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
                 // Drop table column stats after light schema change finished.
-                try {
-                    Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
-                } catch (Exception e) {
-                    LOG.info("Failed to drop stats after light schema change. Reason: {}", e.getMessage());
-                }
+                Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
 
                 if (isDropIndex) {
                     // send drop rpc to be
@@ -2788,11 +2794,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
                 Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropColumns(info);
                 // Drop table column stats after light schema change finished.
-                try {
-                    Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
-                } catch (Exception e) {
-                    LOG.info("Failed to drop stats after light schema change. Reason: {}", e.getMessage());
-                }
+                Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);

@@ -419,10 +419,6 @@ under the License.
             </exclusions>
         </dependency>
         <dependency>
-            <groupId>org.apache.hadoop</groupId>
-            <artifactId>hadoop-aliyun</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.qcloud.cos</groupId>
             <artifactId>hadoop-cos</artifactId>
             <version>${tencentcos.version}</version>
@@ -444,6 +440,7 @@ under the License.
         <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
+            <version>${maxcompute.version}</version>
             <exclusions>
                 <exclusion>
                     <artifactId>antlr-runtime</artifactId>
@@ -454,6 +451,11 @@ under the License.
                     <groupId>org.antlr</groupId>
                 </exclusion>
             </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>com.aliyun.odps</groupId>
+            <artifactId>odps-sdk-table-api</artifactId>
+            <version>${maxcompute.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>

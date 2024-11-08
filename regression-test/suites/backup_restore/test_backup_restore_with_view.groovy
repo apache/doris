@@ -93,6 +93,23 @@ suite("test_backup_restore_with_view", "backup_restore") {
     assertTrue(show_view.contains("${tableName}"))
 
 
+    // restore to db1, test the view signature.
+    sql """
+        RESTORE SNAPSHOT ${dbName1}.${snapshotName}
+        FROM `${repoName}`
+        PROPERTIES
+        (
+            "backup_timestamp" = "${snapshot}",
+            "reserve_replica" = "true"
+        )
+    """
+
+    syncer.waitAllRestoreFinish(dbName1)
+    restore_result = sql_return_maparray """ SHOW RESTORE FROM ${dbName1} WHERE Label ="${snapshotName}" """
+    restore_result.last()
+    logger.info("show restore result: ${restore_result}")
+    assertTrue(restore_result.last().State == "FINISHED")
+
     sql "DROP TABLE ${dbName}.${tableName} FORCE"
     sql "DROP VIEW ${dbName}.${viewName}"
     sql "DROP DATABASE ${dbName} FORCE"

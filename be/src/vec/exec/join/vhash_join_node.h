@@ -91,7 +91,7 @@ Status process_runtime_filter_build(RuntimeState* state, Block* block, Parent* p
     }
     {
         SCOPED_TIMER(parent->_publish_runtime_filter_timer);
-        RETURN_IF_ERROR(parent->_runtime_filter_slots->publish());
+        RETURN_IF_ERROR(parent->_runtime_filter_slots->publish(false));
     }
 
     return Status::OK();

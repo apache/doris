@@ -17,6 +17,7 @@
 
 #include "runtime/runtime_query_statistics_mgr.h"
 
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "util/debug_util.h"
@@ -34,10 +35,10 @@ void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s) {
     tq_s->__set_workload_group_id(_wg_id);
 }
 
-void RuntimeQueryStatiticsMgr::register_query_statistics(std::string query_id,
-                                                         std::shared_ptr<QueryStatistics> qs_ptr,
-                                                         TNetworkAddress fe_addr,
-                                                         TQueryType::type query_type) {
+void RuntimeQueryStatisticsMgr::register_query_statistics(std::string query_id,
+                                                          std::shared_ptr<QueryStatistics> qs_ptr,
+                                                          TNetworkAddress fe_addr,
+                                                          TQueryType::type query_type) {
     std::lock_guard<std::shared_mutex> write_lock(_qs_ctx_map_lock);
     if (_query_statistics_ctx_map.find(query_id) == _query_statistics_ctx_map.end()) {
         _query_statistics_ctx_map[query_id] =
@@ -46,7 +47,7 @@ void RuntimeQueryStatiticsMgr::register_query_statistics(std::string query_id,
     _query_statistics_ctx_map.at(query_id)->_qs_list.push_back(qs_ptr);
 }
 
-void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
+void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
     int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
     // 1 get query statistics map
     std::map<TNetworkAddress, std::map<std::string, TQueryStatistics>> fe_qs_map;
@@ -165,7 +166,7 @@ void RuntimeQueryStatiticsMgr::report_runtime_query_statistics() {
     }
 }
 
-void RuntimeQueryStatiticsMgr::set_query_finished(std::string query_id) {
+void RuntimeQueryStatisticsMgr::set_query_finished(std::string query_id) {
     // NOTE: here must be a write lock
     std::lock_guard<std::shared_mutex> write_lock(_qs_ctx_map_lock);
     // when a query get query_ctx succ, but failed before create node/operator,
@@ -177,7 +178,7 @@ void RuntimeQueryStatiticsMgr::set_query_finished(std::string query_id) {
     }
 }
 
-std::shared_ptr<QueryStatistics> RuntimeQueryStatiticsMgr::get_runtime_query_statistics(
+std::shared_ptr<QueryStatistics> RuntimeQueryStatisticsMgr::get_runtime_query_statistics(
         std::string query_id) {
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     if (_query_statistics_ctx_map.find(query_id) == _query_statistics_ctx_map.end()) {
@@ -190,7 +191,7 @@ std::shared_ptr<QueryStatistics> RuntimeQueryStatiticsMgr::get_runtime_query_sta
     return qs_ptr;
 }
 
-void RuntimeQueryStatiticsMgr::get_metric_map(
+void RuntimeQueryStatisticsMgr::get_metric_map(
         std::string query_id, std::map<WorkloadMetricType, std::string>& metric_map) {
     QueryStatistics ret_qs;
     int64_t query_time_ms = 0;
@@ -211,7 +212,7 @@ void RuntimeQueryStatiticsMgr::get_metric_map(
                        std::to_string(ret_qs.get_current_used_memory_bytes()));
 }
 
-void RuntimeQueryStatiticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
+void RuntimeQueryStatisticsMgr::set_workload_group_id(std::string query_id, int64_t wg_id) {
     // wg id just need eventual consistency, read lock is ok
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     if (_query_statistics_ctx_map.find(query_id) != _query_statistics_ctx_map.end()) {
@@ -219,55 +220,33 @@ void RuntimeQueryStatiticsMgr::set_workload_group_id(std::string query_id, int64
     }
 }
 
-void RuntimeQueryStatiticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
+void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
     std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
     int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
-
-    auto insert_int_value = [&](int col_index, int64_t int_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(
-                int_val);
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
-
-    auto insert_string_value = [&](int col_index, std::string str_val, vectorized::Block* block) {
-        vectorized::MutableColumnPtr mutable_col_ptr;
-        mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-        auto* nullable_column =
-                reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-        vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_val.data(),
-                                                                          str_val.size());
-        nullable_column->get_null_map_data().emplace_back(0);
-    };
 
     // block's schema come from SchemaBackendActiveTasksScanner::_s_tbls_columns
     for (auto& [query_id, qs_ctx_ptr] : _query_statistics_ctx_map) {
         TQueryStatistics tqs;
         qs_ctx_ptr->collect_query_statistics(&tqs);
-        insert_int_value(0, be_id, block);
-        insert_string_value(1, qs_ctx_ptr->_fe_addr.hostname, block);
-        insert_string_value(2, query_id, block);
+        SchemaScannerHelper::insert_int64_value(0, be_id, block);
+        SchemaScannerHelper::insert_string_value(1, qs_ctx_ptr->_fe_addr.hostname, block);
+        SchemaScannerHelper::insert_string_value(2, query_id, block);
 
         int64_t task_time = qs_ctx_ptr->_is_query_finished
                                     ? qs_ctx_ptr->_query_finish_time - qs_ctx_ptr->_query_start_time
                                     : MonotonicMillis() - qs_ctx_ptr->_query_start_time;
-        insert_int_value(3, task_time, block);
-        insert_int_value(4, tqs.cpu_ms, block);
-        insert_int_value(5, tqs.scan_rows, block);
-        insert_int_value(6, tqs.scan_bytes, block);
-        insert_int_value(7, tqs.max_peak_memory_bytes, block);
-        insert_int_value(8, tqs.current_used_memory_bytes, block);
-        insert_int_value(9, tqs.shuffle_send_bytes, block);
-        insert_int_value(10, tqs.shuffle_send_rows, block);
+        SchemaScannerHelper::insert_int64_value(3, task_time, block);
+        SchemaScannerHelper::insert_int64_value(4, tqs.cpu_ms, block);
+        SchemaScannerHelper::insert_int64_value(5, tqs.scan_rows, block);
+        SchemaScannerHelper::insert_int64_value(6, tqs.scan_bytes, block);
+        SchemaScannerHelper::insert_int64_value(7, tqs.max_peak_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(8, tqs.current_used_memory_bytes, block);
+        SchemaScannerHelper::insert_int64_value(9, tqs.shuffle_send_bytes, block);
+        SchemaScannerHelper::insert_int64_value(10, tqs.shuffle_send_rows, block);
 
         std::stringstream ss;
         ss << qs_ctx_ptr->_query_type;
-        insert_string_value(11, ss.str(), block);
+        SchemaScannerHelper::insert_string_value(11, ss.str(), block);
     }
 }
 

@@ -98,6 +98,7 @@ suite("test_storage_format_v1", "p0") {
         create_httplogs_dup_table.call(testTable_dup)
         load_httplogs_data.call(testTable_dup, 'test_httplogs_load_count_on_index', 'true', 'json', 'documents-1000.json')
         sql "sync"
+        sql """ set enable_common_expr_pushdown = true """
 
         qt_sql(" select COUNT(*) from ${testTable_dup} where request match 'images' ")
 

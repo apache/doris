@@ -77,7 +77,12 @@ visible_functions = {
         [['bitnot'], 'LARGEINT', ['LARGEINT'], ''],
         
         [['bit_shift_left'],    'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
-        [['bit_shift_right'],   'BIGINT',   ['BIGINT',  'TINYINT'],     '']
+        [['bit_shift_right'],   'BIGINT',   ['BIGINT',  'TINYINT'],     ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['TINYINT','TINYINT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['SMALLINT','SMALLINT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['INT','INT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['BIGINT','BIGINT','...'], ''],
+        [['bit_test','bit_test_all'], 'TINYINT', ['LARGEINT','LARGEINT','...'], '']
     ],
 
     # map functions
@@ -1574,6 +1579,7 @@ visible_functions = {
         [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['length'], 'INT', ['VARCHAR'], ''],
+        [['crc32'], 'BIGINT', ['VARCHAR'], ''],
         [['bit_length'], 'INT', ['VARCHAR'], ''],
 
         [['char_length', 'character_length'], 'INT', ['VARCHAR'], ''],
@@ -1624,7 +1630,7 @@ visible_functions = {
 
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
         [['strcmp'], 'INT', ['VARCHAR', 'VARCHAR'], 'DEPEND_ON_ARGUMENT'],
-
+        [['count_substrings'], 'INT', ['STRING', 'STRING'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['strleft', 'left'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
@@ -1639,6 +1645,7 @@ visible_functions = {
         [['rpad'], 'STRING', ['STRING', 'INT', 'STRING'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['length'], 'INT', ['STRING'], ''],
+        [['crc32'], 'BIGINT', ['STRING'], ''],
         [['bit_length'], 'INT', ['STRING'], ''],
 
         [['char_length', 'character_length'], 'INT', ['STRING'], ''],
@@ -1771,6 +1778,8 @@ visible_functions = {
         [['json_parse_notnull'], 'JSONB', ['VARCHAR'], ''],
         [['json_parse_notnull_error_to_value'], 'JSONB', ['VARCHAR', 'VARCHAR'], ''],
         [['json_parse_notnull_error_to_invalid'], 'JSONB', ['VARCHAR'], ''],
+
+        [['json_search'], 'JSONB', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
         [['json_exists_path'], 'BOOLEAN', ['JSONB', 'VARCHAR'], ''],
         [['json_exists_path'], 'BOOLEAN', ['JSONB', 'STRING'], ''],
@@ -1919,6 +1928,8 @@ visible_functions = {
         [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['aes_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['aes_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['sm4_decrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['sm4_encrypt'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
@@ -1928,6 +1939,8 @@ visible_functions = {
         [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['aes_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+        [['aes_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['sm4_decrypt'], 'STRING', ['STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
         [['sm4_encrypt'], 'STRING', ['STRING', 'STRING', 'STRING', 'STRING'], 'ALWAYS_NULLABLE'],
@@ -2011,7 +2024,10 @@ visible_functions = {
     "Url": [
         [['domain'], 'STRING', ['STRING'], ''],
         [['domain_without_www'], 'STRING', ['STRING'], ''],
-        [['protocol'], 'STRING', ['STRING'], '']
+        [['protocol'], 'STRING', ['STRING'], ''],
+        [['top_level_domain'], 'STRING', ['STRING'], ''],
+        [['cut_to_first_significant_subdomain'], 'STRING', ['STRING'], ''],
+        [['first_significant_subdomain'], 'STRING', ['STRING'], '']
     ],
 
     # search functions

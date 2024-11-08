@@ -41,6 +41,7 @@
 #include "util/cpu_info.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
+#include "util/metrics.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -119,27 +120,32 @@ Status ScannerScheduler::init(ExecEnv* env) {
     return Status::OK();
 }
 
-void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
-                              std::shared_ptr<ScanTask> scan_task) {
+Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
+                                std::shared_ptr<ScanTask> scan_task) {
     scan_task->last_submit_time = GetCurrentTimeNanos();
     if (ctx->done()) {
-        return;
+        return Status::OK();
     }
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         LOG(INFO) << "could not lock task execution context, query " << ctx->debug_string()
                   << " maybe finished";
-        return;
+        return Status::OK();
     }
 
     if (ctx->thread_token != nullptr) {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
-            return;
+            return Status::OK();
         }
 
         scanner_delegate->_scanner->start_wait_worker_timer();
         auto s = ctx->thread_token->submit_func([scanner_ref = scan_task, ctx]() {
+            DorisMetrics::instance()->scanner_task_queued->increment(-1);
+            DorisMetrics::instance()->scanner_task_running->increment(1);
+            Defer metrics_defer(
+                    [&] { DorisMetrics::instance()->scanner_task_running->increment(-1); });
+
             auto status = [&] {
                 RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                 return Status::OK();
@@ -152,26 +158,24 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         });
         if (!s.ok()) {
             scan_task->set_status(s);
-            ctx->append_block_to_queue(scan_task);
-            return;
+            return s;
         }
     } else {
         std::shared_ptr<ScannerDelegate> scanner_delegate = scan_task->scanner.lock();
         if (scanner_delegate == nullptr) {
-            return;
+            return Status::OK();
         }
 
         scanner_delegate->_scanner->start_wait_worker_timer();
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
         auto sumbit_task = [&]() {
-            bool is_local = type == TabletStorageType::STORAGE_TYPE_LOCAL;
-            SimplifiedScanScheduler* scan_sched =
-                    is_local ? ctx->get_simple_scan_scheduler() : ctx->get_remote_scan_scheduler();
-            if (!scan_sched) { // query without workload group
-                scan_sched =
-                        is_local ? _local_scan_thread_pool.get() : _remote_scan_thread_pool.get();
-            }
+            SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
             auto work_func = [scanner_ref = scan_task, ctx]() {
+                DorisMetrics::instance()->scanner_task_queued->increment(-1);
+                DorisMetrics::instance()->scanner_task_running->increment(1);
+                Defer metrics_defer(
+                        [&] { DorisMetrics::instance()->scanner_task_running->increment(-1); });
+
                 auto status = [&] {
                     RETURN_IF_CATCH_EXCEPTION(_scanner_scan(ctx, scanner_ref));
                     return Status::OK();
@@ -186,14 +190,18 @@ void ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             return scan_sched->submit_scan_task(simple_scan_task);
         };
 
-        if (auto ret = sumbit_task(); !ret) {
-            scan_task->set_status(Status::InternalError(
-                    "Failed to submit scanner to scanner pool reason:" + std::string(ret.msg()) +
-                    "|type:" + std::to_string(type)));
-            ctx->append_block_to_queue(scan_task);
-            return;
+        Status submit_status = sumbit_task();
+        if (!submit_status.ok()) {
+            // User will see TooManyTasks error. It looks like a more reasonable error.
+            Status scan_task_status = Status::TooManyTasks(
+                    "Failed to submit scanner to scanner pool reason:" +
+                    std::string(submit_status.msg()) + "|type:" + std::to_string(type));
+            scan_task->set_status(scan_task_status);
+            return scan_task_status;
         }
     }
+
+    return Status::OK();
 }
 
 std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
@@ -232,6 +240,8 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         Thread::set_thread_nice_value();
     }
 #endif
+    MonotonicStopWatch max_run_time_watch;
+    max_run_time_watch.start();
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();
     Status status = Status::OK();
@@ -266,6 +276,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             eos = true;
             break;
         }
+        if (max_run_time_watch.elapsed_time() > config::doris_scanner_max_run_time_ms * 1e6) {
+            break;
+        }
         BlockUPtr free_block = ctx->get_free_block(first_read);
         if (free_block == nullptr) {
             break;
@@ -274,14 +287,14 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         ctx->update_peak_memory_usage(free_block->allocated_bytes());
         ctx->update_peak_memory_usage(-free_block->allocated_bytes());
         status = scanner->get_block_after_projects(state, free_block.get(), &eos);
-        // Projection will truncate useless columns, makes block size change.
-        auto free_block_bytes = free_block->allocated_bytes();
-        ctx->update_peak_memory_usage(free_block_bytes);
         first_read = false;
         if (!status.ok()) {
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             break;
         }
+        // Projection will truncate useless columns, makes block size change.
+        auto free_block_bytes = free_block->allocated_bytes();
+        ctx->update_peak_memory_usage(free_block_bytes);
         raw_bytes_read += free_block_bytes;
         if (!scan_task->cached_blocks.empty() &&
             scan_task->cached_blocks.back()->rows() + free_block->rows() <= ctx->batch_size()) {

@@ -58,8 +58,11 @@ public:
 
     bool can_push_down_to_index() const override { return true; }
 
-    Status eval_inverted_index(VExpr* expr, segment_v2::FuncExprParams& params,
-                               std::shared_ptr<roaring::Roaring>& result) override;
+    Status evaluate_inverted_index(
+            const ColumnsWithTypeAndName& arguments,
+            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            std::vector<segment_v2::InvertedIndexIterator*> iterators, uint32_t num_rows,
+            segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
 };
 
 } // namespace doris::vectorized

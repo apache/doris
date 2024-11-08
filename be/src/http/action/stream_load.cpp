@@ -133,6 +133,19 @@ void StreamLoadAction::handle(HttpRequest* req) {
         _save_stream_load_record(ctx, str);
     }
 #endif
+
+    LOG(INFO) << "finished to execute stream load. label=" << ctx->label
+              << ", txn_id=" << ctx->txn_id << ", query_id=" << ctx->id
+              << ", load_cost_ms=" << ctx->load_cost_millis << ", receive_data_cost_ms="
+              << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
+              << ", read_data_cost_ms=" << ctx->read_data_cost_nanos / 1000000
+              << ", write_data_cost_ms=" << ctx->write_data_cost_nanos / 1000000
+              << ", commit_and_publish_txn_cost_ms="
+              << ctx->commit_and_publish_txn_cost_nanos / 1000000
+              << ", number_total_rows=" << ctx->number_total_rows
+              << ", number_loaded_rows=" << ctx->number_loaded_rows
+              << ", receive_bytes=" << ctx->receive_bytes << ", loaded_bytes=" << ctx->loaded_bytes;
+
     // update statistics
     streaming_load_requests_total->increment(1);
     streaming_load_duration_ms->increment(ctx->load_cost_millis);
@@ -265,7 +278,12 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         }
     }
     if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        try {
+            ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        } catch (const std::exception& e) {
+            return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                           http_req->header(HttpHeaders::CONTENT_LENGTH), e.what());
+        }
         // json max body size
         if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
             (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
@@ -339,13 +357,20 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
     struct evhttp_request* ev_req = req->get_evhttp_request();
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
+    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->stream_load_pipe_tracker());
+
     int64_t start_read_data_time = MonotonicNanos();
     while (evbuffer_get_length(evbuf) > 0) {
-        auto bb = ByteBuffer::allocate(128 * 1024);
+        ByteBufferPtr bb;
+        Status st = ByteBuffer::allocate(128 * 1024, &bb);
+        if (!st.ok()) {
+            ctx->status = st;
+            return;
+        }
         auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
         bb->pos = remove_bytes;
         bb->flip();
-        auto st = ctx->body_sink->append(bb);
+        st = ctx->body_sink->append(bb);
         if (!st.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
             ctx->status = st;
@@ -656,7 +681,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         // FIXME find a way to avoid chunked stream load write large WALs
         size_t content_length = 0;
         if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            try {
+                content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            } catch (const std::exception& e) {
+                return Status::InvalidArgument("invalid HTTP header CONTENT_LENGTH={}: {}",
+                                               http_req->header(HttpHeaders::CONTENT_LENGTH),
+                                               e.what());
+            }
             if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
                 ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
                 ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||

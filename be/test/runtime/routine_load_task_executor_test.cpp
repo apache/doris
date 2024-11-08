@@ -94,7 +94,7 @@ TEST_F(RoutineLoadTaskExecutorTest, exec_task) {
 
     RoutineLoadTaskExecutor executor(&_env);
     Status st;
-    st = executor.init();
+    st = executor.init(1024 * 1024);
     EXPECT_TRUE(st.ok());
     // submit task
     st = executor.submit_task(task);

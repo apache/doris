@@ -58,6 +58,14 @@ public class ListPartitionItem extends PartitionItem {
         return partitionKeys;
     }
 
+    public String getItemsString() {
+        return toString();
+    }
+
+    public String getItemsSql() {
+        return toSql();
+    }
+
     @Override
     public boolean isDefaultPartition() {
         return isDefaultPartition;

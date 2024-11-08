@@ -125,6 +125,7 @@ clickhouse_22_port=8123
 doris_port=9030
 mariadb_10_port=3326
 db2_11_port=50000
+oceanbase_port=2881
 
 // hive catalog test config
 // To enable hive/paimon test, you need first start hive container.
@@ -167,6 +168,16 @@ extHdfsPort = 4007
 extHiveServerPort= 7001
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
+dfsNameservices=""
+dfsNameservicesPort=8020
+dfsHaNamenodesHdfsCluster=""
+dfsNamenodeRpcAddress1=""
+dfsNamenodeRpcAddress2=""
+dfsNamenodeRpcAddress3=""
+hadoopSecurityAuthentication = ""
+hadoopKerberosKeytabPath = ""
+hadoopKerberosPrincipal = ""
+
 
 //paimon catalog test config for bigdata
 enableExternalPaimonTest = false

@@ -21,6 +21,7 @@ suite("test_upgrade_downgrade_compatibility_inverted_index","p0,inverted_index,r
     def alter_res = "null"
     def useTime = 0
 
+    sql "SET enable_common_expr_pushdown = true"
     sql "SET enable_match_without_inverted_index = false"
 
     def wait_for_latest_op_on_table_finish = { table_name, OpTimeout ->

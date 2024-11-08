@@ -139,11 +139,13 @@ public abstract class ConnectProcessor {
         if (catalogName != null) {
             CatalogIf catalogIf = ctx.getEnv().getCatalogMgr().getCatalog(catalogName);
             if (catalogIf == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
             if (catalogIf.getDbNullable(dbName) == null) {
-                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + fullDbName);
+                ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR,
+                        ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(catalogName + "." + dbName));
                 return;
             }
         }
@@ -171,6 +173,16 @@ public abstract class ConnectProcessor {
 
     // do nothing
     protected void handlePing() {
+        ctx.getState().setOk();
+    }
+
+    // Do nothing for now.
+    protected void handleStatistics() {
+        ctx.getState().setOk();
+    }
+
+    // Do nothing for now.
+    protected void handleDebug() {
         ctx.getState().setOk();
     }
 
@@ -212,7 +224,7 @@ public abstract class ConnectProcessor {
     }
 
     public void executeQuery(MysqlCommand mysqlCommand, String originStmt) throws Exception {
-        if (MetricRepo.isInit) {
+        if (MetricRepo.isInit && !ctx.getSessionVariable().internalSession) {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         }
 
@@ -228,7 +240,9 @@ public abstract class ConnectProcessor {
         long parseSqlStartTime = System.currentTimeMillis();
         List<StatementBase> cachedStmts = null;
         CacheKeyType cacheKeyType = null;
-        if (!sessionVariable.isEnableInsertGroupCommit() && sessionVariable.isEnableNereidsPlanner()) {
+        boolean isGroupCommitFromPreparedStatement =
+                sessionVariable.isEnableInsertGroupCommit() && mysqlCommand != MysqlCommand.COM_QUERY;
+        if (!isGroupCommitFromPreparedStatement && sessionVariable.isEnableNereidsPlanner()) {
             if (wantToParseSqlFromSqlCache) {
                 cachedStmts = parseFromSqlCache(originStmt);
                 Optional<SqlCacheContext> sqlCacheContext = ConnectContext.get()
@@ -572,11 +586,8 @@ public abstract class ConnectProcessor {
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
-                if (executor.sendProxyQueryResult()) {
-                    packet = getResultPacket();
-                } else {
-                    packet = executor.getOutputPacket();
-                }
+                executor.sendProxyQueryResult();
+                packet = executor.getOutputPacket();
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
@@ -728,7 +739,12 @@ public abstract class ConnectProcessor {
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
         } else {
-            result.setStatusCode(ctx.getState().getErrorCode().getCode());
+            ErrorCode errorCode = ctx.getState().getErrorCode();
+            if (errorCode != null) {
+                result.setStatusCode(errorCode.getCode());
+            } else {
+                result.setStatusCode(ErrorCode.ERR_UNKNOWN_ERROR.getCode());
+            }
             result.setErrMessage(ctx.getState().getErrorMessage());
         }
         if (executor != null) {

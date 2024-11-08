@@ -200,6 +200,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     @Override
     public Boolean visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, Void context) {
         // do not process must shuffle
+        if (children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return false;
+        }
         return true;
     }
 
@@ -452,6 +455,9 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<Boolean, Void> {
     @Override
     public Boolean visitPhysicalProject(PhysicalProject<? extends Plan> project, Void context) {
         // do not process must shuffle
+        if (children.get(0).getPlan() instanceof PhysicalDistribute) {
+            return false;
+        }
         return true;
     }
 

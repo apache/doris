@@ -29,6 +29,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/logging.h" // LOG
 #include "common/status.h"
 #include "gutil/port.h"
@@ -209,7 +210,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         if (_opts.rowset_ctx != nullptr) {
             // skip write inverted index for index compaction
             skip_inverted_index =
-                    _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
+                    _opts.rowset_ctx->columns_to_do_index_compaction.count(column.unique_id()) > 0;
         }
         // skip write inverted index on load if skip_write_index_on_load is true
         if (_opts.write_type == DataWriteType::TYPE_DIRECT &&
@@ -359,13 +360,8 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
-        // TODO(plat1ko): cloud mode
-        return Status::NotSupported("append_block_with_partial_content");
-    }
-
     auto* tablet = static_cast<Tablet*>(_tablet.get());
-    if (block->columns() <= _tablet_schema->num_key_columns() ||
+    if (block->columns() < _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
         return Status::InternalError(
                 fmt::format("illegal partial update block columns: {}, num key columns: {}, total "
@@ -485,7 +481,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         RowsetSharedPtr rowset;
         auto st = tablet->lookup_row_key(key, _tablet_schema.get(), have_input_seq_column,
                                          specified_rowsets, &loc, _mow_context->max_version,
-                                         segment_caches, &rowset);
+                                         segment_caches, &rowset, true, true);
         if (st.is<KEY_NOT_FOUND>()) {
             if (_opts.rowset_ctx->partial_update_info->is_strict_mode) {
                 ++num_rows_filtered;
@@ -727,7 +723,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                             mutable_full_columns[cids_missing[i]].get());
                     auto_inc_column->insert(
                             (assert_cast<const vectorized::ColumnInt64*>(
-                                     block->get_by_name("__PARTIAL_UPDATE_AUTO_INC_COLUMN__")
+                                     block->get_by_name(BeConsts::PARTIAL_UPDATE_AUTO_INC_COL)
                                              .column.get()))
                                     ->get_element(idx));
                 } else {

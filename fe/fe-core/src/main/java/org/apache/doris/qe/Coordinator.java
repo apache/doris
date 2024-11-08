@@ -37,6 +37,8 @@ import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.FileQueryScanNode;
+import org.apache.doris.datasource.hive.HMSTransaction;
+import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
@@ -93,8 +95,7 @@ import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TFileScanRangeParams;
-import org.apache.doris.thrift.THivePartitionUpdate;
-import org.apache.doris.thrift.TIcebergCommitData;
+import org.apache.doris.thrift.TFragmentInstanceReport;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineFragmentParams;
@@ -252,12 +253,6 @@ public class Coordinator implements CoordInterface {
     private final List<TTabletCommitInfo> commitInfos = Lists.newArrayList();
     private final List<TErrorTabletInfo> errorTabletInfos = Lists.newArrayList();
 
-    // Collect all hivePartitionUpdates obtained from be
-    Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc;
-
-    // Collect all icebergCommitData obtained from be
-    Consumer<List<TIcebergCommitData>> icebergCommitDataFunc;
-
     // Input parameter
     private long jobId = -1; // job which this task belongs to
     private TUniqueId queryId;
@@ -301,6 +296,8 @@ public class Coordinator implements CoordInterface {
     // A countdown latch to mark the completion of each fragment. use for pipelineX
     // fragmentid -> backendid
     private MarkedCountDownLatch<Integer, Long> fragmentsDoneLatch = null;
+
+    private long txnId;
 
     public void setGroupCommitBe(Backend backend) {
         this.groupCommitBackend = backend;
@@ -485,6 +482,14 @@ public class Coordinator implements CoordInterface {
 
     public String getTrackingUrl() {
         return trackingUrl;
+    }
+
+    public long getTxnId() {
+        return txnId;
+    }
+
+    public void setTxnId(long txnId) {
+        this.txnId = txnId;
     }
 
     public void setExecMemoryLimit(long execMemoryLimit) {
@@ -1141,6 +1146,14 @@ public class Coordinator implements CoordInterface {
             } catch (ExecutionException e) {
                 exception = e;
                 code = TStatusCode.THRIFT_RPC_ERROR;
+                // If the error reason is call send fragment timeout, then should not use thrift rpc error as error
+                // code, because FE will add it to blacklist and other RPC may fail.
+                if (e.getCause() instanceof io.grpc.StatusRuntimeException) {
+                    io.grpc.StatusRuntimeException realException = (io.grpc.StatusRuntimeException) e.getCause();
+                    if (realException.getStatus().getCode() == io.grpc.Status.DEADLINE_EXCEEDED.getCode()) {
+                        code = TStatusCode.TIMEOUT;
+                    }
+                }
                 triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             } catch (InterruptedException e) {
                 exception = e;
@@ -1159,7 +1172,7 @@ public class Coordinator implements CoordInterface {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
                 queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
-                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR, errMsg);
                 switch (code) {
                     case TIMEOUT:
                         MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
@@ -1234,6 +1247,14 @@ public class Coordinator implements CoordInterface {
             } catch (ExecutionException e) {
                 exception = e;
                 code = TStatusCode.THRIFT_RPC_ERROR;
+                // If the error reason is call send fragment timeout, then should not use thrift rpc error as error
+                // code, because FE will add it to blacklist and other RPC may fail.
+                if (e.getCause() instanceof io.grpc.StatusRuntimeException) {
+                    io.grpc.StatusRuntimeException realException = (io.grpc.StatusRuntimeException) e.getCause();
+                    if (realException.getStatus().getCode() == io.grpc.Status.DEADLINE_EXCEEDED.getCode()) {
+                        code = TStatusCode.TIMEOUT;
+                    }
+                }
                 triple.getMiddle().removeProxy(triple.getLeft().brpcAddr);
             } catch (InterruptedException e) {
                 exception = e;
@@ -1254,7 +1275,7 @@ public class Coordinator implements CoordInterface {
                     errMsg = operation + " failed. " + exception.getMessage();
                 }
                 queryStatus.updateStatus(TStatusCode.INTERNAL_ERROR, errMsg);
-                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR, errMsg);
                 switch (code) {
                     case TIMEOUT:
                         MetricRepo.BE_COUNTER_QUERY_RPC_FAILED.getOrAdd(triple.getLeft().brpcAddr.hostname)
@@ -1380,9 +1401,9 @@ public class Coordinator implements CoordInterface {
 
             queryStatus.updateStatus(status.getErrorCode(), status.getErrorMsg());
             if (status.getErrorCode() == TStatusCode.TIMEOUT) {
-                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT);
+                cancelInternal(Types.PPlanFragmentCancelReason.TIMEOUT, status.getErrorMsg());
             } else {
-                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
+                cancelInternal(Types.PPlanFragmentCancelReason.INTERNAL_ERROR, status.getErrorMsg());
             }
         } finally {
             lock.unlock();
@@ -1421,16 +1442,7 @@ public class Coordinator implements CoordInterface {
                 throw new RpcException(null, copyStatus.getErrorMsg());
             } else {
                 String errMsg = copyStatus.getErrorMsg();
-                LOG.warn("query failed: {}", errMsg);
-
-                // hide host info exclude localhost
-                if (errMsg.contains("localhost")) {
-                    throw new UserException(errMsg);
-                }
-                int hostIndex = errMsg.indexOf("host");
-                if (hostIndex != -1) {
-                    errMsg = errMsg.substring(0, hostIndex);
-                }
+                LOG.warn("Query {} failed: {}", DebugUtil.printId(queryId), errMsg);
                 throw new UserException(errMsg);
             }
         }
@@ -1445,7 +1457,7 @@ public class Coordinator implements CoordInterface {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("no block query, return num >= limit rows, need cancel");
                 }
-                cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH);
+                cancelInternal(Types.PPlanFragmentCancelReason.LIMIT_REACH, "query reach limit");
             }
             if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
                 numReceivedRows = 0;
@@ -1532,8 +1544,8 @@ public class Coordinator implements CoordInterface {
     // Cancel execution of query. This includes the execution of the local plan
     // fragment,
     // if any, as well as all plan fragments on remote nodes.
-    public void cancel() {
-        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL, "user cancel");
+    public void cancel(String errorMsg) {
+        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL, errorMsg);
         if (queueToken != null) {
             queueToken.cancel();
         }
@@ -1556,8 +1568,8 @@ public class Coordinator implements CoordInterface {
                 queryStatus.updateStatus(TStatusCode.CANCELLED, errorMsg);
             }
             LOG.warn("Cancel execution of query {}, this is a outside invoke, cancelReason {}",
-                    DebugUtil.printId(queryId), cancelReason.toString());
-            cancelInternal(cancelReason);
+                    DebugUtil.printId(queryId), errorMsg);
+            cancelInternal(cancelReason, errorMsg);
         } finally {
             unlock();
         }
@@ -1581,9 +1593,9 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason) {
+    private void cancelInternal(Types.PPlanFragmentCancelReason cancelReason, String cancelMessage) {
         if (null != receiver) {
-            receiver.cancel(cancelReason);
+            receiver.cancel(cancelReason, cancelMessage);
         }
         if (null != pointExec) {
             pointExec.cancel();
@@ -2390,9 +2402,10 @@ public class Coordinator implements CoordInterface {
             FragmentScanRangeAssignment assignment
                     = fragmentExecParamsMap.get(scanNode.getFragmentId()).scanRangeAssignment;
             boolean fragmentContainsColocateJoin = isColocateFragment(scanNode.getFragment(),
-                    scanNode.getFragment().getPlanRoot());
+                    scanNode.getFragment().getPlanRoot()) && (scanNode instanceof OlapScanNode);
             boolean fragmentContainsBucketShuffleJoin = bucketShuffleJoinController
-                    .isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot());
+                    .isBucketShuffleJoin(scanNode.getFragmentId().asInt(), scanNode.getFragment().getPlanRoot())
+                    && (scanNode instanceof OlapScanNode);
 
             // A fragment may contain both colocate join and bucket shuffle join
             // on need both compute scanRange to init basic data for query coordinator
@@ -2612,14 +2625,6 @@ public class Coordinator implements CoordInterface {
         // TODO: more ranges?
     }
 
-    public void setHivePartitionUpdateFunc(Consumer<List<THivePartitionUpdate>> hivePartitionUpdateFunc) {
-        this.hivePartitionUpdateFunc = hivePartitionUpdateFunc;
-    }
-
-    public void setIcebergCommitDataFunc(Consumer<List<TIcebergCommitData>> icebergCommitDataFunc) {
-        this.icebergCommitDataFunc = icebergCommitDataFunc;
-    }
-
     // update job progress from BE
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
         if (enablePipelineXEngine) {
@@ -2667,13 +2672,14 @@ public class Coordinator implements CoordInterface {
             if (params.isSetErrorTabletInfos()) {
                 updateErrorTabletInfos(params.getErrorTabletInfos());
             }
-            if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
-                hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+            if (params.isSetHivePartitionUpdates()) {
+                ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                    .updateHivePartitionUpdates(params.getHivePartitionUpdates());
             }
-            if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
-                icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
+            if (params.isSetIcebergCommitDatas()) {
+                ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                    .updateIcebergCommitData(params.getIcebergCommitDatas());
             }
-
             if (ctx.done) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} fragment {} is marked done",
@@ -2734,11 +2740,13 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
-                if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
-                    hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+                if (params.isSetHivePartitionUpdates()) {
+                    ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                        .updateHivePartitionUpdates(params.getHivePartitionUpdates());
                 }
-                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
-                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
+                if (params.isSetIcebergCommitDatas()) {
+                    ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                        .updateIcebergCommitData(params.getIcebergCommitDatas());
                 }
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("Query {} instance {} is marked done",
@@ -2809,22 +2817,34 @@ public class Coordinator implements CoordInterface {
                 if (params.isSetErrorTabletInfos()) {
                     updateErrorTabletInfos(params.getErrorTabletInfos());
                 }
-                if (params.isSetHivePartitionUpdates() && hivePartitionUpdateFunc != null) {
-                    hivePartitionUpdateFunc.accept(params.getHivePartitionUpdates());
+                if (params.isSetHivePartitionUpdates()) {
+                    ((HMSTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                        .updateHivePartitionUpdates(params.getHivePartitionUpdates());
                 }
-                if (params.isSetIcebergCommitDatas() && icebergCommitDataFunc != null) {
-                    icebergCommitDataFunc.accept(params.getIcebergCommitDatas());
+                if (params.isSetIcebergCommitDatas()) {
+                    ((IcebergTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                        .updateIcebergCommitData(params.getIcebergCommitDatas());
                 }
                 instancesDoneLatch.markedCountDown(params.getFragmentInstanceId(), -1L);
             }
         }
 
         if (params.isSetLoadedRows() && jobId != -1) {
-            Env.getCurrentEnv().getLoadManager().updateJobProgress(
-                    jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
-                    params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
-            Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
-                    params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            if (params.isSetFragmentInstanceReports()) {
+                for (TFragmentInstanceReport report : params.getFragmentInstanceReports()) {
+                    Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                            jobId, params.getBackendId(), params.getQueryId(), report.getFragmentInstanceId(),
+                            report.getLoadedRows(), report.getLoadedBytes(), params.isDone());
+                    Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                            params.getQueryId(), report.getFragmentInstanceId(), report.getNumFinishedRange());
+                }
+            } else {
+                Env.getCurrentEnv().getLoadManager().updateJobProgress(
+                        jobId, params.getBackendId(), params.getQueryId(), params.getFragmentInstanceId(),
+                        params.getLoadedRows(), params.getLoadedBytes(), params.isDone());
+                Env.getCurrentEnv().getProgressManager().updateProgress(String.valueOf(jobId),
+                        params.getQueryId(), params.getFragmentInstanceId(), params.getFinishedScanRanges());
+            }
         }
     }
 
@@ -3303,10 +3323,6 @@ public class Coordinator implements CoordInterface {
                                             DebugUtil.printId(fragmentInstanceId()), status.toString());
                                 }
                             }
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment instance id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    DebugUtil.printId(fragmentInstanceId()), "without status");
                         }
 
                         public void onFailure(Throwable t) {
@@ -3321,7 +3337,6 @@ public class Coordinator implements CoordInterface {
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
-                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
                 }
 
             } catch (Exception e) {
@@ -3506,7 +3521,6 @@ public class Coordinator implements CoordInterface {
                 } catch (RpcException e) {
                     LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
                             brpcAddress.getPort());
-                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
                 }
             } catch (Exception e) {
                 LOG.warn("catch a exception", e);

@@ -160,3 +160,6 @@
 -- !sql --
 -10	20	aabc	update val
 
+-- !sql --
+-10	20	aabc	update val
+

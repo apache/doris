@@ -20,6 +20,10 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.EncryptKey;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionListenerMatcher;
@@ -62,6 +66,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LastQueryId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Password;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Version;
@@ -83,6 +88,7 @@ import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -91,6 +97,7 @@ import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import org.apache.commons.codec.digest.DigestUtils;
 
+import java.time.DateTimeException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -164,7 +171,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 matches(Password.class, this::visitPassword),
                 matches(Array.class, this::visitArray),
                 matches(Date.class, this::visitDate),
-                matches(Version.class, this::visitVersion)
+                matches(Version.class, this::visitVersion),
+                matches(LastQueryId.class, this::visitLastQueryId)
         );
     }
 
@@ -210,6 +218,13 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         }
         if ("".equals(dbName)) {
             throw new AnalysisException("DB " + dbName + "not found");
+        }
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                        dbName, PrivPredicate.SHOW)) {
+            String message = ErrorCode.ERR_DB_ACCESS_DENIED_ERROR.formatErrorMsg(
+                    PrivPredicate.SHOW.getPrivs().toString(), dbName);
+            throw new AnalysisException(message);
         }
         org.apache.doris.catalog.Database database =
                 Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
@@ -327,6 +342,16 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     }
 
     @Override
+    public Expression visitLastQueryId(LastQueryId queryId, ExpressionRewriteContext context) {
+        String res = "Not Available";
+        TUniqueId id = context.cascadesContext.getConnectContext().getLastQueryId();
+        if (id != null) {
+            res = DebugUtil.printId(id);
+        }
+        return new VarcharLiteral(res);
+    }
+
+    @Override
     public Expression visitConnectionId(ConnectionId connectionId, ExpressionRewriteContext context) {
         return new BigIntLiteral(context.cascadesContext.getConnectContext().getConnectionId());
     }
@@ -435,6 +460,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     // If cast is from type coercion, we don't use NULL literal and will throw exception.
                     throw t;
                 }
+            } catch (DateTimeException e) {
+                return new NullLiteral(dataType);
             }
         }
         try {
@@ -493,9 +520,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
         Expression defaultResult = null;
         if (caseWhen.getDefaultValue().isPresent()) {
             defaultResult = caseWhen.getDefaultValue().get();
-            if (deepRewrite) {
-                defaultResult = rewrite(defaultResult, context);
-            }
         }
         if (foundNewDefault) {
             defaultResult = newDefault;
@@ -695,6 +719,8 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     private <E extends Expression> ExpressionPatternMatcher<? extends Expression> matches(
             Class<E> clazz, BiFunction<E, ExpressionRewriteContext, Expression> visitMethod) {
         return matchesType(clazz)
+                .whenCtx(ctx -> !ctx.cascadesContext.getConnectContext().getSessionVariable()
+                        .isDebugSkipFoldConstant())
                 .whenCtx(NOT_UNDER_AGG_DISTINCT.as())
                 .thenApply(ctx -> visitMethod.apply(ctx.expr, ctx.rewriteContext));
     }

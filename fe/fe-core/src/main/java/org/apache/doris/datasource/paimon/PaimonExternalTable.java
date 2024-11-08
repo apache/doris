@@ -165,8 +165,9 @@ public class PaimonExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
-        if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType()) || PaimonExternalCatalog.PAIMON_FILESYSTEM
-                .equals(getPaimonCatalogType())) {
+        if (PaimonExternalCatalog.PAIMON_HMS.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(getPaimonCatalogType())
+                || PaimonExternalCatalog.PAIMON_DLF.equals(getPaimonCatalogType())) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);

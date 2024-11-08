@@ -147,8 +147,7 @@ bool is_conversion_required_between_integers(const TypeIndex& lhs, const TypeInd
 }
 
 Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, ColumnPtr* result) {
-    ColumnsWithTypeAndName arguments {
-            arg, {type->create_column_const_with_default_value(1), type, type->get_name()}};
+    ColumnsWithTypeAndName arguments {arg, {nullptr, type, type->get_name()}};
     auto function = SimpleFunctionFactory::instance().get_function("CAST", arguments, type);
     if (!function) {
         return Status::InternalError("Not found cast function {} to {}", arg.type->get_name(),
@@ -545,15 +544,9 @@ Status _parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
 
 Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos,
                              const ParseContext& ctx) {
-    try {
-        // Parse each variant column from raw string column
-        RETURN_IF_ERROR(vectorized::schema_util::_parse_variant_columns(block, variant_pos, ctx));
-    } catch (const doris::Exception& e) {
-        // TODO more graceful, max_filter_ratio
-        LOG(WARNING) << "encounter execption " << e.to_string();
-        return Status::InternalError(e.to_string());
-    }
-    return Status::OK();
+    // Parse each variant column from raw string column
+    RETURN_IF_CATCH_EXCEPTION(
+            { return vectorized::schema_util::_parse_variant_columns(block, variant_pos, ctx); });
 }
 
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,

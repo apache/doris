@@ -211,10 +211,10 @@ suite("multi_thread_load", "p1,nonConcurrent") { // stress case should use resou
     def row_count_range = sql """select count() from ${table_name};"""
     assertTrue(data_count*rows == row_count_range[0][0], "${data_count*rows}, ${row_count_range[0][0]}")
     // check there's no intersect in partitions
-    def partition_res_range = sql """show partitions from ${table_name} order by PartitionName;"""
+    def partition_res_range = sql_return_maparray """show partitions from ${table_name} order by PartitionName;"""
     for (int i = 0; i < partition_res_range.size(); i++) {
         for (int j = i+1; j < partition_res_range.size(); j++) {
-            if (partition_res_range[i][6] == partition_res_range[j][6]) {
+            if (partition_res_range[i].Range == partition_res_range[j].Range) {
                 assertTrue(false, "$i, $j")
             }
         }

@@ -183,7 +183,7 @@ TEST_F(PartitionTransformersTest, test_date_bucket_transform) {
     auto column = ColumnDateV2::create();
     auto& date_v2_data = column->get_data();
     DateV2Value<DateV2ValueType> value;
-    value.set_time(2017, 11, 16, 0, 0, 0, 0); // -653330422
+    value.unchecked_set_time(2017, 11, 16, 0, 0, 0, 0); // -653330422
     date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
     ColumnWithTypeAndName test_date(column->get_ptr(), std::make_shared<DataTypeDateV2>(),
                                     "test_date");
@@ -206,7 +206,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_bucket_transform) {
     auto column = ColumnDateTimeV2::create();
     auto& datetime_v2_data = column->get_data();
     DateV2Value<DateTimeV2ValueType> value;
-    value.set_time(2017, 11, 16, 22, 31, 8, 0); // -2047944441
+    value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0); // -2047944441
     datetime_v2_data.push_back(*reinterpret_cast<vectorized::UInt64*>(&value));
     ColumnWithTypeAndName test_timestamp(column->get_ptr(), std::make_shared<DataTypeDateTimeV2>(),
                                          "test_timestamp");
@@ -250,7 +250,7 @@ TEST_F(PartitionTransformersTest, test_date_year_transform) {
     auto column = ColumnDateV2::create();
     auto& date_v2_data = column->get_data();
     DateV2Value<DateV2ValueType> value;
-    value.set_time(2017, 11, 16, 0, 0, 0, 0);
+    value.unchecked_set_time(2017, 11, 16, 0, 0, 0, 0);
     date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
     ColumnWithTypeAndName test_date(column->get_ptr(), std::make_shared<DataTypeDateV2>(),
                                     "test_date");
@@ -276,7 +276,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_year_transform) {
     auto column = ColumnDateTimeV2::create();
     auto& datetime_v2_data = column->get_data();
     DateV2Value<DateTimeV2ValueType> value;
-    value.set_time(2017, 11, 16, 22, 31, 8, 0);
+    value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0);
     datetime_v2_data.push_back(*reinterpret_cast<vectorized::UInt64*>(&value));
     ColumnWithTypeAndName test_timestamp(column->get_ptr(), std::make_shared<DataTypeDateTimeV2>(),
                                          "test_timestamp");
@@ -302,7 +302,7 @@ TEST_F(PartitionTransformersTest, test_date_month_transform) {
     auto column = ColumnDateV2::create();
     auto& date_v2_data = column->get_data();
     DateV2Value<DateV2ValueType> value;
-    value.set_time(2017, 11, 16, 0, 0, 0, 0);
+    value.unchecked_set_time(2017, 11, 16, 0, 0, 0, 0);
     date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
     ColumnWithTypeAndName test_date(column->get_ptr(), std::make_shared<DataTypeDateV2>(),
                                     "test_date");
@@ -328,7 +328,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_month_transform) {
     auto column = ColumnDateTimeV2::create();
     auto& datetime_v2_data = column->get_data();
     DateV2Value<DateTimeV2ValueType> value;
-    value.set_time(2017, 11, 16, 22, 31, 8, 0);
+    value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0);
     datetime_v2_data.push_back(*reinterpret_cast<vectorized::UInt64*>(&value));
     ColumnWithTypeAndName test_timestamp(column->get_ptr(), std::make_shared<DataTypeDateTimeV2>(),
                                          "test_timestamp");
@@ -354,7 +354,7 @@ TEST_F(PartitionTransformersTest, test_date_day_transform) {
     auto column = ColumnDateV2::create();
     auto& date_v2_data = column->get_data();
     DateV2Value<DateV2ValueType> value;
-    value.set_time(2017, 11, 16, 0, 0, 0, 0);
+    value.unchecked_set_time(2017, 11, 16, 0, 0, 0, 0);
     date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
     ColumnWithTypeAndName test_date(column->get_ptr(), std::make_shared<DataTypeDateV2>(),
                                     "test_date");
@@ -380,7 +380,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_day_transform) {
     auto column = ColumnDateTimeV2::create();
     auto& datetime_v2_data = column->get_data();
     DateV2Value<DateTimeV2ValueType> value;
-    value.set_time(2017, 11, 16, 22, 31, 8, 0);
+    value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0);
     datetime_v2_data.push_back(*reinterpret_cast<vectorized::UInt64*>(&value));
     ColumnWithTypeAndName test_timestamp(column->get_ptr(), std::make_shared<DataTypeDateTimeV2>(),
                                          "test_timestamp");
@@ -406,7 +406,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_hour_transform) {
     auto column = ColumnDateTimeV2::create();
     auto& datetime_v2_data = column->get_data();
     DateV2Value<DateTimeV2ValueType> value;
-    value.set_time(2017, 11, 16, 22, 31, 8, 0);
+    value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0);
     datetime_v2_data.push_back(*reinterpret_cast<vectorized::UInt64*>(&value));
     ColumnWithTypeAndName test_timestamp(column->get_ptr(), std::make_shared<DataTypeDateTimeV2>(),
                                          "test_timestamp");

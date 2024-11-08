@@ -78,6 +78,7 @@ import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.backup.BackupHandler;
+import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
 import org.apache.doris.binlog.BinlogManager;
 import org.apache.doris.blockrule.SqlBlockRuleMgr;
@@ -250,7 +251,6 @@ import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyPublisher;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
-import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
@@ -284,6 +284,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
+import org.apache.doris.transaction.GlobalExternalTransactionInfoMgr;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
@@ -386,7 +387,6 @@ public class Env {
     private ExternalMetaIdMgr externalMetaIdMgr;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
-    private ExportTaskRegister exportTaskRegister;
     private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
     private LabelProcessor labelProcessor;
     private TransientTaskManager transientTaskManager;
@@ -555,6 +555,8 @@ public class Env {
 
     private final SplitSourceManager splitSourceManager;
 
+    private final GlobalExternalTransactionInfoMgr globalExternalTransactionInfoMgr;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -691,7 +693,6 @@ public class Env {
         this.jobManager = new JobManager<>();
         this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
-        this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
 
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
@@ -799,6 +800,7 @@ public class Env {
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.splitSourceManager = new SplitSourceManager();
+        this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
     }
 
     public static void destroyCheckpoint() {
@@ -1535,6 +1537,7 @@ public class Env {
                 // Set initial root password if master FE first time launch.
                 auth.setInitialRootPassword(Config.initial_root_password);
             } else {
+                VariableMgr.forceUpdateVariables();
                 if (journalVersion <= FeMetaVersion.VERSION_114) {
                     // if journal version is less than 114, which means it is upgraded from version before 2.0.
                     // When upgrading from 1.2 to 2.0,
@@ -1571,6 +1574,9 @@ public class Env {
                 if (journalVersion <= FeMetaVersion.VERSION_129) {
                     VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
                             SessionVariable.ENABLE_MATERIALIZED_VIEW_REWRITE,
+                            "true");
+                    VariableMgr.refreshDefaultSessionVariables("2.0 to 2.1",
+                            SessionVariable.ENABLE_NEREIDS_DML_WITH_PIPELINE,
                             "true");
                 }
             }
@@ -2862,8 +2868,8 @@ public class Env {
             }
         }
         long cost = System.currentTimeMillis() - startTime;
-        if (cost >= 1000) {
-            LOG.warn("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
+        if (LOG.isDebugEnabled() && cost >= 1000) {
+            LOG.debug("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
         }
 
         return hasLog;
@@ -3503,6 +3509,10 @@ public class Env {
                     .append(PropertyAnalyzer.PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT)
                     .append("\" = \"");
             sb.append(olapTable.isDuplicateWithoutKey()).append("\"");
+        }
+
+        if (olapTable.isInAtomicRestore()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_IN_ATOMIC_RESTORE).append("\" = \"true\"");
         }
     }
 
@@ -4215,11 +4225,6 @@ public class Env {
         return this.syncJobManager;
     }
 
-
-    public ExportTaskRegister getExportTaskRegister() {
-        return exportTaskRegister;
-    }
-
     public JobManager getJobManager() {
         return jobManager;
     }
@@ -4528,6 +4533,9 @@ public class Env {
                 // check if name is already used
                 if (db.getTable(newTableName).isPresent()) {
                     throw new DdlException("Table name[" + newTableName + "] is already used");
+                }
+                if (db.getTable(RestoreJob.tableAliasWithAtomicRestore(newTableName)).isPresent()) {
+                    throw new DdlException("Table name[" + newTableName + "] is already used (in restoring)");
                 }
 
                 if (table.isManagedTable()) {
@@ -4939,11 +4947,7 @@ public class Env {
                     indexIdToSchemaVersion);
             editLog.logColumnRename(info);
             LOG.info("rename coloumn[{}] to {}", colName, newColName);
-            try {
-                Env.getCurrentEnv().getAnalysisManager().dropStats(table);
-            } catch (Exception e) {
-                LOG.info("Failed to drop stats after rename column. Reason: {}", e.getMessage());
-            }
+            Env.getCurrentEnv().getAnalysisManager().dropStats(table);
         }
     }
 
@@ -5318,33 +5322,49 @@ public class Env {
         Database db = getInternalCatalog().getDbOrDdlException(dbName);
 
         // check if table exists in db
+        boolean replace = false;
         if (db.getTable(tableName).isPresent()) {
             if (stmt.isSetIfNotExists()) {
                 LOG.info("create view[{}] which already exists", tableName);
                 return;
+            } else if (stmt.isSetOrReplace()) {
+                replace = true;
+                LOG.info("view[{}] already exists, need to replace it", tableName);
             } else {
                 ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, tableName);
             }
         }
 
-        List<Column> columns = stmt.getColumns();
+        if (replace) {
+            AlterViewStmt alterViewStmt = new AlterViewStmt(stmt.getTableName(), stmt.getColWithComments(),
+                    stmt.getViewDefStmt());
+            alterViewStmt.setInlineViewDef(stmt.getInlineViewDef());
+            try {
+                alterView(alterViewStmt);
+            } catch (UserException e) {
+                throw new DdlException("failed to replace view[" + tableName + "], reason=" + e.getMessage());
+            }
+            LOG.info("successfully replace view[{}]", tableName);
+        } else {
+            List<Column> columns = stmt.getColumns();
 
-        long tableId = Env.getCurrentEnv().getNextId();
-        View newView = new View(tableId, tableName, columns);
-        newView.setComment(stmt.getComment());
-        newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
-                ConnectContext.get().getSessionVariable().getSqlMode());
-        // init here in case the stmt string from view.toSql() has some syntax error.
-        try {
-            newView.init();
-        } catch (UserException e) {
-            throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
-        }
+            long tableId = Env.getCurrentEnv().getNextId();
+            View newView = new View(tableId, tableName, columns);
+            newView.setComment(stmt.getComment());
+            newView.setInlineViewDefWithSqlMode(stmt.getInlineViewDef(),
+                    ConnectContext.get().getSessionVariable().getSqlMode());
+            // init here in case the stmt string from view.toSql() has some syntax error.
+            try {
+                newView.init();
+            } catch (UserException e) {
+                throw new DdlException("failed to init view stmt, reason=" + e.getMessage());
+            }
 
-        if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
-            throw new DdlException("Failed to create view[" + tableName + "].");
+            if (!((Database) db).createTableWithLock(newView, false, stmt.isSetIfNotExists()).first) {
+                throw new DdlException("Failed to create view[" + tableName + "].");
+            }
+            LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
         }
-        LOG.info("successfully create view[" + tableName + "-" + newView.getId() + "]");
     }
 
     public FunctionRegistry getFunctionRegistry() {
@@ -5552,8 +5572,9 @@ public class Env {
         ConfigBase.setMutableConfig(key, value);
         if (configtoThreads.get(key) != null) {
             try {
+                // not atomic. maybe delay to aware. but acceptable.
                 configtoThreads.get(key).get().setInterval(Config.getField(key).getLong(null) * 1000L);
-                configtoThreads.get(key).get().interrupt();
+                // shouldn't interrupt to keep possible bdbje writing safe.
                 LOG.info("set config " + key + " to " + value);
             } catch (IllegalAccessException e) {
                 LOG.warn("set config " + key + " failed: " + e.getMessage());
@@ -6201,6 +6222,7 @@ public class Env {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
             dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
             dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
+            dbMeta.setDroppedIndexes(binlogManager.getDroppedIndexes(db.getId()));
         }
 
         result.setDbMeta(dbMeta);
@@ -6305,6 +6327,10 @@ public class Env {
 
     public SplitSourceManager getSplitSourceManager() {
         return splitSourceManager;
+    }
+
+    public GlobalExternalTransactionInfoMgr getGlobalExternalTransactionInfoMgr() {
+        return globalExternalTransactionInfoMgr;
     }
 
     public void alterMTMVRefreshInfo(AlterMTMVRefreshInfo info) {

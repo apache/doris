@@ -115,6 +115,9 @@ public class EsTable extends Table {
     // Periodically pull es metadata
     private EsMetaStateTracker esMetaStateTracker;
 
+    // column name -> elasticsearch field data type
+    private Map<String, String> column2typeMap = new HashMap<>();
+
     public EsTable() {
         super(TableType.ELASTICSEARCH);
     }
@@ -342,6 +345,6 @@ public class EsTable extends Table {
     }
 
     public List<Column> genColumnsFromEs() {
-        return EsUtil.genColumnsFromEs(client, indexName, mappingType, false);
+        return EsUtil.genColumnsFromEs(client, indexName, mappingType, false, column2typeMap);
     }
 }

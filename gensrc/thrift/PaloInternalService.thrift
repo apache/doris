@@ -329,6 +329,9 @@ struct TQueryOptions {
   130: optional bool enable_adaptive_pipeline_task_serial_read_on_limit = true;
   131: optional i32 adaptive_pipeline_task_serial_read_on_limit = 10000;
 
+  132: optional i32 parallel_prepare_threshold = 0;
+  133: optional i32 partition_topn_max_partitions = 1024;
+  134: optional i32 partition_topn_pre_partition_rows = 1000;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

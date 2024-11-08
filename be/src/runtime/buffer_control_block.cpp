@@ -104,7 +104,7 @@ BufferControlBlock::BufferControlBlock(const TUniqueId& id, int buffer_size)
 }
 
 BufferControlBlock::~BufferControlBlock() {
-    cancel();
+    cancel(Status::Cancelled("Cancelled"));
 }
 
 Status BufferControlBlock::init() {
@@ -266,13 +266,13 @@ Status BufferControlBlock::close(Status exec_status) {
     return Status::OK();
 }
 
-void BufferControlBlock::cancel() {
+void BufferControlBlock::cancel(const Status& reason) {
     std::unique_lock<std::mutex> l(_lock);
     _is_cancelled = true;
     _data_removal.notify_all();
     _data_arrival.notify_all();
     for (auto& ctx : _waiting_rpc) {
-        ctx->on_failure(Status::Cancelled("Cancelled"));
+        ctx->on_failure(reason);
     }
     _waiting_rpc.clear();
 }
@@ -301,8 +301,8 @@ Status PipBufferControlBlock::get_arrow_batch(std::shared_ptr<arrow::RecordBatch
     return Status::OK();
 }
 
-void PipBufferControlBlock::cancel() {
-    BufferControlBlock::cancel();
+void PipBufferControlBlock::cancel(const Status& reason) {
+    BufferControlBlock::cancel(reason);
     _update_dependency();
 }
 

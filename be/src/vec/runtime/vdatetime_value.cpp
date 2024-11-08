@@ -80,7 +80,9 @@ bool VecDateTimeValue::check_range(uint32_t year, uint32_t month, uint32_t day, 
 }
 
 bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
-    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
+    if (month == 2 && day == 29 && doris::is_leap(year)) {
+        return false;
+    }
     if (year > 9999 || month == 0 || month > 12 || day > S_DAYS_IN_MONTH[month] || day == 0) {
         return true;
     }
@@ -536,7 +538,7 @@ bool VecDateTimeValue::get_date_from_daynr(uint64_t daynr) {
     if (check_range(year, month, day, 0, 0, 0, _type)) {
         return false;
     }
-    set_time(year, month, day, _hour, _minute, _second);
+    unchecked_set_time(year, month, day, _hour, _minute, _second);
     return true;
 }
 
@@ -1810,8 +1812,8 @@ VecDateTimeValue VecDateTimeValue::local_time() {
     return value;
 }
 
-void VecDateTimeValue::set_time(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
-                                uint32_t minute, uint32_t second) {
+void VecDateTimeValue::unchecked_set_time(uint32_t year, uint32_t month, uint32_t day,
+                                          uint32_t hour, uint32_t minute, uint32_t second) {
     _year = year;
     _month = month;
     _day = day;
@@ -1892,10 +1894,10 @@ bool VecDateTimeValue::datetime_trunc() {
 template <typename T>
 void VecDateTimeValue::create_from_date_v2(DateV2Value<T>& value, TimeType type) {
     if constexpr (std::is_same_v<T, DateV2ValueType>) {
-        this->set_time(value.year(), value.month(), value.day(), 0, 0, 0);
+        this->unchecked_set_time(value.year(), value.month(), value.day(), 0, 0, 0);
     } else {
-        this->set_time(value.year(), value.month(), value.day(), value.hour(), value.minute(),
-                       value.second());
+        this->unchecked_set_time(value.year(), value.month(), value.day(), value.hour(),
+                                 value.minute(), value.second());
     }
     this->set_type(type);
     this->_neg = 0;
@@ -1946,7 +1948,9 @@ bool DateV2Value<T>::is_invalid(uint32_t year, uint32_t month, uint32_t day, uin
     if (year > MAX_YEAR) {
         return true;
     }
-    if (month == 2 && day == 29 && doris::is_leap(year)) return false;
+    if (month == 2 && day == 29 && doris::is_leap(year)) {
+        return false;
+    }
     if (month == 0 || month > 12 || day > S_DAYS_IN_MONTH[month] || day == 0) {
         return true;
     }
@@ -2811,7 +2815,7 @@ bool date_day_offset_dict::get_dict_init() {
 date_day_offset_dict::date_day_offset_dict() {
     DateV2Value<DateV2ValueType> d;
     // Init days before epoch.
-    d.set_time(1969, 12, 31, 0, 0, 0, 0);
+    d.unchecked_set_time(1969, 12, 31, 0, 0, 0, 0);
     for (int i = 0; i < DAY_BEFORE_EPOCH; ++i) {
         DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH - i - 1] = d;
         DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
@@ -2819,7 +2823,7 @@ date_day_offset_dict::date_day_offset_dict() {
         d -= 1;
     }
     // Init epoch day.
-    d.set_time(1970, 1, 1, 0, 0, 0, 0);
+    d.unchecked_set_time(1970, 1, 1, 0, 0, 0, 0);
     DATE_DAY_OFFSET_ITEMS[DAY_BEFORE_EPOCH] = d;
     DATE_DAY_OFFSET_DICT[d.year() - START_YEAR][d.month() - 1][d.day() - 1] =
             calc_daynr(d.year(), d.month(), d.day());
@@ -2851,7 +2855,7 @@ uint32_t DateV2Value<T>::set_date_uint32(uint32_t int_val) {
     if (is_invalid(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0)) {
         return 0;
     }
-    this->set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0);
+    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), 0, 0, 0, 0);
 
     return int_val;
 }
@@ -2868,8 +2872,8 @@ uint64_t DateV2Value<T>::set_datetime_uint64(uint64_t int_val) {
                    conv.dt.second(), conv.dt.microsecond())) {
         return 0;
     }
-    this->set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(), conv.dt.minute(),
-                   conv.dt.second(), conv.dt.microsecond());
+    this->unchecked_set_time(conv.dt.year(), conv.dt.month(), conv.dt.day(), conv.dt.hour(),
+                             conv.dt.minute(), conv.dt.second(), conv.dt.microsecond());
 
     return int_val;
 }
@@ -2947,14 +2951,17 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
         }
     }
 
-    set_time(year, month, day, this->hour(), this->minute(), this->second(), this->microsecond());
+    unchecked_set_time(year, month, day, this->hour(), this->minute(), this->second(),
+                       this->microsecond());
     return true;
 }
 
 template <typename T>
 template <TimeUnit unit, typename TO>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value) {
-    if (!is_valid_date()) return false;
+    if (!is_valid_date()) {
+        return false;
+    }
 
     int sign = interval.is_neg ? -1 : 1;
 
@@ -2990,7 +2997,8 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
         if (!to_value.get_date_from_daynr(day_nr)) {
             return false;
         }
-        to_value.set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, microseconds);
+        PROPAGATE_FALSE(to_value.check_range_and_set_time(
+                0, 0, 0, seconds / 3600, (seconds / 60) % 60, seconds % 60, microseconds, true));
     } else if constexpr (unit == YEAR) {
         // This only change year information
         PROPAGATE_FALSE(to_value.template set_time_unit<TimeUnit::YEAR>(date_v2_value_.year_ +
@@ -3024,7 +3032,9 @@ template <typename T>
 template <TimeUnit unit, bool need_check>
 bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
     if constexpr (need_check) {
-        if (!is_valid_date()) return false;
+        if (!is_valid_date()) {
+            return false;
+        }
     }
 
     int sign = interval.is_neg ? -1 : 1;
@@ -3062,7 +3072,9 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
             return false;
         }
         if constexpr (is_datetime) {
-            this->set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, microseconds);
+            PROPAGATE_FALSE(this->check_range_and_set_time(0, 0, 0, seconds / 3600,
+                                                           (seconds / 60) % 60, seconds % 60,
+                                                           microseconds, true));
         }
     } else if constexpr (unit == YEAR) {
         // This only change year information
@@ -3111,14 +3123,15 @@ bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
             return false;
         }
         if constexpr (is_datetime) {
-            this->set_time(seconds / 3600, (seconds / 60) % 60, seconds % 60, 0);
+            PROPAGATE_FALSE(this->check_range_and_set_time(
+                    0, 0, 0, seconds / 3600, (seconds / 60) % 60, seconds % 60, 0, true));
         }
     } else if constexpr (unit == YEAR) {
-        this->set_time(0, 1, 1, 0, 0, 0, 0);
+        this->unchecked_set_time(0, 1, 1, 0, 0, 0, 0);
         PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(interval.year));
     } else if constexpr (unit == MONTH) {
         // This will change month and year information, maybe date.
-        this->set_time(0, 1, 1, 0, 0, 0, 0);
+        this->unchecked_set_time(0, 1, 1, 0, 0, 0, 0);
         int64_t months = 12 * interval.year + interval.month;
         PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::YEAR>(months / 12));
         PROPAGATE_FALSE(this->template set_time_unit<TimeUnit::MONTH>((months % 12) + 1));
@@ -3323,7 +3336,7 @@ void DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
 
     // there's no overflow check since it's hot path
 
-    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
+    unchecked_set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
 }
 
 template <typename T>
@@ -3347,8 +3360,8 @@ void DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
 
     const auto tp = cctz::convert(t, ctz);
 
-    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
-             timestamp.second);
+    unchecked_set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
+                       timestamp.second);
 }
 
 template <typename T>
@@ -3376,8 +3389,8 @@ void DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
         scale = 6;
     }
 
-    set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
-             nano_seconds / int_exp10(9 - scale) * int_exp10(6 - scale));
+    unchecked_set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
+                       nano_seconds / int_exp10(9 - scale) * int_exp10(6 - scale));
 }
 
 template <typename T>
@@ -3398,8 +3411,8 @@ const char* DateV2Value<T>::day_name() const {
 }
 
 template <typename T>
-void DateV2Value<T>::set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                              uint8_t minute, uint8_t second, uint32_t microsecond) {
+void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
+                                        uint8_t minute, uint8_t second, uint32_t microsecond) {
     date_v2_value_.year_ = year;
     date_v2_value_.month_ = month;
     date_v2_value_.day_ = day;
@@ -3412,7 +3425,8 @@ void DateV2Value<T>::set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t
 }
 
 template <typename T>
-void DateV2Value<T>::set_time(uint8_t hour, uint8_t minute, uint8_t second, uint32_t microsecond) {
+void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t second,
+                                        uint32_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.hour_ = hour;
         date_v2_value_.minute_ = minute;

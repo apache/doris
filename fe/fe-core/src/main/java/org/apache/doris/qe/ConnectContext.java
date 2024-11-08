@@ -45,6 +45,7 @@ import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
+import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.nereids.StatementContext;
@@ -52,7 +53,7 @@ import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.plsql.Exec;
 import org.apache.doris.plsql.executor.PlSqlOperation;
-import org.apache.doris.plugin.audit.AuditEvent.AuditEventBuilder;
+import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.proto.Types;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
@@ -112,6 +113,7 @@ public class ConnectContext {
 
     protected volatile TUniqueId queryId = null;
     protected volatile String traceId;
+    protected volatile TUniqueId lastQueryId = null;
     // id for this connection
     protected volatile int connectionId;
     // Timestamp when the connection is make
@@ -241,6 +243,8 @@ public class ConnectContext {
     // isProxy used for forward request from other FE and used in one thread
     // it's default thread-safe
     private boolean isProxy = false;
+
+    private MysqlHandshakePacket mysqlHandshakePacket;
 
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
@@ -835,6 +839,11 @@ public class ConnectContext {
         return executor;
     }
 
+    public void clear() {
+        executor = null;
+        statementContext = null;
+    }
+
     public PlSqlOperation getPlSqlOperation() {
         if (plSqlOperation == null) {
             plSqlOperation = new PlSqlOperation();
@@ -864,6 +873,9 @@ public class ConnectContext {
     }
 
     public void setQueryId(TUniqueId queryId) {
+        if (this.queryId != null) {
+            this.lastQueryId = this.queryId.deepCopy();
+        }
         this.queryId = queryId;
         if (connectScheduler != null && !Strings.isNullOrEmpty(traceId)) {
             connectScheduler.putTraceId2QueryId(traceId, queryId);
@@ -880,6 +892,10 @@ public class ConnectContext {
 
     public TUniqueId queryId() {
         return queryId;
+    }
+
+    public TUniqueId getLastQueryId() {
+        return lastQueryId;
     }
 
     public String getSqlHash() {
@@ -916,20 +932,7 @@ public class ConnectContext {
 
     // kill operation with no protect.
     public void kill(boolean killConnection) {
-        LOG.warn("kill query from {}, kill mysql connection: {}", getRemoteHostPortString(), killConnection);
-
-        if (killConnection) {
-            isKilled = true;
-            // Close channel to break connection with client
-            closeChannel();
-        }
-        // Now, cancel running query.
-        cancelQuery();
-    }
-
-    // kill operation with no protect by timeout.
-    private void killByTimeout(boolean killConnection) {
-        LOG.warn("kill query from {}, kill mysql connection: {} reason time out", getRemoteHostPortString(),
+        LOG.warn("kill query from {}, kill {} connection: {}", getRemoteHostPortString(), getConnectType(),
                 killConnection);
 
         if (killConnection) {
@@ -938,17 +941,35 @@ public class ConnectContext {
             closeChannel();
         }
         // Now, cancel running query.
+        cancelQuery("cancel query by user from " + getRemoteHostPortString());
+    }
+
+    // kill operation with no protect by timeout.
+    private void killByTimeout(boolean killConnection) {
+        if (killConnection) {
+            LOG.warn("kill wait timeout connection, connection type: {}, connectionId: {}, remote: {}, "
+                            + "wait timeout: {}",
+                    getConnectType(), connectionId, getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
+            isKilled = true;
+            // Close channel to break connection with client
+            closeChannel();
+        }
+        // Now, cancel running query.
         // cancelQuery by time out
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
+            LOG.warn("kill time out query, remote: {}, at the same time kill connection is {},"
+                            + " connection type: {}, connectionId: {}",
+                    getRemoteHostPortString(), killConnection,
+                    getConnectType(), connectionId);
             executorRef.cancel(Types.PPlanFragmentCancelReason.TIMEOUT);
         }
     }
 
-    public void cancelQuery() {
+    public void cancelQuery(String cancelMessage) {
         StmtExecutor executorRef = executor;
         if (executorRef != null) {
-            executorRef.cancel();
+            executorRef.cancel(cancelMessage);
         }
     }
 
@@ -963,9 +984,6 @@ public class ConnectContext {
         if (command == MysqlCommand.COM_SLEEP) {
             if (delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                 // Need kill this connection.
-                LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
-                        getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
-
                 killFlag = true;
                 killConnection = true;
             }
@@ -979,7 +997,7 @@ public class ConnectContext {
             long timeout = getExecTimeout() * 1000L;
             if (delta > timeout) {
                 LOG.warn("kill {} timeout, remote: {}, query timeout: {}, query id: {}",
-                        timeoutTag, getRemoteHostPortString(), timeout, queryId);
+                        timeoutTag, getRemoteHostPortString(), timeout, DebugUtil.printId(queryId));
                 killFlag = true;
             }
         }
@@ -1180,5 +1198,13 @@ public class ConnectContext {
 
     public boolean isProxy() {
         return isProxy;
+    }
+
+    public void setMysqlHandshakePacket(MysqlHandshakePacket mysqlHandshakePacket) {
+        this.mysqlHandshakePacket = mysqlHandshakePacket;
+    }
+
+    public byte[] getAuthPluginData() {
+        return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
     }
 }

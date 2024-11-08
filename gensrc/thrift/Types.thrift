@@ -401,7 +401,8 @@ enum TOdbcTableType {
     OCEANBASE,
     OCEANBASE_ORACLE,
     NEBULA, // Deprecated
-    DB2
+    DB2,
+    GBASE
 }
 
 struct TJdbcExecutorCtorParams {
@@ -712,7 +713,8 @@ enum TMetadataType {
   JOBS,
   TASKS,
   WORKLOAD_SCHED_POLICY,
-  PARTITIONS;
+  PARTITIONS,
+  PARTITION_VALUES;
 }
 
 enum TIcebergQueryType {

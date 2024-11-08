@@ -43,7 +43,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.VariantType;
@@ -143,7 +142,7 @@ public class StatisticsUtil {
 
     public static QueryState execUpdate(String sql) throws Exception {
         StmtExecutor stmtExecutor = null;
-        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext();
+        AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false);
         try {
             r.connectContext.getSessionVariable().disableNereidsPlannerOnce();
             stmtExecutor = new StmtExecutor(r.connectContext, sql);
@@ -203,14 +202,14 @@ public class StatisticsUtil {
         sessionVariable.enableUniqueKeyPartialUpdate = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
-        connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
-        connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
+        connectContext.setQualifiedUser(UserIdentity.ADMIN.getQualifiedUser());
+        connectContext.setCurrentUserIdentity(UserIdentity.ADMIN);
         connectContext.setStartTime();
         return new AutoCloseConnectContext(connectContext);
     }
 
     public static void analyze(StatementBase statementBase) throws UserException {
-        try (AutoCloseConnectContext r = buildConnectContext()) {
+        try (AutoCloseConnectContext r = buildConnectContext(false)) {
             Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), r.connectContext);
             statementBase.analyze(analyzer);
         }
@@ -568,6 +567,7 @@ public class StatisticsUtil {
             long rows = Long.parseLong(parameters.get(NUM_ROWS));
             // Sometimes, the NUM_ROWS in hms is 0 but actually is not. Need to check TOTAL_SIZE if NUM_ROWS is 0.
             if (rows != 0) {
+                LOG.info("Get row count {} for hive table {} in table parameters.", rows, table.getName());
                 return rows;
             }
         }
@@ -581,9 +581,13 @@ public class StatisticsUtil {
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
+            LOG.warn("Hive table {} estimated row size is invalid {}", table.getName(), estimatedRowSize);
             return -1;
         }
-        return totalSize / estimatedRowSize;
+        long rows = totalSize / estimatedRowSize;
+        LOG.info("Get row count {} for hive table {} by total size {} and row size {}",
+                rows, table.getName(), totalSize, estimatedRowSize);
+        return rows;
     }
 
     /**
@@ -878,27 +882,26 @@ public class StatisticsUtil {
     }
 
     public static boolean isEmptyTable(TableIf table, AnalysisInfo.AnalysisMethod method) {
-        int waitRowCountReportedTime = 90;
+        int waitRowCountReportedTime = 120;
         if (!(table instanceof OlapTable) || method.equals(AnalysisInfo.AnalysisMethod.FULL)) {
             return false;
         }
         OlapTable olapTable = (OlapTable) table;
+        long rowCount = 0;
         for (int i = 0; i < waitRowCountReportedTime; i++) {
-            if (olapTable.getRowCount() > 0) {
-                return false;
+            rowCount = olapTable.getRowCountForIndex(olapTable.getBaseIndexId(), true);
+            // rowCount == -1 means new table or first load row count not fully reported, need to wait.
+            if (rowCount == -1) {
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    LOG.info("Sleep interrupted.");
+                }
+                continue;
             }
-            // If visible version is 2, table is probably not empty. So we wait row count to be reported.
-            // If visible version is not 2 and getRowCount return 0, we assume it is an empty table.
-            if (olapTable.getVisibleVersion() != TableAttributes.TABLE_INIT_VERSION + 1) {
-                return true;
-            }
-            try {
-                Thread.sleep(1000);
-            } catch (InterruptedException e) {
-                LOG.info("Sleep interrupted.", e);
-            }
+            break;
         }
-        return true;
+        return rowCount == 0;
     }
 
 }

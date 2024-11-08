@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
@@ -25,12 +26,14 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -40,8 +43,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.qe.ConnectContext;
@@ -52,6 +58,7 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -88,6 +95,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.cte = cte;
     }
 
+    public LogicalPlan getLogicalQuery() {
+        return logicalQuery;
+    }
+
     public Optional<String> getLabelName() {
         return labelName;
     }
@@ -111,12 +122,20 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        return initPlan(ctx, executor, true);
+    }
+
     /**
      * This function is used to generate the plan for Nereids.
      * There are some load functions that only need to the plan, such as stream_load.
      * Therefore, this section will be presented separately.
+     * @param needBeginTransaction whether to start a transaction.
+     *       For external uses such as creating a job, only basic analysis is needed without starting a transaction,
+     *       in which case this can be set to false.
      */
-    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public AbstractInsertExecutor initPlan(ConnectContext ctx, StmtExecutor executor,
+                                           boolean needBeginTransaction) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
@@ -192,9 +211,31 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                 IcebergExternalTable icebergExternalTable = (IcebergExternalTable) targetTableIf;
                 insertExecutor = new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
                         Optional.of(insertCtx.orElse((new BaseExternalTableInsertCommandContext()))), emptyInsert);
+            } else if (physicalSink instanceof PhysicalJdbcTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                List<Column> cols = ((PhysicalJdbcTableSink<?>) physicalSink).getCols();
+                List<Slot> slots = ((PhysicalJdbcTableSink<?>) physicalSink).getOutput();
+                if (physicalSink.children().size() == 1) {
+                    if (physicalSink.child(0) instanceof PhysicalOneRowRelation
+                            || physicalSink.child(0) instanceof PhysicalUnion) {
+                        for (int i = 0; i < cols.size(); i++) {
+                            if (!(cols.get(i).isAllowNull()) && slots.get(i).nullable()) {
+                                throw new AnalysisException("Column `" + cols.get(i).getName()
+                                        + "` is not nullable, but the inserted value is nullable.");
+                            }
+                        }
+                    }
+                }
+                JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) targetTableIf;
+                insertExecutor = new JdbcInsertExecutor(ctx, jdbcExternalTable, label, planner,
+                        Optional.of(insertCtx.orElse((new JdbcInsertCommandContext()))), emptyInsert);
             } else {
                 // TODO: support other table types
-                throw new AnalysisException("insert into command only support [olap, hive, iceberg] table");
+                throw new AnalysisException("insert into command only support [olap, hive, iceberg, jdbc] table");
+            }
+            if (!needBeginTransaction) {
+                targetTableIf.readUnlock();
+                return insertExecutor;
             }
             if (!insertExecutor.isEmptyInsert()) {
                 insertExecutor.beginTransaction();
@@ -213,6 +254,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         executor.setProfileType(ProfileType.LOAD);
         // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption,
         // so we need to set this here
+        insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
         executor.setCoord(insertExecutor.getCoordinator());
         return insertExecutor;
     }

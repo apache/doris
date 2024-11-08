@@ -93,19 +93,22 @@ public:
         return Status::OK();
     }
 
-    OwnedSlice finish() override {
+    Status finish(OwnedSlice* slice) override {
         DCHECK(!_finished);
         _finished = true;
-        // Set up trailer
-        for (uint32_t _offset : _offsets) {
-            put_fixed32_le(&_buffer, _offset);
-        }
-        put_fixed32_le(&_buffer, _offsets.size());
-        if (_offsets.size() > 0) {
-            _copy_value_at(0, &_first_value);
-            _copy_value_at(_offsets.size() - 1, &_last_value);
-        }
-        return _buffer.build();
+        RETURN_IF_CATCH_EXCEPTION({
+            // Set up trailer
+            for (uint32_t _offset : _offsets) {
+                put_fixed32_le(&_buffer, _offset);
+            }
+            put_fixed32_le(&_buffer, _offsets.size());
+            if (_offsets.size() > 0) {
+                _copy_value_at(0, &_first_value);
+                _copy_value_at(_offsets.size() - 1, &_last_value);
+            }
+            *slice = _buffer.build();
+        });
+        return Status::OK();
     }
 
     Status reset() override {
