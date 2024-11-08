@@ -2833,12 +2833,20 @@ int64_t Tablet::get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta)
             auto st = fs->file_size(inverted_index_file_path, &file_size);
             if (!st.ok()) {
                 file_size = 0;
-                LOG(WARNING) << " tablet id: " << get_tablet_info().tablet_id
-                             << ", rowset id:" << rs_meta->rowset_id()
-                             << ", table size correctness check get inverted index v2 "
-                                "size failed! msg:"
-                             << st.to_string()
-                             << ", inverted index path:" << inverted_index_file_path;
+                if (st.is<FILE_NOT_EXIST>()) {
+                    LOG(INFO) << " tablet id: " << get_tablet_info().tablet_id
+                              << ", rowset id:" << rs_meta->rowset_id()
+                              << ", table size correctness check get inverted index v2 failed "
+                                 "because file not exist:"
+                              << inverted_index_file_path;
+                } else {
+                    LOG(WARNING) << " tablet id: " << get_tablet_info().tablet_id
+                                 << ", rowset id:" << rs_meta->rowset_id()
+                                 << ", table size correctness check get inverted index v2 "
+                                    "size failed! msg:"
+                                 << st.to_string()
+                                 << ", inverted index path:" << inverted_index_file_path;
+                }
             }
             total_inverted_index_size += file_size;
         }
