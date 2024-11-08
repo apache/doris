@@ -1942,6 +1942,11 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     last_ver = ver;
                     last_seg_id = seg_id;
                 } else {
+                    TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_code", &code);
+                    if (code != MetaServiceCode::OK) {
+                        msg = "test get get_delete_bitmap fail,code=" + MetaServiceCode_Name(code);
+                        return;
+                    }
                     response->mutable_segment_delete_bitmaps()->rbegin()->append(v);
                 }
             }

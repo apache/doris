@@ -96,7 +96,7 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
             res->clear_rowset_ids();
             res->clear_segment_ids();
             res->clear_versions();
-            res->segment_delete_bitmaps();
+            res->clear_segment_delete_bitmaps();
         }
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " status=" << res->status().ShortDebugString()
