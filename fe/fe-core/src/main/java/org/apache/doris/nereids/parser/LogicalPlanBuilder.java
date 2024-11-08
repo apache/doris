@@ -1422,6 +1422,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return Qualifier.ALL;
         }
     }
+
     private static LogicalPlan logicalPlanCombiner(LogicalPlan left, LogicalPlan right, Qualifier qualifier) {
         return new LogicalUnion(qualifier, ImmutableList.of(left, right));
     }
@@ -1580,7 +1581,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         return str;
     }
-
 
     @Override
     public LogicalPlan visitAliasedQuery(AliasedQueryContext ctx) {
