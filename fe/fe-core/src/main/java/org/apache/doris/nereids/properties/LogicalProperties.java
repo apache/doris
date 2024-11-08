@@ -20,6 +20,8 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.common.Id;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -27,6 +29,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -42,11 +45,18 @@ public class LogicalProperties {
     protected final Supplier<Map<Slot, Slot>> outputMapSupplier;
     protected final Supplier<Set<ExprId>> outputExprIdSetSupplier;
     protected final Supplier<DataTrait> dataTraitSupplier;
+
+    protected final HashMap<SlotReference, Set<Literal>> literalMap = new HashMap<>();
     private Integer hashCode = null;
 
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
+            Supplier<DataTrait> dataTraitSupplier, HashMap<SlotReference, Set<Literal>> literalMap) {
+        this(outputSupplier, dataTraitSupplier, ImmutableList::of, literalMap);
+    }
+
+    public LogicalProperties(Supplier<List<Slot>> outputSupplier,
             Supplier<DataTrait> dataTraitSupplier) {
-        this(outputSupplier, dataTraitSupplier, ImmutableList::of);
+        this(outputSupplier, dataTraitSupplier, ImmutableList::of, new HashMap<>());
     }
 
     /**
@@ -57,7 +67,8 @@ public class LogicalProperties {
      */
     public LogicalProperties(Supplier<List<Slot>> outputSupplier,
             Supplier<DataTrait> dataTraitSupplier,
-            Supplier<List<Slot>> nonUserVisibleOutputSupplier) {
+            Supplier<List<Slot>> nonUserVisibleOutputSupplier,
+            HashMap<SlotReference, Set<Literal>> literalMap) {
         this.outputSupplier = Suppliers.memoize(
                 Objects.requireNonNull(outputSupplier, "outputSupplier can not be null")
         );
@@ -98,6 +109,7 @@ public class LogicalProperties {
         this.dataTraitSupplier = Suppliers.memoize(
                 Objects.requireNonNull(dataTraitSupplier, "Data Trait can not be null")
         );
+        this.literalMap.putAll(literalMap);
     }
 
     public List<Slot> getOutput() {

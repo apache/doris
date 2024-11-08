@@ -21,9 +21,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
@@ -34,8 +37,13 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -175,4 +183,33 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     public void computeFd(Builder builder) {
         builder.addFuncDepsDG(child().getLogicalProperties().getTrait());
     }
+
+    private Pair<SlotReference, Literal> slotEqualsToLiteral(EqualTo equal){
+        if (equal.left() instanceof SlotReference && equal.right() instanceof Literal) {
+            return Pair.of((SlotReference) equal.left(), (Literal) equal.right());
+        } else if (equal.left() instanceof Literal && equal.right() instanceof SlotReference) {
+            return Pair.of((SlotReference) equal.right(), (Literal) equal.left());
+        }
+        return null;
+    }
+
+    @Override
+    public HashMap<SlotReference, Set<Literal>> collectColumnValues() {
+        HashMap<SlotReference, Set<Literal>> literalMap = new HashMap<>();
+        Set<SlotReference> blackList = new HashSet<>();
+        for (Expression conj : conjuncts) {
+            if (conj instanceof EqualTo) {
+                Pair<SlotReference, Literal> pair = slotEqualsToLiteral((EqualTo) conj);
+                if (pair != null) {
+                    if (literalMap.containsKey(pair.first)) {
+                        blackList.add(pair.first);
+                    } else {
+                        literalMap.put(pair.first, Sets.newHashSet(pair.second));
+                    }
+                }
+            }
+        }
+        return literalMap;
+    }
+
 }

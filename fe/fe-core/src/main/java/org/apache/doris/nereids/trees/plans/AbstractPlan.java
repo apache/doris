@@ -25,7 +25,9 @@ import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.TreeStringPlan.TreeStringNode;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MutableState;
@@ -40,6 +42,7 @@ import com.google.common.collect.Lists;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -85,6 +88,10 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.statistics = statistics;
         Preconditions.checkArgument(useZeroId);
         this.id = zeroId;
+    }
+
+    public HashMap<SlotReference, Set<Literal>> collectColumnValues() {
+        return new HashMap<>();
     }
 
     @Override
@@ -205,7 +212,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
             Supplier<DataTrait> fdSupplier = () -> this instanceof LogicalPlan
                     ? ((LogicalPlan) this).computeDataTrait()
                     : DataTrait.EMPTY_TRAIT;
-            return new LogicalProperties(outputSupplier, fdSupplier);
+            return new LogicalProperties(outputSupplier, fdSupplier, collectColumnValues());
         }
     }
 
