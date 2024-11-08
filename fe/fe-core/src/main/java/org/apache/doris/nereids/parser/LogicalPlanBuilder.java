@@ -571,6 +571,38 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         this.selectHintMap = selectHintMap;
     }
 
+    private static LogicalPlan logicalPlanCombiner(LogicalPlan left, LogicalPlan right, Qualifier qualifier) {
+        return new LogicalUnion(qualifier, ImmutableList.of(left, right));
+    }
+
+    /**
+     * construct avl union tree
+     */
+    public static LogicalPlan reduceToLogicalPlanTree(int low, int high,
+            List<LogicalPlan> logicalPlans, Qualifier qualifier) {
+        switch (high - low) {
+            case 0:
+                return logicalPlans.get(low);
+            case 1:
+                return logicalPlanCombiner(logicalPlans.get(low), logicalPlans.get(high), qualifier);
+            default:
+                int mid = low + (high - low) / 2;
+                return logicalPlanCombiner(
+                        reduceToLogicalPlanTree(low, mid, logicalPlans, qualifier),
+                        reduceToLogicalPlanTree(mid + 1, high, logicalPlans, qualifier),
+                        qualifier
+                );
+        }
+    }
+
+    public static String stripQuotes(String str) {
+        if ((str.charAt(0) == '\'' && str.charAt(str.length() - 1) == '\'')
+                || (str.charAt(0) == '\"' && str.charAt(str.length() - 1) == '\"')) {
+            str = str.substring(1, str.length() - 1);
+        }
+        return str;
+    }
+
     @SuppressWarnings("unchecked")
     protected <T> T typedVisit(ParseTree ctx) {
         return (T) ctx.accept(this);
@@ -1128,6 +1160,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return propertiesMap.build();
     }
 
+    /* ********************************************************************************************
+     * Plan parsing
+     * ******************************************************************************************** */
+
     @Override
     public BrokerDesc visitWithRemoteStorageSystem(WithRemoteStorageSystemContext ctx) {
         BrokerDesc brokerDesc = null;
@@ -1271,10 +1307,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 LogicalPlanBuilderAssistant.escapeBackSlash(commentSpec.substring(1, commentSpec.length() - 1));
         return new LoadCommand(labelName, dataDescriptions.build(), bulkDesc, properties, comment);
     }
-
-    /* ********************************************************************************************
-     * Plan parsing
-     * ******************************************************************************************** */
 
     /**
      * process lateral view, add a {@link org.apache.doris.nereids.trees.plans.logical.LogicalGenerate} on plan.
@@ -1423,30 +1455,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
-    private static LogicalPlan logicalPlanCombiner(LogicalPlan left, LogicalPlan right, Qualifier qualifier) {
-        return new LogicalUnion(qualifier, ImmutableList.of(left, right));
-    }
-
-    /**
-     * construct avl union tree
-     */
-    public static LogicalPlan reduceToLogicalPlanTree(int low, int high,
-            List<LogicalPlan> logicalPlans, Qualifier qualifier) {
-        switch (high - low) {
-            case 0:
-                return logicalPlans.get(low);
-            case 1:
-                return logicalPlanCombiner(logicalPlans.get(low), logicalPlans.get(high), qualifier);
-            default:
-                int mid = low + (high - low) / 2;
-                return logicalPlanCombiner(
-                        reduceToLogicalPlanTree(low, mid, logicalPlans, qualifier),
-                        reduceToLogicalPlanTree(mid + 1, high, logicalPlans, qualifier),
-                        qualifier
-                );
-        }
-    }
-
     @Override
     public LogicalPlan visitSubquery(SubqueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> plan(ctx.query()));
@@ -1572,14 +1580,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             plan = withGenerate(plan, lateralViewContext);
         }
         return plan;
-    }
-
-    public static String stripQuotes(String str) {
-        if ((str.charAt(0) == '\'' && str.charAt(str.length() - 1) == '\'')
-                || (str.charAt(0) == '\"' && str.charAt(str.length() - 1) == '\"')) {
-            str = str.substring(1, str.length() - 1);
-        }
-        return str;
     }
 
     @Override
@@ -4009,7 +4009,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-
     public Object visitRefreshCatalog(RefreshCatalogContext ctx) {
 
         if (ctx.name != null) {
@@ -4018,7 +4017,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new RefreshCatalogCommand(catalogName, properties);
         }
         throw new AnalysisException("catalog name can not be null");
-      
+    }
+
+    @Override
     public LogicalPlan visitShowVariables(ShowVariablesContext ctx) {
         SetType type = SetType.DEFAULT;
         if (ctx.GLOBAL() != null) {

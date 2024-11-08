@@ -236,9 +236,9 @@ public interface CommandVisitor<R, C> {
         return visitCommand(setDefaultStorageVaultCommand, context);
     }
 
-
     default R visitRefreshCatalogCommand(RefreshCatalogCommand refreshCatalogCommand, C context) {
         return visitCommand(refreshCatalogCommand, context);
+    }
 
     default R visitShowVariablesCommand(ShowVariablesCommand showVariablesCommand, C context) {
         return visitCommand(showVariablesCommand, context);
