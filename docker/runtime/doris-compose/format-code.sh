@@ -15,12 +15,5 @@
 # specific language governing permissions and limitations
 # under the License.
 
-docker
-docker-compose
-filelock
-jsonpickle
-prettytable
-pymysql
-python-dateutil
-#pyyaml==5.4.1
-requests<=2.31.0
+yapf -i *.py
+shfmt -w resource/*.sh
