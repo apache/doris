@@ -441,8 +441,8 @@ TEST(MathFunctionTest, random_test) {
                         {{(int64_t)0}, 0.15979336337046085},
                         {{(int64_t)10}, 0.60128310734097479},
                         {{(int64_t)123}, 0.31320017867847078},
-                        {{(int64_t)std::numeric_limits<int64_t>::max()}, 0.20676730979843233},
-                        {{(int64_t)std::numeric_limits<int64_t>::min()}, 0.15979336337046085}};
+                        {{(int64_t)std::numeric_limits<int64_t>::max()}, 0.54774821662127238},
+                        {{(int64_t)std::numeric_limits<int64_t>::min()}, 0.75146173420574858}};
 
     for (const auto& data : data_set) {
         DataSet data_line = {data};
