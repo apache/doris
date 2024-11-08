@@ -2180,11 +2180,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create a value based [[CaseWhen]] expression. This has the following SQL form:
      * {{{
-     *  CASE [expression]
-     *   WHEN [value] THEN [expression]
-     *   ...
-     *   ELSE [expression]
-     *  END
+     *   CASE [expression]
+     *    WHEN [value] THEN [expression]
+     *    ...
+     *    ELSE [expression]
+     *   END
      * }}}
      */
     @Override
@@ -2202,11 +2202,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * Create a condition based [[CaseWhen]] expression. This has the following SQL syntax:
      * {{{
-     * CASE
-     * WHEN [predicate] THEN [expression]
-     * ...
-     * ELSE [expression]
-     * END
+     *   CASE
+     *    WHEN [predicate] THEN [expression]
+     *    ...
+     *    ELSE [expression]
+     *   END
      * }}}
      *
      * @param context the parse tree
@@ -2649,8 +2649,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public List<String> visitMultipartIdentifier(MultipartIdentifierContext ctx) {
         return ctx.parts.stream()
-                .map(RuleContext::getText)
-                .collect(ImmutableList.toImmutableList());
+            .map(RuleContext::getText)
+            .collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -2924,7 +2924,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         e.getCause());
             }
         }
-        // comment should remove '\' and '(") at the beginning and end
+        //comment should remove '\' and '(") at the beginning and end
         String comment = ctx.comment != null ? ctx.comment.getText().substring(1, ctx.comment.getText().length() - 1)
                 .replace("\\", "") : "";
         long autoIncInitValue = -1;
@@ -3527,8 +3527,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 case DorisParser.IN:
                     if (ctx.query() == null) {
                         outExpression = new InPredicate(
-                            valueExpression,
-                            withInList(ctx)
+                                valueExpression,
+                                withInList(ctx)
                         );
                     } else {
                         outExpression = new InSubquery(
