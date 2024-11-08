@@ -3503,10 +3503,6 @@ public class Coordinator implements CoordInterface {
                                             fragmentId, status.toString());
                                 }
                             }
-                            LOG.warn("Failed to cancel query {} instance initiated={} done={} backend: {},"
-                                    + "fragment id={}, reason: {}",
-                                    DebugUtil.printId(queryId), initiated, done, backend.getId(),
-                                    fragmentId, "without status");
                         }
 
                         public void onFailure(Throwable t) {

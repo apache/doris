@@ -962,7 +962,7 @@ public class ConnectContext {
                             + " connection type: {}, connectionId: {}",
                     getRemoteHostPortString(), killConnection,
                     getConnectType(), connectionId);
-            executorRef.cancel(Types.PPlanFragmentCancelReason.TIMEOUT);
+            executorRef.cancel("Query timeout");
         }
     }
 
