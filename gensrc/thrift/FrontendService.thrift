@@ -1235,6 +1235,7 @@ struct TGetSnapshotRequest {
     7: optional string label_name
     8: optional string snapshot_name
     9: optional TSnapshotType snapshot_type
+    10: optional bool enable_compress;
 }
 
 struct TGetSnapshotResult {
@@ -1242,6 +1243,7 @@ struct TGetSnapshotResult {
     2: optional binary meta
     3: optional binary job_info
     4: optional Types.TNetworkAddress master_address
+    5: optional bool compressed;
 }
 
 struct TTableRef {
@@ -1265,6 +1267,7 @@ struct TRestoreSnapshotRequest {
     13: optional bool clean_tables
     14: optional bool clean_partitions
     15: optional bool atomic_restore
+    16: optional bool compressed;
 }
 
 struct TRestoreSnapshotResult {
