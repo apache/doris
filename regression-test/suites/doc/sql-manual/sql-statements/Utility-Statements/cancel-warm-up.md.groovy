@@ -28,7 +28,7 @@ suite("docs/sql-manual/sql-statements/Utility-Statements/cancel-warm-up.md") {
     try {
         show()
         multi_sql """
-            CANCEL WARM UP WHERE id = 1;
+            CANCEL WARM UP JOB WHERE id = 1;
         """
     } catch (Throwable t) {
         Assertions.fail("examples in docs/sql-manual/sql-statements/Utility-Statements/cancel-warm-up.md failed to exec, please fix it", t)
