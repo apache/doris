@@ -105,7 +105,7 @@ Field ColumnMap::operator[](size_t n) const {
     size_t element_size = size_at(n);
 
     if (element_size > max_array_size_as_field) {
-        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                "element size {} is too large to be manipulated as single map "
                                "field, maximum size {}",
                                element_size, max_array_size_as_field);
