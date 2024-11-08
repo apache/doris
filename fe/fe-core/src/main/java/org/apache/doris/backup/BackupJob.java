@@ -61,8 +61,12 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.DataOutput;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -74,6 +78,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 
 public class BackupJob extends AbstractJob {
@@ -122,6 +128,11 @@ public class BackupJob extends AbstractJob {
 
     public BackupJob() {
         super(JobType.BACKUP);
+    }
+
+    public BackupJob(JobType jobType) {
+        super(jobType);
+        assert jobType == JobType.BACKUP || jobType == JobType.BACKUP_COMPRESSED;
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
@@ -1055,8 +1066,32 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public void write(DataOutput out) throws IOException {
+        if (Config.backup_job_compressed_serialization) {
+            type = JobType.BACKUP_COMPRESSED;
+        }
         super.write(out);
+        if (Config.backup_job_compressed_serialization) {
+            type = JobType.BACKUP;
 
+            int written = 0;
+            ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+            try (GZIPOutputStream gzipStream = new GZIPOutputStream(byteStream)) {
+                try (DataOutputStream stream = new DataOutputStream(gzipStream)) {
+                    writeOthers(out);
+                    written = stream.size();
+                }
+            }
+            Text text = new Text(byteStream.toByteArray());
+            if (LOG.isDebugEnabled() || text.getLength() > (50 << 20)) {
+                LOG.info("backup job written size {}, compressed size {}", written, text.getLength());
+            }
+            text.write(out);
+        } else {
+            writeOthers(out);
+        }
+    }
+
+    public void writeOthers(DataOutput out) throws IOException {
         // table refs
         out.writeInt(tableRefs.size());
         for (TableRef tblRef : tableRefs) {
@@ -1111,7 +1146,27 @@ public class BackupJob extends AbstractJob {
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
+        if (type == JobType.BACKUP_COMPRESSED) {
+            type = JobType.BACKUP;
 
+            Text text = new Text();
+            text.readFields(in);
+            if (LOG.isDebugEnabled() || text.getLength() > (50 << 20)) {
+                LOG.info("read backup job, compressed size {}", text.getLength());
+            }
+
+            ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
+            try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
+                try (DataInputStream stream = new DataInputStream(gzipStream)) {
+                    readOthers(stream);
+                }
+            }
+        } else {
+            readOthers(in);
+        }
+    }
+
+    public void readOthers(DataInput in) throws IOException {
         // table refs
         int size = in.readInt();
         tableRefs = Lists.newArrayList();

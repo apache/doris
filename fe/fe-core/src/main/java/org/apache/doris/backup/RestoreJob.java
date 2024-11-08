@@ -98,8 +98,12 @@ import com.google.common.collect.Table.Cell;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.DataOutput;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
@@ -107,6 +111,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 public class RestoreJob extends AbstractJob {
     private static final String PROP_RESERVE_REPLICA = RestoreStmt.PROP_RESERVE_REPLICA;
@@ -193,6 +199,11 @@ public class RestoreJob extends AbstractJob {
 
     public RestoreJob() {
         super(JobType.RESTORE);
+    }
+
+    public RestoreJob(JobType jobType) {
+        super(jobType);
+        assert jobType == JobType.RESTORE || jobType == JobType.RESTORE_COMPRESSED;
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
@@ -2482,8 +2493,32 @@ public class RestoreJob extends AbstractJob {
 
     @Override
     public void write(DataOutput out) throws IOException {
+        if (Config.restore_job_compressed_serialization) {
+            type = JobType.RESTORE_COMPRESSED;
+        }
         super.write(out);
+        if (Config.restore_job_compressed_serialization) {
+            type = JobType.RESTORE;
 
+            int written = 0;
+            ByteArrayOutputStream bytesStream = new ByteArrayOutputStream();
+            try (GZIPOutputStream gzipStream = new GZIPOutputStream(bytesStream)) {
+                try (DataOutputStream stream = new DataOutputStream(gzipStream)) {
+                    writeOthers(stream);
+                    written = stream.size();
+                }
+            }
+            Text text = new Text(bytesStream.toByteArray());
+            if (LOG.isDebugEnabled() || text.getLength() > (50 << 20)) {
+                LOG.info("restore job written size {}, compressed size {}", written, text.getLength());
+            }
+            text.write(out);
+        } else {
+            writeOthers(out);
+        }
+    }
+
+    private void writeOthers(DataOutput out) throws IOException {
         Text.writeString(out, backupTimestamp);
         jobInfo.write(out);
         out.writeBoolean(allowLoad);
@@ -2557,6 +2592,27 @@ public class RestoreJob extends AbstractJob {
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
 
+        if (type == JobType.RESTORE_COMPRESSED) {
+            type = JobType.RESTORE;
+
+            Text text = new Text();
+            text.readFields(in);
+            if (LOG.isDebugEnabled() || text.getLength() > (50 << 20)) {
+                LOG.info("read restore job, compressed size {}", text.getLength());
+            }
+
+            ByteArrayInputStream bytesStream = new ByteArrayInputStream(text.getBytes());
+            try (GZIPInputStream gzipStream = new GZIPInputStream(bytesStream)) {
+                try (DataInputStream stream = new DataInputStream(gzipStream)) {
+                    readOthers(stream);
+                }
+            }
+        } else {
+            readOthers(in);
+        }
+    }
+
+    private void readOthers(DataInput in) throws IOException {
         backupTimestamp = Text.readString(in);
         jobInfo = BackupJobInfo.read(in);
         allowLoad = in.readBoolean();
