@@ -475,6 +475,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
         List<OlapTable> mowTableList = getMowTableList(tableList, tabletCommitInfos);
         if (!mowTableList.isEmpty()) {
+            // may be this txn has been calculated by previously task but commit rpc is timeout,
+            // and be will send another commit request to fe, so need to check txn status first
+            // before sending delete bitmap task to be, if txn is committed or visible, no need to
+            // calculate delete bitmap again, just return ok to be to finish this commit.
             TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(dbId, transactionId);
             if (null != transactionState && null != transactionState.getTransactionStatus()) {
