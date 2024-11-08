@@ -1597,6 +1597,15 @@ public class Config extends ConfigBase {
     public static boolean backup_job_compressed_serialization = false;
 
     /**
+     * A internal config, to indicate whether to enable the restore snapshot rpc compression.
+     *
+     * The ccr syncer will depends this config to decide whether to compress the meta and job
+     * info of the restore snapshot request.
+     */
+    @ConfField(mutable = false)
+    public static boolean enable_restore_snapshot_rpc_compression = true;
+
+    /**
      * Control the max num of tablets per backup job involved.
      */
     @ConfField(mutable = true, masterOnly = true, description = {
