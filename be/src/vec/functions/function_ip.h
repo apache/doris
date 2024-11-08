@@ -103,7 +103,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
 
         switch (argument.type->get_type_id()) {
@@ -231,7 +231,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr column = block.get_by_position(arguments[0]).column;
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
@@ -315,7 +315,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
 
         auto col_res = ColumnString::create();
@@ -525,7 +525,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr column = block.get_by_position(arguments[0]).column;
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
@@ -566,7 +566,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
         WhichDataType addr_type(addr_column_with_type_and_name.type);
         const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
@@ -736,7 +736,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                     "ip.inverted_index_filtered", "req_id", 0);
@@ -800,7 +800,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& ip_column = block.get_by_position(arguments[0]);
         ColumnWithTypeAndName& cidr_column = block.get_by_position(arguments[1]);
 
@@ -882,7 +882,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& cidr_column_with_type_and_name = block.get_by_position(arguments[1]);
         WhichDataType addr_type(addr_column_with_type_and_name.type);
@@ -1010,7 +1010,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
         const auto* col_in = assert_cast<const ColumnString*>(column.get());
 
@@ -1051,7 +1051,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
         const auto* col_in = assert_cast<const ColumnString*>(column.get());
 
@@ -1125,7 +1125,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
         WhichDataType addr_type(addr_column_with_type_and_name.type);
         const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
@@ -1220,7 +1220,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& ipv4_column_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& [ipv4_column, ipv4_const] =
                 unpack_if_const(ipv4_column_with_type_and_name.column);
@@ -1260,7 +1260,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& ipv6_column_with_type_and_name = block.get_by_position(arguments[0]);
         const auto& bytes_to_cut_for_ipv6_column_with_type_and_name =
                 block.get_by_position(arguments[1]);

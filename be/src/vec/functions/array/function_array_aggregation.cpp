@@ -205,7 +205,7 @@ struct ArrayAggregateImpl {
         }
     }
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           const DataTypeArray* data_type_array, const ColumnArray& array) {
         ColumnPtr res;
         DataTypePtr type = data_type_array->get_nested_type();

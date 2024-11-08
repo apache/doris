@@ -37,7 +37,7 @@ public:
     virtual void light_copy(BitmapFilterFuncBase* other) { _not_in = other->_not_in; }
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap,
                                                 uint16_t* offsets, int number) = 0;
-    virtual void find_batch(const char* data, const uint8* nullmap, int number,
+    virtual void find_batch(const char* data, const uint8* nullmap, size_t number,
                             uint8* results) const = 0;
     virtual size_t size() const = 0;
     bool is_not_in() const { return _not_in; }
@@ -65,7 +65,7 @@ public:
     uint16_t find_fixed_len_olap_engine(const char* data, const uint8* nullmap, uint16_t* offsets,
                                         int number) override;
 
-    void find_batch(const char* data, const uint8* nullmap, int number,
+    void find_batch(const char* data, const uint8* nullmap, size_t number,
                     uint8* results) const override;
 
     bool empty() override { return _bitmap_value->empty(); }
@@ -133,9 +133,9 @@ uint16_t BitmapFilterFunc<type>::find_fixed_len_olap_engine(const char* data, co
 }
 
 template <PrimitiveType type>
-void BitmapFilterFunc<type>::find_batch(const char* data, const uint8* nullmap, int number,
+void BitmapFilterFunc<type>::find_batch(const char* data, const uint8* nullmap, size_t number,
                                         uint8* results) const {
-    for (int i = 0; i < number; i++) {
+    for (size_t i = 0; i < number; i++) {
         results[i] = false;
         if (nullmap != nullptr && nullmap[i]) {
             continue;
