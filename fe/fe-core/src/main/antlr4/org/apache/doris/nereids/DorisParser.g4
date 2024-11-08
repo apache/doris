@@ -199,21 +199,21 @@ supportedDropStatement
 supportedShowStatement
     : SHOW (GLOBAL | SESSION | LOCAL)? VARIABLES wildWhere?                         #showVariables
     | SHOW AUTHORS                                                                  #showAuthors
-    | SHOW LAST INSERT                                                              #showLastInsert    
+    | SHOW LAST INSERT                                                              #showLastInsert
     | SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
-    | SHOW PLUGINS                                                                  #showPlugins    
+    | SHOW PLUGINS                                                                  #showPlugins
     | SHOW REPOSITORIES                                                             #showRepositories
-    | SHOW ROLES                                                                    #showRoles        
+    | SHOW ROLES                                                                    #showRoles
     | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId
     | SHOW PRIVILEGES                                                               #showPrivileges
-    | SHOW PROC path=STRING_LITERAL                                                 #showProc        
+    | SHOW PROC path=STRING_LITERAL                                                 #showProc
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
-        ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
+        ON tableName=multipartIdentifier                                            #showCreateMaterializedView
     | SHOW BACKENDS                                                                 #showBackends
-    | SHOW FRONTENDS name=identifier?                                               #showFrontends 
+    | SHOW FRONTENDS name=identifier?                                               #showFrontends
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     ;
 
@@ -423,6 +423,10 @@ supportedRefreshStatement
     : REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
     ;
 
+supportedRefreshStatement
+    : REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
+    | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
+    ;
 unsupportedRefreshStatement
     : REFRESH TABLE name=multipartIdentifier                                        #refreshTable
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
