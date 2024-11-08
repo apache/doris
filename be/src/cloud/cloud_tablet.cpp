@@ -790,8 +790,9 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
                 if (merged_rows + filtered_rows >= 0 &&
                     merged_rows + filtered_rows != missed_rows_size) {
                     std::string err_msg = fmt::format(
-                            "cumulative compaction: the merged rows({}), the filtered rows({}) is not "
-                            "equal to missed rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
+                            "cumulative compaction: the merged rows({}), the filtered rows({}) is "
+                            "not equal to missed rows({}) in rowid conversion, tablet_id: {}, "
+                            "table_id:{}",
                             merged_rows, filtered_rows, missed_rows_size, tablet_id(), table_id());
                     if (config::enable_mow_compaction_correctness_check_core) {
                         CHECK(false) << err_msg;
