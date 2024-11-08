@@ -1016,8 +1016,6 @@ DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not 
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
-// rename ttl filename to new format during read, with some performance cost
-DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
 DEFINE_mBool(enbale_dump_error_file, "true");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
