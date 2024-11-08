@@ -338,6 +338,10 @@ public class StmtExecutor {
                             context.getSessionVariable().getAutoProfileThresholdMs());
     }
 
+    public boolean isProxy() {
+        return isProxy;
+    }
+
     public static InternalService.PDataRow getRowStringValue(List<Expr> cols,
             FormatOptions options) throws UserException {
         if (cols.isEmpty()) {
@@ -746,6 +750,7 @@ public class StmtExecutor {
             // t3: observer fe receive editlog creating the table from the master fe
             syncJournalIfNeeded();
             try {
+                ((Command) logicalPlan).verifyCommandSupported();
                 ((Command) logicalPlan).run(context, this);
             } catch (MustFallbackException e) {
                 if (LOG.isDebugEnabled()) {
