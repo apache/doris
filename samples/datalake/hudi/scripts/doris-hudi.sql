@@ -1,4 +1,4 @@
-CREATE CATALOG `hive` PROPERTIES (
+CREATE CATALOG `hudi` PROPERTIES (
     "type"="hms",
     'hive.metastore.uris' = 'thrift://hive-metastore:9083',
     "s3.access_key" = "minio",

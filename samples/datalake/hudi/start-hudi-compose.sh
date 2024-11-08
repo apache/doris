@@ -108,7 +108,7 @@ echo "Create hive table ..."
 sleep 5
 docker exec -it spark-hudi-hive sh -c "/opt/hadoop-3.3.1/bin/hadoop fs -chmod 777 /tmp/hive"
 docker exec -it spark-hudi-hive sh -c "hive -f /opt/scripts/hive-minio.sql"
-echo "Build hive catalog in Doris ..."
+echo "Build hudi catalog in Doris ..."
 sleep 5
 docker exec -it spark-hudi-hive sh -c "mysql -u root -h doris-hudi-env -P 9030 < /opt/scripts/doris-hudi.sql"
 echo "======================================================"
