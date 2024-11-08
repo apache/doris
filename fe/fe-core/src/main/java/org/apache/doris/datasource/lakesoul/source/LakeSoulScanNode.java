@@ -182,7 +182,7 @@ public class LakeSoulScanNode extends FileQueryScanNode {
 
         if (catalogProps.get(S3Properties.Env.ENDPOINT) != null) {
             options.put(LakeSoulUtils.FS_S3A_ENDPOINT, catalogProps.get(S3Properties.Env.ENDPOINT));
-            if (options.containsKey(MinioProperties.ENDPOINT)) {
+            if (catalogProps.containsKey(MinioProperties.ENDPOINT)) {
                 // Use path style access for minio
                 options.put(LakeSoulUtils.FS_S3A_PATH_STYLE_ACCESS, "true");
             } else {
