@@ -37,10 +37,6 @@ public class PreExecutionAuthenticator {
      * Default constructor for PreExecutionAuthenticator.
      * This allows setting the HadoopAuthenticator at a later point if needed.
      */
-    public PreExecutionAuthenticator(HadoopAuthenticator authenticator) {
-        this.hadoopAuthenticator = authenticator;
-    }
-
     public PreExecutionAuthenticator() {
     }
 
