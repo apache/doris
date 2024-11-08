@@ -509,7 +509,7 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
 }
 
 Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
-                                      const ColumnNumbers& arguments, size_t result,
+                                      const ColumnNumbers& arguments, uint32_t result,
                                       size_t input_rows_count) const {
     const auto values_col =
             block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();

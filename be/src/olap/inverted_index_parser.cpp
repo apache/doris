@@ -128,6 +128,7 @@ std::string get_parser_ignore_above_value_from_properties(
 
 std::string get_parser_stopwords_from_properties(
         const std::map<std::string, std::string>& properties) {
+    DBUG_EXECUTE_IF("inverted_index_parser.get_parser_stopwords_from_properties", { return ""; })
     if (properties.find(INVERTED_INDEX_PARSER_STOPWORDS_KEY) != properties.end()) {
         return properties.at(INVERTED_INDEX_PARSER_STOPWORDS_KEY);
     } else {

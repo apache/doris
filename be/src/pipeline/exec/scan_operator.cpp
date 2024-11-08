@@ -375,7 +375,7 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(vectorized::VExpr* expr,
                                                         vectorized::VExprContext* expr_ctx,
                                                         SlotDescriptor* slot, PushDownType* pdt) {
     if (TExprNodeType::BLOOM_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 1);
+        DCHECK(expr->get_num_children() == 1);
         PushDownType temp_pdt = _should_push_down_bloom_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             _filter_predicates.bloom_filters.emplace_back(slot->col_name(),
@@ -391,7 +391,7 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(vectorized::VExpr* expr
                                                          vectorized::VExprContext* expr_ctx,
                                                          SlotDescriptor* slot, PushDownType* pdt) {
     if (TExprNodeType::BITMAP_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 1);
+        DCHECK(expr->get_num_children() == 1);
         PushDownType temp_pdt = _should_push_down_bitmap_filter();
         if (temp_pdt != PushDownType::UNACCEPTABLE) {
             _filter_predicates.bitmap_filters.emplace_back(slot->col_name(),
@@ -620,7 +620,7 @@ Status ScanLocalState<Derived>::_normalize_in_and_eq_predicate(vectorized::VExpr
         range.intersection(temp_range);
         *pdt = PushDownType::ACCEPTABLE;
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->get_num_children() == 2);
         auto eq_checker = [](const std::string& fn_name) { return fn_name == "eq"; };
 
         StringRef value;
@@ -769,7 +769,7 @@ Status ScanLocalState<Derived>::_normalize_not_in_and_not_eq_predicate(
             iter->next();
         }
     } else if (TExprNodeType::BINARY_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->get_num_children() == 2);
 
         auto ne_checker = [](const std::string& fn_name) { return fn_name == "ne"; };
         StringRef value;
@@ -924,7 +924,7 @@ Status ScanLocalState<Derived>::_normalize_noneq_binary_predicate(
         vectorized::VExpr* expr, vectorized::VExprContext* expr_ctx, SlotDescriptor* slot,
         ColumnValueRange<T>& range, PushDownType* pdt) {
     if (TExprNodeType::BINARY_PRED == expr->node_type()) {
-        DCHECK(expr->children().size() == 2);
+        DCHECK(expr->get_num_children() == 2);
 
         auto noneq_checker = [](const std::string& fn_name) {
             return fn_name != "ne" && fn_name != "eq" && fn_name != "eq_for_null";

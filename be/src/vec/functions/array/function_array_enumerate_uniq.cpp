@@ -117,7 +117,7 @@ public:
 #endif // __GNUC__
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnRawPtrs data_columns(arguments.size());
         const ColumnArray::Offsets64* offsets = nullptr;
         ColumnPtr src_offsets;

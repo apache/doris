@@ -471,7 +471,7 @@ Status PushBrokerReader::_init_src_block() {
 }
 
 Status PushBrokerReader::_cast_to_input_block() {
-    size_t idx = 0;
+    uint32_t idx = 0;
     for (auto& slot_desc : _src_slot_descs) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
             continue;

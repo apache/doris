@@ -178,7 +178,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -186,7 +186,7 @@ public:
 struct ExecuteImpl {
     using NullMapType = PaddedPODArray<UInt8>;
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         const auto& [first_column, left_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
@@ -347,7 +347,7 @@ struct TwoArgumentImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 2);
         auto max_limit = ColumnConst::create(ColumnInt32::create(1, -1), input_rows_count);
@@ -363,7 +363,7 @@ struct ThreeArgumentImpl {
                 std::make_shared<DataTypeInt32>()};
     }
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 3);
         return ExecuteImpl::execute_impl(context, block, arguments, result, input_rows_count);

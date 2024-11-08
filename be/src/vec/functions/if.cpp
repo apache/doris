@@ -70,7 +70,7 @@ struct NumIfImpl {
     using ColVecResult = ColumnVector<ResultType>;
 
     static void vector_vector(const ArrayCond& cond, const ArrayA& a, const ArrayB& b, Block& block,
-                              size_t result, UInt32) {
+                              uint32_t result, UInt32) {
         size_t size = cond.size();
         auto col_res = ColVecResult::create(size);
         typename ColVecResult::Container& res = col_res->get_data();
@@ -81,7 +81,7 @@ struct NumIfImpl {
     }
 
     static void vector_constant(const ArrayCond& cond, const ArrayA& a, B b, Block& block,
-                                size_t result, UInt32) {
+                                uint32_t result, UInt32) {
         size_t size = cond.size();
         auto col_res = ColVecResult::create(size);
         typename ColVecResult::Container& res = col_res->get_data();
@@ -92,7 +92,7 @@ struct NumIfImpl {
     }
 
     static void constant_vector(const ArrayCond& cond, A a, const ArrayB& b, Block& block,
-                                size_t result, UInt32) {
+                                uint32_t result, UInt32) {
         size_t size = cond.size();
         auto col_res = ColVecResult::create(size);
         typename ColVecResult::Container& res = col_res->get_data();
@@ -102,7 +102,7 @@ struct NumIfImpl {
         block.replace_by_position(result, std::move(col_res));
     }
 
-    static void constant_constant(const ArrayCond& cond, A a, B b, Block& block, size_t result,
+    static void constant_constant(const ArrayCond& cond, A a, B b, Block& block, uint32_t result,
                                   UInt32) {
         size_t size = cond.size();
         auto col_res = ColVecResult::create(size);
@@ -219,7 +219,7 @@ public:
 
     Status execute_generic(Block& block, const ColumnUInt8* cond_col,
                            const ColumnWithTypeAndName& then_col_type_name,
-                           const ColumnWithTypeAndName& else_col_type_name, size_t result,
+                           const ColumnWithTypeAndName& else_col_type_name, uint32_t result,
                            size_t input_row_count) const {
         MutableColumnPtr result_column = block.get_by_position(result).type->create_column();
         result_column->reserve(input_row_count);
@@ -273,7 +273,7 @@ public:
 
     void execute_basic_type(Block& block, const ColumnUInt8* cond_col,
                             const ColumnWithTypeAndName& then_col,
-                            const ColumnWithTypeAndName& else_col, size_t result,
+                            const ColumnWithTypeAndName& else_col, uint32_t result,
                             Status& status) const {
         auto call = [&](const auto& types) -> bool {
             using Types = std::decay_t<decltype(types)>;
@@ -321,7 +321,7 @@ public:
     Status execute_for_null_then_else(FunctionContext* context, Block& block,
                                       const ColumnWithTypeAndName& arg_cond,
                                       const ColumnWithTypeAndName& arg_then,
-                                      const ColumnWithTypeAndName& arg_else, size_t result,
+                                      const ColumnWithTypeAndName& arg_else, uint32_t result,
                                       size_t input_rows_count, bool& handled) const {
         bool then_is_null = arg_then.column->only_null();
         bool else_is_null = arg_else.column->only_null();
@@ -422,7 +422,7 @@ public:
     Status execute_for_nullable_then_else(FunctionContext* context, Block& block,
                                           const ColumnWithTypeAndName& arg_cond,
                                           const ColumnWithTypeAndName& arg_then,
-                                          const ColumnWithTypeAndName& arg_else, size_t result,
+                                          const ColumnWithTypeAndName& arg_else, uint32_t result,
                                           size_t input_rows_count, bool& handled) const {
         auto then_type_is_nullable = arg_then.type->is_nullable();
         auto else_type_is_nullable = arg_else.type->is_nullable();
@@ -510,7 +510,7 @@ public:
                                       const ColumnNumbers& arguments,
                                       const ColumnWithTypeAndName& arg_cond,
                                       const ColumnWithTypeAndName& arg_then,
-                                      const ColumnWithTypeAndName& arg_else, size_t result,
+                                      const ColumnWithTypeAndName& arg_else, uint32_t result,
                                       bool& handled) const {
         bool cond_is_null = arg_cond.column->only_null();
         handled = false;
@@ -545,7 +545,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnWithTypeAndName& arg_then = block.get_by_position(arguments[1]);
         const ColumnWithTypeAndName& arg_else = block.get_by_position(arguments[2]);
 
@@ -584,7 +584,7 @@ public:
     }
 
     Status _execute_impl_internal(FunctionContext* context, Block& block,
-                                  const ColumnNumbers& arguments, size_t result,
+                                  const ColumnNumbers& arguments, uint32_t result,
                                   size_t input_rows_count) const {
         const ColumnWithTypeAndName& arg_then = block.get_by_position(arguments[1]);
         const ColumnWithTypeAndName& arg_else = block.get_by_position(arguments[2]);
