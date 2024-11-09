@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
+import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -506,9 +507,11 @@ public class ExpressionUtils {
 
     public static <E extends Expression> List<E> rewriteDownShortCircuit(
             Collection<E> exprs, Function<Expression, Expression> rewriteFunction) {
-        return exprs.stream()
-                .map(expr -> (E) expr.rewriteDownShortCircuit(rewriteFunction))
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<E> result = ImmutableList.builderWithExpectedSize(exprs.size());
+        for (E expr : exprs) {
+            result.add((E) expr.rewriteDownShortCircuit(rewriteFunction));
+        }
+        return result.build();
     }
 
     private static class ExpressionReplacer
@@ -739,11 +742,31 @@ public class ExpressionUtils {
         return flatten.build();
     }
 
-    /** containsType */
-    public static boolean containsType(Collection<? extends Expression> expressions, Class type) {
-        for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(type::isInstance))) {
-                return true;
+    /** containsTypes */
+    public static boolean containsTypes(
+            Collection<? extends Expression> expressions, Collection<Class<? extends Expression>> types) {
+        return containsTypes(expressions, types.toArray(new Class[0]));
+    }
+
+    /** containsTypes */
+    public static boolean containsTypes(
+            Collection<? extends Expression> expressions, Class<? extends Expression>... types) {
+        if (types.length == 1) {
+            int classId = SuperClassId.getClassId(types[0]);
+            for (Expression expression : expressions) {
+                if (expression.getAllChildrenTypes().get(classId)) {
+                    return true;
+                }
+            }
+        } else {
+            BitSet typeIds = new BitSet();
+            for (Class<?> type : types) {
+                typeIds.set(SuperClassId.getClassId(type));
+            }
+            for (Expression expression : expressions) {
+                if (expression.getAllChildrenTypes().intersects(typeIds)) {
+                    return true;
+                }
             }
         }
         return false;
@@ -1006,7 +1029,7 @@ public class ExpressionUtils {
     /** containsWindowExpression */
     public static boolean containsWindowExpression(List<NamedExpression> expressions) {
         for (NamedExpression expression : expressions) {
-            if (expression.anyMatch(WindowExpression.class::isInstance)) {
+            if (expression.containsType(WindowExpression.class)) {
                 return true;
             }
         }

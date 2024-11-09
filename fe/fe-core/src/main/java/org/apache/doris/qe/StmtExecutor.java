@@ -555,6 +555,8 @@ public class StmtExecutor {
                     DebugUtil.printId(queryId), originStmt == null ? "null" : originStmt.originStmt);
         }
         queryRetry(queryId);
+        // help gc
+        // Thread.sleep(0);
     }
 
     public void queryRetry(TUniqueId queryId) throws Exception {
@@ -691,9 +693,12 @@ public class StmtExecutor {
         }
         context.setQueryId(queryId);
         context.setStartTime();
+
         profile.getSummaryProfile().setQueryBeginTime(TimeUtils.getStartTimeMs());
-        List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
-        profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
+        if (context.getSessionVariable().enableProfile) {
+            List<List<String>> changedSessionVar = VariableMgr.dumpChangedVars(context.getSessionVariable());
+            profile.setChangedSessionVar(DebugUtil.prettyPrintChangedSessionVar(changedSessionVar));
+        }
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
 
         parseByNereids();

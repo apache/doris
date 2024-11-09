@@ -39,7 +39,7 @@ import java.util.Objects;
 /**
  * MergeConsecutiveProjects ut
  */
-public class MergeProjectsTest implements MemoPatternMatchSupported {
+public class MergeProjectableTest implements MemoPatternMatchSupported {
     LogicalOlapScan score = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.score);
 
     @Test
@@ -50,7 +50,7 @@ public class MergeProjectsTest implements MemoPatternMatchSupported {
                 .project(ImmutableList.of(0))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .matches(
                         logicalProject(
                                 logicalOlapScan()
@@ -76,7 +76,7 @@ public class MergeProjectsTest implements MemoPatternMatchSupported {
                 bottomProject);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topProject)
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .matches(
                         logicalProject(
                                 logicalOlapScan()
@@ -95,7 +95,7 @@ public class MergeProjectsTest implements MemoPatternMatchSupported {
                 ImmutableList.of(new Alias(new Add(bottomProject.getOutput().get(0), Literal.of(1)), "b")),
                 bottomProject);
         PlanChecker.from(MemoTestUtils.createConnectContext(), topProject)
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeProjectable())
                 .matches(
                         logicalProject(
                                 logicalOlapScan()
