@@ -606,4 +606,38 @@ suite("outer_join") {
     async_mv_rewrite_success(db, mv9_0, query9_0, "mv9_0")
     order_qt_query9_0_after "${query9_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv9_0"""
+
+
+    // Test filter which can not push down through join and there is more than two join
+    def mv10_0 = """
+    select
+    o_orderdate,
+    o_shippriority,
+    o_comment,
+    l_orderkey,
+    l_partkey
+    from
+    orders left
+    join lineitem on l_orderkey = o_orderkey
+    left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey;
+    """
+
+    def query10_0 = """
+    select
+    o_orderdate,
+    o_shippriority,
+    o_comment,
+    l_orderkey,
+    l_partkey
+    from
+    orders left
+    join lineitem on l_orderkey = o_orderkey
+    left join partsupp on ps_partkey = l_partkey and l_suppkey = ps_suppkey
+    where l_partkey is null or l_partkey <> 2;
+    """
+
+    order_qt_query10_0_before "${query10_0}"
+    async_mv_rewrite_success(db, mv10_0, query10_0, "mv10_0")
+    order_qt_query10_0_after "${query10_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv10_0"""
 }
