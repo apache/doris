@@ -74,8 +74,8 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             Collection<Slot> operativeSlots) {
         super(relationId, type, groupExpression, logicalProperties);
         this.table = Objects.requireNonNull(table, "table can not be null");
-        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
-        this.operativeSlots = ImmutableList.copyOf(operativeSlots);
+        this.qualifier = Utils.fastToImmutableList(Objects.requireNonNull(qualifier, "qualifier can not be null"));
+        this.operativeSlots = Utils.fastToImmutableList(operativeSlots);
     }
 
     @Override
@@ -204,5 +204,4 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     public void computeFd(DataTrait.Builder builder) {
         // don't generate any equal pair
     }
-
 }

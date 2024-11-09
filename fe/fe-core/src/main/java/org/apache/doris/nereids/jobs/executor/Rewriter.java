@@ -45,7 +45,6 @@ import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionA
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
-import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
@@ -84,11 +83,9 @@ import org.apache.doris.nereids.rules.rewrite.ExtractSingleTableExpressionFromDi
 import org.apache.doris.nereids.rules.rewrite.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.InferAggNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
-import org.apache.doris.nereids.rules.rewrite.InferInPredicateFromOr;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
-import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
@@ -154,7 +151,15 @@ import org.apache.doris.nereids.rules.rewrite.batch.CorrelateApplyToUnCorrelateA
 import org.apache.doris.nereids.rules.rewrite.batch.EliminateUselessPlanUnderApply;
 import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.rewrite.mv.SelectMaterializedIndexWithoutAggregate;
+import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -196,6 +201,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
                 // subquery unnesting relay on ExpressionNormalization to extract common factor expression
                 topic("Subquery unnesting",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalApply.class),
                         // after doing NormalizeAggregate in analysis job
                         // we need run the following 2 rules to make AGG_SCALAR_SUBQUERY_TO_WINDOW_FUNCTION work
                         bottomUp(new PullUpProjectUnderApply()),
@@ -231,13 +237,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // but it appeared at LogicalApply.right. After the `Subquery unnesting` topic, all slots is placed in a
                 // normal position, then we can check column privileges by these steps
                 //
-                // 1. use ColumnPruning rule to derive the used slots in LogicalView
-                // 2. and then check the column privileges
-                // 3. finally, we can eliminate the LogicalView
-                topic("Inline view and check column privileges",
-                        custom(RuleType.CHECK_PRIVILEGES, CheckPrivileges::new),
-                        bottomUp(new InlineLogicalView())
-                ),
                 topic("Eliminate optimization",
                         bottomUp(
                                 new EliminateLimit(),
@@ -247,11 +246,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                                 new ReduceAggregateChildOutputRows(),
                                 new EliminateJoinCondition(),
                                 new EliminateAssertNumRows(),
-                                new EliminateSemiJoin()
+                                new EliminateSemiJoin(),
+                                new SimplifyEncodeDecode()
                         )
                 ),
                 // please note: this rule must run before NormalizeAggregate
-                topDown(new AdjustAggregateNullableForEmptySet()),
+                // topDown(new AdjustAggregateNullableForEmptySet()),
                 // The rule modification needs to be done after the subquery is unnested,
                 // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
                 // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
@@ -276,6 +276,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         )
                 ),
                 topic("Rewrite join",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
                         // infer not null filter, then push down filter, and then reorder join(cross join to inner join)
                         topDown(
                                 new InferAggNotNull(),
@@ -315,6 +316,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new ConvertInnerOrCrossJoin())
                 ),
                 topic("Set operation optimization",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(SetOperation.class),
                         // Do MergeSetOperation first because we hope to match pattern of Distinct SetOperator.
                         topDown(new PushProjectThroughUnion(), new MergeProjects()),
                         bottomUp(new MergeSetOperations(), new MergeSetOperationsExcept()),
@@ -327,13 +329,16 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // after EliminateEmptyRelation, project can be pushed into union
                         topDown(new PushProjectIntoUnion())
                 ),
-                topic("infer In-predicate from Or-predicate",
-                        topDown(new InferInPredicateFromOr())
-                        ),
+                // topic("infer In-predicate from Or-predicate",
+                //         topDown(new InferInPredicateFromOr())
+                //         ),
                 // putting the "Column pruning and infer predicate" topic behind the "Set operation optimization"
                 // is because that pulling up predicates from union needs EliminateEmptyRelation in union child
                 topic("Column pruning and infer predicate",
-                        custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                    custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    topic("infer predicate",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
                         custom(RuleType.INFER_PREDICATES, InferPredicates::new),
                         // column pruning create new project, so we should use PUSH_DOWN_FILTERS
                         // to change filter-project to project-filter
@@ -351,12 +356,14 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         // This results in the inability to obtain Cast child information in INFER_PREDICATES,
                         // which will affect predicate inference with cast. So put this rule behind the INFER_PREDICATES
                         topDown(new ProjectOtherJoinConditionForNestedLoopJoin())
+                    )
                 ),
                 // this rule should invoke after ColumnPruning
                 custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new),
                 topic("Eliminate Order By Key",
                         topDown(new EliminateOrderByKey())),
                 topic("Eliminate GroupBy",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class),
                         topDown(new EliminateGroupBy(),
                                 new MergeAggregate(),
                                 // need to adjust min/max/sum nullable attribute after merge aggregate
@@ -364,6 +371,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
 
                 topic("Eager aggregation",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
+                                LogicalAggregate.class, LogicalJoin.class
+                        ),
                         costBased(topDown(
                                 new PushDownAggWithDistinctThroughJoinOneSide(),
                                 new PushDownAggThroughJoinOneSide(),
@@ -375,10 +385,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
 
                 // this rule should invoke after infer predicate and push down distinct, and before push down limit
                 topic("eliminate join according unique or foreign key",
+                    cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalJoin.class),
                     bottomUp(new EliminateJoinByFK()),
                     topDown(new EliminateJoinByUnique())
                 ),
                 topic("eliminate Aggregate according to fd items",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class),
                         custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new),
                         topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
@@ -386,15 +398,15 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 ),
 
                 topic("Limit optimization",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalLimit.class)
+                                || cascadesContext.rewritePlanContainsTypes(LogicalTopN.class)
+                                || cascadesContext.rewritePlanContainsTypes(LogicalWindow.class),
                         // TODO: the logical plan should not contains any phase information,
                         //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
                         //       generate one PhysicalLimit if current distribution is gather or two
                         //       PhysicalLimits with gather exchange
                         topDown(new LimitSortToTopN()),
                         topDown(new MergeTopNs()),
-                        topDown(new SimplifyEncodeDecode(),
-                                new MergeProjects()
-                        ),
                         topDown(new LimitAggToTopNAgg()),
                         topDown(new SplitLimit()),
                         topDown(
@@ -423,6 +435,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         )
                 ),
                 topic("MV optimization",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalOlapScan.class),
                         topDown(
                                 new SelectMaterializedIndexWithAggregate(),
                                 new SelectMaterializedIndexWithoutAggregate(),
@@ -485,8 +498,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(new DeferMaterializeTopNResult())
                 ),
                 topic("add projection for join",
-                        custom(RuleType.ADD_PROJECT_FOR_JOIN, AddProjectForJoin::new),
-                        topDown(new MergeProjects())
+                        bottomUp(
+                                new AddProjectForJoin(),
+                                new MergeProjects()
+                        )
                 ),
                 topic("Adjust topN project",
                         topDown(new MergeProjects(),

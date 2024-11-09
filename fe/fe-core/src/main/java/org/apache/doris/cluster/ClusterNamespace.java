@@ -43,8 +43,15 @@ public class ClusterNamespace {
         if (Strings.isNullOrEmpty(str)) {
             return false;
         }
-        final String[] ele = str.split(CLUSTER_DELIMITER);
-        return (ele.length > 1) ? true : false;
+
+        char delimiter = CLUSTER_DELIMITER.charAt(0);
+        int delimiterNum = 0;
+        for (int i = 0; i < str.length(); i++) {
+            if (str.charAt(i) == delimiter) {
+                delimiterNum++;
+            }
+        }
+        return delimiterNum >= 1;
     }
 
     private static String linkString(String cluster, String name) {

@@ -22,7 +22,6 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Match;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -50,6 +49,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import com.google.common.collect.ImmutableSet;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -95,11 +95,11 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
 
     private void checkAllSlotReferenceFromChildren(Plan plan) {
         Set<Slot> inputSlots = plan.getInputSlots();
-        Set<ExprId> childrenOutput = plan.getChildrenOutputExprIdSet();
+        BitSet childrenOutput = plan.getChildrenOutputExprIdBitSet();
 
         ImmutableSet.Builder<Slot> notFromChildrenBuilder = ImmutableSet.builderWithExpectedSize(inputSlots.size());
         for (Slot inputSlot : inputSlots) {
-            if (!childrenOutput.contains(inputSlot.getExprId())) {
+            if (!childrenOutput.get(inputSlot.getExprId().asInt())) {
                 notFromChildrenBuilder.add(inputSlot);
             }
         }
@@ -126,7 +126,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         }
     }
 
-    private Set<Slot> removeValidSlotsNotFromChildren(Set<Slot> slots, Set<ExprId> childrenOutput) {
+    private Set<Slot> removeValidSlotsNotFromChildren(Set<Slot> slots, BitSet childrenOutput) {
         return slots.stream()
                 .filter(expr -> {
                     if (expr instanceof VirtualSlotReference) {
@@ -138,7 +138,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
                         return realExpressions.stream()
                                 .map(Expression::getInputSlots)
                                 .flatMap(Set::stream)
-                                .anyMatch(realUsedExpr -> !childrenOutput.contains(realUsedExpr.getExprId()));
+                                .anyMatch(realUsedExpr -> !childrenOutput.get(realUsedExpr.getExprId().asInt()));
                     } else {
                         return !(expr instanceof SlotNotFromChildren);
                     }

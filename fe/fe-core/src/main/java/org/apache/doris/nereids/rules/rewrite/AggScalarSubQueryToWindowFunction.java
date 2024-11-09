@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
+import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -101,6 +102,9 @@ public class AggScalarSubQueryToWindowFunction extends DefaultPlanRewriter<JobCo
      */
     @Override
     public Plan rewriteRoot(Plan plan, JobContext context) {
+        if (!plan.containsType(Filter.class, LogicalApply.class, LogicalAggregate.class)) {
+            return plan;
+        }
         return plan.accept(this, context);
     }
 
