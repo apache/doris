@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.LazyCompute;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Suppliers;
@@ -91,20 +92,20 @@ public class Alias extends NamedExpression implements UnaryExpression {
                 ? (SlotReference) child() : null;
 
         Supplier<Optional<String>> internalName = nameFromChild
-                        ? Suppliers.memoize(() -> Optional.of(child().toString()))
+                        ? LazyCompute.of(() -> Optional.of(child().toString()))
                         : () -> Optional.of(name.get());
-        return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier,
-                slotReference != null
-                        ? ((SlotReference) child()).getTable().orElse(null)
-                        : null,
-                slotReference != null
-                        ? slotReference.getColumn().orElse(null)
-                        : null,
-                internalName,
-                slotReference != null
-                        ? slotReference.getSubPath()
-                        : ImmutableList.of(), Optional.empty()
-        );
+
+        if (slotReference != null) {
+            return new SlotReference(exprId, name, slotReference.getDataType(), slotReference.nullable(), qualifier,
+                    slotReference.getTable().orElse(null),
+                    slotReference.getColumn().orElse(null),
+                    internalName, slotReference.getSubPath(), Optional.empty()
+            );
+        } else {
+            return new SlotReference(exprId, name, child().getDataType(), child().nullable(), qualifier,
+                    null, null, internalName, ImmutableList.of(), Optional.empty()
+            );
+        }
     }
 
     @Override

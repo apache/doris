@@ -41,7 +41,7 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalFilter(logicalSetOperation()).then(f -> {
+        return logicalFilter(logicalSetOperation().when(s -> s.arity() > 0)).then(f -> {
             LogicalSetOperation setOperation = f.child();
             List<Plan> newChildren = new ArrayList<>();
             for (int childIdx = 0; childIdx < setOperation.children().size(); ++childIdx) {
@@ -55,7 +55,6 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
                         ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
                 newChildren.add(new LogicalFilter<>(newFilterPredicates, setOperation.child(childIdx)));
             }
-
             return setOperation.withChildren(newChildren);
         }).toRule(RuleType.PUSH_DOWN_FILTER_THROUGH_SET_OPERATION);
     }

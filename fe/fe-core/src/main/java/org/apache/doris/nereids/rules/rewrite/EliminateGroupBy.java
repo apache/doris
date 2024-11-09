@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -38,9 +37,9 @@ import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.ImmutableSet.Builder;
 
 import java.util.List;
+import java.util.Set;
 
 /**
  * Eliminate GroupBy.
@@ -52,16 +51,11 @@ public class EliminateGroupBy extends OneRewriteRuleFactory {
         return logicalAggregate()
                 .when(agg -> ExpressionUtils.allMatch(agg.getGroupByExpressions(), Slot.class::isInstance))
                 .then(agg -> {
-                    List<Expression> groupByExpressions = agg.getGroupByExpressions();
-                    Builder<Slot> groupBySlots
-                            = ImmutableSet.builderWithExpectedSize(groupByExpressions.size());
-                    for (Expression groupByExpression : groupByExpressions) {
-                        groupBySlots.add((Slot) groupByExpression);
-                    }
+                    Set<Slot> groupBySlots = (Set) ImmutableSet.copyOf(agg.getGroupByExpressions());
                     Plan child = agg.child();
                     boolean unique = child.getLogicalProperties()
                             .getTrait()
-                            .isUniqueAndNotNull(groupBySlots.build());
+                            .isUniqueAndNotNull(groupBySlots);
                     if (!unique) {
                         return null;
                     }

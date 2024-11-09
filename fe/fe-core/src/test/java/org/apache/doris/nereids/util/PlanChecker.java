@@ -31,6 +31,7 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.pattern.PatternMatcher;
 import org.apache.doris.nereids.processor.post.Validator;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -168,6 +170,14 @@ public class PlanChecker {
         return this;
     }
 
+    public List<PlanProcess> explainPlanProcess() {
+        NereidsPlanner planner = new NereidsPlanner(
+                new StatementContext(connectContext, new OriginStatement("", 0)));
+        planner.planWithLock((LogicalPlan) cascadesContext.getRewritePlan(), PhysicalProperties.ANY, ExplainLevel.ALL_PLAN, true);
+        this.cascadesContext = planner.getCascadesContext();
+        return cascadesContext.getPlanProcesses();
+    }
+
     public List<PlanProcess> explainPlanProcess(String sql) {
         NereidsParser parser = new NereidsParser();
         LogicalPlan command = parser.parseSingle(sql);
@@ -184,8 +194,16 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
+                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
+        cascadesContext.toMemo();
+        MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
+    public PlanChecker applyCustom(CustomRewriter customRewriter) {
+        CustomRewriteJob customRewriteJob = new CustomRewriteJob(() -> customRewriter, RuleType.TEST_REWRITE);
+        customRewriteJob.execute(cascadesContext.getCurrentJobContext());
         cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
@@ -219,7 +237,7 @@ public class PlanChecker {
 
     public PlanChecker applyBottomUp(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteBottomUpJob::new, true)))
+                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteBottomUpJob::new, true)))
                 .execute();
         cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
