@@ -17,28 +17,28 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
-
-import com.google.common.collect.ImmutableList;
+import org.apache.doris.nereids.util.Utils;
 
 /**
  * We need this rule to cast all filter and join conjunct's return type to boolean after rewrite.
  */
-public class AddProjectForJoin extends DefaultPlanRewriter<Void> implements CustomRewriter {
+public class AddProjectForJoin extends OneRewriteRuleFactory {
+    private static final String KEY = "AddProjectForJoin";
 
     @Override
-    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        return plan.accept(this, null);
-    }
-
-    @Override
-    public Plan visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join, Void context) {
-        join = (LogicalJoin<? extends Plan, ? extends Plan>) super.visit(join, context);
-        return new LogicalProject<>(ImmutableList.copyOf(join.getOutput()), join);
+    public Rule build() {
+        return logicalJoin()
+                .when(j -> !j.getMutableState(KEY).isPresent())
+                .then(join -> {
+                    join.setMutableState(KEY, Boolean.TRUE);
+                    LogicalProject<LogicalJoin<Plan, Plan>> project
+                            = new LogicalProject<>(Utils.fastToImmutableList(join.getOutput()), join);
+                    return project;
+                }).toRule(RuleType.ADD_PROJECT_FOR_JOIN);
     }
 }

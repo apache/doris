@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -33,6 +34,10 @@ public class StatementScopeIdGenerator {
     // for ut test only, ExprId starts with 10000 to avoid duplicate ExprId. In ut, before creating ConnectContext,
     // table is already created, and hence column.exprId may be recreated during applying rules.
     private static StatementContext statementContext = new StatementContext(10000);
+
+    public static IdGenerator<ExprId> getExprIdGenerator() {
+        return getStatementContext().getExprIdGenerator();
+    }
 
     public static ExprId newExprId() {
         // this branch is for test only
@@ -82,5 +87,13 @@ public class StatementScopeIdGenerator {
             ConnectContext.get().setStatementContext(new StatementContext());
         }
         statementContext = new StatementContext();
+    }
+
+    private static StatementContext getStatementContext() {
+        // this branch is for test only
+        if (ConnectContext.get() == null || ConnectContext.get().getStatementContext() == null) {
+            return statementContext;
+        }
+        return ConnectContext.get().getStatementContext();
     }
 }

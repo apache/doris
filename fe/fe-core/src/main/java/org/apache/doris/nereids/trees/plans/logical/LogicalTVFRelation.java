@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -102,9 +105,12 @@ public class LogicalTVFRelation extends LogicalRelation implements TVFRelation, 
 
     @Override
     public List<Slot> computeOutput() {
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         return function.getTable().getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(function.getTable(), col, qualifier))
+                .map(col -> SlotReference.fromColumn(
+                        exprIdGenerator.getNextId(), function.getTable(), col, qualifier)
+                )
                 .collect(ImmutableList.toImmutableList());
     }
 

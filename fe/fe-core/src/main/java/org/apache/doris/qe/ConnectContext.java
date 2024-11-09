@@ -81,7 +81,6 @@ import org.apache.doris.transaction.TransactionStatus;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import io.netty.util.concurrent.FastThreadLocal;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
@@ -111,7 +110,7 @@ import javax.annotation.Nullable;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    protected static FastThreadLocal<ConnectContext> threadLocalInfo = new FastThreadLocal<>();
+    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
 
     private static final String SSL_PROTOCOL = "TLS";
 

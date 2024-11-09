@@ -254,6 +254,8 @@ public abstract class ConnectProcessor {
         } catch (Exception ignored) {
             // saved use handleQueryException
         }
+        this.executor = null;
+        this.getConnectContext().setStatementContext(null);
     }
 
     public void executeQuery(String originStmt) throws Exception {

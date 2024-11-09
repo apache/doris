@@ -333,7 +333,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     if (!partitionHasDataItems.isEmpty()) {
                         Set<Expression> partitionExpressions =
                                 constructPredicates(partitionHasDataItems, partitionSlot);
-                        return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(partitionExpressions)),
+                        return new LogicalFilter<>(
+                                ExpressionUtils.extractConjunctionToSet(ExpressionUtils.or(partitionExpressions)),
                                 catalogRelation);
                     }
                 }

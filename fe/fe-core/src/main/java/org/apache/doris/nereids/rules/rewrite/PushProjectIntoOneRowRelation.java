@@ -36,7 +36,6 @@ public class PushProjectIntoOneRowRelation extends OneRewriteRuleFactory {
             List<NamedExpression> namedExpressions = PlanUtils.mergeProjections(oneRowRelation.getProjects(),
                     project.getProjects());
             return oneRowRelation.withProjects(namedExpressions);
-
         }).toRule(RuleType.PUSH_PROJECT_INTO_ONE_ROW_RELATION);
     }
 }

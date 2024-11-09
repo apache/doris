@@ -43,6 +43,7 @@ import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -57,7 +58,7 @@ import java.util.Set;
  * Logical project plan.
  */
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
-        implements Project, OutputPrunable {
+        implements Project, OutputPrunable, ProjectMergeable {
 
     private final List<NamedExpression> projects;
     private final Supplier<Set<NamedExpression>> projectsSet;
@@ -88,7 +89,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         this.projects = projects.isEmpty()
                 ? ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)))
                 : projects;
-        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
+        this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
         this.isDistinct = isDistinct;
     }
 
@@ -100,6 +101,11 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     @Override
     public List<NamedExpression> getProjects() {
         return projects;
+    }
+
+    @Override
+    public List<Slot> getOutput() {
+        return Lists.transform(this.projects, NamedExpression::toSlot);
     }
 
     @Override

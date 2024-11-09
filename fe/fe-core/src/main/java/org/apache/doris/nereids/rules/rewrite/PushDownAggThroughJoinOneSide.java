@@ -156,7 +156,8 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 } else if (rightOutput.contains(slot)) {
                     rightFuncs.add(func);
                 } else {
-                    throw new IllegalStateException("Slot " + slot + " not found in join output");
+                    // unsupported
+                    return (LogicalAggregate<Plan>) agg;
                 }
             }
         }
@@ -236,7 +237,8 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                     Expression newFunc = replaceAggFunc(func, rightSlotToOutput.get(slot).toSlot());
                     newOutputExprs.add((NamedExpression) ne.withChildren(newFunc));
                 } else {
-                    throw new IllegalStateException("Slot " + slot + " not found in join output");
+                    // unsupported
+                    return (LogicalAggregate<Plan>) agg;
                 }
             } else {
                 newOutputExprs.add(ne);

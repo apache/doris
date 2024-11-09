@@ -41,7 +41,7 @@ import java.util.Optional;
  * select * from tbl limit 0
  */
 public class LogicalEmptyRelation extends LogicalRelation
-        implements EmptyRelation, OutputPrunable, BlockFuncDepsPropagation {
+        implements EmptyRelation, OutputPrunable, BlockFuncDepsPropagation, ProjectMergeable {
 
     private final List<NamedExpression> projects;
 
@@ -58,6 +58,11 @@ public class LogicalEmptyRelation extends LogicalRelation
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitLogicalEmptyRelation(this, context);
+    }
+
+    @Override
+    public boolean canMergeParentProjections(List<NamedExpression> parentProject) {
+        return true;
     }
 
     @Override

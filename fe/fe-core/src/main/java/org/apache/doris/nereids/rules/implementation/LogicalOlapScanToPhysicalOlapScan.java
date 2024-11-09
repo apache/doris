@@ -66,7 +66,8 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
-    private DistributionSpec convertDistribution(LogicalOlapScan olapScan) {
+    /** convertDistribution */
+    public static DistributionSpec convertDistribution(LogicalOlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
@@ -105,7 +106,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
             } else {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
@@ -121,7 +122,7 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                     }
                 }
                 return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        olapScan.getSelectedIndexId(), Sets.newHashSet(olapScan.getSelectedPartitionIds()));
+                        olapScan.getSelectedIndexId(), Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
             }
         } else {
             // RandomDistributionInfo
