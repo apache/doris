@@ -29,9 +29,8 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rules.ConvertAggStateCast;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.rules.rewrite.PushProjectIntoOneRowRelation;
 import org.apache.doris.nereids.rules.rewrite.PushProjectIntoUnion;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -52,7 +51,7 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
             bottomUp(
                     new InlineTableToUnionOrOneRowRelation(),
                     new BindSink(),
-                    new MergeProjects(),
+                    new MergeContinuedProjects(),
                     // after bind olap table sink, the LogicalProject will be generated under LogicalOlapTableSink,
                     // we should convert the agg state function in the project, and evaluate some env parameters
                     // like encrypt key reference, for example: `values (aes_encrypt("abc",key test.my_key))`,
@@ -68,7 +67,7 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
             bottomUp(
                     new InlineTableToUnionOrOneRowRelation(),
                     new BindSink(),
-                    new MergeProjects(),
+                    new MergeContinuedProjects(),
 
                     // the BatchInsertIntoTableCommand need send StringLiteral to backend,
                     // and only support alias(literal as xx) or alias(cast(literal as xx)),
@@ -77,7 +76,6 @@ public class InsertIntoValuesAnalyzer extends AbstractBatchJobExecutor {
                     // the InsertIntoTableCommand support translate slotRef in the TPlan,
                     // so we don't need this rules, just evaluate in backend
                     new PushProjectIntoUnion(),
-                    new PushProjectIntoOneRowRelation(),
 
                     new RewriteBatchInsertIntoExpressions(ExpressionRewrite.bottomUp(
                             ConvertAggStateCast.INSTANCE,

@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
+import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSinkCreator;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -35,7 +36,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -80,8 +81,25 @@ public class NereidsLoadUtils {
         List<Expression> expressions = new ArrayList<>();
         parsedPlan.accept(new DefaultPlanVisitor<Void, List<Expression>>() {
             @Override
+            public Void visitLogicalOneRowRelation(LogicalOneRowRelation oneRowRelation, List<Expression> exprs) {
+                processProject(oneRowRelation.getProjects(), exprs);
+                return null;
+            }
+
+            @Override
+            public Void visitUnboundOneRowRelation(UnboundOneRowRelation oneRowRelation, List<Expression> exprs) {
+                processProject(oneRowRelation.getProjects(), exprs);
+                return null;
+            }
+
+            @Override
             public Void visitLogicalProject(LogicalProject<? extends Plan> logicalProject, List<Expression> exprs) {
-                for (NamedExpression expr : logicalProject.getProjects()) {
+                processProject(logicalProject.getProjects(), exprs);
+                return null;
+            }
+
+            private void processProject(List<NamedExpression> namedExpressions, List<Expression> exprs) {
+                for (NamedExpression expr : namedExpressions) {
                     if (expr instanceof UnboundAlias) {
                         exprs.add(expr.child(0));
                     } else if (expr instanceof UnboundSlot) {
@@ -92,7 +110,6 @@ public class NereidsLoadUtils {
                         break;
                     }
                 }
-                return super.visitLogicalProject(logicalProject, exprs);
             }
         }, expressions);
         if (expressions.isEmpty()) {
@@ -177,10 +194,16 @@ public class NereidsLoadUtils {
         try {
             ctx.getSessionVariable().setDebugSkipFoldConstant(true);
             Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                    ImmutableList.of(Rewriter.bottomUp(new BindExpression(),
+                    ImmutableList.of(Rewriter.bottomUp(
+                            new BindExpression(),
                             new LoadProjectRewrite(fileGroupInfo.getTargetTable()),
-                            new BindSink(), new AddPostFilter(context.fileGroup.getWhereExpr()), new MergeProjects(),
-                            new ExpressionNormalization())))
+                            new BindSink(),
+                            new AddPostFilter(
+                                    context.fileGroup.getWhereExpr()
+                            ),
+                            new MergeContinuedProjects(),
+                            new ExpressionNormalization())
+                    ))
                     .execute();
         } catch (Exception exception) {
             throw new UserException(exception.getMessage());

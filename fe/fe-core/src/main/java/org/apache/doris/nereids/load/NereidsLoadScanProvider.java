@@ -28,6 +28,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
@@ -35,11 +36,13 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
@@ -317,6 +320,7 @@ public class NereidsLoadScanProvider {
 
         // create scan SlotReferences and transform hadoop functions
         boolean hasColumnFromTable = false;
+        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         for (NereidsImportColumnDesc importColumnDesc : copiedColumnExprs) {
             // make column name case match with real column name
             String columnName = importColumnDesc.getColumnName();
@@ -364,7 +368,9 @@ public class NereidsLoadScanProvider {
                         slotColumn = new Column(realColName, PrimitiveType.VARCHAR, true);
                     }
                 }
-                context.scanSlots.add(SlotReference.fromColumn(tbl, slotColumn, tbl.getFullQualifiers()));
+                context.scanSlots.add(
+                        SlotReference.fromColumn(exprIdGenerator.getNextId(), tbl, slotColumn, tbl.getFullQualifiers())
+                );
             }
         }
         if (!hasColumnFromTable) {

@@ -31,14 +31,13 @@ import org.apache.doris.nereids.trees.plans.TreeStringPlan.TreeStringNode;
 import org.apache.doris.nereids.trees.plans.logical.AbstractLogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
+import org.apache.doris.nereids.util.LazyCompute;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Supplier;
-import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.json.JSONArray;
@@ -51,6 +50,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 import javax.annotation.Nullable;
 
 /**
@@ -65,6 +65,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     protected final PlanType type;
     protected final Optional<GroupExpression> groupExpression;
     protected final Supplier<LogicalProperties> logicalPropertiesSupplier;
+    protected final Supplier<Boolean> hasUnboundChild;
 
     /**
      * all parameter constructor.
@@ -75,11 +76,13 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         super(children);
         this.type = Objects.requireNonNull(type, "type can not be null");
         this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
-        Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null");
-        this.logicalPropertiesSupplier = Suppliers.memoize(() ->
-                optLogicalProperties.orElseGet(this::computeLogicalProperties));
+        this.logicalPropertiesSupplier
+                = Objects.requireNonNull(optLogicalProperties, "logicalProperties can not be null").isPresent()
+                    ? optLogicalProperties::get
+                    : LazyCompute.of(this::computeLogicalProperties);
         this.statistics = statistics;
         this.id = StatementScopeIdGenerator.newObjectId();
+        this.hasUnboundChild = buildHasUnboundChildCache();
     }
 
     protected AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
@@ -92,6 +95,7 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.statistics = statistics;
         Preconditions.checkArgument(useZeroId);
         this.id = zeroId;
+        this.hasUnboundChild = buildHasUnboundChildCache();
     }
 
     @Override
@@ -182,15 +186,25 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         }
     }
 
+    @Override
+    public boolean bound() {
+        return !hasUnboundChild.get();
+    }
+
     /**
      * Get tree like string describing query plan.
      *
      * @return tree like string describing query plan
      */
     @Override
-    public String treeString() {
+    public String treeString(boolean printStates) {
         return TreeStringUtils.treeString(this,
-                plan -> plan.toString(),
+                plan -> {
+                    if (printStates && plan instanceof Plan) {
+                        return plan + ", states: " + ((Plan) plan).getMutableStates();
+                    }
+                    return plan.toString();
+                },
                 plan -> {
                     if (plan instanceof TreeStringPlan) {
                         Optional<TreeStringNode> treeStringNode = ((TreeStringPlan) plan).parseTreeStringNode();
@@ -259,22 +273,10 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
 
     @Override
     public LogicalProperties computeLogicalProperties() {
-        boolean hasUnboundChild = false;
-        for (Plan child : children) {
-            if (!child.bound()) {
-                hasUnboundChild = true;
-                break;
-            }
-        }
-
-        if (hasUnboundChild || hasUnboundExpression()) {
-            return UnboundLogicalProperties.INSTANCE;
+        if (this instanceof DiffOutputInAsterisk) {
+            return new LogicalProperties(this::computeOutput, this::computeAsteriskOutput, this::computeDataTrait);
         } else {
-            if (this instanceof DiffOutputInAsterisk) {
-                return new LogicalProperties(this::computeOutput, this::computeAsteriskOutput, this::computeDataTrait);
-            } else {
-                return new LogicalProperties(this::computeOutput, this::computeDataTrait);
-            }
+            return new LogicalProperties(this::computeOutput, this::computeDataTrait);
         }
     }
 
@@ -300,5 +302,19 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         if (statistics != null) {
             statistics.setActualRowCount(actualRowCount);
         }
+    }
+
+    private Supplier<Boolean> buildHasUnboundChildCache() {
+        return LazyCompute.of(() -> {
+            if (hasUnboundExpression()) {
+                return true;
+            }
+            for (Plan child : children) {
+                if (!child.bound()) {
+                    return true;
+                }
+            }
+            return false;
+        });
     }
 }

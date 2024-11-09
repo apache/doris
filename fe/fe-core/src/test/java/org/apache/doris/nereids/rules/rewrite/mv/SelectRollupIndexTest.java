@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.rewrite.mv;
 
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.SetPreAggStatus;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -196,7 +196,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .analyze(sql)
                 .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
                 .applyTopDown(new PushDownFilterThroughProject())
-                .applyBottomUp(new MergeProjects())
+                .applyBottomUp(new MergeContinuedProjects())
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
                 .customRewrite(new SetPreAggStatus())
@@ -324,7 +324,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
                 .analyze("select k1 from t where k1 = 0 group by k1")
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeContinuedProjects())
                 .customRewrite(new SetPreAggStatus())
                 .matches(logicalOlapScan().when(scan -> {
                     PreAggStatus preAgg = scan.getPreAggStatus();

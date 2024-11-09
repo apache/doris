@@ -24,8 +24,8 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
-import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
-import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.MergeContinuedProjects;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -115,7 +115,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
         PlanChecker.from(connectContext)
                 .analyze("SELECT * FROM V1")
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
-                .applyTopDown(new MergeProjects())
+                .applyTopDown(new MergeContinuedProjects())
                 .matches(
                       logicalProject(
                               logicalOlapScan()
@@ -142,8 +142,8 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
                         + "ON X.ID1 = Y.ID3"
                 )
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
-                .applyBottomUp(new InlineLogicalView())
-                .applyTopDown(new MergeProjects())
+                .applyCustom(new ColumnPruning())
+                .applyTopDown(new MergeContinuedProjects())
                 .matches(
                         logicalProject(
                                 logicalJoin(
