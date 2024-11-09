@@ -21,6 +21,7 @@ import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleType;
+import org.apache.doris.nereids.rules.rewrite.SkipSimpleExprs;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -56,12 +57,12 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                 matchesTopType(CompoundPredicate.class).then(ExtractCommonFactorRule::extractCommonFactor)
-                        .toRule(ExpressionRuleType.EXTRACT_COMMON_FACTOR)
+                 matchesTopType(CompoundPredicate.class).then(this::extractCommonFactor)
+                         .toRule(ExpressionRuleType.EXTRACT_COMMON_FACTOR)
         );
     }
 
-    private static Expression extractCommonFactor(CompoundPredicate originExpr) {
+    private Expression extractCommonFactor(CompoundPredicate originExpr) {
         // fast return
         boolean canExtract = false;
         Set<Expression> childrenSet = new LinkedHashSet<>();
@@ -79,6 +80,8 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
                     return originExpr.withChildren(childrenSet.stream().collect(Collectors.toList()));
                 }
             }
+            return originExpr;
+        } else if (SkipSimpleExprs.isSimpleExpr(originExpr)) {
             return originExpr;
         }
         // flatten same type to a list
@@ -110,7 +113,7 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
         return result;
     }
 
-    private static Expression extractCommonFactors(CompoundPredicate originPredicate,
+    private Expression extractCommonFactors(CompoundPredicate originPredicate,
             CompoundPredicate leftDeapTreePredicate, List<List<Expression>> initPartitions) {
         // extract factor and fill into commonFactorToPartIds
         // e.g.
@@ -186,7 +189,7 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
         return ExpressionUtils.combineAsLeftDeepTree(leftDeapTreePredicate.getClass(), extractedExprs.build());
     }
 
-    private static Expression doExtractCommonFactors(
+    private Expression doExtractCommonFactors(
             CompoundPredicate originPredicate,
             List<List<Expression>> partitions, Set<Integer> partitionIds, Set<Expression> commonFactors) {
         ImmutableList.Builder<Expression> uncorrelatedExprPartitionsBuilder

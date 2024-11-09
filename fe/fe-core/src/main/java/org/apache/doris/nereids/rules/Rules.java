@@ -15,16 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.rewrite;
+package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.nereids.trees.TreeNode;
 
-/** InlineLogicalView */
-public class InlineLogicalView extends OneRewriteRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalView().then(LogicalView::child).toRule(RuleType.INLINE_VIEW);
+import java.util.List;
+
+/** Rules */
+public abstract class Rules {
+    protected List<Rule> rules;
+
+    public Rules(List<Rule> rules) {
+        this.rules = rules;
     }
+
+    public abstract List<Rule> getCurrentAndChildrenRules(TreeNode<?> treeNode);
+
+    public List<Rule> getCurrentAndChildrenRules() {
+        return rules;
+    }
+
+    public abstract List<Rule> getCurrentRules(TreeNode<?> treeNode);
 }

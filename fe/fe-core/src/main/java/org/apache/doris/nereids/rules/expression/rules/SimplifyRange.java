@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.expression.rules.RangeInference.EmptyValue
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.RangeValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.UnknownValue;
 import org.apache.doris.nereids.rules.expression.rules.RangeInference.ValueDesc;
+import org.apache.doris.nereids.rules.rewrite.SkipSimpleExprs;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
@@ -81,6 +82,9 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
     /** rewrite */
     public static Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
+        if (SkipSimpleExprs.isSimpleExpr(expr)) {
+            return expr;
+        }
         ValueDesc valueDesc = (new RangeInference()).getValue(expr, context);
         return INSTANCE.getExpression(valueDesc);
     }

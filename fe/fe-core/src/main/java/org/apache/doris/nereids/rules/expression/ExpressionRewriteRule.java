@@ -23,5 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
  * The interface of expression rewrite rule.
  */
 public interface ExpressionRewriteRule<T> {
+    String getRewriteStateKey();
+
     Expression rewrite(Expression expr, T ctx);
 }

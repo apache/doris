@@ -402,15 +402,17 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     public Expression visitAnd(And and, ExpressionRewriteContext context) {
         List<Expression> nonTrueLiteral = Lists.newArrayList();
         int nullCount = 0;
+        boolean changed = false;
         for (Expression e : and.children()) {
-            e = deepRewrite ? e.accept(this, context) : e;
-            if (BooleanLiteral.FALSE.equals(e)) {
+            Expression newExpr = deepRewrite ? e.accept(this, context) : e;
+            if (BooleanLiteral.FALSE.equals(newExpr)) {
                 return BooleanLiteral.FALSE;
-            } else if (e instanceof NullLiteral) {
+            } else if (newExpr instanceof NullLiteral) {
                 nullCount++;
-                nonTrueLiteral.add(e);
-            } else if (!BooleanLiteral.TRUE.equals(e)) {
-                nonTrueLiteral.add(e);
+                nonTrueLiteral.add(newExpr);
+            } else if (!BooleanLiteral.TRUE.equals(newExpr)) {
+                changed |= !e.equals(newExpr);
+                nonTrueLiteral.add(newExpr);
             }
         }
 
@@ -424,14 +426,14 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     return nonTrueLiteral.get(0);
                 default:
                     // x and y
-                    return and.withChildren(nonTrueLiteral);
+                    return changed ? and.withChildren(nonTrueLiteral) : and;
             }
         } else if (nullCount < and.children().size()) {
             if (nonTrueLiteral.size() == 1) {
                 return nonTrueLiteral.get(0);
             } else {
                 // null and x
-                return and.withChildren(nonTrueLiteral);
+                return changed ? and.withChildren(nonTrueLiteral) : and;
             }
         } else {
             // null and null and null and ...
@@ -443,15 +445,17 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     public Expression visitOr(Or or, ExpressionRewriteContext context) {
         List<Expression> nonFalseLiteral = Lists.newArrayList();
         int nullCount = 0;
+        boolean changed = false;
         for (Expression e : or.children()) {
-            e = deepRewrite ? e.accept(this, context) : e;
-            if (BooleanLiteral.TRUE.equals(e)) {
+            Expression newExpr = deepRewrite ? e.accept(this, context) : e;
+            if (BooleanLiteral.TRUE.equals(newExpr)) {
                 return BooleanLiteral.TRUE;
-            } else if (e instanceof NullLiteral) {
+            } else if (newExpr instanceof NullLiteral) {
                 nullCount++;
-                nonFalseLiteral.add(e);
-            } else if (!BooleanLiteral.FALSE.equals(e)) {
-                nonFalseLiteral.add(e);
+                nonFalseLiteral.add(newExpr);
+            } else if (!BooleanLiteral.FALSE.equals(newExpr)) {
+                changed |= !newExpr.equals(newExpr);
+                nonFalseLiteral.add(newExpr);
             }
         }
 
@@ -465,7 +469,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                     return nonFalseLiteral.get(0);
                 default:
                     // x or y
-                    return or.withChildren(nonFalseLiteral);
+                    return changed ? or.withChildren(nonFalseLiteral) : or;
             }
         } else if (nullCount < nonFalseLiteral.size()) {
             if (nonFalseLiteral.size() == 1) {
@@ -473,7 +477,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
                 return nonFalseLiteral.get(0);
             }
             // null or x
-            return or.withChildren(nonFalseLiteral);
+            return changed ? or.withChildren(nonFalseLiteral) : or;
         } else {
             // null or null
             return new NullLiteral(BooleanType.INSTANCE);

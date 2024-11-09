@@ -338,7 +338,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 }
             }
             Preconditions.checkArgument(deleteSlot != null);
-            Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
+            Expression conjunct = new EqualTo(deleteSlot, new TinyIntLiteral((byte) 0));
             if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 scan = scan.withPreAggStatus(PreAggStatus.off(
                         Column.DELETE_SIGN + " is used as conjuncts."));
@@ -374,8 +374,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return logicalPlan.get();
         }
 
-        List<String> qualifierWithoutTableName = Lists.newArrayList();
-        qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
+        List<String> qualifierWithoutTableName = qualifiedTableName.subList(0, qualifiedTableName.size() - 1);
         boolean isView = false;
         try {
             switch (table.getType()) {

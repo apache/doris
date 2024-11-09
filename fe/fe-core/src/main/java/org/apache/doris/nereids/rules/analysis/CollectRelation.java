@@ -179,7 +179,9 @@ public class CollectRelation implements AnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(), nameParts);
         TableIf table = cascadesContext.getConnectContext().getStatementContext()
                 .getAndCacheTable(tableQualifier, tableFrom);
-        LOG.info("collect table {} from {}", nameParts, tableFrom);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("collect table {} from {}", nameParts, tableFrom);
+        }
         if (tableFrom == TableFrom.QUERY) {
             collectMTMVCandidates(table, cascadesContext);
         }
@@ -196,10 +198,11 @@ public class CollectRelation implements AnalysisRuleFactory {
     }
 
     private void collectMTMVCandidates(TableIf table, CascadesContext cascadesContext) {
+        boolean isDebugEnabled = LOG.isDebugEnabled();
         if (cascadesContext.getConnectContext().getSessionVariable().enableMaterializedViewRewrite) {
             Set<MTMV> mtmvSet = Env.getCurrentEnv().getMtmvService().getRelationManager()
                     .getAllMTMVs(Lists.newArrayList(new BaseTableInfo(table)));
-            if (LOG.isDebugEnabled()) {
+            if (isDebugEnabled) {
                 LOG.debug("table {} related mv set is {}", new BaseTableInfo(table), mtmvSet);
             }
             for (MTMV mtmv : mtmvSet) {
@@ -210,7 +213,7 @@ public class CollectRelation implements AnalysisRuleFactory {
                         if (!baseTableInfo.isValid()) {
                             continue;
                         }
-                        if (LOG.isDebugEnabled()) {
+                        if (isDebugEnabled) {
                             LOG.debug("mtmv {} related base table include {}", new BaseTableInfo(mtmv), baseTableInfo);
                         }
                         try {

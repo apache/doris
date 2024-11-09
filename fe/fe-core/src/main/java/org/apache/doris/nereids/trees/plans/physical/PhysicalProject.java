@@ -71,17 +71,22 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
-        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
+        this.projects = Utils.fastToImmutableList(
+                Objects.requireNonNull(projects, "projects can not be null")
+        );
+        this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
     }
 
+    /** PhysicalProject */
     public PhysicalProject(List<NamedExpression> projects, Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_PROJECT, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
-        this.projects = ImmutableList.copyOf(Objects.requireNonNull(projects, "projects can not be null"));
-        this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
+        this.projects = Utils.fastToImmutableList(
+                Objects.requireNonNull(projects, "projects can not be null")
+        );
+        this.projectsSet = Suppliers.memoize(() -> Utils.fastToImmutableSet(this.projects));
     }
 
     public List<NamedExpression> getProjects() {
@@ -165,7 +170,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
      * @return new project
      */
     public PhysicalProject<Plan> withProjectionsAndChild(List<NamedExpression> projections, Plan child) {
-        return new PhysicalProject<>(ImmutableList.copyOf(projections),
+        return new PhysicalProject<>(Utils.fastToImmutableList(projections),
                 groupExpression,
                 getLogicalProperties(),
                 physicalProperties,
@@ -263,7 +268,7 @@ public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHIL
             if (proj.child(0) instanceof Uuid) {
                 builder.addUniqueSlot(proj.toSlot());
             } else if (ExpressionUtils.isInjective(proj.child(0))) {
-                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
+                ImmutableSet<Slot> inputs = Utils.fastToImmutableSet(proj.getInputSlots());
                 if (child(0).getLogicalProperties().getTrait().isUnique(inputs)) {
                     builder.addUniqueSlot(proj.toSlot());
                 }

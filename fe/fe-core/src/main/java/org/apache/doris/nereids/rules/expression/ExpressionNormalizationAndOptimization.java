@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.rules.expression;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+
 import com.google.common.collect.ImmutableList;
 
 /** ExpressionNormalizationAndOptimization */
@@ -24,11 +26,16 @@ public class ExpressionNormalizationAndOptimization extends ExpressionRewrite {
     /** ExpressionNormalizationAndOptimization */
     public ExpressionNormalizationAndOptimization() {
         super(new ExpressionRuleExecutor(
-                ImmutableList.<ExpressionRewriteRule>builder()
+                ImmutableList.<ExpressionRewriteRule<ExpressionRewriteContext>>builder()
                         .addAll(ExpressionNormalization.NORMALIZE_REWRITE_RULES)
                         .addAll(ExpressionOptimization.OPTIMIZE_REWRITE_RULES)
                         .addAll(ExpressionOptimization.ADD_RANGE)
                         .build()
         ));
+    }
+
+    @Override
+    public Expression rewrite(Expression expression, ExpressionRewriteContext expressionRewriteContext) {
+        return super.rewrite(expression, expressionRewriteContext);
     }
 }
