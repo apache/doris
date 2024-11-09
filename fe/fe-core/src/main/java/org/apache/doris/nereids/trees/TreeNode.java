@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
@@ -64,6 +65,21 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     void setMutableState(String key, Object value);
+
+    default BitSet getAllChildrenTypes() {
+        BitSet bitSet = new BitSet();
+        for (TreeNode<?> child : children()) {
+            bitSet.or(child.getAllChildrenTypes());
+        }
+        bitSet.or(getSuperClassTypes());
+        return bitSet;
+    }
+
+    default BitSet getSuperClassTypes() {
+        BitSet bitSet = new BitSet();
+        SuperClassId.getSuperClassIds(getClass());
+        return bitSet;
+    }
 
     default NODE_TYPE withChildren(NODE_TYPE... children) {
         return withChildren(Utils.fastToImmutableList(children));

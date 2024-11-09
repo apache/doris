@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.rewrite.SkipSimpleExprs;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -78,19 +79,22 @@ import java.util.stream.Collectors;
  * 2. for `Or` expression (similar to `And`).
  * todo: support a > 10 and (a < 10 or a > 20 ) => a > 20
  */
-public class SimplifyRange implements ExpressionPatternRuleFactory {
+public class SimplifyRange implements ExpressionPatternRuleFactory, SkipSimpleExprs {
     public static final SimplifyRange INSTANCE = new SimplifyRange();
 
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class)
-                        .thenApply(ctx -> SimplifyRange.rewrite(ctx.expr, ctx.rewriteContext))
+                        .thenApply(ctx -> this.rewrite(ctx.expr, ctx.rewriteContext))
         );
     }
 
     /** rewrite */
-    public static Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
+    public Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
+        if (isSimpleExpr(expr)) {
+            return expr;
+        }
         ValueDesc valueDesc = expr.accept(new RangeInference(), context);
         Expression exprForNonNull = valueDesc.toExpressionForNonNull();
         if (exprForNonNull == null) {

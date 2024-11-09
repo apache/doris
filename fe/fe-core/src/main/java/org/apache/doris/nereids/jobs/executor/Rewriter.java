@@ -45,7 +45,6 @@ import org.apache.doris.nereids.rules.rewrite.CheckAndStandardizeWindowFunctionA
 import org.apache.doris.nereids.rules.rewrite.CheckDataTypes;
 import org.apache.doris.nereids.rules.rewrite.CheckMatchExpression;
 import org.apache.doris.nereids.rules.rewrite.CheckMultiDistinct;
-import org.apache.doris.nereids.rules.rewrite.CheckPrivileges;
 import org.apache.doris.nereids.rules.rewrite.CheckRestorePartition;
 import org.apache.doris.nereids.rules.rewrite.ClearContextStatus;
 import org.apache.doris.nereids.rules.rewrite.CollectCteConsumerOutput;
@@ -84,7 +83,6 @@ import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
-import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.LogicalResultSinkToShortCircuitPointQuery;
@@ -223,10 +221,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // 1. use ColumnPruning rule to derive the used slots in LogicalView
                 // 2. and then check the column privileges
                 // 3. finally, we can eliminate the LogicalView
-                topic("Inline view and check column privileges",
-                        custom(RuleType.CHECK_PRIVILEGES, CheckPrivileges::new),
-                        bottomUp(new InlineLogicalView())
-                ),
+                // topic("Inline view and check column privileges",
+                //         custom(RuleType.CHECK_PRIVILEGES, CheckPrivileges::new),
+                //         bottomUp(new InlineLogicalView())
+                // ),
                 topic("Eliminate optimization",
                         bottomUp(
                                 new EliminateLimit(),

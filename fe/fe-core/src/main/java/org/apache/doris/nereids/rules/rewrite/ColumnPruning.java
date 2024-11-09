@@ -17,8 +17,14 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.SqlCacheContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.analysis.UserAuthentication;
 import org.apache.doris.nereids.rules.rewrite.ColumnPruning.PruneContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -26,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -33,12 +40,16 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.logical.OutputPrunable;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -48,12 +59,15 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -85,6 +99,9 @@ import java.util.stream.IntStream;
  */
 public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements CustomRewriter {
     private Set<Slot> keys;
+    private JobContext jobContext;
+    private boolean skipInnerCheck;
+    private boolean alreadyCheckedPrivileges;
 
     /**
      * collect all columns used in expressions, which should not be pruned
@@ -131,22 +148,31 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        KeyColumnCollector keyColumnCollector = new KeyColumnCollector();
-        plan.accept(keyColumnCollector, jobContext);
-        keys = keyColumnCollector.keys;
-        if (ConnectContext.get() != null) {
-            StatementContext stmtContext = ConnectContext.get().getStatementContext();
-            // in ut, stmtContext is null
-            if (stmtContext != null) {
-                for (Slot key : keys) {
-                    if (key instanceof SlotReference) {
-                        stmtContext.addKeySlot((SlotReference) key);
+        this.jobContext = jobContext;
+        StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
+        this.alreadyCheckedPrivileges = statementContext.isCheckedPrivileges();
+        try {
+            KeyColumnCollector keyColumnCollector = new KeyColumnCollector();
+            plan.accept(keyColumnCollector, jobContext);
+            keys = keyColumnCollector.keys;
+            if (ConnectContext.get() != null) {
+                StatementContext stmtContext = ConnectContext.get().getStatementContext();
+                // in ut, stmtContext is null
+                if (stmtContext != null) {
+                    for (Slot key : keys) {
+                        if (key instanceof SlotReference) {
+                            stmtContext.addKeySlot((SlotReference) key);
+                        }
                     }
                 }
             }
-        }
 
-        return plan.accept(this, new PruneContext(plan.getOutputSet(), null));
+            return plan.accept(this, new PruneContext(plan.getOutputSet(), null));
+        } finally {
+            if (!alreadyCheckedPrivileges) {
+                statementContext.setCheckedPrivileges(true);
+            }
+        }
     }
 
     @Override
@@ -174,6 +200,43 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
             // (slot a, which in the context.requiredSlots) and the used slots currently(slot b) to child plan.
             return pruneChildren(plan, context.requiredSlots);
         }
+    }
+
+    @Override
+    public Plan visitLogicalView(LogicalView<? extends Plan> view, PruneContext context) {
+        return withOuterCheck(
+                () -> checkColumnPrivileges(view.getView(), computeUsedColumns(view, context.requiredSlots)),
+                () -> {
+                    Plan plan = super.visitLogicalView(view, context);
+                    while (plan instanceof LogicalView) {
+                        plan = plan.child(0);
+                    }
+                    return plan;
+                }
+        );
+    }
+
+    @Override
+    public Plan visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, PruneContext context) {
+        TableValuedFunction tvf = tvfRelation.getFunction();
+
+        return withOuterCheck(
+                () -> tvf.checkAuth(jobContext.getCascadesContext().getConnectContext()),
+                () -> super.visitLogicalTVFRelation(tvfRelation, context)
+        );
+    }
+
+    @Override
+    public Plan visitLogicalRelation(LogicalRelation relation, PruneContext context) {
+        return withOuterCheck(
+                () -> {
+                    if (relation instanceof LogicalCatalogRelation) {
+                        TableIf table = ((LogicalCatalogRelation) relation).getTable();
+                        checkColumnPrivileges(table, computeUsedColumns(relation, context.requiredSlots));
+                    }
+                },
+                () -> super.visitLogicalRelation(relation, context)
+        );
     }
 
     // union can not prune children by the common logic, we must override visit method to write special code.
@@ -457,6 +520,57 @@ public class ColumnPruning extends DefaultPlanRewriter<PruneContext> implements 
         public PruneContext(Set<Slot> requiredSlots, Plan parent) {
             this.requiredSlots = requiredSlots;
             this.parent = Optional.ofNullable(parent);
+        }
+    }
+
+    private Set<String> computeUsedColumns(Plan plan, Set<Slot> requiredSlots) {
+        List<Slot> outputs = plan.getOutput();
+        Map<Integer, Slot> idToSlot = new LinkedHashMap<>(outputs.size());
+        for (Slot output : outputs) {
+            idToSlot.putIfAbsent(output.getExprId().asInt(), output);
+        }
+
+        Set<String> usedColumns = Sets.newLinkedHashSetWithExpectedSize(requiredSlots.size());
+        for (Slot requiredSlot : requiredSlots) {
+            Slot slot = idToSlot.get(requiredSlot.getExprId().asInt());
+            if (slot != null) {
+                // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
+                if (slot instanceof SlotReference && ((SlotReference) slot).getColumn().isPresent()
+                        && !((SlotReference) slot).getColumn().get().isVisible()) {
+                    continue;
+                }
+                usedColumns.add(slot.getName());
+            }
+        }
+        return usedColumns;
+    }
+
+    private void checkColumnPrivileges(TableIf table, Set<String> usedColumns) {
+        CascadesContext cascadesContext = jobContext.getCascadesContext();
+        ConnectContext connectContext = cascadesContext.getConnectContext();
+        try {
+            UserAuthentication.checkPermission(table, connectContext, usedColumns);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+        StatementContext statementContext = cascadesContext.getStatementContext();
+        Optional<SqlCacheContext> sqlCacheContext = statementContext.getSqlCacheContext();
+        if (sqlCacheContext.isPresent()) {
+            sqlCacheContext.get().addCheckPrivilegeTablesOrViews(table, usedColumns);
+        }
+    }
+
+    private <T> T withOuterCheck(Runnable check, Supplier<T> traverse) {
+        if (alreadyCheckedPrivileges || skipInnerCheck) {
+            return traverse.get();
+        } else {
+            try {
+                skipInnerCheck = true;
+                check.run();
+                return traverse.get();
+            } finally {
+                skipInnerCheck = false;
+            }
         }
     }
 }

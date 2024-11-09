@@ -104,5 +104,10 @@ public class AppliedAwareRule extends Rule {
         public boolean matchRoot(Plan plan) {
             return matchRootPredicate.test(plan) && super.matchRoot(plan);
         }
+
+        @Override
+        public Class<TYPE> getMatchedType() {
+            return pattern.getMatchedType();
+        }
     }
 }

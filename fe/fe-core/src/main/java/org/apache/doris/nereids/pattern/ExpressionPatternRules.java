@@ -20,12 +20,15 @@ package org.apache.doris.nereids.pattern;
 import org.apache.doris.nereids.rules.expression.ExpressionMatchingContext;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatchRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.SuperClassId;
+import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.lang.reflect.Field;
+import java.util.BitSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -33,9 +36,17 @@ import java.util.Set;
 /** ExpressionPatternMapping */
 public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionPatternMatchRule> {
     private static final Logger LOG = LogManager.getLogger(ExpressionPatternRules.class);
+    private BitSet typePatternIds;
 
     public ExpressionPatternRules(List<ExpressionPatternMatchRule> typeMappings) {
         super(typeMappings);
+
+        BitSet typePatternIds = new BitSet();
+        for (ExpressionPatternMatchRule typeMapping : typeMappings) {
+            Class<? extends Expression> topType = typeMapping.getType();
+            typePatternIds.set(SuperClassId.getClassId(topType));
+        }
+        this.typePatternIds = typePatternIds;
     }
 
     @Override
@@ -43,9 +54,18 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
         return org.apache.doris.nereids.pattern.GeneratedExpressionRelations.CHILDREN_CLASS_MAP.get(clazz);
     }
 
+
+    public boolean hasCurrentAndChildrenRules(TreeNode<?> treeNode) {
+        BitSet classTypes = treeNode.getAllChildrenTypes();
+        if (!typePatternIds.intersects(classTypes)) {
+            return false;
+        }
+        return true;
+    }
+
     /** matchesAndApply */
     public Optional<Expression> matchesAndApply(Expression expr, ExpressionRewriteContext context, Expression parent) {
-        List<ExpressionPatternMatchRule> rules = singleMappings.get(expr.getClass());
+        List<ExpressionPatternMatchRule> rules = getSingleMapping(expr.getClass());
         ExpressionMatchingContext<Expression> matchingContext
                 = new ExpressionMatchingContext<>(expr, parent, context);
         switch (rules.size()) {

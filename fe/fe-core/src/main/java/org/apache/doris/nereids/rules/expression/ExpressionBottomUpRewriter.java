@@ -75,6 +75,10 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
                 do {
                     beforeRewrite = afterRewrite;
 
+                    if (!rules.hasCurrentAndChildrenRules(beforeRewrite)) {
+                        break;
+                    }
+
                     // rewrite this
                     Optional<Expression> applied = rules.matchesAndApply(beforeRewrite, context, parent);
 

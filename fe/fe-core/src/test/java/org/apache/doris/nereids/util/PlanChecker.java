@@ -45,6 +45,7 @@ import org.apache.doris.nereids.pattern.PatternMatcher;
 import org.apache.doris.nereids.processor.post.Validator;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
@@ -192,7 +193,7 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
+                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
         cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
@@ -227,7 +228,7 @@ public class PlanChecker {
 
     public PlanChecker applyBottomUp(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                        ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteBottomUpJob::new, true)))
+                        ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteBottomUpJob::new, true)))
                 .execute();
         cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());

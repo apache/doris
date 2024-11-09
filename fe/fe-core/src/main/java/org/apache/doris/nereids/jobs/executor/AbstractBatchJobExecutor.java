@@ -26,9 +26,10 @@ import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.TopicRewriteJob;
-import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.FilteredRules;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 
@@ -94,10 +95,10 @@ public abstract class AbstractBatchJobExecutor {
     }
 
     public static RewriteJob bottomUp(List<RuleFactory> ruleFactories) {
-        List<Rule> rules = ruleFactories.stream()
+        Rules rules = new FilteredRules(ruleFactories.stream()
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
-                .collect(ImmutableList.toImmutableList());
+                .collect(ImmutableList.toImmutableList()));
         return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteBottomUpJob::new, getTraversePredicate(), true);
     }
 
@@ -110,10 +111,10 @@ public abstract class AbstractBatchJobExecutor {
     }
 
     public static RewriteJob topDown(List<RuleFactory> ruleFactories, boolean once) {
-        List<Rule> rules = ruleFactories.stream()
+        Rules rules = new FilteredRules(ruleFactories.stream()
                 .map(RuleFactory::buildRules)
                 .flatMap(List::stream)
-                .collect(ImmutableList.toImmutableList());
+                .collect(ImmutableList.toImmutableList()));
         return new RootPlanTreeRewriteJob(rules, PlanTreeRewriteTopDownJob::new, getTraversePredicate(), once);
     }
 
