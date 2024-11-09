@@ -51,6 +51,7 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
     // in doris, we use union node to present one row relation
     private final List<List<NamedExpression>> constantExprsList;
 
+    /** PhysicalUnion */
     public PhysicalUnion(Qualifier qualifier,
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
@@ -60,8 +61,12 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
         super(PlanType.PHYSICAL_UNION, qualifier, outputs, childrenOutputs, logicalProperties, children);
         this.constantExprsList = ImmutableList.copyOf(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
+        if (depthNum() > 10) {
+            System.out.println("eee");
+        }
     }
 
+    /** PhysicalUnion */
     public PhysicalUnion(Qualifier qualifier,
             List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs,
@@ -73,8 +78,12 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
                 groupExpression, logicalProperties, children);
         this.constantExprsList = ImmutableList.copyOf(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
+        if (depthNum() > 10) {
+            System.out.println("eee");
+        }
     }
 
+    /** PhysicalUnion */
     public PhysicalUnion(Qualifier qualifier, List<NamedExpression> outputs,
             List<List<SlotReference>> childrenOutputs, List<List<NamedExpression>> constantExprsList,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
@@ -83,6 +92,9 @@ public class PhysicalUnion extends PhysicalSetOperation implements Union {
                 groupExpression, logicalProperties, physicalProperties, statistics, inputs);
         this.constantExprsList = ImmutableList.copyOf(
                 Objects.requireNonNull(constantExprsList, "constantExprsList should not be null"));
+        if (depthNum() > 10) {
+            System.out.println("eee");
+        }
     }
 
     public List<List<NamedExpression>> getConstantExprsList() {

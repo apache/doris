@@ -30,7 +30,7 @@ import java.util.List;
  * <pre>
  *   project(a)
  *       |
- *   project(a,b)    ->    project(a)
+ *   project(a, b)    ->    project(a)
  *       |
  *   project(a, b, c)
  * </pre>
@@ -42,8 +42,8 @@ public class MergeProjects extends OneRewriteRuleFactory {
         // TODO modify ExtractAndNormalizeWindowExpression to handle nested window functions
         // here we just don't merge two projects if there is any window function
         return logicalProject(logicalProject())
-                .when(project -> project.canMergeProjections(project.child()))
-                .then(MergeProjects::mergeProjects).toRule(RuleType.MERGE_PROJECTS);
+                .then(MergeProjects::mergeProjects)
+                .toRule(RuleType.MERGE_PROJECTS);
     }
 
     /** merge projects */

@@ -19,14 +19,18 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 
@@ -39,12 +43,24 @@ import org.junit.jupiter.api.Test;
 public class CheckAnalysisTest {
     @Mocked
     private CascadesContext cascadesContext;
-    @Mocked
-    private GroupPlan groupPlan;
+
+    private GroupExpression ge = new GroupExpression(
+            new LogicalOneRowRelation(
+                    new RelationId(1),
+                    ImmutableList.of(new Alias(Literal.of(1)))
+            ),
+            ImmutableList.of()
+    );
+
+    private GroupPlan groupPlan = new GroupPlan(
+            new Group(GroupId.createGenerator().getNextId(),
+                    ge.getPlan().getLogicalProperties()
+            )
+    );
 
     @Test
     public void testCheckExpressionInputTypes() {
-        Plan plan = new LogicalFilter<>(ImmutableSet.of(new And(new IntegerLiteral(1), BooleanLiteral.TRUE)), groupPlan);
+        Plan plan = new LogicalFilter<>(ImmutableSet.of(new IntegerLiteral(1), BooleanLiteral.TRUE), groupPlan);
         CheckAnalysis checkAnalysis = new CheckAnalysis();
         Assertions.assertThrows(RuntimeException.class, () ->
                 checkAnalysis.buildRules().forEach(rule -> rule.transform(plan, cascadesContext)));

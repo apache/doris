@@ -45,6 +45,8 @@ import org.apache.doris.nereids.trees.expressions.Placeholder;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.PlaceholderLiteral;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlaceholderId;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -88,6 +90,7 @@ import java.util.PriorityQueue;
 import java.util.Set;
 import java.util.Stack;
 import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import javax.annotation.concurrent.GuardedBy;
 
@@ -108,6 +111,16 @@ public class StatementContext implements Closeable {
         INSERT_TARGET,
         MTMV
     }
+
+    /** PlanCachePhase */
+    public enum PlanCachePhase {
+        NONE, ONE, TWO
+    }
+
+    public LogicalPlan initPlaceholderPlan;
+    public PlanCachePhase planCachePhase = PlanCachePhase.NONE;
+
+    public Map<PlaceholderLiteral, Literal> placeholderLiteralToLiteral = new ConcurrentHashMap<>();
 
     private ConnectContext connectContext;
 
@@ -441,6 +454,10 @@ public class StatementContext implements Closeable {
 
     public ExprId getNextExprId() {
         return exprIdGenerator.getNextId();
+    }
+
+    public IdGenerator<ExprId> getExprIdGenerator() {
+        return exprIdGenerator;
     }
 
     public CTEId getNextCTEId() {

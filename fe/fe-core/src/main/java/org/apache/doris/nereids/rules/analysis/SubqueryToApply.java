@@ -516,7 +516,6 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                                     new LessThanEqual(countSlot, new IntegerLiteral(1))),
                             new VarcharLiteral("correlate scalar subquery must return only 1 row"))));
                     logicalProject = new LogicalProject(projects.build(), newApply);
-                    logicalProject = new LogicalProject(upperProjects, logicalProject);
                 } else {
                     logicalProject = new LogicalProject(projects.build(), newApply);
                 }
