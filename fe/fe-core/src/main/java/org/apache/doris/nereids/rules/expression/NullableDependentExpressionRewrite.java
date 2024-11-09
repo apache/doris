@@ -32,10 +32,11 @@ import java.util.List;
         AdjustAggregateNullableForEmptySet.class
 })
 public class NullableDependentExpressionRewrite extends ExpressionRewrite {
-    public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
-            bottomUp(
-                SimplifyConditionalFunction.INSTANCE
-            )
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> OPTIMIZE_REWRITE_RULES
+            = ImmutableList.of(
+                bottomUp(
+                    SimplifyConditionalFunction.INSTANCE
+                )
     );
 
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);

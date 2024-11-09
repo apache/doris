@@ -137,8 +137,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
 
     @Test
     void testNullWithPredicate() throws Exception {
-        String sql = "select pri.id1 from pri inner join foreign_null on pri.id1 = foreign_null.id3\n"
-                + "where pri.id1 = 1";
+        String sql = "select pri.id1 from pri inner join foreign_null on pri.id1 = foreign_null.id3\nwhere pri.id1 = 1";
 
         PlanChecker.from(connectContext)
                 .analyze(sql)
