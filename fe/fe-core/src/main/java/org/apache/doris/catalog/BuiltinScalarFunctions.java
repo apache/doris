@@ -46,6 +46,8 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayJoin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLast;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayLastIndex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMap;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAll;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMax;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayMin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayPopBack;
@@ -504,6 +506,8 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayLast.class, "array_last"),
             scalar(ArrayLastIndex.class, "array_last_index"),
             scalar(ArrayMap.class, "array_map"),
+            scalar(ArrayMatchAll.class, "array_match_all"),
+            scalar(ArrayMatchAny.class, "array_match_any"),
             scalar(ArrayMax.class, "array_max"),
             scalar(ArrayMin.class, "array_min"),
             scalar(ArrayPopBack.class, "array_popback"),
