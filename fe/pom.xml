@@ -371,7 +371,7 @@ under the License.
         <trino.version>435</trino.version>
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
-        <airlift.version>202</airlift.version>
+        <airlift.concurrent.version>202</airlift.concurrent.version>
         <azure.sdk.version>1.2.27</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <semver4j.version>5.3.0</semver4j.version>
@@ -1649,7 +1649,7 @@ under the License.
             <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>concurrent</artifactId>
-                <version>${airlift.version}</version>
+                <version>${airlift.concurrent.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.azure</groupId>
