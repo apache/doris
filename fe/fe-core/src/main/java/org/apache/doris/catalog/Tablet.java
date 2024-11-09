@@ -35,6 +35,7 @@ import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -306,9 +307,12 @@ public class Tablet extends MetaObject {
     // for query
     public List<Replica> getQueryableReplicas(long visibleVersion, Map<Long, Set<Long>> backendAlivePathHashs,
             boolean allowFailedVersion) {
+        if (replicas.size() == 1) {
+            return ImmutableList.of(replicas.get(0));
+        }
         List<Replica> allQueryableReplica = Lists.newArrayListWithCapacity(replicas.size());
         List<Replica> auxiliaryReplica = Lists.newArrayListWithCapacity(replicas.size());
-        List<Replica> deadPathReplica = Lists.newArrayList();
+        List<Replica> deadPathReplica = Lists.newArrayListWithCapacity(replicas.size());
         for (Replica replica : replicas) {
             if (replica.isBad()) {
                 continue;
@@ -346,17 +350,25 @@ public class Tablet extends MetaObject {
         }
 
         if (Config.skip_compaction_slower_replica && allQueryableReplica.size() > 1) {
-            long minVersionCount = allQueryableReplica.stream().mapToLong(Replica::getVisibleVersionCount)
-                    .filter(count -> count != -1).min().orElse(Long.MAX_VALUE);
+            long minVersionCount = Long.MAX_VALUE;
+            for (Replica replica : allQueryableReplica) {
+                long visibleVersionCount = replica.getVisibleVersionCount();
+                if (visibleVersionCount > 0 && visibleVersionCount < minVersionCount) {
+                    minVersionCount = visibleVersionCount;
+                }
+            }
             long maxVersionCount = Config.min_version_count_indicate_replica_compaction_too_slow;
             if (minVersionCount != Long.MAX_VALUE) {
                 maxVersionCount = Math.max(maxVersionCount, minVersionCount * QUERYABLE_TIMES_OF_MIN_VERSION_COUNT);
             }
 
-            final long finalMaxVersionCount = maxVersionCount;
-            return allQueryableReplica.stream()
-                    .filter(replica -> replica.getVisibleVersionCount() < finalMaxVersionCount)
-                    .collect(Collectors.toList());
+            List<Replica> lowerVersionReplicas = Lists.newArrayList(allQueryableReplica);
+            for (Replica replica : allQueryableReplica) {
+                if (replica.getVisibleVersionCount() < maxVersionCount) {
+                    lowerVersionReplicas.add(replica);
+                }
+            }
+            return lowerVersionReplicas;
         }
         return allQueryableReplica;
     }

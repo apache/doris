@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
+import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -770,8 +771,9 @@ public class ExpressionUtils {
 
     /** containsType */
     public static boolean containsType(Collection<? extends Expression> expressions, Class type) {
+        int classId = SuperClassId.getClassId(type);
         for (Expression expression : expressions) {
-            if (expression.anyMatch(expr -> expr.anyMatch(type::isInstance))) {
+            if (expression.getAllChildrenTypes().get(classId)) {
                 return true;
             }
         }
@@ -1036,7 +1038,7 @@ public class ExpressionUtils {
     /** containsWindowExpression */
     public static boolean containsWindowExpression(List<NamedExpression> expressions) {
         for (NamedExpression expression : expressions) {
-            if (expression.anyMatch(WindowExpression.class::isInstance)) {
+            if (expression.containsType(WindowExpression.class)) {
                 return true;
             }
         }
