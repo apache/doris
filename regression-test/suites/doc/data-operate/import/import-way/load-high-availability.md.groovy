@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_load_high_availability", "p0") {
+    if (isCloudMode()) {
+        return
+    }
     def tableName = "test_load_high_availability"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
