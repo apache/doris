@@ -111,6 +111,7 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.MapLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.PlaceholderLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StructLiteral;
@@ -335,6 +336,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitStructLiteral(StructLiteral structLiteral, C context) {
         return visitLiteral(structLiteral, context);
+    }
+
+    public R visitPlaceholderLiteral(PlaceholderLiteral placeholderLiteral, C context) {
+        return visitLiteral(placeholderLiteral, context);
     }
 
     public R visitCompoundPredicate(CompoundPredicate compoundPredicate, C context) {
