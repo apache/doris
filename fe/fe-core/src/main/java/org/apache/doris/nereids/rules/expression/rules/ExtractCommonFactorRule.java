@@ -49,7 +49,7 @@ import java.util.Set;
  * transform (a and b) or (a and c) to a and (b or c)
  */
 @Developing
-public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory, SkipSimpleExprs {
+public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
     public static final ExtractCommonFactorRule INSTANCE = new ExtractCommonFactorRule();
 
     @Override
@@ -64,7 +64,7 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory, Sk
         if (!(originExpr.left() instanceof CompoundPredicate || originExpr.left() instanceof BooleanLiteral)
                 && !(originExpr.right() instanceof CompoundPredicate || originExpr.right() instanceof BooleanLiteral)) {
             return originExpr;
-        } else if (isSimpleExpr(originExpr)) {
+        } else if (SkipSimpleExprs.isSimpleExpr(originExpr)) {
             return originExpr;
         }
 

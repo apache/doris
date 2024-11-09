@@ -79,7 +79,7 @@ import java.util.stream.Collectors;
  * 2. for `Or` expression (similar to `And`).
  * todo: support a > 10 and (a < 10 or a > 20 ) => a > 20
  */
-public class SimplifyRange implements ExpressionPatternRuleFactory, SkipSimpleExprs {
+public class SimplifyRange implements ExpressionPatternRuleFactory {
     public static final SimplifyRange INSTANCE = new SimplifyRange();
 
     @Override
@@ -92,7 +92,7 @@ public class SimplifyRange implements ExpressionPatternRuleFactory, SkipSimpleEx
 
     /** rewrite */
     public Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
-        if (isSimpleExpr(expr)) {
+        if (SkipSimpleExprs.isSimpleExpr(expr)) {
             return expr;
         }
         ValueDesc valueDesc = expr.accept(new RangeInference(), context);

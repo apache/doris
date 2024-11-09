@@ -9,8 +9,8 @@ import com.google.common.collect.Maps;
 import java.util.Map;
 import java.util.Map.Entry;
 
-public interface SkipSimpleExprs {
-    default boolean isSimpleExpr(Expression expression) {
+public class SkipSimpleExprs {
+    public static boolean isSimpleExpr(Expression expression) {
         ExprFeature exprFeature = computeExprFeature(expression);
         for (Entry<Integer, Integer> kv : exprFeature.slotCount.entrySet()) {
             Integer slotId = kv.getKey();
@@ -25,24 +25,31 @@ public interface SkipSimpleExprs {
         return true;
     }
 
-    default ExprFeature computeExprFeature(Expression expr) {
+    public static ExprFeature computeExprFeature(Expression expr) {
         Map<Integer, Integer> slotCount = Maps.newHashMap();
         Map<Integer, Integer> slotIsNullCount = Maps.newHashMap();
-        expr.foreach(e -> {
-            if (e instanceof Slot) {
-                int slotId = ((Slot) e).getExprId().asInt();
-                Integer count = slotCount.get(slotId);
-                slotCount.put(slotId, count == null ? 1 : count + 1);
-            } else if (e instanceof IsNull && e.child(0) instanceof Slot) {
-                int slotId = ((Slot) e.child(0)).getExprId().asInt();
-                Integer count = slotIsNullCount.get(slotId);
-                slotIsNullCount.put(slotId, count == null ? 1 : count + 1);
-            }
-        });
+        computeExprFeature(expr, slotCount, slotIsNullCount);
         return new ExprFeature(slotCount, slotIsNullCount);
     }
 
-    class ExprFeature {
+    private static void computeExprFeature(
+            Expression e, Map<Integer, Integer> slotCount, Map<Integer, Integer> slotIsNullCount) {
+        if (e instanceof Slot) {
+            int slotId = ((Slot) e).getExprId().asInt();
+            Integer count = slotCount.get(slotId);
+            slotCount.put(slotId, count == null ? 1 : count + 1);
+        } else if (e instanceof IsNull && e.child(0) instanceof Slot) {
+            int slotId = ((Slot) e.child(0)).getExprId().asInt();
+            Integer count = slotIsNullCount.get(slotId);
+            slotIsNullCount.put(slotId, count == null ? 1 : count + 1);
+        } else {
+            for (Expression child : e.children()) {
+                computeExprFeature(child, slotCount, slotIsNullCount);
+            }
+        }
+    }
+
+    private static class ExprFeature {
         private Map<Integer, Integer> slotCount;
         private Map<Integer, Integer> slotIsNullCount;
 
