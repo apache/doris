@@ -500,7 +500,7 @@ DEFINE_String(ssl_certificate_path, "");
 // Path of private key
 DEFINE_String(ssl_private_key_path, "");
 // Whether to check authorization
-DEFINE_Bool(enable_all_http_auth, "true");
+DEFINE_Bool(enable_all_http_auth, "false");
 // Number of webserver workers
 DEFINE_Int32(webserver_num_workers, "48");
 
