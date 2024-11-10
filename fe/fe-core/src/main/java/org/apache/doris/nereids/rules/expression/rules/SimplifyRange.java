@@ -86,12 +86,12 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
                 matchesTopType(CompoundPredicate.class)
-                        .thenApply(ctx -> this.rewrite(ctx.expr, ctx.rewriteContext))
+                        .thenApply(ctx -> SimplifyRange.rewrite(ctx.expr, ctx.rewriteContext))
         );
     }
 
     /** rewrite */
-    public Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
+    public static Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
         if (SkipSimpleExprs.isSimpleExpr(expr)) {
             return expr;
         }

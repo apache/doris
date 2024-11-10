@@ -45,7 +45,7 @@ public class FoldConstantRule implements ExpressionPatternRuleFactory {
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.<ExpressionPatternMatcher<? extends Expression>>builder()
                 .addAll(FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE.buildRules())
-                // .addAll(FoldConstantRuleOnBE.INSTANCE.buildRules())
+                .addAll(FoldConstantRuleOnBE.INSTANCE.buildRules())
                 .build();
     }
 

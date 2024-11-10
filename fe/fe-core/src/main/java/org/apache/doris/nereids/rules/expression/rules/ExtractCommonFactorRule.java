@@ -55,11 +55,11 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
     @Override
     public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
         return ImmutableList.of(
-                 matchesTopType(CompoundPredicate.class).then(this::extractCommonFactor)
+                 matchesTopType(CompoundPredicate.class).then(ExtractCommonFactorRule::extractCommonFactor)
         );
     }
 
-    private Expression extractCommonFactor(CompoundPredicate originExpr) {
+    private static Expression extractCommonFactor(CompoundPredicate originExpr) {
         // fast return
         if (!(originExpr.left() instanceof CompoundPredicate || originExpr.left() instanceof BooleanLiteral)
                 && !(originExpr.right() instanceof CompoundPredicate || originExpr.right() instanceof BooleanLiteral)) {
@@ -97,7 +97,7 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
         return result;
     }
 
-    private Expression extractCommonFactors(CompoundPredicate originPredicate,
+    private static Expression extractCommonFactors(CompoundPredicate originPredicate,
             CompoundPredicate leftDeapTreePredicate, List<List<Expression>> initPartitions) {
         // extract factor and fill into commonFactorToPartIds
         // e.g.
@@ -173,7 +173,7 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
         return ExpressionUtils.combineAsLeftDeepTree(leftDeapTreePredicate.getClass(), extractedExprs.build());
     }
 
-    private Expression doExtractCommonFactors(
+    private static Expression doExtractCommonFactors(
             CompoundPredicate originPredicate,
             List<List<Expression>> partitions, Set<Integer> partitionIds, Set<Expression> commonFactors) {
         ImmutableList.Builder<Expression> uncorrelatedExprPartitionsBuilder

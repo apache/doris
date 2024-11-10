@@ -218,13 +218,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 // but it appeared at LogicalApply.right. After the `Subquery unnesting` topic, all slots is placed in a
                 // normal position, then we can check column privileges by these steps
                 //
-                // 1. use ColumnPruning rule to derive the used slots in LogicalView
-                // 2. and then check the column privileges
-                // 3. finally, we can eliminate the LogicalView
-                // topic("Inline view and check column privileges",
-                //         custom(RuleType.CHECK_PRIVILEGES, CheckPrivileges::new),
-                //         bottomUp(new InlineLogicalView())
-                // ),
                 topic("Eliminate optimization",
                         bottomUp(
                                 new EliminateLimit(),
@@ -238,7 +231,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         )
                 ),
                 // please note: this rule must run before NormalizeAggregate
-                // topDown(new AdjustAggregateNullableForEmptySet()),
+                topDown(new AdjustAggregateNullableForEmptySet()),
                 // The rule modification needs to be done after the subquery is unnested,
                 // because for scalarSubQuery, the connection condition is stored in apply in the analyzer phase,
                 // but when normalizeAggregate/normalizeSort is performed, the members in apply cannot be obtained,
