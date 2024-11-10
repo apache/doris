@@ -324,7 +324,6 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     }
     RETURN_IF_ERROR(_writer->_rename_compacted_segments(begin, end));
     if (_inverted_index_file_writer != nullptr) {
-        RETURN_IF_ERROR(_inverted_index_file_writer->close());
         _inverted_index_file_writer.release();
     }
     if (VLOG_DEBUG_IS_ON) {
