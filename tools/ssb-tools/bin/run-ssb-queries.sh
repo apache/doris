@@ -125,7 +125,7 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
         <"${QUERIES_DIR}/q${i}.sql" >"${RESULT_DIR}/result${i}.out" 2>"${RESULT_DIR}/result${i}.log"; then
-        printf "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log\n" >&2
+        printf "Error: Failed to execute query q%s (cold run). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -135,7 +135,7 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
         <"${QUERIES_DIR}/q${i}.sql" >"${RESULT_DIR}/result${i}.out" 2>"${RESULT_DIR}/result${i}.log"; then
-        printf "Error: Failed to execute query q${i} (hot run 1). Check the log: ${RESULT_DIR}/result${i}.log\n" >&2
+        printf "Error: Failed to execute query q%s (hot run 1). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -145,7 +145,7 @@ for i in '1.1' '1.2' '1.3' '2.1' '2.2' '2.3' '3.1' '3.2' '3.3' '3.4' '4.1' '4.2'
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
         <"${QUERIES_DIR}/q${i}.sql" >"${RESULT_DIR}/result${i}.out" 2>"${RESULT_DIR}/result${i}.log"; then
-        printf "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log\n" >&2
+        printf "Error: Failed to execute query q%s (hot run 2). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
         continue
     fi
     end=$(date +%s%3N)

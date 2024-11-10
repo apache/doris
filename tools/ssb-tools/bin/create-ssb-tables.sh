@@ -107,7 +107,7 @@ if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE I
     echo "Error: Failed to create database ${DB}." >&2
     exit 1
 fi
-
+# shellcheck disable=SC2292
 if [ "${SCALE_FACTOR}" -eq 1 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf1.sql"
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf1.sql 2>&1; then
@@ -120,6 +120,7 @@ if [ "${SCALE_FACTOR}" -eq 1 ]; then
         printf "Error: Failed to execute create-ssb-flat-tables-sf1.sql.\n" >&2
         exit 1
     fi
+# shellcheck disable=SC2292
 elif [ "${SCALE_FACTOR}" -eq 100 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf100.sql"
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf100.sql 2>&1; then
@@ -132,6 +133,7 @@ elif [ "${SCALE_FACTOR}" -eq 100 ]; then
         printf "Error: Failed to execute create-ssb-flat-tables-sf100.sql.\n" >&2
         exit 1
     fi
+# shellcheck disable=SC2292
 elif [ "${SCALE_FACTOR}" -eq 1000 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf1000.sql"
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-tables-sf1000.sql" 2>&1; then
@@ -145,7 +147,7 @@ elif [ "${SCALE_FACTOR}" -eq 1000 ]; then
         exit 1
     fi
 else
-    printf "${SCALE_FACTOR} scale is NOT supported currently\n"
+    printf "%s scale is NOT supported currently\n" "$SCALE_FACTOR"
 fi
 
 echo "ssb tables has been created"

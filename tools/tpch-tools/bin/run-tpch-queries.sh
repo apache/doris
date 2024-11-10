@@ -127,29 +127,29 @@ get_session_variable() {
     k="$1"
     if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" \
         -e "show variables like '${k}'\G" 2>&1); then
-        printf "%s\n" "$output" >&2
-        printf "Error: Failed to execute SQL command: show variables like '%s'\G\n" "$k" >&2
+        printf "%s\n" "${output}" >&2
+        printf "Error: Failed to execute SQL command: show variables like '%s'\G\n" "${k}" >&2
         exit 1
     fi
 
-    if ! grep_output=$(grep " Value: " <<< "$output" 2>&1); then
-        printf "%s\n" "$grep_output" >&2
+    if ! grep_output=$(grep " Value: " <<<"${output}" 2>&1); then
+        printf "%s\n" "${grep_output}" >&2
         printf "Error: grep command failed while processing SQL output.\n" >&2
         exit 1
     fi
 
-    if ! v=$(awk '{print $2}' <<< "$grep_output" 2>&1); then
-        printf "%s\n" "$v" >&2
+    if ! v=$(awk '{print $2}' <<<"${grep_output}" 2>&1); then
+        printf "%s\n" "${v}" >&2
         printf "Error: awk command failed while processing the grep output.\n" >&2
         exit 1
     fi
 
-    if [[ -z $v ]]; then
-        printf "Warning: No 'Value: ' found for variable '%s'.\n" "$k" >&2
+    if [[ -z ${v} ]]; then
+        printf "Warning: No 'Value: ' found for variable '%s'.\n" "${k}" >&2
         return 1
     fi
 
-    echo "$v"
+    echo "${v}"
 }
 backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
 backup_session_variables() {
@@ -191,7 +191,7 @@ for i in ${query_array[@]}; do
     echo -ne "q${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log; then
-        printf "Error: Failed to execute query q${i} (cold run). Check the log: ${RESULT_DIR}/result${i}.log\n" >&2
+        printf "Error: Failed to execute query q%s (cold run). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -200,7 +200,7 @@ for i in ${query_array[@]}; do
 
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log; then
-        printf "Error: Failed to execute query q${i} (hot run 1). Check the log: ${RESULT_DIR}/result${i}.log\n" >&2
+        printf "Error: Failed to execute query q%s (hot run 1). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -209,7 +209,7 @@ for i in ${query_array[@]}; do
 
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log; then
-        printf "Error: Failed to execute query q${i} (hot run 2). Check the log: ${RESULT_DIR}/result${i}.log\n" >&2
+        printf "Error: Failed to execute query q%s (hot run 2). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
         continue
     fi
     end=$(date +%s%3N)
