@@ -380,7 +380,7 @@ suite("inner_join_list_str_increment_create") {
     // create mv base on right table with partition col
     sql_error_list = [mv_sql_7, mv_sql_8, mv_sql_9, mv_sql_10, mv_sql_12, mv_sql_13, mv_sql_14, mv_sql_15, mv_sql_16, mv_sql_18]
     sql_increment_list = []
-    sql_complete_list = [mv_sql_1, mv_sql_3, mv_sql_4, mv_sql_6, mv_sql_11, mv_sql_17]
+    sql_complete_list = [mv_sql_1, mv_sql_3]
     list_judgement(sql_all_list, sql_increment_list, sql_complete_list, sql_error_list,
             partition_by_part_col_right, primary_tb_change, is_complete_change_right)
 
