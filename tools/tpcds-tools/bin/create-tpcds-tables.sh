@@ -118,21 +118,18 @@ if [ "${SCALE_FACTOR}" -eq 1 ]; then
         printf "Error: Failed to execute create-tpcds-tables-sf1.sql.\n" >&2
         exit 1
     fi
-# shellcheck disable=SC2292
 elif [ "${SCALE_FACTOR}" -eq 100 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf100.sql"
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf100.sql" 2>&1; then
         printf "Error: Failed to execute create-tpcds-tables-sf100.sql.\n" >&2
         exit 1
     fi
-# shellcheck disable=SC2292
 elif [ "${SCALE_FACTOR}" -eq 1000 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf1000.sql"
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf1000.sql" 2>&1; then
         printf "Error: Failed to execute create-tpcds-tables-sf1000.sql.\n" >&2
         exit 1
     fi
-# shellcheck disable=SC2292
 elif [ "${SCALE_FACTOR}" -eq 10000 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf10000.sql"
     if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf10000.sql" 2>&1; then
