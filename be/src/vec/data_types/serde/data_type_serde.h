@@ -388,8 +388,6 @@ inline void checkArrowStatus(const arrow::Status& status, const std::string& col
     }
 }
 
-
-
 DataTypeSerDeSPtrs create_data_type_serdes(
         const std::vector<std::shared_ptr<const IDataType>>& types);
 DataTypeSerDeSPtrs create_data_type_serdes(const std::vector<SlotDescriptor*>& slots);

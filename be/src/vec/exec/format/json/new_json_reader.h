@@ -87,7 +87,8 @@ public:
     ~NewJsonReader() override = default;
 
     Status init_reader(const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
-                               col_default_value_ctx);
+                               col_default_value_ctx,
+                       bool is_load);
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
@@ -128,14 +129,9 @@ private:
                              const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                 SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
+                                 const TypeDescriptor& type_desc, vectorized::IColumn* column_ptr,
+                                 const std::string& column_name, DataTypeSerDeSPtr serde,
                                  bool* valid);
-
-    Status _write_data_to_column(rapidjson::Value::ConstValueIterator value,
-                                      const TypeDescriptor& type_desc, vectorized::IColumn* column_ptr,
-                                      DataTypeSerDeSPtr serde,
-                                 bool* valid);
-
 
     Status _write_columns_by_jsonpath(rapidjson::Value& objectValue,
                                       const std::vector<SlotDescriptor*>& slot_descs, Block& block,
@@ -149,7 +145,7 @@ private:
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
     // simdjson, replace none simdjson function if it is ready
-    Status _simdjson_init_reader();
+    Status _simdjson_init_reader(bool is_load);
     Status _simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
                                 simdjson::error_code* error);
     Status _get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
@@ -183,14 +179,10 @@ private:
                                       const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
 
     Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                          SlotDescriptor* slot_desc,
-                                          vectorized::IColumn* column_ptr, bool* valid);
-
-    Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
-                                               const TypeDescriptor& type_desc,
+                                          const TypeDescriptor& type_desc,
                                           vectorized::IColumn* column_ptr,
-                                               DataTypeSerDeSPtr serde,
-                                               bool* valid);
+                                          const std::string& column_name, DataTypeSerDeSPtr serde,
+                                          bool* valid);
 
     Status _simdjson_write_columns_by_jsonpath(simdjson::ondemand::object* value,
                                                const std::vector<SlotDescriptor*>& slot_descs,
@@ -304,6 +296,17 @@ private:
     std::unordered_map<std::string, std::string> _col_default_value_map;
 
     int32_t skip_bitmap_col_idx {-1};
+
+    bool _is_load = true;
+    bool _is_hive_table = false;
+    // In hive : create table xxx ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
+    // Hive will not allow you to create columns with the same name but different case, including field names inside
+    // structs, and will automatically convert uppercase names in create sql to lowercase.However, when Hive loads data
+    // to table, the column names in the data may be uppercase,and there may be multiple columns with
+    // the same name but different capitalization.We refer to the behavior of hive, convert all column names
+    // in the data to lowercase,and use the last one as the insertion value
+
+    DataTypeSerDeSPtrs _serdes;
 };
 
 } // namespace vectorized

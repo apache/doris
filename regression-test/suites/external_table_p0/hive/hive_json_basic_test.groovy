@@ -40,21 +40,24 @@ suite("hive_json_basic_test",  "p0,external,hive,external_docker,external_docker
 
             String tb1 = """json_all_complex_types"""
             String tb2 = """json_nested_complex_table"""
-            
+            String tb3 = """json_load_data_table"""
 
             def tables = sql """ show tables """
             logger.info("tables = ${tables}")
 
-            // order_qt_q1 """ select * from ${tb1} order by id """
-            // order_qt_q2 """ select * from ${tb1} where tinyint_col < 0  order by id """
-            // order_qt_q3 """ select * from ${tb1} where bigint_col > 0 order by id """
-            // order_qt_q4 """ select float_col from ${tb1} where float_col is not null  order by id """
-            // order_qt_q5 """ select * from ${tb1} where id = 2 order by id """
+            qt_q1 """ select * from ${tb1} order by id """
+            qt_q2 """ select * from ${tb1} where tinyint_col < 0  order by id """
+            qt_q3 """ select * from ${tb1} where bigint_col > 0 order by id """
+            qt_q4 """ select float_col from ${tb1} where float_col is not null  order by id """
+            qt_q5 """ select * from ${tb1} where id = 2 order by id """
 
 
 
-            // order_qt_q6 """ select * from nested_complex_table order by user_id"""
-            // order_qt_q7 """ select user_id,activity_log from nested_complex_table order by user_id"""
+            qt_q6 """ select * from  ${tb2} order by user_id"""
+            qt_q7 """ select user_id,activity_log from  ${tb2} order by user_id"""
+
+
+            qt_q8 """ select * from ${tb3} order by id """
 
 
 

@@ -97,7 +97,7 @@ public:
     }
 
     virtual DataTypeSerDeSPtrs get_nested_serdes() const override {
-        return {key_serde,value_serde};
+        return {key_serde, value_serde};
     }
 
 private:
