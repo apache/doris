@@ -44,6 +44,7 @@
 #include "vec/common/pod_array.h"
 #include "vec/common/pod_array_fwd.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // serialized bitmap := TypeCode(1), Payload
 // The format of payload depends on value of TypeCode which is defined below
@@ -2566,3 +2567,5 @@ inline bool BitmapValue::contains_any(uint64_t left, uint64_t right) const {
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

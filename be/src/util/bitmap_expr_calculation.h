@@ -21,6 +21,7 @@
 #include "util/bitmap_intersect.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Compute the intersection union difference set of two or more bitmaps
 // Usage: orthogonal_bitmap_parse_calculate(bitmap_column, filter_column, input_string)
@@ -214,3 +215,5 @@ private:
     std::string _polish;
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

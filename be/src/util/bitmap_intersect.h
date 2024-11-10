@@ -21,6 +21,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace detail {
 class Helper {
@@ -31,7 +32,7 @@ public:
 
     // serialize_size start
     template <typename T>
-    static int32_t serialize_size(const T& v) {
+    static int64_t serialize_size(const T& v) {
         return sizeof(T);
     }
 
@@ -72,7 +73,7 @@ char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* dest) {
 
 template <>
 char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
-    *(int32_t*)dest = v.size;
+    *(int32_t*)dest = (int32_t)v.size;
     dest += 4;
     memcpy(dest, v.data, v.size);
     dest += v.size;
@@ -81,7 +82,7 @@ char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
 
 template <>
 char* Helper::write_to<std::string>(const std::string& v, char* dest) {
-    *(uint32_t*)dest = v.size();
+    *(uint32_t*)dest = (uint32_t)v.size();
     dest += 4;
     memcpy(dest, v.c_str(), v.size());
     dest += v.size();
@@ -90,22 +91,22 @@ char* Helper::write_to<std::string>(const std::string& v, char* dest) {
 // write_to end
 
 template <>
-int32_t Helper::serialize_size<VecDateTimeValue>(const VecDateTimeValue& v) {
+int64_t Helper::serialize_size<VecDateTimeValue>(const VecDateTimeValue& v) {
     return Helper::DATETIME_PACKED_TIME_BYTE_SIZE + Helper::DATETIME_TYPE_BYTE_SIZE;
 }
 
 template <>
-int32_t Helper::serialize_size<DecimalV2Value>(const DecimalV2Value& v) {
+int64_t Helper::serialize_size<DecimalV2Value>(const DecimalV2Value& v) {
     return Helper::DECIMAL_BYTE_SIZE;
 }
 
 template <>
-int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
+int64_t Helper::serialize_size<StringRef>(const StringRef& v) {
     return v.size + 4;
 }
 
 template <>
-int32_t Helper::serialize_size<std::string>(const std::string& v) {
+int64_t Helper::serialize_size<std::string>(const std::string& v) {
     return v.size() + 4;
 }
 // serialize_size end
@@ -214,7 +215,7 @@ public:
     //must call size() first
     void serialize(char* dest) {
         char* writer = dest;
-        *(int32_t*)writer = _bitmaps.size();
+        *(int32_t*)writer = (int32_t)_bitmaps.size();
         writer += 4;
         for (auto& kv : _bitmaps) {
             writer = detail::Helper::write_to(kv.first, writer);
@@ -301,7 +302,7 @@ public:
     //must call size() first
     void serialize(char* dest) {
         char* writer = dest;
-        *(int32_t*)writer = _bitmaps.size();
+        *(int32_t*)writer = (int32_t)_bitmaps.size();
         writer += 4;
         for (auto& kv : _bitmaps) {
             writer = detail::Helper::write_to(kv.first, writer);
@@ -328,3 +329,5 @@ protected:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

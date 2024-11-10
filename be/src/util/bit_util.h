@@ -287,7 +287,10 @@ public:
     }
 
     // Returns the rounded up to 64 multiple. Used for conversions of bits to i64.
-    static inline uint32_t round_up_numi_64(uint32_t bits) { return (bits + 63) >> 6; }
+    template <typename T>
+    static inline T round_up_numi_64(T bits) {
+        return (bits + 63) >> 6;
+    }
 
     constexpr static inline int64_t Ceil(int64_t value, int64_t divisor) {
         return value / divisor + (value % divisor != 0);

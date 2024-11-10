@@ -28,11 +28,20 @@ template <bool nullable>
 AggregateFunctionPtr create_with_int_data_type(const DataTypes& argument_types) {
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(type);
+    /*
+            FunctionSignature.ret(BitmapType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(BitmapType.INSTANCE).args(TinyIntType.INSTANCE)
+    */
 #define DISPATCH(TYPE)                                                                       \
     if (which.idx == TypeIndex::TYPE) {                                                      \
         return std::make_shared<AggregateFunctionBitmapAgg<nullable, TYPE>>(argument_types); \
     }
-    FOR_INTEGER_TYPES(DISPATCH)
+    DISPATCH(Int8)
+    DISPATCH(Int16)
+    DISPATCH(Int32)
+    DISPATCH(Int64)
 #undef DISPATCH
     LOG(WARNING) << "with unknown type, failed in create_with_int_data_type bitmap_union_int"
                  << " and type is: " << argument_types[0]->get_name();

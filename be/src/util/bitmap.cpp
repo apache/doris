@@ -25,6 +25,7 @@
 #include "gutil/stringprintf.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 std::string Bitmap::DebugString(bool print_bits) const {
     int64_t words = BitUtil::round_up(num_bits_, 64) / 64;
