@@ -75,9 +75,11 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                         Expression newExpr = multiMatchRule.apply(matchingContext);
                         if (!newExpr.equals(expr)) {
                             if (context.cascadesContext.isEnableExprTrace()) {
-                                traceExprChanged(multiMatchRule, expr, newExpr);
+                                traceExprChanged(multiMatchRule, expr, newExpr, true);
                             }
                             return Optional.of(newExpr);
+                        } else if (context.cascadesContext.isEnableExprTrace()) {
+                            traceExprChanged(multiMatchRule, expr, newExpr, false);
                         }
                     }
                 }
@@ -89,9 +91,11 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                     Expression newExpr = rule.apply(matchingContext);
                     if (!newExpr.equals(expr)) {
                         if (context.cascadesContext.isEnableExprTrace()) {
-                            traceExprChanged(rule, expr, newExpr);
+                            traceExprChanged(rule, expr, newExpr, true);
                         }
                         return Optional.of(newExpr);
+                    } else if (context.cascadesContext.isEnableExprTrace()) {
+                        traceExprChanged(rule, expr, newExpr, false);
                     }
                 }
                 return Optional.empty();
@@ -102,9 +106,11 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                         Expression newExpr = rule.apply(matchingContext);
                         if (!expr.equals(newExpr)) {
                             if (context.cascadesContext.isEnableExprTrace()) {
-                                traceExprChanged(rule, expr, newExpr);
+                                traceExprChanged(rule, expr, newExpr, true);
                             }
                             return Optional.of(newExpr);
+                        } else if (context.cascadesContext.isEnableExprTrace()) {
+                            traceExprChanged(rule, expr, newExpr, false);
                         }
                     }
                 }
@@ -113,7 +119,7 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
         }
     }
 
-    private static void traceExprChanged(ExpressionPatternMatchRule rule, Expression expr, Expression newExpr) {
+    private static void traceExprChanged(ExpressionPatternMatchRule rule, Expression expr, Expression newExpr, boolean changed) {
         try {
             Field[] declaredFields = (rule.matchingAction).getClass().getDeclaredFields();
             Class<?> ruleClass;
@@ -124,7 +130,11 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
                 field.setAccessible(true);
                 ruleClass = field.get(rule.matchingAction).getClass();
             }
-            LOG.info("RULE: " + ruleClass + "\nbefore: " + expr + "\nafter: " + newExpr);
+            if (changed) {
+                LOG.info("RULE: " + ruleClass + "\nbefore: " + expr + "\nafter: " + newExpr);
+            } else {
+                LOG.info("RULE: " + ruleClass + " not changed\nbefore: " + expr);
+            }
         } catch (Throwable t) {
             LOG.error(t.getMessage(), t);
         }

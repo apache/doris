@@ -57,6 +57,10 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
         this(conjuncts, null, Optional.empty(), Optional.empty(), child);
     }
 
+    public LogicalFilter(Set<Expression> conjuncts, Expression andConjuncts, CHILD_TYPE child) {
+        this(conjuncts, () -> andConjuncts, Optional.empty(), Optional.empty(), child);
+    }
+
     private LogicalFilter(Set<Expression> conjuncts,
             Supplier<Expression> predicate, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {

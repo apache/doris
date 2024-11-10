@@ -1890,12 +1890,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             int layerCount = project.getMultiLayerProjects().size();
             for (int i = 0; i < layerCount; i++) {
                 List<NamedExpression> layer = project.getMultiLayerProjects().get(i);
-                projectionExprs = layer.stream()
-                        .map(e -> ExpressionTranslator.translate(e, context))
-                        .collect(Collectors.toList());
-                slots = layer.stream()
-                        .map(NamedExpression::toSlot)
-                        .collect(Collectors.toList());
+
+                projectionExprs = new ArrayList<>(layer.size());
+                slots = new ArrayList<>(layer.size());
+                for (int j = 0; j < layer.size(); j++) {
+                    NamedExpression layerExpr = layer.get(j);
+                    projectionExprs.add(ExpressionTranslator.translate(layerExpr, context));
+                    slots.add(layerExpr.toSlot());
+                }
+
                 if (i < layerCount - 1) {
                     inputPlanNode.addIntermediateProjectList(projectionExprs);
                     TupleDescriptor projectionTuple = generateTupleDesc(slots, null, context);
@@ -1904,14 +1907,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 allProjectionExprs.addAll(projectionExprs);
             }
         } else {
-            projectionExprs = project.getProjects()
-                    .stream()
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .collect(Collectors.toList());
-            slots = project.getProjects()
-                    .stream()
-                    .map(NamedExpression::toSlot)
-                    .collect(Collectors.toList());
+            List<NamedExpression> projects = project.getProjects();
+            int projectNum = projects.size();
+            projectionExprs = new ArrayList<>(projectNum);
+            slots = new ArrayList<>(projectNum);
+            for (int j = 0; j < projectNum; j++) {
+                NamedExpression layerExpr = projects.get(j);
+                projectionExprs.add(ExpressionTranslator.translate(layerExpr, context));
+                slots.add(layerExpr.toSlot());
+            }
             allProjectionExprs.addAll(projectionExprs);
         }
         // process multicast sink
