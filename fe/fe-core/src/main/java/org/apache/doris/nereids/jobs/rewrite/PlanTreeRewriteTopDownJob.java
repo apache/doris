@@ -48,7 +48,7 @@ public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
     public void execute() {
         if (!rewriteJobContext.childrenVisited) {
             if (rules.getCurrentAndChildrenRules(rewriteJobContext.plan).isEmpty()) {
-                    rewriteJobContext.setResult(rewriteJobContext.plan);
+                rewriteJobContext.setResult(rewriteJobContext.plan);
                 if (rewriteJobContext.parentContext == null) {
                     context.getCascadesContext().setRewritePlan(rewriteJobContext.plan);
                 }

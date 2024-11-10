@@ -38,6 +38,7 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
     private static final Logger LOG = LogManager.getLogger(ExpressionPatternRules.class);
     private BitSet typePatternIds;
 
+    /** ExpressionPatternRules */
     public ExpressionPatternRules(List<ExpressionPatternMatchRule> typeMappings) {
         super(typeMappings);
 
@@ -53,7 +54,6 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
     protected Set<Class<? extends Expression>> getChildrenClasses(Class<? extends Expression> clazz) {
         return org.apache.doris.nereids.pattern.GeneratedExpressionRelations.CHILDREN_CLASS_MAP.get(clazz);
     }
-
 
     public boolean hasCurrentAndChildrenRules(TreeNode<?> treeNode) {
         BitSet classTypes = treeNode.getAllChildrenTypes();
@@ -119,7 +119,8 @@ public class ExpressionPatternRules extends TypeMappings<Expression, ExpressionP
         }
     }
 
-    private static void traceExprChanged(ExpressionPatternMatchRule rule, Expression expr, Expression newExpr, boolean changed) {
+    private static void traceExprChanged(
+            ExpressionPatternMatchRule rule, Expression expr, Expression newExpr, boolean changed) {
         try {
             Field[] declaredFields = (rule.matchingAction).getClass().getDeclaredFields();
             Class<?> ruleClass;

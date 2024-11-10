@@ -68,7 +68,6 @@ public class ExtractCommonFactorRule implements ExpressionPatternRuleFactory {
             return originExpr;
         }
 
-
         // flatten same type to a list
         // e.g. ((a and (b or c)) and c) -> [a, (b or c), c]
         List<Expression> flatten = ExpressionUtils.extract(originExpr);

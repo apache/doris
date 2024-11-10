@@ -36,8 +36,8 @@ public class FoldConstantRule implements ExpressionPatternRuleFactory {
     public static final FoldConstantRule INSTANCE = new FoldConstantRule();
 
     private static final ExpressionBottomUpRewriter FULL_FOLD_REWRITER = ExpressionRewrite.bottomUp(
-            FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE
-            // FoldConstantRuleOnBE.INSTANCE
+            FoldConstantRuleOnFE.PATTERN_MATCH_INSTANCE,
+            FoldConstantRuleOnBE.INSTANCE
     );
 
     /** evaluate by pattern match */

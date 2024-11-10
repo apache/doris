@@ -35,10 +35,11 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
     public static final String BATCH_ID_KEY = "batch_id";
     private static final Logger LOG = LogManager.getLogger(ExpressionBottomUpRewriter.class);
     private static final AtomicInteger rewriteBatchId = new AtomicInteger();
-    private final ExpressionPatternRules rules;
-    private final ExpressionPatternTraverseListeners listeners;
 
     public final String name = "Rewrite_" + this;
+
+    private final ExpressionPatternRules rules;
+    private final ExpressionPatternTraverseListeners listeners;
 
     public ExpressionBottomUpRewriter(ExpressionPatternRules rules, ExpressionPatternTraverseListeners listeners) {
         this.rules = rules;

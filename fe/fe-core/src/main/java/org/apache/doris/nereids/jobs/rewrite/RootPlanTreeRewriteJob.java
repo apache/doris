@@ -134,6 +134,11 @@ public class RootPlanTreeRewriteJob implements RewriteJob {
         return rules.getCurrentAndChildrenRules();
     }
 
+    @Override
+    public String toString() {
+        return rules.toString();
+    }
+
     /** use to assemble the rewriting plan */
     private static class LinkPlanJob extends Job {
         LinkPlanJob parentJob;

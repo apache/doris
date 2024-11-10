@@ -117,6 +117,13 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
 
     private void ensureChildrenRewritten() {
         Plan plan = rewriteJobContext.plan;
+        if (rules.getCurrentAndChildrenRules(plan).isEmpty()) {
+            // No new plan is generated, so just set the state of the current plan to 'REWRITTEN'.
+            setState(plan, RewriteState.REWRITTEN, batchId);
+            rewriteJobContext.setResult(plan);
+            return;
+        }
+
         int batchId = rewriteJobContext.batchId;
         setState(plan, RewriteState.REWRITE_THIS, batchId);
         pushJob(new PlanTreeRewriteBottomUpJob(rewriteJobContext, context, isTraverseChildren, rules));

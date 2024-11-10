@@ -62,6 +62,11 @@ public class AppliedAwareRule extends Rule {
         appliedRules.set(ruleTypeIndex);
     }
 
+    @Override
+    public String ruleName() {
+        return rule.ruleName();
+    }
+
     /**
      * AppliedAwareRuleCondition: convert one rule to AppliedAwareRule, so that the rule can add
      * some condition depends on whether this rule is applied to some plan

@@ -29,13 +29,16 @@ import java.util.BitSet;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
+/** FilteredRules */
 public class FilteredRules extends Rules {
     private BitSet typePatternIds;
     private Map<Class<?>, List<Rule>> classToRules = new ConcurrentHashMap<>();
     private List<Rule> typeFilterRules;
     private List<Rule> otherRules;
 
+    /** FilteredRules */
     public FilteredRules(List<Rule> rules) {
         super(rules);
 
@@ -92,5 +95,12 @@ public class FilteredRules extends Rules {
             }
         }
         return this.rules;
+    }
+
+    @Override
+    public String toString() {
+        return "rules: " + rules.stream()
+                .map(Rule::ruleName)
+                .collect(Collectors.joining(", ", "[", "]"));
     }
 }
