@@ -709,7 +709,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                                    << snapshot_segment_index_file_path;
                         res = io::global_local_filesystem()->link_file(
                                 index_file, snapshot_segment_index_file_path);
-                        if (!res.ok()) {
+                        if (!res.ok() &&
+                            !tablet_schema.all_inverted_indexes_are_variant_columns()) {
                             LOG(WARNING) << "fail to link binlog index file. [src=" << index_file
                                          << ", dest=" << snapshot_segment_index_file_path << "]";
                             break;

@@ -1379,6 +1379,18 @@ bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
     return false;
 }
 
+bool TabletSchema::all_inverted_indexes_are_variant_columns() const {
+    for (const auto& index : _indexes) {
+        if (index.index_type() == IndexType::INVERTED) {
+            if (index.col_unique_ids().empty() ||
+                !column_by_uid(index.col_unique_ids()[0]).is_variant_type()) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
                                                 const std::string& suffix_path) const {
     for (size_t i = 0; i < _indexes.size(); i++) {

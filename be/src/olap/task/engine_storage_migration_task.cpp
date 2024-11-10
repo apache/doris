@@ -418,7 +418,7 @@ Status EngineStorageMigrationTask::_copy_index_and_data_files(
                                << snapshot_segment_index_file_path;
                     status = io::global_local_filesystem()->copy_path(
                             index_file, snapshot_segment_index_file_path);
-                    if (!status.ok()) {
+                    if (!status.ok() && !tablet_schema.all_inverted_indexes_are_variant_columns()) {
                         LOG(WARNING)
                                 << "fail to copy binlog index file. [src=" << index_file
                                 << ", dest=" << snapshot_segment_index_file_path << "]" << status;

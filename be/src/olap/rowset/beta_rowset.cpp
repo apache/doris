@@ -90,7 +90,13 @@ Status BetaRowset::get_inverted_index_size(size_t* index_size) {
                         InvertedIndexDescriptor::get_index_file_path_v1(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(seg_path),
                                 index->index_id(), index->get_index_suffix());
-                RETURN_IF_ERROR(fs->file_size(inverted_index_file_path, &file_size));
+                if (auto st = fs->file_size(inverted_index_file_path, &file_size); !st.ok()) {
+                    if (!_schema->all_inverted_indexes_are_variant_columns()) {
+                        return st;
+                    } else {
+                        file_size = 0;
+                    }
+                }
                 *index_size += file_size;
             }
         }
@@ -407,8 +413,11 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
                             InvertedIndexDescriptor::get_index_file_path_v1(
                                     InvertedIndexDescriptor::get_index_file_path_prefix(dst_path),
                                     index_meta->index_id(), index_meta->get_index_suffix());
-                    RETURN_IF_ERROR(io::global_local_filesystem()->copy_path(
-                            inverted_index_src_file_path, inverted_index_dst_file_path));
+                    if (auto st = io::global_local_filesystem()->copy_path(
+                                inverted_index_src_file_path, inverted_index_dst_file_path);
+                        !st.ok() && !_schema->all_inverted_indexes_are_variant_columns()) {
+                        return st;
+                    }
                     LOG(INFO) << "success to copy file. from=" << inverted_index_src_file_path
                               << ", "
                               << "to=" << inverted_index_dst_file_path;
@@ -446,6 +455,7 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
     local_paths.reserve(num_segments());
     std::vector<io::Path> dest_paths;
     dest_paths.reserve(num_segments());
+    const auto& fs = _rowset_meta->fs();
     for (int i = 0; i < num_segments(); ++i) {
         // Note: Here we use relative path for remote.
         auto remote_seg_path = dest_fs.remote_segment_path(_rowset_meta->tablet_id(),
@@ -468,6 +478,15 @@ Status BetaRowset::upload_to(const StorageResource& dest_fs, const RowsetId& new
                                     InvertedIndexDescriptor::get_index_file_path_prefix(
                                             local_seg_path),
                                     index_meta->index_id(), index_meta->get_index_suffix());
+                    bool index_file_exists = true;
+                    RETURN_IF_ERROR(fs->exists(local_inverted_index_file, &index_file_exists));
+                    if (!index_file_exists &&
+                        !_schema->all_inverted_indexes_are_variant_columns()) {
+                        return Status::InternalError(
+                                "index file is not exist, tablet_id={} rowset_id={} file_path = {}",
+                                _rowset_meta->tablet_id(), rowset_id().to_string(),
+                                local_inverted_index_file);
+                    }
                     dest_paths.emplace_back(remote_inverted_index_file);
                     local_paths.emplace_back(local_inverted_index_file);
                 }
@@ -614,7 +633,10 @@ Status BetaRowset::add_to_binlog() {
                                           std::filesystem::path(index_file).filename())
                                                  .string();
                 VLOG_DEBUG << "link " << index_file << " to " << binlog_index_file;
-                RETURN_IF_ERROR(fs->link_file(index_file, binlog_index_file));
+                if (auto st = fs->link_file(index_file, binlog_index_file);
+                    !st.ok() && !_schema->all_inverted_indexes_are_variant_columns()) {
+                    return st;
+                }
                 linked_success_files.push_back(binlog_index_file);
             }
         } else {
@@ -681,7 +703,7 @@ Status BetaRowset::calc_file_crc(uint32_t* crc_value, int64_t* file_count) {
     for (const auto& file_path : file_paths) {
         std::string file_md5sum;
         auto status = local_fs->md5sum(file_path, &file_md5sum);
-        if (!status.ok()) {
+        if (!status.ok() && !_schema->all_inverted_indexes_are_variant_columns()) {
             return status;
         }
         VLOG_CRITICAL << fmt::format("calc file_md5sum finished. file_path={}, md5sum={}",
