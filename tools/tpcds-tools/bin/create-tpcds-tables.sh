@@ -103,12 +103,12 @@ echo "USER: ${USER}"
 echo "DB: ${DB}"
 echo "SF: ${SCALE_FACTOR}"
 if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "DROP DATABASE IF EXISTS ${DB}" 2>&1; then
-    printf "Error: Failed to drop the database %s.\n" "$DB" >&2
+    printf "Error: Failed to drop the database %s.\n" "${DB}" >&2
     exit 1
 fi
 
 if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE ${DB}" 2>&1; then
-    printf "Error: Failed to create the database %s.\n" "$DB" >&2
+    printf "Error: Failed to create the database %s.\n" "${DB}" >&2
     exit 1
 fi
 # shellcheck disable=SC2292

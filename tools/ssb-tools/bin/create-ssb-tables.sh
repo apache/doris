@@ -145,7 +145,7 @@ elif [ "${SCALE_FACTOR}" -eq 1000 ]; then
         exit 1
     fi
 else
-    printf "%s scale is NOT supported currently\n" "$SCALE_FACTOR"
+    printf "%s scale is NOT supported currently\n" "${SCALE_FACTOR}"
 fi
 
 echo "ssb tables has been created"
