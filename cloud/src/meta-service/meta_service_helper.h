@@ -19,7 +19,9 @@
 
 #include <brpc/controller.h>
 #include <gen_cpp/cloud.pb.h>
+#include <openssl/md5.h>
 
+#include <iomanip>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -35,6 +37,19 @@
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
+inline std::string md5(const std::string& str) {
+    unsigned char digest[MD5_DIGEST_LENGTH];
+    MD5_CTX context;
+    MD5_Init(&context);
+    MD5_Update(&context, str.c_str(), str.length());
+    MD5_Final(digest, &context);
+
+    std::ostringstream ss;
+    for (unsigned char i : digest) {
+        ss << std::setw(2) << std::setfill('0') << std::hex << (int)i;
+    }
+    return ss.str();
+}
 
 template <class Request>
 void begin_rpc(std::string_view func_name, brpc::Controller* ctrl, const Request* req) {
@@ -101,7 +116,25 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " status=" << res->status().ShortDebugString()
                   << " delete_bitmap_size=" << res->segment_delete_bitmaps_size();
+    } else if constexpr (std::is_same_v<Response, GetObjStoreInfoRequest> ||
+                         std::is_same_v<Response, GetStageRequest>) {
+        std::string debug_string = res->DebugString();
+        // Check if "sk" field exists in the debug string, assuming "sk" appears as "sk: value"
+        size_t pos = debug_string.find("sk: ");
+        if (pos != std::string::npos) {
+            // Found "sk" field, extract its value and perform MD5 encryption
+            size_t sk_value_start = debug_string.find('\"', pos) + 1;
+            size_t sk_value_end = debug_string.find('\"', sk_value_start);
 
+            std::string sk_value =
+                    debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
+            std::string encrypted_sk = md5(sk_value);
+
+            // Replace the original "sk" value with the encrypted MD5 value
+            debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
+        }
+        LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
+                  << " response=" << debug_string;
     } else {
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " response=" << res->ShortDebugString();
