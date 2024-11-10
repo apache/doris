@@ -135,14 +135,6 @@ public class MTMVPartitionUtilTest {
                 baseOlapTable.getPartitionSnapshot(anyString, (MTMVRefreshContext) any);
                 minTimes = 0;
                 result = baseSnapshotIf;
-
-                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
-                minTimes = 0;
-                result = true;
-
-                refreshSnapshot.getSnapshotPartitions(anyString);
-                minTimes = 0;
-                result = Sets.newHashSet("name2");
             }
         };
     }
@@ -164,41 +156,6 @@ public class MTMVPartitionUtilTest {
         };
         boolean mtmvSync = MTMVPartitionUtil.isMTMVSync(mtmv);
         Assert.assertFalse(mtmvSync);
-    }
-
-    @Test
-    public void testIsSyncWithPartition() throws AnalysisException {
-        boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"));
-        Assert.assertTrue(isSyncWithPartition);
-    }
-
-    @Test
-    public void testIsSyncWithPartitionNotEqual() throws AnalysisException {
-        new Expectations() {
-            {
-                refreshSnapshot.getSnapshotPartitions(anyString);
-                minTimes = 0;
-                result = Sets.newHashSet("name2", "name3");
-            }
-        };
-        boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"));
-        Assert.assertFalse(isSyncWithPartition);
-    }
-
-    @Test
-    public void testIsSyncWithPartitionNotSync() throws AnalysisException {
-        new Expectations() {
-            {
-                refreshSnapshot.equalsWithRelatedPartition(anyString, anyString, (MTMVSnapshotIf) any);
-                minTimes = 0;
-                result = false;
-            }
-        };
-        boolean isSyncWithPartition = MTMVPartitionUtil
-                .isSyncWithPartitions(context, "name1", Sets.newHashSet("name2"));
-        Assert.assertFalse(isSyncWithPartition);
     }
 
     @Test

@@ -25,7 +25,8 @@ import java.util.Set;
 
 public class MTMVRefreshContext {
     private MTMV mtmv;
-    private Map<String, Set<String>> partitionMappings;
+    // mvPartitionName ==> baseTableInfo : baseTablePartitionName
+    private Map<String, Map<BaseTableInfo, Set<String>>> partitionMappings;
     private MTMVBaseVersions baseVersions;
 
     public MTMVRefreshContext(MTMV mtmv) {
@@ -36,7 +37,7 @@ public class MTMVRefreshContext {
         return mtmv;
     }
 
-    public Map<String, Set<String>> getPartitionMappings() {
+    public Map<String, Map<BaseTableInfo, Set<String>>> getPartitionMappings() {
         return partitionMappings;
     }
 
