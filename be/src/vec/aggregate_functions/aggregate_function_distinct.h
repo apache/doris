@@ -35,7 +35,6 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -59,8 +58,8 @@ namespace doris::vectorized {
 template <typename T, bool stable>
 struct AggregateFunctionDistinctSingleNumericData {
     /// When creating, the hash table must be small.
-    using Container = std::conditional_t<stable, phmap::flat_hash_map<T, uint32_t>,
-                                         HashSetWithStackMemory<T, DefaultHash<T>, 4>>;
+    using Container =
+            std::conditional_t<stable, phmap::flat_hash_map<T, uint32_t>, phmap::flat_hash_set<T>>;
     using Self = AggregateFunctionDistinctSingleNumericData<T, stable>;
     Container data;
 
@@ -78,21 +77,30 @@ struct AggregateFunctionDistinctSingleNumericData {
     void merge(const Self& rhs, Arena*) {
         DCHECK(!stable);
         if constexpr (!stable) {
-            data.merge(rhs.data);
+            data.merge(Container(rhs.data));
         }
     }
 
     void serialize(BufferWritable& buf) const {
         DCHECK(!stable);
         if constexpr (!stable) {
-            data.write(buf);
+            write_var_uint(data.size(), buf);
+            for (const auto& value : data) {
+                write_binary(value, buf);
+            }
         }
     }
 
     void deserialize(BufferReadable& buf, Arena*) {
         DCHECK(!stable);
         if constexpr (!stable) {
-            data.read(buf);
+            size_t new_size = 0;
+            read_var_uint(new_size, buf);
+            T x;
+            for (size_t i = 0; i < new_size; ++i) {
+                read_binary(x, buf);
+                data.insert(x);
+            }
         }
     }
 
@@ -108,7 +116,7 @@ struct AggregateFunctionDistinctSingleNumericData {
             }
         } else {
             for (const auto& elem : data) {
-                argument_columns[0]->insert(elem.get_value());
+                argument_columns[0]->insert(elem);
             }
         }
 
@@ -120,19 +128,17 @@ template <bool stable>
 struct AggregateFunctionDistinctGenericData {
     /// When creating, the hash table must be small.
     using Container = std::conditional_t<stable, phmap::flat_hash_map<StringRef, uint32_t>,
-                                         HashSetWithStackMemory<StringRef, StringRefHash, 4>>;
+                                         phmap::flat_hash_set<StringRef, StringRefHash>>;
     using Self = AggregateFunctionDistinctGenericData;
     Container data;
 
     void merge(const Self& rhs, Arena* arena) {
         DCHECK(!stable);
         if constexpr (!stable) {
-            typename Container::LookupResult it;
-            bool inserted;
             for (const auto& elem : rhs.data) {
-                StringRef key = elem.get_value();
+                StringRef key = elem;
                 key.data = arena->insert(key.data, key.size);
-                data.emplace(key, it, inserted);
+                data.emplace(key);
             }
         }
     }
@@ -142,7 +148,7 @@ struct AggregateFunctionDistinctGenericData {
         if constexpr (!stable) {
             write_var_uint(data.size(), buf);
             for (const auto& elem : data) {
-                write_string_binary(elem.get_value(), buf);
+                write_string_binary(elem, buf);
             }
         }
     }
@@ -174,9 +180,7 @@ struct AggregateFunctionDistinctSingleGenericData
         if constexpr (stable) {
             data.emplace(key, data.size());
         } else {
-            typename Base::Container::LookupResult it;
-            bool inserted;
-            data.emplace(key, it, inserted);
+            data.insert(key);
         }
     }
 
@@ -193,7 +197,7 @@ struct AggregateFunctionDistinctSingleGenericData
             }
         } else {
             for (const auto& elem : data) {
-                argument_columns[0]->insert_data(elem.get_value().data, elem.get_value().size);
+                argument_columns[0]->insert_data(elem.data, elem.size);
             }
         }
 
@@ -218,9 +222,7 @@ struct AggregateFunctionDistinctMultipleGenericData
         if constexpr (stable) {
             data.emplace(key, data.size());
         } else {
-            typename Base::Container::LookupResult it;
-            bool inserted;
-            data.emplace(key, it, inserted);
+            data.emplace(key);
         }
     }
 
@@ -243,7 +245,7 @@ struct AggregateFunctionDistinctMultipleGenericData
             }
         } else {
             for (const auto& elem : data) {
-                const char* begin = elem.get_value().data;
+                const char* begin = elem.data;
                 for (auto& column : argument_columns) {
                     begin = column->deserialize_and_insert_from_arena(begin);
                 }
