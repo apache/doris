@@ -15,35 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
-
-#include "http/http_handler.h"
-#include "http/http_handler_with_auth.h"
-
+#ifndef DORIS_JEPROFILE_ACTIONS_H
+#define DORIS_JEPROFILE_ACTIONS_H
+#include "common/status.h"
 namespace doris {
-
-class HttpRequest;
+class EvHttpServer;
 class ExecEnv;
-
-class SetJeHeapProfileActiveActions final : public HttpHandlerWithAuth {
+class ObjectPool;
+class JeprofileActions {
 public:
-    SetJeHeapProfileActiveActions(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
-    ~SetJeHeapProfileActiveActions() override = default;
-    void handle(HttpRequest* req) override;
-};
-
-class DumpJeHeapProfileToDotActions final : public HttpHandlerWithAuth {
-public:
-    DumpJeHeapProfileToDotActions(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
-    ~DumpJeHeapProfileToDotActions() override = default;
-    void handle(HttpRequest* req) override;
-};
-
-class DumpJeHeapProfileActions final : public HttpHandlerWithAuth {
-public:
-    DumpJeHeapProfileActions(ExecEnv* exec_env) : HttpHandlerWithAuth(exec_env) {}
-    ~DumpJeHeapProfileActions() override = default;
-    void handle(HttpRequest* req) override;
+    static Status setup(ExecEnv* exec_env, EvHttpServer* http_server, ObjectPool& pool);
 };
 
 } // namespace doris
+#endif //DORIS_JEPROFILE_ACTIONS_H
