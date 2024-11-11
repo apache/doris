@@ -140,6 +140,14 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
         child_expr_name.emplace_back(_input_exprs_ctx->root()->expr_name());
     }
 
+    std::vector<std::pair<std::string, bool>> column_infos;
+    for (const auto& expr_ctx : _input_exprs_ctxs) {
+        const auto& root = expr_ctx->root();
+        if (!root->expr_name().empty()) {
+            column_infos.emplace_back(root->expr_name(), root->is_constant());
+        }
+    }
+
     const DataTypes& argument_types =
             _real_argument_types.empty() ? tmp_argument_types : _real_argument_types;
 
@@ -202,11 +210,15 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types,
                     AggregateFunctionSimpleFactory::result_nullable_by_foreach(_data_type),
-                    state->be_exec_version(), {.enable_decimal256 = state->enable_decimal256()});
+                    state->be_exec_version(),
+                    {.enable_decimal256 = state->enable_decimal256(),
+                     .column_infos = std::move(column_infos)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
                     _fn.name.function_name, argument_types, _data_type->is_nullable(),
-                    state->be_exec_version(), {.enable_decimal256 = state->enable_decimal256()});
+                    state->be_exec_version(),
+                    {.enable_decimal256 = state->enable_decimal256(),
+                     .column_infos = std::move(column_infos)});
         }
     }
     if (_function == nullptr) {
