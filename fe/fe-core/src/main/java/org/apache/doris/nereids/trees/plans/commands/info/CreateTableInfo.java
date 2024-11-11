@@ -74,6 +74,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -607,6 +608,13 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
+            boolean isIndexFormatV1 = false;
+            try {
+                isIndexFormatV1 = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                                        new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1;
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
 
             for (IndexDefinition indexDef : indexes) {
                 indexDef.validate();
@@ -618,7 +626,7 @@ public class CreateTableInfo {
                     boolean found = false;
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, keysType, isEnableMergeOnWrite);
+                            indexDef.checkColumn(column, keysType, isEnableMergeOnWrite, isIndexFormatV1);
                             found = true;
                             break;
                         }

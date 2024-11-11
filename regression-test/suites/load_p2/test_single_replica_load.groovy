@@ -59,7 +59,7 @@ suite("test_single_replica_load", "p2") {
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 1
-        properties("replication_num" = "2", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V1");
+        properties("replication_num" = "2", "disable_auto_compaction" = "true", "inverted_index_storage_format" = "V2");
     """
     load_json_data.call(tableName, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(tableName, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")

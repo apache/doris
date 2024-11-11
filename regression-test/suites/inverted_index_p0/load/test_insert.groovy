@@ -72,10 +72,8 @@ suite("test_insert_with_index", "p0") {
     }
 
     set_be_config("inverted_index_ram_dir_enable", "true")
-    test.call("V1")
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "false")
-    test.call("V1")
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "true")
 }

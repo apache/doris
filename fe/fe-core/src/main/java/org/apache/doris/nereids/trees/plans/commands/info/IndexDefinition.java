@@ -93,7 +93,7 @@ public class IndexDefinition {
      * checkColumn
      */
     public void checkColumn(ColumnDefinition column, KeysType keysType,
-            boolean enableUniqueKeyMergeOnWrite) throws AnalysisException {
+            boolean enableUniqueKeyMergeOnWrite, boolean isIndexFormatV1) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED
                 || indexType == IndexType.BLOOMFILTER || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -105,6 +105,9 @@ public class IndexDefinition {
                 // TODO add colType.isAggState()
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
+            }
+            if (colType.isVariantType() && isIndexFormatV1) {
+                throw new AnalysisException(colType + " is not supported in inverted index format V1");
             }
             if (!column.isKey()) {
                 if (keysType == KeysType.AGG_KEYS) {

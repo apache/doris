@@ -123,7 +123,6 @@ suite("test_show_nested_index_file_http_action_with_variant", "nonConcurrent,p0"
         qt_sql """select count() from ${tableName} where  cast(v["repo"]["name"] as string) = 'xpressengine/xe-core'"""
     }
 
-    run_test("V1")
     run_test("V2")
 
     set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "2147483648")
