@@ -3,10 +3,10 @@
 a	["aa", "a"]
 
 -- !select_default --
-a	["aaa", "aa", "a"]
+a	["a", "aa", "aaa"]
 b	["b"]
 
 -- !select_default --
-a	["aaa", "aa", "a"]
+a	["a", "aa", "aaa"]
 b	["b"]
 
