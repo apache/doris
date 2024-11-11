@@ -47,17 +47,20 @@ namespace pipeline {
 class PipelineFragmentContext;
 } // namespace pipeline
 
+struct BaseReportStatusRequest {
+    TUniqueId query_id;
+    int fragment_id;
+    std::shared_ptr<pipeline::PipelineFragmentContext> context;
+    ThreadPool* global_thread_pool;
+    ExecEnv* exec_env;
+};
+
 struct ReportStatusRequest {
     const Status status;
     std::vector<RuntimeState*> runtime_states;
     bool done;
     TNetworkAddress coord_addr;
-    TUniqueId query_id;
-    int fragment_id;
-    TUniqueId fragment_instance_id;
-    int backend_num;
     RuntimeState* runtime_state;
-    std::function<void(const Status&)> cancel_fn;
 };
 
 enum class QuerySource {

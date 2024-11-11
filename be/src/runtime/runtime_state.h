@@ -234,8 +234,6 @@ public:
     void set_be_number(int be_number) { _be_number = be_number; }
     int be_number(void) const { return _be_number; }
 
-    std::vector<std::string>& output_files() { return _output_files; }
-
     void set_import_label(const std::string& import_label) { _import_label = import_label; }
 
     const std::vector<std::string>& export_output_files() const { return _export_output_files; }
@@ -669,7 +667,6 @@ private:
     int _be_number;
 
     // put here to collect files??
-    std::vector<std::string> _output_files;
     std::atomic<int64_t> _num_rows_load_total;      // total rows read from source
     std::atomic<int64_t> _num_rows_load_filtered;   // unqualified rows
     std::atomic<int64_t> _num_rows_load_unselected; // rows filtered by predicates

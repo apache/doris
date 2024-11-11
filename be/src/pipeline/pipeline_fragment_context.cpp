@@ -21,6 +21,10 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <pthread.h>
+#include <thrift/TApplicationException.h>
+#include <thrift/Thrift.h>
+#include <thrift/protocol/TDebugProtocol.h>
+#include <thrift/transport/TTransportException.h>
 
 #include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
@@ -117,14 +121,18 @@ namespace doris::pipeline {
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const int fragment_id, std::shared_ptr<QueryContext> query_ctx,
         ExecEnv* exec_env, const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb)
+        ThreadPool* thread_pool)
         : _query_id(query_id),
           _fragment_id(fragment_id),
           _exec_env(exec_env),
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
           _is_report_on_cancel(true),
-          _report_status_cb(report_status_cb) {
+          _global_thread_pool(thread_pool) {
+    _status_reporter = StatusReporter::create_unique(BaseReportStatusRequest {
+            _query_id, _fragment_id,
+            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
+            _global_thread_pool, _exec_env});
     _fragment_watcher.start();
 }
 
@@ -227,8 +235,7 @@ PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     return pipeline;
 }
 
-Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
-                                        ThreadPool* thread_pool) {
+Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
@@ -260,6 +267,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         _runtime_state = RuntimeState::create_unique(
                 request.query_id, request.fragment_id, request.query_options,
                 _query_ctx->query_globals, _exec_env, _query_ctx.get());
+
+        _status_reporter->set_query_type(_runtime_state->query_type());
 
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         if (request.__isset.backend_id) {
@@ -341,7 +350,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     {
         SCOPED_TIMER(_build_tasks_timer);
         // 6. Build pipeline tasks and initialize local state.
-        RETURN_IF_ERROR(_build_pipeline_tasks(request, thread_pool));
+        RETURN_IF_ERROR(_build_pipeline_tasks(request));
     }
 
     _init_next_report_time();
@@ -350,8 +359,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     return Status::OK();
 }
 
-Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
-                                                      ThreadPool* thread_pool) {
+Status PipelineFragmentContext::_build_pipeline_tasks(
+        const doris::TPipelineFragmentParams& request) {
     _total_tasks = 0;
     const auto target_size = request.local_params.size();
     _tasks.resize(target_size);
@@ -534,7 +543,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         std::condition_variable cv;
         int prepare_done = 0;
         for (int i = 0; i < target_size; i++) {
-            RETURN_IF_ERROR(thread_pool->submit_func([&, i]() {
+            RETURN_IF_ERROR(_global_thread_pool->submit_func([&, i]() {
                 SCOPED_ATTACH_TASK(_query_ctx.get());
                 prepare_status[i] = pre_and_submit(i, this);
                 std::unique_lock<std::mutex> lock(m);
@@ -1802,19 +1811,8 @@ Status PipelineFragmentContext::send_report(bool done) {
         }
     }
 
-    ReportStatusRequest req {exec_status,
-                             runtime_states,
-                             done || !exec_status.ok(),
-                             _query_ctx->coord_addr,
-                             _query_id,
-                             _fragment_id,
-                             TUniqueId(),
-                             -1,
-                             _runtime_state.get(),
-                             [this](const Status& reason) { cancel(reason); }};
-
-    return _report_status_cb(
-            req, std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+    return _status_reporter->report({exec_status, runtime_states, done || !exec_status.ok(),
+                                     _query_ctx->coord_addr, _runtime_state.get()});
 }
 
 std::string PipelineFragmentContext::debug_string() {
@@ -1889,6 +1887,190 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
     auto load_channel_profile = std::make_shared<TRuntimeProfileTree>();
     _runtime_state->load_channel_profile()->to_thrift(load_channel_profile.get());
     return load_channel_profile;
+}
+
+StatusReporter::StatusReporter(const BaseReportStatusRequest&& request)
+        : _context(request.context),
+          _thread_pool(request.global_thread_pool),
+          _exec_env(request.exec_env) {
+    _params.protocol_version = FrontendServiceVersion::V1;
+    _params.__set_query_id(request.query_id);
+    _params.__set_backend_num(-1);
+    _params.__set_fragment_instance_id(TUniqueId());
+    _params.__set_fragment_id(request.fragment_id);
+    _params.__isset.profile = false;
+    if (_exec_env->master_info()->__isset.backend_id) {
+        _params.__set_backend_id(_exec_env->master_info()->backend_id);
+    }
+}
+
+Status StatusReporter::report(const ReportStatusRequest& request) {
+    return _thread_pool->submit_func([this, request]() {
+        SCOPED_ATTACH_TASK(_context->get_query_ctx()->query_mem_tracker);
+        _do_report(request);
+        if (!request.done) {
+            _context->refresh_next_report_time();
+        }
+    });
+}
+
+// There can only be one of these callbacks in-flight at any moment, because
+// it is only invoked from the executor's reporting thread.
+// Also, the reported status will always reflect the most recent execution status,
+// including the final status when execution finishes.
+void StatusReporter::_do_report(const ReportStatusRequest& req) {
+    DCHECK(req.status.ok() || req.done); // if !status.ok() => done
+    if (req.coord_addr.hostname == "external") {
+        // External query (flink/spark read tablets) not need to report to FE.
+        return;
+    }
+    Status exec_status = req.status;
+    Status coord_status;
+    FrontendServiceConnection coord(_exec_env->frontend_client_cache(), req.coord_addr,
+                                    &coord_status);
+    if (!coord_status.ok()) {
+        std::stringstream ss;
+        UniqueId uid(_params.query_id.hi, _params.query_id.lo);
+        static_cast<void>(_context->cancel(Status::InternalError(
+                "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
+                PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
+        return;
+    }
+
+    _params.__set_status(exec_status.to_thrift());
+    _params.__set_done(req.done);
+
+    // load rows
+    static std::string s_dpp_normal_all = "dpp.norm.ALL";
+    static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
+    static std::string s_unselected_rows = "unselected.rows";
+    int64_t num_rows_load_success = 0;
+    int64_t num_rows_load_filtered = 0;
+    int64_t num_rows_load_unselected = 0;
+    for (auto* rs : req.runtime_states) {
+        if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
+            req.runtime_state->num_finished_range() > 0) {
+            _params.__isset.load_counters = true;
+            num_rows_load_success += rs->num_rows_load_success();
+            num_rows_load_filtered += rs->num_rows_load_filtered();
+            num_rows_load_unselected += rs->num_rows_load_unselected();
+            _params.__isset.fragment_instance_reports = true;
+            TFragmentInstanceReport t;
+            t.__set_fragment_instance_id(rs->fragment_instance_id());
+            t.__set_num_finished_range(cast_set<int32_t>(rs->num_finished_range()));
+            t.__set_loaded_rows(rs->num_rows_load_total());
+            t.__set_loaded_bytes(rs->num_bytes_load_total());
+            _params.fragment_instance_reports.push_back(t);
+        }
+    }
+    _params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
+    _params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
+    _params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
+
+    for (auto* rs : req.runtime_states) {
+        if (!rs->get_error_log_file_path().empty()) {
+            _params.__set_tracking_url(to_load_error_http_path(rs->get_error_log_file_path()));
+        }
+        if (rs->wal_id() > 0) {
+            _params.__set_txn_id(rs->wal_id());
+            _params.__set_label(rs->import_label());
+        }
+    }
+    for (auto* rs : req.runtime_states) {
+        if (!rs->export_output_files().empty()) {
+            _params.__isset.export_files = true;
+            _params.export_files.insert(_params.export_files.end(),
+                                        rs->export_output_files().begin(),
+                                        rs->export_output_files().end());
+        }
+    }
+    for (auto* rs : req.runtime_states) {
+        if (!rs->tablet_commit_infos().empty()) {
+            _params.__isset.commitInfos = true;
+            _params.commitInfos.insert(_params.commitInfos.end(), rs->tablet_commit_infos().begin(),
+                                       rs->tablet_commit_infos().end());
+        }
+    }
+    for (auto* rs : req.runtime_states) {
+        if (!rs->error_tablet_infos().empty()) {
+            _params.__isset.errorTabletInfos = true;
+            _params.errorTabletInfos.insert(_params.errorTabletInfos.end(),
+                                            rs->error_tablet_infos().begin(),
+                                            rs->error_tablet_infos().end());
+        }
+    }
+
+    for (auto* rs : req.runtime_states) {
+        if (!rs->hive_partition_updates().empty()) {
+            _params.__isset.hive_partition_updates = true;
+            _params.hive_partition_updates.insert(_params.hive_partition_updates.end(),
+                                                  rs->hive_partition_updates().begin(),
+                                                  rs->hive_partition_updates().end());
+        }
+    }
+
+    for (auto* rs : req.runtime_states) {
+        if (!rs->iceberg_commit_datas().empty()) {
+            _params.__isset.iceberg_commit_datas = true;
+            _params.iceberg_commit_datas.insert(_params.iceberg_commit_datas.end(),
+                                                rs->iceberg_commit_datas().begin(),
+                                                rs->iceberg_commit_datas().end());
+        }
+    }
+
+    // Send new errors to coordinator
+    req.runtime_state->get_unreported_errors(&(_params.error_log));
+    _params.__isset.error_log = (!_params.error_log.empty());
+
+    TReportExecStatusResult res;
+    Status rpc_status;
+
+    VLOG_DEBUG << "reportExecStatus params is "
+               << apache::thrift::ThriftDebugString(_params).c_str();
+    if (!exec_status.ok()) {
+        LOG(WARNING) << "report error status: " << exec_status.msg()
+                     << " to coordinator: " << req.coord_addr
+                     << ", query id: " << print_id(_params.query_id);
+    }
+    try {
+        try {
+            coord->reportExecStatus(res, _params);
+        } catch (apache::thrift::transport::TTransportException& e) {
+            LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(_params.query_id)
+                         << " to " << req.coord_addr << ", err: " << e.what();
+            rpc_status = coord.reopen();
+
+            if (!rpc_status.ok()) {
+                // we need to cancel the execution of this fragment
+                _context->cancel(rpc_status);
+                return;
+            }
+            coord->reportExecStatus(res, _params);
+        }
+
+        rpc_status = Status::create<false>(res.status);
+    } catch (apache::thrift::TException& e) {
+        rpc_status = Status::InternalError("ReportExecStatus() to {} failed: {}",
+                                           PrintThriftNetworkAddress(req.coord_addr), e.what());
+    }
+
+    if (!rpc_status.ok()) {
+        LOG_INFO("Going to cancel query {} since report exec status got rpc failed: {}",
+                 print_id(_params.query_id), rpc_status.to_string());
+        // we need to cancel the execution of this fragment
+        _context->cancel(rpc_status);
+    }
+
+    // Clear temp status
+    _params.error_log.clear();
+    _params.iceberg_commit_datas.clear();
+    _params.hive_partition_updates.clear();
+    _params.errorTabletInfos.clear();
+    _params.commitInfos.clear();
+    _params.export_files.clear();
+    _params.fragment_instance_reports.clear();
+    _params.__isset.txn_id = false;
+    _params.__isset.label = false;
 }
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

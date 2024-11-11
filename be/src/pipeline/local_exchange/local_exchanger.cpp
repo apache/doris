@@ -19,7 +19,6 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
-#include "pipeline/exec/sort_sink_operator.h"
 #include "pipeline/exec/sort_source_operator.h"
 #include "pipeline/local_exchange/local_exchange_sink_operator.h"
 #include "pipeline/local_exchange/local_exchange_source_operator.h"

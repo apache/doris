@@ -50,22 +50,15 @@ class TPipelineFragmentParams;
 namespace pipeline {
 
 class Dependency;
+class StatusReporter;
 
 class PipelineFragmentContext : public TaskExecutionContext {
 public:
     ENABLE_FACTORY_CREATOR(PipelineFragmentContext);
-    // Callback to report execution status of plan fragment.
-    // 'profile' is the cumulative profile, 'done' indicates whether the execution
-    // is done or still continuing.
-    // Note: this does not take a const RuntimeProfile&, because it might need to call
-    // functions like PrettyPrint() or to_thrift(), neither of which is const
-    // because they take locks.
-    using report_status_callback = std::function<Status(
-            const ReportStatusRequest, std::shared_ptr<pipeline::PipelineFragmentContext>&&)>;
     PipelineFragmentContext(const TUniqueId& query_id, const int fragment_id,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
-                            const report_status_callback& report_status_cb);
+                            ThreadPool* thread_pool);
 
     ~PipelineFragmentContext();
 
@@ -86,7 +79,7 @@ public:
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
-    Status prepare(const doris::TPipelineFragmentParams& request, ThreadPool* thread_pool);
+    Status prepare(const doris::TPipelineFragmentParams& request);
 
     Status submit();
 
@@ -167,8 +160,7 @@ private:
                                     const std::map<int, int>& bucket_seq_to_instance_idx,
                                     const std::map<int, int>& shuffle_idx_to_instance_idx);
 
-    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request,
-                                 ThreadPool* thread_pool);
+    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
     void _close_fragment_instance();
     void _init_next_report_time();
 
@@ -214,9 +206,6 @@ private:
     // 0 indicates reporting is in progress or not required
     std::atomic_bool _disable_period_report = true;
     std::atomic_uint64_t _previous_report_time = 0;
-
-    // profile reporting-related
-    report_status_callback _report_status_cb;
 
     DescriptorTbl* _desc_tbl = nullptr;
     int _num_instances = 1;
@@ -306,6 +295,25 @@ private:
     // Total instance num running on all BEs
     int _total_instances = -1;
     bool _require_bucket_distribution = false;
+    ThreadPool* _global_thread_pool;
+    std::unique_ptr<StatusReporter> _status_reporter;
+};
+
+class StatusReporter {
+public:
+    ENABLE_FACTORY_CREATOR(StatusReporter);
+    StatusReporter(const BaseReportStatusRequest&& request);
+    void set_query_type(TQueryType::type query_type) { _query_type = query_type; }
+    Status report(const ReportStatusRequest& request);
+
+private:
+    void _do_report(const ReportStatusRequest& request);
+
+    std::shared_ptr<pipeline::PipelineFragmentContext> _context;
+    ThreadPool* _thread_pool;
+    ExecEnv* _exec_env;
+    TReportExecStatusParams _params;
+    TQueryType::type _query_type;
 };
 } // namespace pipeline
 } // namespace doris
