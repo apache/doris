@@ -349,16 +349,11 @@ public class OriginalPlanner extends Planner {
      * The top plan fragment will only summarize the status of the exported result set and return it to fe.
      */
     private void pushDownResultFileSink(Analyzer analyzer) {
-        if (fragments.size() < 1) {
-            return;
-        }
-        if (!(fragments.get(0).getSink() instanceof ResultFileSink)) {
-            return;
-        }
-        if (!ConnectContext.get().getSessionVariable().isEnableParallelOutfile()) {
-            return;
-        }
-        if (!(fragments.get(0).getPlanRoot() instanceof ExchangeNode)) {
+        if (!ConnectContext.get().getSessionVariable().isEnableParallelOutfile()
+                || ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
+                || fragments.size() < 1
+                || !(fragments.get(0).getPlanRoot() instanceof ExchangeNode)
+                || !(fragments.get(0).getSink() instanceof ResultFileSink)) {
             return;
         }
         PlanFragment topPlanFragment = fragments.get(0);
