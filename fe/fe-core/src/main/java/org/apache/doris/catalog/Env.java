@@ -3605,12 +3605,6 @@ public class Env {
             sb.append(olapTable.rowStorePageSize()).append("\"");
         }
 
-        // storage page size
-        if (olapTable.storagePageSize() != PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE) {
-            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE).append("\" = \"");
-            sb.append(olapTable.storagePageSize()).append("\"");
-        }
-
         // skip inverted index on load
         if (olapTable.skipWriteIndexOnLoad()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
