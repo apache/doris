@@ -3197,7 +3197,8 @@ public class StmtExecutor {
             List<AlterClause> ops = new ArrayList<>();
             Map<String, String> properties = new HashMap<>();
             properties.put("swap", "false");
-            ops.add(new ReplaceTableClause(tmpTableName.getTbl(), properties));
+            // swap false. but this operation is internal. so we will consider it as force drop for original table.
+            ops.add(new ReplaceTableClause(tmpTableName.getTbl(), properties, true));
             parsedStmt = new AlterTableStmt(targetTableName, ops);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
