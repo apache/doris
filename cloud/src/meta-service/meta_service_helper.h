@@ -31,6 +31,7 @@
 #include "common/logging.h"
 #include "common/stopwatch.h"
 #include "common/util.h"
+#include "cpp/sync_point.h"
 #include "meta-service/keys.h"
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
@@ -116,8 +117,8 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " status=" << res->status().ShortDebugString()
                   << " delete_bitmap_size=" << res->segment_delete_bitmaps_size();
-    } else if constexpr (std::is_same_v<Response, GetObjStoreInfoRequest> ||
-                         std::is_same_v<Response, GetStageRequest>) {
+    } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
+                         std::is_same_v<Response, GetStageResponse>) {
         std::string debug_string = res->DebugString();
         // Check if "sk" field exists in the debug string, assuming "sk" appears as "sk: value"
         size_t pos = debug_string.find("sk: ");
@@ -128,11 +129,12 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
 
             std::string sk_value =
                     debug_string.substr(sk_value_start, sk_value_end - sk_value_start);
-            std::string encrypted_sk = md5(sk_value);
+            std::string encrypted_sk = "md5: " + md5(sk_value);
 
             // Replace the original "sk" value with the encrypted MD5 value
             debug_string.replace(sk_value_start, sk_value_end - sk_value_start, encrypted_sk);
         }
+        TEST_SYNC_POINT_CALLBACK("sk_finish_rpc", &debug_string);
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " response=" << debug_string;
     } else {

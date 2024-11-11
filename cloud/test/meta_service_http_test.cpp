@@ -1456,4 +1456,45 @@ TEST(MetaServiceHttpTest, TxnLazyCommit) {
     }
 }
 
+TEST(MetaServiceHttpTest, stage_sk_response) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::cout << "2";
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
+                                                          [&](...) { sp->disable_processing(); });
+
+    GetStageResponse res;
+    auto* stage = res.add_stage();
+    stage->mutable_obj_info()->set_ak("stage-ak");
+    stage->mutable_obj_info()->set_sk("stage-sk");
+    auto foo = [res](auto args) {
+        (*(try_any_cast<GetStageResponse**>(args[0])))->CopyFrom(res);
+        std::cout << "5";
+    };
+    std::cout << "1";
+    sp->set_call_back("stage_sk_response", foo);
+    sp->set_call_back("stage_sk_response_return", [](auto&& args) {
+        *try_any_cast<bool*>(args.back()) = true;
+        std::cout << "6";
+    });
+
+    auto rate_limiter = std::make_shared<cloud::RateLimiter>();
+
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+
+    auto bar = [a = *stage](auto args) {
+        std::cout << "7";
+        EXPECT_EQ(*try_any_cast<std::string*>(args[0]), "md5xx");
+        std::cout << *try_any_cast<std::string*>(args[0]);
+    };
+    sp->set_call_back("sk_finish_rpc", bar);
+
+    GetStageResponse res1;
+    GetStageRequest req1;
+    brpc::Controller cntl;
+    std::cout << "3";
+    ms->get_stage(&cntl, &req1, &res1, nullptr);
+    std::cout << "4";
+}
+
 } // namespace doris::cloud
