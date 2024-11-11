@@ -47,6 +47,7 @@
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
+#include "pipeline/exec/nested_loop_join_probe_operator_cross.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/olap_table_sink_v2_operator.h"
@@ -78,6 +79,7 @@
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "util/string_util.h"
+#include "vec/columns/column.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/utils/util.hpp"
@@ -248,6 +250,91 @@ Status OperatorXBase::close(RuntimeState* state) {
 void PipelineXLocalStateBase::clear_origin_block() {
     _origin_block.clear_column_data(_parent->intermediate_row_desc().num_materialized_slots());
 }
+
+// Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
+//                                      vectorized::Block* output_block) const {
+//     auto* local_state = state->get_local_state(operator_id());
+//     SCOPED_TIMER(local_state->exec_time_counter());
+//     SCOPED_TIMER(local_state->_projection_timer);
+//     const size_t rows = origin_block->rows();
+//     if (rows == 0) {
+//         return Status::OK();
+//     }
+//     //LOG(INFO)<<"asd do_projections:origin_block1  "<<_op_name<<" "<<origin_block->dump_structure();
+//     // vectorized::Block input_block = *origin_block;
+//      //LOG(INFO)<<"asd do_projections:origin_block2  "<<_op_name<<" "<<origin_block->dump_structure();
+//     std::vector<int> result_column_ids;
+//     for (const auto& projections : local_state->_intermediate_projections) {
+//         result_column_ids.resize(projections.size());
+//         for (int i = 0; i < projections.size(); i++) {
+//             // RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+//             RETURN_IF_ERROR(projections[i]->execute(origin_block, &result_column_ids[i]));
+//         }
+//         // input_block.shuffle_columns(result_column_ids);
+//         origin_block->shuffle_columns(result_column_ids);
+//     }
+
+//     // DCHECK_EQ(rows, input_block.rows());
+//     auto insert_column_datas = [&](auto& to, vectorized::ColumnPtr& from, size_t rows) {
+//         //LOG(INFO)<<"asd insert_column_datas: "<<_op_name<<" "<<to->is_nullable()<<" "<<(!from->is_nullable())<<" "<<_keep_origin<<" "<<from->dump_structure()<<" "<<from->use_count();
+//         if (to->is_nullable() && !from->is_nullable()) {
+//             if (_keep_origin || !from->is_exclusive()) {
+//                 auto& null_column = reinterpret_cast<vectorized::ColumnNullable&>(*to);
+//                 null_column.get_nested_column().insert_range_from(*from, 0, rows);
+//                 null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+//             } else {
+//                 to = make_nullable(from, false)->assume_mutable();
+//             }
+//         } else {
+//             //LOG(INFO)<<"asd from use_count11: "<<from->use_count();
+//             if (_keep_origin || !from->is_exclusive()) {
+//                 if (vectorized::is_column_const(*from)) {
+//                     //LOG(INFO)<<"iffff1";
+//                     to = std::move(from->assume_mutable());
+//                     // auto ptr = from->convert_to_full_column_if_const();
+//                     // to = ptr->assume_mutable();
+//                 } else {
+//                     //LOG(INFO)<<"iffff2";
+//                     to->insert_range_from(*from, 0, rows);
+//                 }
+//             } else {
+//                 //LOG(INFO)<<"iffff3";
+//                 to = std::move(from->assume_mutable());
+//             }
+//             //LOG(INFO)<<"asd to use_count22: "<<to->use_count();
+//             from = nullptr;
+//             //LOG(INFO)<<"asd to use_count33: "<<to->use_count();
+//         }
+//     };
+//     //LOG(INFO)<<"asd do_projections:origin_block3  "<<_op_name<<" "<<origin_block->dump_structure();
+//     using namespace vectorized;
+//     vectorized::MutableBlock mutable_block =
+//             vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+//                                                                        *_output_row_descriptor);
+//     if (rows != 0) {
+//         auto& mutable_columns = mutable_block.mutable_columns();
+//         DCHECK(mutable_columns.size() == local_state->_projections.size());
+//         // //LOG(INFO) << "asd do_projections convert_to_full_column_if_const: "
+//         //           << input_block.dump_structure();
+//         for (int i = 0; i < mutable_columns.size(); ++i) {
+//             auto result_column_id = -1;
+//             RETURN_IF_ERROR(local_state->_projections[i]->execute(origin_block, &result_column_id));
+//             // RETURN_IF_ERROR(local_state->_projections[i]->execute(&input_block, &result_column_id));
+//             // auto column_ptr = input_block.get_by_position(result_column_id)
+//             //   .column->convert_to_full_column_if_const();
+//             // //LOG(INFO)<<"asd result_column_id: "<<origin_block->get_by_position(result_column_id).column
+//             // auto column_ptr = origin_block->get_by_position(result_column_id).column;
+//             //LOG(INFO)<<"asd do_projections:origin_block4  "<<_op_name<<" "<<origin_block->dump_structure();
+//             // auto column_ptr = input_block.get_by_position(result_column_id).column;
+//             insert_column_datas(mutable_columns[i], origin_block->get_by_position(result_column_id).column, rows);
+//         }
+//         DCHECK(mutable_block.rows() == rows);
+//         output_block->set_columns(std::move(mutable_columns));
+//     }
+//     //LOG(INFO)<<"asd output_block: "<<_op_name<<" "<<output_block->dump_structure();
+//      //LOG(INFO)<<"asd do_projections:origin_block5  "<<_op_name<<" "<<origin_block->dump_structure();
+//     return Status::OK();
+// }
 
 Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* origin_block,
                                      vectorized::Block* output_block) const {
@@ -726,6 +813,7 @@ DECLARE_OPERATOR(TableFunctionLocalState)
 DECLARE_OPERATOR(ExchangeLocalState)
 DECLARE_OPERATOR(RepeatLocalState)
 DECLARE_OPERATOR(NestedLoopJoinProbeLocalState)
+DECLARE_OPERATOR(NestedLoopJoinProbeLocalStateCross)
 DECLARE_OPERATOR(AssertNumRowsLocalState)
 DECLARE_OPERATOR(EmptySetLocalState)
 DECLARE_OPERATOR(UnionSourceLocalState)
@@ -751,6 +839,7 @@ template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<StreamingAggLocalState>;
 template class StatefulOperatorX<DistinctStreamingAggLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
+template class StatefulOperatorX<NestedLoopJoinProbeLocalStateCross>;
 template class StatefulOperatorX<TableFunctionLocalState>;
 
 template class PipelineXSinkLocalState<HashJoinSharedState>;

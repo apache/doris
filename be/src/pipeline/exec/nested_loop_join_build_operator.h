@@ -24,6 +24,29 @@
 
 namespace doris::pipeline {
 
+
+// Accumulate small block into desired size
+class BlockAccumulator {
+public:
+    static inline size_t kAccumulateLimit = 64;
+
+    BlockAccumulator() = default;
+    BlockAccumulator(size_t desired_size);
+    void set_desired_size(size_t desired_size);
+    void reset();
+    void finalize();
+    bool empty() const;
+    bool reach_limit() const;
+    Status push(vectorized::Block block);
+    vectorized::Block pull();
+
+// private:
+    size_t _desired_size;
+    std::unique_ptr<vectorized::MutableBlock> _tmp_block;
+    std::deque<vectorized::Block> _output;
+    size_t _accumulate_count = 0;
+};
+
 class NestedLoopJoinBuildSinkOperatorX;
 
 class NestedLoopJoinBuildSinkLocalState final
@@ -51,7 +74,7 @@ private:
     friend class NestedLoopJoinBuildSinkOperatorX;
     uint64_t _build_rows = 0;
     uint64_t _total_mem_usage = 0;
-
+    std::unique_ptr<BlockAccumulator> accumulator;
     vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
 };
 

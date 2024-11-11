@@ -53,6 +53,69 @@ private:
     NestedLoopJoinBuildSinkLocalState* _parent = nullptr;
 };
 
+
+BlockAccumulator::BlockAccumulator(size_t desired_size) : _desired_size(desired_size) {}
+
+void BlockAccumulator::set_desired_size(size_t desired_size) {
+    _desired_size = desired_size;
+}
+
+void BlockAccumulator::reset() {
+    _output.clear();
+    _tmp_block.reset();
+    _accumulate_count = 0;
+}
+
+Status BlockAccumulator::push(vectorized::Block block) {
+    size_t input_rows = block.rows();
+    Status ok = Status::OK();
+    // TODO: optimize for zero-copy scenario
+    // Cut the input block into pieces if larger than desired
+    for (size_t start = 0; start < input_rows;) {
+        size_t remain_rows = input_rows - start;
+        size_t need_rows = 0;
+        if (_tmp_block) {
+            need_rows = std::min(_desired_size - _tmp_block->rows(), remain_rows);
+            ok = _tmp_block->add_rows(&block, start, need_rows);
+        } else {
+            need_rows = std::min(_desired_size, remain_rows);
+            _tmp_block = vectorized::MutableBlock::create_unique(block.clone_empty());
+            ok = _tmp_block->add_rows(&block, start, need_rows);
+        }
+
+        if (_tmp_block->rows() >= _desired_size) {
+            _output.emplace_back(_tmp_block->to_block());
+            _tmp_block.reset();
+        }
+        start += need_rows;
+    }
+    _accumulate_count++;
+    return ok;
+}
+
+bool BlockAccumulator::empty() const {
+    return _output.empty();
+}
+
+bool BlockAccumulator::reach_limit() const {
+    return _accumulate_count >= kAccumulateLimit;
+}
+
+vectorized::Block BlockAccumulator::pull() {
+    auto& output_block = _output.front();
+    _output.pop_front();
+    _accumulate_count--;
+    return output_block;
+}
+
+void BlockAccumulator::finalize() {
+    if (_tmp_block) {
+        _output.emplace_back(_tmp_block->to_block());
+        _tmp_block.reset();
+    }
+    _accumulate_count = 0;
+}
+
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
                                                                      RuntimeState* state)
         : JoinBuildSinkLocalState<NestedLoopJoinSharedState, NestedLoopJoinBuildSinkLocalState>(
@@ -69,6 +132,7 @@ Status NestedLoopJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkSta
         RETURN_IF_ERROR(state->register_producer_runtime_filter(
                 p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i], false));
     }
+    accumulator = std::make_unique<BlockAccumulator>(4096);
     return Status::OK();
 }
 
@@ -131,7 +195,8 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     if (rows != 0) {
         local_state._build_rows += rows;
         local_state._total_mem_usage += mem_usage;
-        local_state._shared_state->build_blocks.emplace_back(std::move(*block));
+        RETURN_IF_ERROR(local_state.accumulator->push(std::move(*block)));
+        // local_state._shared_state->build_blocks.emplace_back(std::move(*block));
         if (_match_all_build || _is_right_semi_anti) {
             local_state._shared_state->build_side_visited_flags.emplace_back(
                     vectorized::ColumnUInt8::create(rows, 0));
@@ -139,6 +204,12 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     }
 
     if (eos) {
+        local_state.accumulator->finalize();
+        while (!local_state.accumulator->empty()) {
+            local_state._shared_state->build_blocks.emplace_back(std::move(local_state.accumulator->_output.front()));
+            local_state.accumulator->_output.pop_front();
+            CHECK(local_state._shared_state->build_blocks.back().rows() !=0);
+        }
         RuntimeFilterBuild rf_ctx(&local_state);
         RETURN_IF_ERROR(rf_ctx(state));
 

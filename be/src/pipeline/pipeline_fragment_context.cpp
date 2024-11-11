@@ -67,6 +67,7 @@
 #include "pipeline/exec/multi_cast_data_stream_source.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
+#include "pipeline/exec/nested_loop_join_probe_operator_cross.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/olap_table_sink_v2_operator.h"
@@ -1448,7 +1449,15 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::CROSS_JOIN_NODE: {
-        op.reset(new NestedLoopJoinProbeOperatorX(pool, tnode, next_operator_id(), descs));
+        auto join_op = tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
+                                                    : (tnode.__isset.nested_loop_join_node
+                                                               ? tnode.nested_loop_join_node.join_op
+                                                               : TJoinOp::CROSS_JOIN);
+        if (join_op == TJoinOp::CROSS_JOIN) {
+            op.reset(new NestedLoopJoinProbeOperatorXCross(pool, tnode, next_operator_id(), descs));
+        } else {
+            op.reset(new NestedLoopJoinProbeOperatorX(pool, tnode, next_operator_id(), descs));
+        }
         RETURN_IF_ERROR(cur_pipe->add_operator(
                 op, request.__isset.parallel_instances ? request.parallel_instances : 0));
 

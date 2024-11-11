@@ -32,14 +32,14 @@ class RuntimeState;
 
 namespace pipeline {
 #include "common/compile_check_begin.h"
-class NestedLoopJoinProbeOperatorX;
-class NestedLoopJoinProbeLocalState final
-        : public JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState> {
+class NestedLoopJoinProbeOperatorXCross;
+class NestedLoopJoinProbeLocalStateCross final
+        : public JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalStateCross> {
 public:
-    using Parent = NestedLoopJoinProbeOperatorX;
-    ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalState);
-    NestedLoopJoinProbeLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~NestedLoopJoinProbeLocalState() = default;
+    using Parent = NestedLoopJoinProbeOperatorXCross;
+    ENABLE_FACTORY_CREATOR(NestedLoopJoinProbeLocalStateCross);
+    NestedLoopJoinProbeLocalStateCross(RuntimeState* state, OperatorXBase* parent);
+    ~NestedLoopJoinProbeLocalStateCross() = default;
 
     void add_tuple_is_null_column(vectorized::Block* block) override;
 #define CLEAR_BLOCK                                                  \
@@ -51,16 +51,19 @@ public:
     Status close(RuntimeState* state) override;
     template <typename JoinOpType, bool set_build_side_flag, bool set_probe_side_flag>
     Status generate_join_block_data(RuntimeState* state, JoinOpType& join_op_variants);
+    Status generate_join_block_data222(RuntimeState* state, vectorized::Block* output_block);
 
 private:
-    friend class NestedLoopJoinProbeOperatorX;
-    void _update_additional_flags(vectorized::Block* block);
+    friend class NestedLoopJoinProbeOperatorXCross;
+    // void _update_additional_flags(vectorized::Block* block);
     template <bool BuildSide, bool IsSemi>
     void _finalize_current_phase(vectorized::Block& block, size_t batch_size);
     void _resize_fill_tuple_is_null_column(size_t new_size, uint8_t left_flag, uint8_t right_flag);
     void _reset_with_next_probe_row();
     void _append_left_data_with_null(vectorized::Block& block) const;
     void _process_left_child_block(vectorized::Block& block,
+                                   const vectorized::Block& now_process_build_block) const;
+    void _process_left_child_block222(vectorized::Block* block,
                                    const vectorized::Block& now_process_build_block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
     void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block,
@@ -125,55 +128,8 @@ private:
         // 1. Execute conjuncts and get a column with bool type to do filtering.
         // 2. Use bool column to update build-side visited flags.
         // 3. Use bool column to do filtering.
-        size_t build_block_idx = _current_build_pos == 0 ? _shared_state->build_blocks.size() - 1
-                                                         : _current_build_pos - 1;
-        size_t processed_blocks_num = _build_offset_stack.size();
-        if (LIKELY(!_join_conjuncts.empty() && block->rows() > 0)) {
-            vectorized::IColumn::Filter filter(block->rows(), 1);
-            bool can_filter_all = false;
-            {
-                SCOPED_TIMER(_join_conjuncts_evaluation_timer);
-                RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
-                        _join_conjuncts, nullptr, IgnoreNull, block, &filter, &can_filter_all));
-            }
-
-            if (can_filter_all) {
-                CLEAR_BLOCK
-                std::stack<uint16_t> empty1;
-                _probe_offset_stack.swap(empty1);
-
-                std::stack<uint16_t> empty2;
-                _build_offset_stack.swap(empty2);
-            } else {
-                _do_filtering_and_update_visited_flags_impl<decltype(filter), SetBuildSideFlag,
-                                                            SetProbeSideFlag>(
-                        block, column_to_keep, build_block_idx, processed_blocks_num, materialize,
-                        filter);
-            }
-        } else if (block->rows() > 0) {
-            if constexpr (SetBuildSideFlag) {
-                for (size_t i = 0; i < processed_blocks_num; i++) {
-                    auto& build_side_flag =
-                            assert_cast<vectorized::ColumnUInt8*>(
-                                    _shared_state->build_side_visited_flags[build_block_idx].get())
-                                    ->get_data();
-                    auto* __restrict build_side_flag_data = build_side_flag.data();
-                    auto cur_sz = build_side_flag.size();
-                    _build_offset_stack.pop();
-                    memset(reinterpret_cast<void*>(build_side_flag_data), 1, cur_sz);
-                    build_block_idx = build_block_idx == 0 ? _shared_state->build_blocks.size() - 1
-                                                           : build_block_idx - 1;
-                }
-            }
-            if constexpr (SetProbeSideFlag) {
-                std::stack<uint16_t> empty;
-                _probe_offset_stack.swap(empty);
-                std::fill(_cur_probe_row_visited_flags.begin(), _cur_probe_row_visited_flags.end(),
-                          1);
-            }
-            if (!materialize) {
-                CLEAR_BLOCK
-            }
+        if (!materialize) {
+            CLEAR_BLOCK
         }
         vectorized::Block::erase_useless_column(block, column_to_keep);
         return Status::OK();
@@ -221,14 +177,16 @@ private:
     RuntimeProfile::Counter* _test5 = nullptr;
     RuntimeProfile::Counter* _test6 = nullptr;
     RuntimeProfile::Counter* _test7 = nullptr;
+    RuntimeProfile::Counter* _test_ccc1 = nullptr;
+    RuntimeProfile::Counter* _test_ccc2 = nullptr;
 
     RuntimeProfile::Counter* _insert_probe_timer2 = nullptr;
 };
 
-class NestedLoopJoinProbeOperatorX final
-        : public JoinProbeOperatorX<NestedLoopJoinProbeLocalState> {
+class NestedLoopJoinProbeOperatorXCross final
+        : public JoinProbeOperatorX<NestedLoopJoinProbeLocalStateCross> {
 public:
-    NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+    NestedLoopJoinProbeOperatorXCross(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status open(RuntimeState* state) override;
@@ -258,7 +216,7 @@ public:
     bool need_more_input_data(RuntimeState* state) const override;
 
 private:
-    friend class NestedLoopJoinProbeLocalState;
+    friend class NestedLoopJoinProbeLocalStateCross;
     bool _is_output_left_side_only;
     vectorized::VExprContextSPtrs _join_conjuncts;
     size_t _num_probe_side_columns = 0;
