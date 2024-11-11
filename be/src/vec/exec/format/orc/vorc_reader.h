@@ -288,7 +288,7 @@ private:
                         bool* is_hive1_orc);
     static bool _check_acid_schema(const orc::Type& type);
     static const orc::Type& _remove_acid(const orc::Type& type);
-    std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_leteral(
+    std::tuple<bool, orc::Literal, orc::PredicateDataType> _make_orc_literal(
             const VSlotRef* slot_ref, const VLiteral* literal);
     bool _check_expr_can_push_down(const VExprSPtr& expr);
     bool _build_search_argument(const VExprSPtr& expr,

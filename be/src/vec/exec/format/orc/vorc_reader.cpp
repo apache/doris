@@ -562,7 +562,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
     }
 }
 
-std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_leteral(
+std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_literal(
         const VSlotRef* slot_ref, const VLiteral* literal) {
     auto literal_data = literal->get_column_ptr()->get_data_at(0);
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
@@ -609,15 +609,22 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lete
 
 // check if the expr can be pushed down to orc reader
 bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
-    DCHECK_NOTNULL(expr);
+    DCHECK(expr != nullptr);
     switch (expr->op()) {
     case TExprOpcode::COMPOUND_AND:
-    case TExprOpcode::COMPOUND_OR:
-    case TExprOpcode::COMPOUND_NOT:
         // at least one child can be pushed down
         return std::ranges::any_of(expr->children(), [this](const auto& child) {
             return _check_expr_can_push_down(child);
         });
+    case TExprOpcode::COMPOUND_OR:
+        // all children must be pushed down
+        return std::ranges::all_of(expr->children(), [this](const auto& child) {
+            return _check_expr_can_push_down(child);
+        });
+    case TExprOpcode::COMPOUND_NOT:
+        DCHECK_EQ(expr->children().size(), 1);
+        return _check_expr_can_push_down(expr->children()[0]);
+
     case TExprOpcode::GE:
     case TExprOpcode::GT:
     case TExprOpcode::LE:
@@ -635,7 +642,9 @@ bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
             auto fn_name = expr->fn().name.function_name;
             // only support is_null_pred and is_not_null_pred
             if (fn_name == "is_null_pred" || fn_name == "is_not_null_pred") {
-                return true;
+                // check if the slot is partition column
+                const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
+                return !_lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name());
             }
             LOG(WARNING) << "Unsupported function [funciton=" << fn_name << "]";
         }
@@ -692,7 +701,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_literal(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -707,7 +716,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_literal(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -721,7 +730,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_literal(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -734,7 +743,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_literal(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -747,7 +756,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_literal(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -761,7 +770,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[1]->is_literal());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[1].get());
-        auto [valid, orc_literal, predicate_type] = _make_orc_leteral(slot_ref, literal);
+        auto [valid, orc_literal, predicate_type] = _make_orc_literal(slot_ref, literal);
         if (!valid) {
             return false;
         }
@@ -773,11 +782,11 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[0]->is_slot_ref());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         std::vector<orc::Literal> literals;
-        orc::PredicateDataType predicate_type;
+        orc::PredicateDataType predicate_type {};
         for (size_t i = 1; i < expr->children().size(); ++i) {
             DCHECK(expr->children()[i]->is_literal());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
-            auto [valid, orc_literal, type] = _make_orc_leteral(slot_ref, literal);
+            auto [valid, orc_literal, type] = _make_orc_literal(slot_ref, literal);
             if (!valid) {
                 return false;
             }
@@ -793,11 +802,11 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         DCHECK(expr->children()[0]->is_slot_ref());
         const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
         std::vector<orc::Literal> literals;
-        orc::PredicateDataType predicate_type;
+        orc::PredicateDataType predicate_type {};
         for (size_t i = 1; i < expr->children().size(); ++i) {
             DCHECK(expr->children()[i]->is_literal());
             const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
-            auto [valid, orc_literal, type] = _make_orc_leteral(slot_ref, literal);
+            auto [valid, orc_literal, type] = _make_orc_literal(slot_ref, literal);
             if (!valid) {
                 return false;
             }
@@ -857,18 +866,22 @@ bool OrcReader::_init_search_argument(const VExprContextSPtrs& conjuncts) {
         return false;
     }
 
-    auto sargBuilder = orc::SearchArgumentFactory::newBuilder();
-    sargBuilder->startAnd();
+    // build search argument, if any expr can not be pushed down, return false
+    auto builder = orc::SearchArgumentFactory::newBuilder();
+    bool at_least_one_can_push_down = false;
+    builder->startAnd();
     for (const auto& expr_ctx : conjuncts) {
-        if (!_build_search_argument(expr_ctx->root(), sargBuilder)) {
-            return false;
+        if (_build_search_argument(expr_ctx->root(), builder)) {
+            at_least_one_can_push_down = true;
         }
     }
-    sargBuilder->end();
-    std::unique_ptr<orc::SearchArgument> sargs = sargBuilder->build();
-    if (sargs == nullptr) {
+    builder->end();
+    if (!at_least_one_can_push_down) {
         return false;
     }
+
+    // at least one conjunct can be pushed down, so the builder->build() should not throw exception
+    auto sargs = builder->build();
     _profile->add_info_string("OrcReader SearchArgument: ", sargs->toString());
     _row_reader_options.searchArgument(std::move(sargs));
     return true;
