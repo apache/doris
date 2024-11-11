@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -54,6 +55,7 @@ import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.HashMap;
@@ -76,7 +78,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
 
     public static final double DEFAULT_LIKE_COMPARISON_SELECTIVITY = 0.2;
     public static final double DEFAULT_ISNULL_SELECTIVITY = 0.005;
-    private static final int LARGE_COMPOUND_PREDICATE = 4;
+    private static final int EQUAL_PREDICATE_LARGE_THRESHOLD = 4;
     private Set<Slot> aggSlots;
 
     private boolean isOnBaseTable = false;
@@ -115,11 +117,26 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
     }
 
-    private Statistics estimateLargeAnd(List<Expression> conjuncts, EstimationContext context) {
-        StatisticsBuilder builder = new StatisticsBuilder(context.statistics);
+    Pair<List<EqualPredicate>, List<Expression>> extractEquals(List<Expression> conjuncts) {
+        List<EqualPredicate> equals = Lists.newArrayList();
+        List<Expression> nonEquals = Lists.newArrayList();
+        conjuncts.stream().forEach(
+                expr -> {
+                    if (expr instanceof EqualPredicate) {
+                        equals.add((EqualPredicate) expr);
+                    } else {
+                        nonEquals.add(expr);
+                    }
+                }
+        );
+        return Pair.of(equals, nonEquals);
+    }
+
+    private Statistics estimateMultiEqualConjuncts(List<EqualPredicate> conjuncts, EstimationContext context) {
         if (context.statistics.getRowCount() <= 1) {
-            return builder.build();
+            return context.statistics;
         }
+        StatisticsBuilder builder = new StatisticsBuilder(context.statistics);
         List<Double> orderedSelections = conjuncts.stream()
                 .mapToDouble(conjunct ->
                         conjunct.accept(this, context).getBENumber() / context.statistics.getRowCount())
@@ -154,8 +171,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public Statistics visitAnd(And and, EstimationContext context) {
         List<Expression> conjuncts = ExpressionUtils.extractConjunction(and);
         Statistics outputStats;
-        if (conjuncts.size() >= LARGE_COMPOUND_PREDICATE) {
-            outputStats = estimateLargeAnd(conjuncts, context);
+        Pair<List<EqualPredicate>, List<Expression>>  equalAndNonEqual = extractEquals(conjuncts);
+        if (equalAndNonEqual.first.size() >= EQUAL_PREDICATE_LARGE_THRESHOLD) {
+            outputStats = estimateBasicAnd(equalAndNonEqual.second, context);
+            outputStats = estimateMultiEqualConjuncts(equalAndNonEqual.first, new EstimationContext(outputStats));
         } else {
             outputStats = estimateBasicAnd(conjuncts, context);
         }
