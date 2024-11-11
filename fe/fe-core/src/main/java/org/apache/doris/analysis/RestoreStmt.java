@@ -46,7 +46,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
     public static final String PROP_CLEAN_TABLES = "clean_tables";
     public static final String PROP_CLEAN_PARTITIONS = "clean_partitions";
     public static final String PROP_ATOMIC_RESTORE = "atomic_restore";
-    public static final String PROP_STORAGE_SOURCE = "storage_resource";
+    public static final String PROP_STORAGE_RESOURCE = "storage_resource";
     public static final String PROP_RESERVE_STORAGE_POLICY = "reserve_storage_policy";
 
     private boolean allowLoad = false;
@@ -226,8 +226,8 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
         // is atomic restore
         isAtomicRestore = eatBooleanProperty(copiedProperties, PROP_ATOMIC_RESTORE, isAtomicRestore);
 
-        if (copiedProperties.containsKey(PROP_STORAGE_SOURCE)) {
-            storageResource = copiedProperties.get(PROP_STORAGE_SOURCE);
+        if (copiedProperties.containsKey(PROP_STORAGE_RESOURCE)) {
+            storageResource = copiedProperties.get(PROP_STORAGE_RESOURCE);
             Resource localResource = Env.getCurrentEnv().getResourceMgr().getResource(storageResource);
 
             if (localResource == null) {
@@ -241,7 +241,7 @@ public class RestoreStmt extends AbstractBackupStmt implements NotFallbackInPars
                         + storageResource + " is not same as restored resource");
             }
 
-            copiedProperties.remove(PROP_STORAGE_SOURCE);
+            copiedProperties.remove(PROP_STORAGE_RESOURCE);
         }
 
         // reserve storage policy

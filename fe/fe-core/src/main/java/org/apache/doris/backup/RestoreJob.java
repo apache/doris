@@ -69,15 +69,13 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
-<<<<<<< HEAD
+import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-=======
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.PolicyMgr;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
->>>>>>> 9bd9133568... [feature](cooldown)backup cooldown data
 import org.apache.doris.resource.Tag;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -108,6 +106,7 @@ import com.google.common.collect.Multimap;
 import com.google.common.collect.Table.Cell;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -132,6 +131,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private static final String PROP_CLEAN_TABLES = RestoreStmt.PROP_CLEAN_TABLES;
     private static final String PROP_CLEAN_PARTITIONS = RestoreStmt.PROP_CLEAN_PARTITIONS;
     private static final String PROP_ATOMIC_RESTORE = RestoreStmt.PROP_ATOMIC_RESTORE;
+    private static final String PROP_STORAGE_RESOURCE = RestoreStmt.PROP_STORAGE_RESOURCE;
+    private static final String PROP_RESERVE_STORAGE_POLICY = RestoreStmt.PROP_RESERVE_STORAGE_POLICY;
     private static final String ATOMIC_RESTORE_TABLE_PREFIX = "__doris_atomic_restore_prefix__";
 
     private static final Logger LOG = LogManager.getLogger(RestoreJob.class);
@@ -191,6 +192,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private List<Table> restoredTbls = Lists.newArrayList();
     @SerializedName("rr")
     private List<Resource> restoredResources = Lists.newArrayList();
+    @SerializedName("sp")
     private List<StoragePolicy> storagePolicies = Lists.newArrayList();
 
     // save all restored partitions' version info which are already exist in catalog
@@ -220,7 +222,10 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     private boolean isCleanPartitions = false;
     // Whether to restore the data into a temp table, and then replace the origin one.
     private boolean isAtomicRestore = false;
-
+    // the target storage resource
+    private String storageResource = null;
+    // whether to reserve storage policy
+    private boolean reserveStoragePolicy = false;
     // restore properties
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
@@ -265,6 +270,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         properties.put(PROP_CLEAN_TABLES, String.valueOf(isCleanTables));
         properties.put(PROP_CLEAN_PARTITIONS, String.valueOf(isCleanPartitions));
         properties.put(PROP_ATOMIC_RESTORE, String.valueOf(isAtomicRestore));
+        properties.put(PROP_STORAGE_RESOURCE, String.valueOf(storageResource));
+        properties.put(PROP_RESERVE_STORAGE_POLICY, String.valueOf(reserveStoragePolicy));
     }
 
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
@@ -1485,6 +1492,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
+                    String storagePolicy = "";
+                    if (reserveStoragePolicy) {
+                        storagePolicy = localTbl.getPartitionInfo()
+                                .getDataProperty(restorePart.getId()).getStoragePolicy();
+                    }
                     CreateReplicaTask task = new CreateReplicaTask(restoreReplica.getBackendIdWithoutException(), dbId,
                             localTbl.getId(), restorePart.getId(), restoredIdx.getId(),
                             restoreTablet.getId(), restoreReplica.getId(), indexMeta.getShortKeyColumnCount(),
@@ -2744,23 +2756,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         } else {
             readOthers(in);
         }
-
-        out.writeInt(restoredResources.size());
-        for (Resource resource : restoredResources) {
-            resource.write(out);
-        }
-
-        out.writeInt(storagePolicies.size());
-        for (StoragePolicy policy : storagePolicies) {
-            policy.write(out);
-        }
-
-        // write properties
-        out.writeInt(properties.size());
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            Text.writeString(out, entry.getValue());
-        }
     }
 
     private void readOthers(DataInput in) throws IOException {
@@ -2848,6 +2843,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
+        storageResource = properties.get(PROP_STORAGE_RESOURCE);
+        reserveStoragePolicy = Boolean.parseBoolean(properties.get(PROP_RESERVE_STORAGE_POLICY));
     }
 
     @Override
@@ -2858,6 +2855,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         isCleanTables = Boolean.parseBoolean(properties.get(PROP_CLEAN_TABLES));
         isCleanPartitions = Boolean.parseBoolean(properties.get(PROP_CLEAN_PARTITIONS));
         isAtomicRestore = Boolean.parseBoolean(properties.get(PROP_ATOMIC_RESTORE));
+        storageResource = properties.get(PROP_STORAGE_RESOURCE);
+        reserveStoragePolicy = Boolean.parseBoolean(properties.get(PROP_RESERVE_STORAGE_POLICY));
     }
 
     @Override

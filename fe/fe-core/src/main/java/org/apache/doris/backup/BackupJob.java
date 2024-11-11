@@ -497,7 +497,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         // copy all related schema at this moment
         List<Table> copiedTables = Lists.newArrayList();
         List<Resource> copiedResources = Lists.newArrayList();
-        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         List<StoragePolicy> copiedStoragePolicys = Lists.newArrayList();
         AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (TableRef tableRef : tableRefs) {
@@ -516,15 +515,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                         OlapTable olapTable = (OlapTable) tbl;
                         checkOlapTable(olapTable, tableRef);
                         if (getContent() == BackupContent.ALL) {
-                            if (!prepareSnapshotTaskForOlapTableWithoutLock(
-                                                    db, (OlapTable) tbl, tableRef, batchTask).ok()) {
-                                return;
-                            }
+                            prepareSnapshotTaskForOlapTableWithoutLock(db, (OlapTable) tbl, tableRef, batchTask);
                         }
-                        if (!prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables,
-                                copiedStoragePolicys).ok()) {
-                            return;
-                        }
+                        prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables,
+                                copiedStoragePolicys);
                         break;
                     case VIEW:
                         prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables);
@@ -676,7 +670,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         }
     }
 
-    private Status prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
+    private void prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
                                                           List<Table> copiedTables,
                                                           List<StoragePolicy> copiedStoragePolicys) {
         // only copy visible indexes
@@ -707,8 +701,6 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 copiedStoragePolicys.add(storagePolicy);
             }
         }
-
-        return Status.OK;
     }
 
     private void prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
