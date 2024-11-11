@@ -833,15 +833,17 @@ public class StmtExecutor {
     }
 
     public static void initBlockSqlAstNames() {
+        blockSqlAstNames.clear();
         blockSqlAstNames = Pattern.compile(",")
                 .splitAsStream(Config.block_sql_ast_names)
+                .map(String::trim)
                 .collect(Collectors.toSet());
         if (blockSqlAstNames.isEmpty() && !Config.block_sql_ast_names.isEmpty()) {
             blockSqlAstNames.add(Config.block_sql_ast_names);
         }
     }
 
-    private void checkSqlBlocked(Class<?> clazz) throws UserException {
+    public void checkSqlBlocked(Class<?> clazz) throws UserException {
         if (blockSqlAstNames.contains(clazz.getSimpleName())) {
             throw new UserException("SQL is blocked with AST name: " + clazz.getSimpleName());
         }
