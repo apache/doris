@@ -214,7 +214,7 @@ protected:
     QueryThreadContext _query_thread_context;
     std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
     bool _ignore_data_distribution = false;
-    bool is_file_scan_operator = false;
+    bool _is_file_scan_operator = false;
 
     // for scaling up the running scanners
     size_t _estimated_block_size = 0;

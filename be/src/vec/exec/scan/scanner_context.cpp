@@ -60,7 +60,7 @@ ScannerContext::ScannerContext(
           _scanner_scheduler_global(state->exec_env()->scanner_scheduler()),
           _all_scanners(scanners.begin(), scanners.end()),
           _ignore_data_distribution(ignore_data_distribution),
-          is_file_scan_operator(is_file_scan_operator) {
+          _is_file_scan_operator(is_file_scan_operator) {
     DCHECK(_output_row_descriptor == nullptr ||
            _output_row_descriptor->tuple_descriptors().size() == 1);
     _query_id = _state->get_query_ctx()->query_id();
@@ -148,7 +148,7 @@ Status ScannerContext::init() {
     // file_scan_operator currentlly has performance issue if we submit too many scan tasks to scheduler.
     // we should fix this problem in the future.
     if (_scanner_scheduler->get_queue_size() * 2 > config::doris_scanner_thread_pool_queue_size ||
-        is_file_scan_operator) {
+        _is_file_scan_operator) {
         submit_many_scan_tasks_for_potential_performance_issue = false;
     }
 
@@ -171,7 +171,7 @@ Status ScannerContext::init() {
         if (submit_many_scan_tasks_for_potential_performance_issue || _ignore_data_distribution) {
             _max_thread_num = config::doris_scanner_thread_pool_thread_num / 1;
         } else {
-            const size_t factor = is_file_scan_operator ? 1 : 4;
+            const size_t factor = _is_file_scan_operator ? 1 : 4;
             _max_thread_num = factor * (config::doris_scanner_thread_pool_thread_num /
                                         num_parallel_instances);
             // In some rare cases, user may set num_parallel_instances to 1 handly to make many query could be executed
