@@ -47,7 +47,6 @@ class JniUtil;
 
 #define JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(type, result, env, func) \
     type result = env->func;                                                \
-    DEFER(env->DeleteLocalRef(result));                                     \
     RETURN_ERROR_IF_EXC(env)
 
 #define JNI_CALL_METHOD_CHECK_EXCEPTION(type, result, env, func) \
