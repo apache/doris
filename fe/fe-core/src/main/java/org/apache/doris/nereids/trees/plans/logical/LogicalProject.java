@@ -242,7 +242,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
                 continue;
             }
             if (proj.child(0).isConstant()) {
-                builder.addUniformSlot(proj.toSlot());
+                builder.addUniformSlotAndLiteral(proj.toSlot(), proj.child(0));
             } else if (ExpressionUtils.isInjective(proj.child(0))) {
                 ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
                 if (child(0).getLogicalProperties().getTrait().isUniform(inputs)) {
