@@ -366,9 +366,7 @@ Status DeleteHandler::_parse_column_pred(TabletSchemaSPtr complete_schema,
             }
         }
         if (col_unique_id < 0) {
-            const auto& column =
-                    *DORIS_TRY(delete_pred_related_schema->column(condition.column_name));
-            col_unique_id = column.unique_id();
+            col_unique_id = delete_pred_related_schema->column(condition.column_name).unique_id();
         }
         condition.__set_column_unique_id(col_unique_id);
         const auto& column = complete_schema->column_by_uid(col_unique_id);
