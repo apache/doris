@@ -734,7 +734,7 @@ bool OrcReader::_build_filter_in(const VExprSPtr& expr,
     DCHECK(expr->children()[0]->is_slot_ref());
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     std::vector<orc::Literal> literals;
-    orc::PredicateDataType predicate_type {};
+    orc::PredicateDataType predicate_type = orc::PredicateDataType::LONG;
     for (size_t i = 1; i < expr->children().size(); ++i) {
         DCHECK(expr->children()[i]->is_literal());
         const auto* literal = static_cast<const VLiteral*>(expr->children()[i].get());
