@@ -422,7 +422,6 @@ public class Coordinator implements CoordInterface {
         if (this.queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
-        this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
         this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
         this.queryOptions.setWaitFullBlockScheduleTimes(context.getSessionVariable().getWaitFullBlockScheduleTimes());
         this.queryOptions.setMysqlRowBinaryFormat(
