@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstdint>
 #include <memory>
 #include <stack>
 
@@ -59,6 +60,8 @@
 #include "vec/utils/util.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RowDescriptor;
 class RuntimeState;
 
@@ -628,7 +631,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     VExprSPtrs children_exprs;
 
     // Reserve space to avoid multiple reallocations
-    const size_t estimated_size = children().size();
+    const size_t estimated_size = get_num_children();
     iterators.reserve(estimated_size);
     data_type_with_names.reserve(estimated_size);
     column_ids.reserve(estimated_size);
@@ -642,7 +645,7 @@ Status VExpr::_evaluate_inverted_index(VExprContext* context, const FunctionBase
     for (const auto& child : children()) {
         if (child->node_type() == TExprNodeType::CAST_EXPR) {
             auto* cast_expr = assert_cast<VCastExpr*>(child.get());
-            DCHECK_EQ(cast_expr->children().size(), 1);
+            DCHECK_EQ(cast_expr->get_num_children(), 1);
             if (cast_expr->get_child(0)->is_slot_ref()) {
                 auto* column_slot_ref = assert_cast<VSlotRef*>(cast_expr->get_child(0).get());
                 auto column_id = column_slot_ref->column_id();
@@ -742,7 +745,7 @@ bool VExpr::fast_execute(doris::vectorized::VExprContext* context, doris::vector
                          int* result_column_id) {
     if (context->get_inverted_index_context() &&
         context->get_inverted_index_context()->get_inverted_index_result_column().contains(this)) {
-        size_t num_columns_without_result = block->columns();
+        uint32_t num_columns_without_result = block->columns();
         // prepare a column to save result
         auto result_column =
                 context->get_inverted_index_context()->get_inverted_index_result_column()[this];
@@ -763,4 +766,5 @@ bool VExpr::equals(const VExpr& other) {
     return false;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

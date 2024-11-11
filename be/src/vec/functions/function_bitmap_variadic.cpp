@@ -158,7 +158,7 @@ BITMAP_FUNCTION_COUNT_VARIADIC(BitmapAndCount, bitmap_and_count, &=);
 BITMAP_FUNCTION_COUNT_VARIADIC(BitmapXorCount, bitmap_xor_count, ^=);
 
 Status execute_bitmap_op_count_null_to_zero(
-        FunctionContext* context, Block& block, const ColumnNumbers& arguments, size_t result,
+        FunctionContext* context, Block& block, const ColumnNumbers& arguments, uint32_t result,
         size_t input_rows_count,
         const std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>&
                 exec_impl_func);
@@ -202,10 +202,10 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         if (std::is_same_v<Impl, BitmapAndCount> || std::is_same_v<Impl, BitmapXorCount>) {
             auto impl_func = [&](FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, size_t result,
+                                 const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) {
                 return execute_impl_internal(context, block, arguments, result, input_rows_count);
             };
@@ -217,7 +217,7 @@ public:
     }
 
     Status execute_impl_internal(FunctionContext* context, Block& block,
-                                 const ColumnNumbers& arguments, size_t result,
+                                 const ColumnNumbers& arguments, uint32_t result,
                                  size_t input_rows_count) const {
         size_t argument_size = arguments.size();
         std::vector<ColumnPtr> argument_columns(argument_size);

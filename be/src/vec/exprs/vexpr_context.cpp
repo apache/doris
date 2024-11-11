@@ -17,9 +17,11 @@
 
 #include "vec/exprs/vexpr_context.h"
 
+#include <cstdint>
 #include <ostream>
 #include <string>
 
+#include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "runtime/runtime_state.h"
@@ -27,6 +29,7 @@
 #include "udf/udf.h"
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
+#include "vec/core/column_numbers.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -36,6 +39,8 @@ class RowDescriptor;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 VExprContext::~VExprContext() {
     // In runtime filter, only create expr context to get expr root, will not call
     // prepare or open, so that it is not need to call close. And call close may core
@@ -118,7 +123,7 @@ int VExprContext::register_function_context(RuntimeState* state, const TypeDescr
                                             const std::vector<TypeDescriptor>& arg_types) {
     _fn_contexts.push_back(FunctionContext::create_context(state, return_type, arg_types));
     _fn_contexts.back()->set_check_overflow_for_decimal(state->check_overflow_for_decimal());
-    return _fn_contexts.size() - 1;
+    return static_cast<int>(_fn_contexts.size()) - 1;
 }
 
 Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
@@ -146,11 +151,11 @@ Status VExprContext::filter_block(const VExprContextSPtrs& expr_contexts, Block*
         return Status::OK();
     }
 
-    std::vector<uint32_t> columns_to_filter(column_to_keep);
+    ColumnNumbers columns_to_filter(column_to_keep);
     std::iota(columns_to_filter.begin(), columns_to_filter.end(), 0);
 
     return execute_conjuncts_and_filter_block(expr_contexts, block, columns_to_filter,
-                                              column_to_keep);
+                                              static_cast<int>(column_to_keep));
 }
 
 Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
@@ -164,7 +169,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                                        const std::vector<IColumn::Filter*>* filters,
                                        bool accept_null, Block* block,
                                        IColumn::Filter* result_filter, bool* can_filter_all) {
-    int rows = block->rows();
+    size_t rows = block->rows();
     DCHECK_EQ(result_filter->size(), rows);
     *can_filter_all = false;
     auto* __restrict result_filter_data = result_filter->data();
@@ -186,7 +191,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 const auto* __restrict filter_data = filter.data();
                 const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
-                int input_rows =
+                size_t input_rows =
                         rows -
                         (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
@@ -200,7 +205,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                     }
                 }
 
-                int output_rows =
+                size_t output_rows =
                         rows -
                         (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
@@ -226,7 +231,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                     assert_cast<const ColumnUInt8&>(*filter_column).get_data();
             const auto* __restrict filter_data = filter.data();
 
-            int input_rows =
+            size_t input_rows =
                     rows -
                     (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
@@ -234,7 +239,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
                 result_filter_data[i] &= filter_data[i];
             }
 
-            int output_rows =
+            size_t output_rows =
                     rows -
                     (is_rf_wrapper ? simd::count_zero_num((int8*)result_filter_data, rows) : 0);
 
@@ -281,14 +286,14 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
     for (const auto& conjunct : conjuncts) {
         int result_column_id = -1;
         RETURN_IF_ERROR(conjunct->execute(block, &result_column_id));
-        auto& filter_column =
+        const auto& filter_column =
                 unpack_if_const(block->get_by_position(result_column_id).column).first;
-        if (auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
+        if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
             const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
             const IColumn::Filter& result =
                     assert_cast<const ColumnUInt8&>(*nested_column).get_data();
-            auto* __restrict filter_data = result.data();
-            auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
+            const auto* __restrict filter_data = result.data();
+            const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
             DCHECK_EQ(rows, nullable_column->size());
 
             for (size_t i = 0; i != rows; ++i) {
@@ -300,7 +305,8 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, Block
                 final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
             }
         } else {
-            auto* filter_data = assert_cast<const ColumnUInt8&>(*filter_column).get_data().data();
+            const auto* filter_data =
+                    assert_cast<const ColumnUInt8&>(*filter_column).get_data().data();
             for (size_t i = 0; i != rows; ++i) {
                 final_filter_ptr[i] = final_filter_ptr[i] & filter_data[i];
             }
@@ -320,6 +326,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
             execute_conjuncts(ctxs, nullptr, false, block, &result_filter, &can_filter_all));
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
+            // NOLINTNEXTLINE(performance-move-const-arg)
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
         }
     } else {
@@ -352,6 +359,7 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
     RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, false, block, &filter, &can_filter_all));
     if (can_filter_all) {
         for (auto& col : columns_to_filter) {
+            // NOLINTNEXTLINE(performance-move-const-arg)
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
         }
     } else {
@@ -388,4 +396,5 @@ Status VExprContext::get_output_block_after_execute_exprs(
     return Status::OK();
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

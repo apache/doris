@@ -27,6 +27,8 @@
 #include "common/status.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class ObjectPool;
 
 namespace vectorized {
@@ -41,4 +43,5 @@ public:
             _function_map;
 };
 } // namespace vectorized
+#include "common/compile_check_end.h"
 } // namespace doris

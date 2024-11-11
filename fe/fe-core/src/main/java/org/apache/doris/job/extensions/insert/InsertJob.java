@@ -440,7 +440,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             }
 
             // progress
-            String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(getJobId()));
+            String progress = Env.getCurrentProgressManager()
+                    .getProgressInfo(String.valueOf(getJobId()), getJobStatus() == JobStatus.FINISHED);
             switch (getJobStatus()) {
                 case RUNNING:
                     if (isPending()) {

@@ -87,7 +87,7 @@ Status FunctionMatchBase::evaluate_inverted_index(
     return Status::OK();
 }
 Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
-                                       const ColumnNumbers& arguments, size_t result,
+                                       const ColumnNumbers& arguments, uint32_t result,
                                        size_t input_rows_count) const {
     ColumnPtr& column_ptr = block.get_by_position(arguments[1]).column;
     DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
