@@ -19,7 +19,7 @@ import org.junit.Assert;
 
 suite("test_grant_all_auth","p0,auth") {
     String suiteName = "test_grant_all_auth"
-    String user = '${suiteName}_user'
+    String user = "${suiteName}_user"
     String pwd = 'C123_567p'
     try_sql("DROP USER ${user}")
     sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
@@ -32,4 +32,5 @@ suite("test_grant_all_auth","p0,auth") {
     assertFalse(res.toString().contains("${Create_priv}"))
     assertFalse(res.toString().contains("${Drop_priv}"))
     assertFalse(res.toString().contains("${Show_view_priv}"))
+    try_sql("DROP USER ${user}")
 }
