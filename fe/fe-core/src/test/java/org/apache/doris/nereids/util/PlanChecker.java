@@ -31,6 +31,7 @@ import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.rewrite.CustomRewriteJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteBottomUpJob;
 import org.apache.doris.nereids.jobs.rewrite.PlanTreeRewriteTopDownJob;
 import org.apache.doris.nereids.jobs.rewrite.RootPlanTreeRewriteJob;
@@ -195,6 +196,14 @@ public class PlanChecker {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
+        cascadesContext.toMemo();
+        MemoValidator.validate(cascadesContext.getMemo());
+        return this;
+    }
+
+    public PlanChecker applyCustom(CustomRewriter customRewriter) {
+        CustomRewriteJob customRewriteJob = new CustomRewriteJob(() -> customRewriter, RuleType.TEST_REWRITE);
+        customRewriteJob.execute(cascadesContext.getCurrentJobContext());
         cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
         return this;
