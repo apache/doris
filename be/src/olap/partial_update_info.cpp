@@ -412,15 +412,14 @@ Status FixedReadPlan::fill_missing_columns(
             }
 
             if (should_use_default) {
+                // clang-format off
                 if (tablet_column.has_default_value()) {
                     missing_col->insert_from(*mutable_default_value_columns[i], 0);
                 } else if (tablet_column.is_nullable()) {
-                    auto* nullable_column =
-                            assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(missing_col.get());
-                    nullable_column->insert_default();
+                    auto* nullable_column = assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(missing_col.get());
+                    nullable_column->insert_null_elements(1);
                 } else if (tablet_schema.auto_increment_column() == tablet_column.name()) {
-                    const auto& column =
-                            *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
+                    const auto& column = *DORIS_TRY(rowset_ctx->tablet_schema->column(tablet_column.name()));
                     DCHECK(column.type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
                     auto* auto_inc_column =
                             assert_cast<vectorized::ColumnInt64*, TypeCheckOnRelease::DISABLE>(missing_col.get());
@@ -433,6 +432,7 @@ Status FixedReadPlan::fill_missing_columns(
                     // columns are useless and won't be read. So we can just put arbitary values in the cells
                     missing_col->insert_default();
                 }
+                // clang-format on
             } else {
                 missing_col->insert_from(*old_value_block.get_by_position(i).column,
                                          pos_in_old_block);
