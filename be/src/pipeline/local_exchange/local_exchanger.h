@@ -290,6 +290,17 @@ public:
                      LocalExchangeSourceLocalState& local_state) override;
     ExchangeType get_type() const override { return ExchangeType::LOCAL_MERGE_SORT; }
 
+    std::string data_queue_debug_string(int i) override {
+        if (i == 0) {
+            return fmt::format(
+                    "Data Queue {}: [size approx = {}, eos = {} , block_supplier [still running "
+                    "= {}, all have eof = {}] ]",
+                    i, _data_queue[i].data_queue.size_approx(), _data_queue[i].eos,
+                    _merger->block_supplier_still_running(), _merger->block_supplier_all_eof());
+        } else {
+            return Exchanger<BlockWrapperSPtr>::data_queue_debug_string(i);
+        }
+    }
     Status build_merger(RuntimeState* statem, LocalExchangeSourceLocalState& local_state);
 
     void close(LocalExchangeSourceLocalState& local_state) override {}

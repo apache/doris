@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include "util/defer_op.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/sort_description.h"
@@ -194,6 +195,8 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         if (_is_eof) {
             return false;
         }
+        _is_running = true;
+        Defer defer([&]() { _is_running = false; });
         block->clear();
         Status status;
         do {
@@ -226,6 +229,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     VExprContextSPtrs _ordering_expr;
     BlockSupplier _block_supplier {};
     bool _is_eof = false;
+    bool _is_running = false;
 };
 
 /// For easy copying.

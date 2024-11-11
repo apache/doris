@@ -20,6 +20,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <algorithm>
 #include <queue>
 #include <vector>
 
@@ -60,6 +61,20 @@ public:
 
     // Return the next block of sorted rows from this merger.
     Status get_next(Block* output_block, bool* eos);
+
+    bool block_supplier_all_eof() const {
+        return std::all_of(_cursors.begin(), _cursors.end(),
+                           [](std::shared_ptr<BlockSupplierSortCursorImpl> block_supplier) {
+                               return block_supplier->_is_eof;
+                           });
+    }
+
+    bool block_supplier_still_running() const {
+        return std::any_of(_cursors.begin(), _cursors.end(),
+                           [](std::shared_ptr<BlockSupplierSortCursorImpl> block_supplier) {
+                               return block_supplier->_is_running;
+                           });
+    }
 
 protected:
     const VExprContextSPtrs _ordering_expr;
