@@ -17,6 +17,7 @@
 
 #include "vec/aggregate_functions/aggregate_function_percentile.h"
 
+#include "vec/aggregate_functions/aggregate_function_percentile_approx.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/aggregate_functions/helpers.h"
 #include "vec/core/types.h"
@@ -28,16 +29,24 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(
         const AggregateFunctionAttr& attr) {
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
     WhichDataType which(argument_type);
-    if (which.idx != TypeIndex::Float64) {
-        return nullptr;
-    }
-    if (argument_types.size() == 2) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxTwoParams>(
-                argument_types, result_is_nullable);
-    }
-    if (argument_types.size() == 3) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxThreeParams>(
-                argument_types, result_is_nullable);
+    if (which.idx == TypeIndex::Float64) {
+        if (argument_types.size() == 2) {
+            return creator_without_type::create<AggregateFunctionPercentileApproxTwoParamsOld>(
+                    argument_types, result_is_nullable);
+        }
+        if (argument_types.size() == 3) {
+            return creator_without_type::create<AggregateFunctionPercentileApproxThreeParamsOld>(
+                    argument_types, result_is_nullable);
+        }
+    } else if (which.idx == TypeIndex::Float32) {
+        if (argument_types.size() == 2) {
+            return creator_without_type::create<AggregateFunctionPercentileApproxTwoParams>(
+                    argument_types, result_is_nullable);
+        }
+        if (argument_types.size() == 3) {
+            return creator_without_type::create<AggregateFunctionPercentileApproxThreeParams>(
+                    argument_types, result_is_nullable);
+        }
     }
     return nullptr;
 }
@@ -47,16 +56,28 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx_weighted(
         const AggregateFunctionAttr& attr) {
     const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
     WhichDataType which(argument_type);
-    if (which.idx != TypeIndex::Float64) {
-        return nullptr;
-    }
-    if (argument_types.size() == 3) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedThreeParams>(
-                argument_types, result_is_nullable);
-    }
-    if (argument_types.size() == 4) {
-        return creator_without_type::create<AggregateFunctionPercentileApproxWeightedFourParams>(
-                argument_types, result_is_nullable);
+    if (which.idx == TypeIndex::Float64) {
+        if (argument_types.size() == 3) {
+            return creator_without_type::create<
+                    AggregateFunctionPercentileApproxWeightedThreeParamsOld>(argument_types,
+                                                                             result_is_nullable);
+        }
+        if (argument_types.size() == 4) {
+            return creator_without_type::create<
+                    AggregateFunctionPercentileApproxWeightedFourParamsOld>(argument_types,
+                                                                            result_is_nullable);
+        }
+    } else if (which.idx == TypeIndex::Float32) {
+        if (argument_types.size() == 3) {
+            return creator_without_type::create<
+                    AggregateFunctionPercentileApproxWeightedThreeParams>(argument_types,
+                                                                          result_is_nullable);
+        }
+        if (argument_types.size() == 4) {
+            return creator_without_type::create<
+                    AggregateFunctionPercentileApproxWeightedFourParams>(argument_types,
+                                                                         result_is_nullable);
+        }
     }
     return nullptr;
 }
