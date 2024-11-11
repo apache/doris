@@ -1477,7 +1477,7 @@ TEST(MetaServiceHttpTest, get_stage_response_sk) {
 
     auto bar = [](auto args) {
         std::cout << *try_any_cast<std::string*>(args[0]);
-        
+
         EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("stage-sk") == std::string::npos);
         EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
                             .find("md5: f497d053066fa4b7d3b1f6564597d233") != std::string::npos);
@@ -1524,8 +1524,8 @@ TEST(MetaServiceHttpTest, get_obj_store_info_response_sk) {
 
         EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("obj-store-info-sk2") ==
                     std::string::npos);
-        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("md5: 01d7473ae201a2ecdf1f7c064eb81a95") !=
-                    std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
+                            .find("md5: 01d7473ae201a2ecdf1f7c064eb81a95") != std::string::npos);
     };
     sp->set_call_back("sk_finish_rpc", bar);
 
