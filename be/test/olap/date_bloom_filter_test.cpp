@@ -47,11 +47,11 @@ protected:
 
         // storage engine
         doris::EngineOptions options;
-        auto engine = std::make_unique<StorageEngine>(options);
-        _engine_ref = engine.get();
-        _data_dir = std::make_unique<DataDir>(*_engine_ref, _absolute_dir);
+        auto* engine = new StorageEngine(options);
+        _engine_ref = engine;
+        _data_dir = std::make_unique<DataDir>(_absolute_dir);
         static_cast<void>(_data_dir->update_capacity());
-        ExecEnv::GetInstance()->set_storage_engine(std::move(engine));
+        ExecEnv::GetInstance()->set_storage_engine(engine);
 
         // tablet_schema
         TabletSchemaPB schema_pb;
@@ -72,8 +72,12 @@ protected:
     void TearDown() override {
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_tablet->tablet_path()).ok());
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_absolute_dir).ok());
-        _engine_ref = nullptr;
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        if (_engine_ref != nullptr) {
+            _engine_ref->stop();
+            delete _engine_ref;
+            _engine_ref = nullptr;
+            ExecEnv::GetInstance()->set_storage_engine(nullptr);
+        }
     }
 
     void construct_column(ColumnPB* column_pb, int32_t col_unique_id,
@@ -95,7 +99,7 @@ protected:
         context.data_dir = _data_dir.get();
         context.rowset_state = VISIBLE;
         context.tablet_schema = _tablet_schema;
-        context.tablet_path = _tablet->tablet_path();
+        context.rowset_dir = _tablet->tablet_path();
         context.version = Version(inc_id, inc_id);
         context.max_rows_per_segment = 200;
         inc_id++;
@@ -119,10 +123,9 @@ TEST_F(DateBloomFilterTest, query_index_test) {
     EXPECT_TRUE(io::global_local_filesystem()->create_directory(_tablet->tablet_path()).ok());
 
     RowsetSharedPtr rowset;
+    std::unique_ptr<RowsetWriter> rowset_writer;
     const auto& res =
-            RowsetFactory::create_rowset_writer(*_engine_ref, rowset_writer_context(), false);
-    EXPECT_TRUE(res.has_value()) << res.error();
-    const auto& rowset_writer = res.value();
+            RowsetFactory::create_rowset_writer(rowset_writer_context(), false, &rowset_writer);
 
     Block block = _tablet_schema->create_block();
     auto columns = block.mutate_columns();
