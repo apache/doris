@@ -28,7 +28,6 @@
 #include <map>
 #include <memory>
 #include <ostream>
-#include <random>
 #include <sstream>
 #include <string>
 #include <typeinfo>
@@ -39,7 +38,6 @@
 #include "common/config.h"
 #include "io/io_common.h"
 #include "olap/olap_define.h"
-#include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_fwd.h"
 #include "util/hash_util.hpp"
 #include "util/time.h"

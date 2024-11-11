@@ -19,7 +19,6 @@
 
 #include <atomic>
 
-#include "olap/rowset/rowset.h"
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 
