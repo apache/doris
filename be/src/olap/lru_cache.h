@@ -230,6 +230,8 @@ public:
     virtual PrunedInfo set_capacity(size_t capacity) = 0;
     virtual size_t get_capacity() = 0;
 
+    virtual size_t get_element_count() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
 };
@@ -404,6 +406,7 @@ public:
     PrunedInfo prune() override;
     PrunedInfo prune_if(CachePrunePredicate pred, bool lazy_mode = false) override;
     int64_t get_usage() override;
+    size_t get_element_count() override;
     PrunedInfo set_capacity(size_t capacity) override;
     size_t get_capacity() override;
 
@@ -467,6 +470,7 @@ public:
     int64_t get_usage() override { return 0; };
     PrunedInfo set_capacity(size_t capacity) override { return {0, 0}; };
     size_t get_capacity() override { return 0; };
+    size_t get_element_count() override { return 0; };
 };
 
 } // namespace doris
