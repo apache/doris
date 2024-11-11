@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -38,10 +39,10 @@ public class PercentileApproxWeighted extends NullableAggregateFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
 
             FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(DoubleType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE),
+                    .args(FloatType.INSTANCE, FloatType.INSTANCE, FloatType.INSTANCE),
 
             FunctionSignature.ret(DoubleType.INSTANCE)
-                    .args(DoubleType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE, DoubleType.INSTANCE));
+                    .args(FloatType.INSTANCE, FloatType.INSTANCE, FloatType.INSTANCE, FloatType.INSTANCE));
 
     /**
      * constructor with 3 arguments.
