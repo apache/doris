@@ -26,11 +26,11 @@ suite("test_grant_all_auth","p0,auth") {
     sql """grant all on *.*.* to ${user}"""
     def res = sql """ show grants for ${user} """
     logger.info("res: " + res.toString())
-    assertFalse(res.toString().contains("Select_priv"))
-    assertFalse(res.toString().contains("Load_priv"))
-    assertFalse(res.toString().contains("Alter_priv"))
-    assertFalse(res.toString().contains("Create_priv"))
-    assertFalse(res.toString().contains("Drop_priv"))
-    assertFalse(res.toString().contains("Show_view_priv"))
+    assertTrue(res.toString().contains("Select_priv"))
+    assertTrue(res.toString().contains("Load_priv"))
+    assertTrue(res.toString().contains("Alter_priv"))
+    assertTrue(res.toString().contains("Create_priv"))
+    assertTrue(res.toString().contains("Drop_priv"))
+    assertTrue(res.toString().contains("Show_view_priv"))
     try_sql("DROP USER ${user}")
 }
