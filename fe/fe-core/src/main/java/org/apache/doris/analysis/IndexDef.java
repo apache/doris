@@ -255,7 +255,7 @@ public class IndexDef {
                         throw new AnalysisException("gram_size should be integer and less than 256");
                     }
                     if (bfSize > 65535 || bfSize < 64) {
-                        throw new AnalysisException("bf_size should be integer and between 64 and 65536");
+                        throw new AnalysisException("bf_size should be integer and between 64 and 65535");
                     }
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);
