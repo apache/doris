@@ -567,12 +567,22 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
 
 std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_literal(
         const VSlotRef* slot_ref, const VLiteral* literal) {
-    const auto* orc_type = _type_map[_col_name_to_file_col_name_low_case[slot_ref->expr_name()]];
-    if (TYPEKIND_TO_PREDICATE_TYPE.find(orc_type->getKind()) == TYPEKIND_TO_PREDICATE_TYPE.end()) {
+    auto file_col_name_low_case = _col_name_to_file_col_name_low_case[slot_ref->expr_name()];
+    if (!_type_map.contains(file_col_name_low_case)) {
+        // TODO: this is for acid table
+        LOG(WARNING) << "Column " << slot_ref->expr_name() << " not found in _type_map";
+        return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
+    }
+    const auto* orc_type = _type_map[file_col_name_low_case];
+    if (!TYPEKIND_TO_PREDICATE_TYPE.contains(orc_type->getKind())) {
         LOG(WARNING) << "Unsupported Push Down Orc Type [TypeKind=" << orc_type->getKind() << "]";
         return std::make_tuple(false, orc::Literal(false), orc::PredicateDataType::LONG);
     }
     const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
+    if (literal == nullptr) {
+        // only get the predicate_type
+        return std::make_tuple(true, orc::Literal(true), predicate_type);
+    }
     auto literal_data = literal->get_column_ptr()->get_data_at(0);
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
@@ -755,13 +765,7 @@ bool OrcReader::_build_is_null(const VExprSPtr& expr,
     DCHECK(expr->children().size() == 1);
     DCHECK(expr->children()[0]->is_slot_ref());
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-    const auto* orc_type = _type_map[_col_name_to_file_col_name_low_case[slot_ref->expr_name()]];
-
-    if (TYPEKIND_TO_PREDICATE_TYPE.find(orc_type->getKind()) == TYPEKIND_TO_PREDICATE_TYPE.end()) {
-        LOG(WARNING) << "Unsupported Push Down Orc Type [TypeKind=" << orc_type->getKind() << "]";
-        return false;
-    }
-    const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
+    auto [valid, _, predicate_type] = _make_orc_literal(slot_ref, nullptr);
     builder->isNull(slot_ref->expr_name(), predicate_type);
     return true;
 }
