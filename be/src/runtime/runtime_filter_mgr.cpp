@@ -305,7 +305,8 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
     return Status::OK();
 }
 
-Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSizeRequest* request) {
+Status RuntimeFilterMergeControllerEntity::send_filter_size(std::weak_ptr<QueryContext> query_ctx,
+                                                            const PSendFilterSizeRequest* request) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cnt_val;
 
@@ -339,7 +340,8 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
                                               DummyBrpcCallback<PSyncFilterSizeResponse>>::
                     create_unique(std::make_shared<PSyncFilterSizeRequest>(),
-                                  DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared());
+                                  DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared(),
+                                  query_ctx);
 
             auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(_state->query_id.hi());
@@ -377,7 +379,8 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
 }
 
 // merge data
-Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
+Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> query_ctx,
+                                                 const PMergeFilterRequest* request,
                                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cnt_val;
@@ -449,7 +452,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
                                               DummyBrpcCallback<PPublishFilterResponse>>::
                     create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
-                                  DummyBrpcCallback<PPublishFilterResponse>::create_shared());
+                                  DummyBrpcCallback<PPublishFilterResponse>::create_shared(),
+                                  query_ctx);
 
             closure->request_->set_filter_id(request->filter_id());
             closure->request_->set_merge_time(merge_time);
