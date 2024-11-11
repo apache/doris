@@ -164,9 +164,6 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
         clear_cache();
     }
 
-    // Merge all rowset schemas within a CloudTablet
-    RETURN_IF_ERROR(merge_rowsets_schema());
-
     return st;
 }
 
