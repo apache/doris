@@ -34,6 +34,7 @@ public class ComputeGroupException extends UserException {
         CONNECT_CONTEXT_NOT_SET_COMPUTE_GROUP,
         CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP,
         CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP,
+        CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP,
         CURRENT_COMPUTE_GROUP_NO_BE,
         COMPUTE_GROUPS_NO_ALIVE_BE,
         CURRENT_COMPUTE_GROUP_NOT_EXIST,
@@ -59,6 +60,8 @@ public class ComputeGroupException extends UserException {
         helpInfos.put(FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_ANY_COMPUTE_GROUP, " contact the system administrator "
                 + "and request that they grant you the appropriate compute group permissions, "
                 + "use SQL `GRANT USAGE_PRIV ON COMPUTE GROUP {compute_group_name} TO {user}`");
+        helpInfos.put(FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP,
+                "use SQL `GRANT USAGE_PRIV ON COMPUTE GROUP {compute_group_name} TO {user}`");
         helpInfos.put(FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_DEFAULT_COMPUTE_GROUP,
                 " contact the system administrator "
                 + "and request that they grant you the default compute group permissions, "

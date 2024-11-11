@@ -174,6 +174,7 @@ suite("test_routine_load_condition","p0") {
                 }
                 break;
             }
+            sleep(2000)
         } finally {
             sql "stop routine load for ${jobName}"
             sql "DROP TABLE IF EXISTS ${tableName}"

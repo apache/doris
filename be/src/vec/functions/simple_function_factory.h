@@ -28,6 +28,8 @@
 
 namespace doris::vectorized {
 
+constexpr auto DECIMAL256_FUNCTION_SUFFIX {"_decimal256"};
+
 class SimpleFunctionFactory;
 
 void register_function_size(SimpleFunctionFactory& factory);
@@ -154,12 +156,19 @@ public:
     }
 
     FunctionBasePtr get_function(const std::string& name, const ColumnsWithTypeAndName& arguments,
-                                 const DataTypePtr& return_type,
+                                 const DataTypePtr& return_type, const FunctionAttr& attr = {},
                                  int be_version = BeExecVersionManager::get_newest_version()) {
         std::string key_str = name;
 
         if (function_alias.contains(name)) {
             key_str = function_alias[name];
+        }
+
+        if (attr.enable_decimal256) {
+            if (key_str == "array_sum" || key_str == "array_avg" || key_str == "array_product" ||
+                key_str == "array_cum_sum") {
+                key_str += DECIMAL256_FUNCTION_SUFFIX;
+            }
         }
 
         temporary_function_update(be_version, key_str);

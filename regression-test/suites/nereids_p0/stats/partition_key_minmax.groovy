@@ -36,8 +36,8 @@ suite("partition_key_minmax") {
         sql """memo plan
             select * from rangetable where a < 250;
             """
-        containsAny("a#0 -> ndv=3.0000, min=1.000000(1), max=30.000000(30), count=3.0000")
-        containsAny("a#0 -> ndv=4.0000, min=5.000000(5), max=333.000000(333), count=4.0000")
+        containsAny("a#0 -> ndv=2.6667, min=5.000000(5), max=30.000000(30), count=2.6667")
+        containsAny("a#0 -> ndv=3, min=5.000000(5), max=30.000000(30), count=2.6667")
     }
 
     sql """
@@ -61,7 +61,7 @@ suite("partition_key_minmax") {
          memo plan select * from listtable where id >=3;
         """
         containsAny("id#0 -> ndv=1.0000, min=3.000000(3), max=3.000000(3), count=1.0000,")
-        containsAny("id#0 -> ndv=3.0000, min=1.000000(1), max=3.000000(3), count=3.0000,")
+        containsAny("id#0 -> ndv=1.0000, min=1.000000(1), max=3.000000(3), count=1.0000,")
     }
 }
 

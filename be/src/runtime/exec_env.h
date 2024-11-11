@@ -101,6 +101,7 @@ class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
 class TabletSchemaCache;
+class TabletColumnObjectPool;
 class UserFunctionCache;
 class SchemaCache;
 class StoragePageCache;
@@ -110,6 +111,7 @@ class RowCache;
 class DummyLRUCache;
 class CacheManager;
 class ProcessProfile;
+class HeapProfiler;
 class WalManager;
 class DNSCache;
 
@@ -274,6 +276,9 @@ public:
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
+        this->_tablet_column_object_pool = c;
+    }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
@@ -299,6 +304,7 @@ public:
     std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
+    TabletColumnObjectPool* get_tablet_column_object_pool() { return _tablet_column_object_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -306,6 +312,7 @@ public:
     RowCache* get_row_cache() { return _row_cache; }
     CacheManager* get_cache_manager() { return _cache_manager; }
     ProcessProfile* get_process_profile() { return _process_profile; }
+    HeapProfiler* get_heap_profiler() { return _heap_profiler; }
     segment_v2::InvertedIndexSearcherCache* get_inverted_index_searcher_cache() {
         return _inverted_index_searcher_cache;
     }
@@ -438,6 +445,7 @@ private:
     // these redundancy header could introduce potential bug, at least, more header means slow compile.
     // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
     TabletSchemaCache* _tablet_schema_cache = nullptr;
+    TabletColumnObjectPool* _tablet_column_object_pool = nullptr;
     std::unique_ptr<BaseStorageEngine> _storage_engine;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
@@ -446,6 +454,7 @@ private:
     RowCache* _row_cache = nullptr;
     CacheManager* _cache_manager = nullptr;
     ProcessProfile* _process_profile = nullptr;
+    HeapProfiler* _heap_profiler = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
     QueryCache* _query_cache = nullptr;

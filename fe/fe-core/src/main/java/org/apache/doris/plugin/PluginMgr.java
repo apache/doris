@@ -61,6 +61,9 @@ public class PluginMgr implements Writable {
     // all dynamic plugins should have unique names,
     private final Set<String> dynamicPluginNames;
 
+    // Save this handler for external call
+    private AuditLoader auditLoader = null;
+
     public PluginMgr() {
         plugins = new Map[PluginType.MAX_PLUGIN_TYPE_SIZE];
         for (int i = 0; i < PluginType.MAX_PLUGIN_TYPE_SIZE; i++) {
@@ -113,8 +116,8 @@ public class PluginMgr implements Writable {
         }
 
         // AuditLoader: log audit log to internal table
-        AuditLoader auditLoaderPlugin = new AuditLoader();
-        if (!registerBuiltinPlugin(auditLoaderPlugin.getPluginInfo(), auditLoaderPlugin)) {
+        this.auditLoader = new AuditLoader();
+        if (!registerBuiltinPlugin(auditLoader.getPluginInfo(), auditLoader)) {
             LOG.warn("failed to register audit log builder");
         }
 
@@ -361,6 +364,12 @@ public class PluginMgr implements Writable {
             }
         }
         return rows;
+    }
+
+    public void flushAuditLog() {
+        if (auditLoader != null) {
+            auditLoader.loadIfNecessary(true);
+        }
     }
 
     public void readFields(DataInputStream dis) throws IOException {

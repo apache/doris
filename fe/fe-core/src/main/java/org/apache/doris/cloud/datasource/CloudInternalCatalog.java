@@ -180,7 +180,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         tbl.getEnableMowLightDelete(),
                         tbl.getInvertedIndexFileStorageFormat(),
                         tbl.rowStorePageSize(),
-                        tbl.variantEnableFlattenNested(), clusterKeyIndexes);
+                        tbl.variantEnableFlattenNested(), clusterKeyIndexes,
+                        tbl.storagePageSize());
                 requestBuilder.addTabletMetas(builder);
             }
             if (!storageVaultIdSet && ((CloudEnv) Env.getCurrentEnv()).getEnableStorageVault()) {
@@ -230,7 +231,8 @@ public class CloudInternalCatalog extends InternalCatalog {
             Long timeSeriesCompactionLevelThreshold, boolean disableAutoCompaction,
             List<Integer> rowStoreColumnUniqueIds, boolean enableMowLightDelete,
             TInvertedIndexFileStorageFormat invertedIndexFileStorageFormat, long pageSize,
-            boolean variantEnableFlattenNested, List<Integer> clusterKeyIdxes) throws DdlException {
+            boolean variantEnableFlattenNested, List<Integer> clusterKeyIdxes,
+            long storagePageSize) throws DdlException {
         OlapFile.TabletMetaCloudPB.Builder builder = OlapFile.TabletMetaCloudPB.newBuilder();
         builder.setTableId(tableId);
         builder.setIndexId(indexId);
@@ -265,6 +267,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         builder.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
         builder.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
+        builder.setStoragePageSize(storagePageSize);
 
         OlapFile.TabletSchemaCloudPB.Builder schemaBuilder = OlapFile.TabletSchemaCloudPB.newBuilder();
         schemaBuilder.setSchemaVersion(schemaVersion);

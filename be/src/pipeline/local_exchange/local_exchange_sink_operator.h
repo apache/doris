@@ -45,6 +45,7 @@ public:
     Status open(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
     std::vector<Dependency*> dependencies() const override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
 private:
     friend class LocalExchangeSinkOperatorX;
@@ -100,7 +101,7 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(ExchangeType type, const int num_buckets, const bool should_disable_bucket_shuffle,
+    Status init(ExchangeType type, const int num_buckets, const bool use_global_hash_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
     Status open(RuntimeState* state) override;

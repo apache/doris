@@ -22,7 +22,8 @@
 namespace doris::cloud::config {
 
 CONF_Int32(brpc_listen_port, "5000");
-CONF_Int32(brpc_num_threads, "-1");
+CONF_Int32(brpc_num_threads, "64");
+// connections without data transmission for so many seconds will be closed
 // Set -1 to disable it.
 CONF_Int32(brpc_idle_timeout_sec, "-1");
 CONF_String(hostname, "");
@@ -65,10 +66,10 @@ CONF_mInt64(dropped_partition_retention_seconds, "10800"); // 3h
 CONF_Strings(recycle_whitelist, ""); // Comma seprated list
 // These instances will not be recycled, only effective when whitelist is empty.
 CONF_Strings(recycle_blacklist, ""); // Comma seprated list
-CONF_mInt32(instance_recycler_worker_pool_size, "8");
+CONF_mInt32(instance_recycler_worker_pool_size, "32");
 CONF_Bool(enable_checker, "false");
 // The parallelism for parallel recycle operation
-CONF_Int32(recycle_pool_parallelism, "10");
+CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
 // interval for scanning instances to do checks and inspections
@@ -135,8 +136,10 @@ CONF_mBool(snapshot_get_tablet_stats, "true");
 // Value codec version
 CONF_mInt16(meta_schema_value_version, "1");
 
-// Limit kv size of Schema SchemaDictKeyList, default 10MB
-CONF_mInt32(schema_dict_kv_size_limit, "10485760");
+// Limit kv size of Schema SchemaDictKeyList, default 5MB
+CONF_mInt32(schema_dict_kv_size_limit, "5242880");
+// Limit the count of columns in schema dict value, default 4K
+CONF_mInt32(schema_dict_key_count_limit, "4096");
 
 // For instance check interval
 CONF_Int64(reserved_buffer_days, "3");
@@ -217,5 +220,4 @@ CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
-
 } // namespace doris::cloud::config

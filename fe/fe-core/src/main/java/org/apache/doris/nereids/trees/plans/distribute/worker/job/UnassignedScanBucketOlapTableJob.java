@@ -22,6 +22,8 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.trees.plans.distribute.DistributeContext;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorkerManager;
 import org.apache.doris.nereids.trees.plans.distribute.worker.ScanWorkerSelector;
@@ -58,10 +60,10 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
 
     /** UnassignedScanNativeTableJob */
     public UnassignedScanBucketOlapTableJob(
-            PlanFragment fragment, List<OlapScanNode> olapScanNodes,
+            StatementContext statementContext, PlanFragment fragment, List<OlapScanNode> olapScanNodes,
             ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob,
             ScanWorkerSelector scanWorkerSelector) {
-        super(fragment, (List) olapScanNodes, exchangeToChildJob);
+        super(statementContext, fragment, (List) olapScanNodes, exchangeToChildJob);
         this.scanWorkerSelector = Objects.requireNonNull(
                 scanWorkerSelector, "scanWorkerSelector cat not be null");
 
@@ -75,7 +77,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
 
     @Override
     protected Map<DistributedPlanWorker, UninstancedScanSource> multipleMachinesParallelization(
-            DistributedPlanWorkerManager workerManager, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
+            DistributeContext distributeContext, ListMultimap<ExchangeNode, AssignedJob> inputJobs) {
         // for every bucket tablet, select its replica and worker.
         // for example, colocate join:
         // {
@@ -94,13 +96,15 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         //       ...
         //    }
         // }
-        return scanWorkerSelector.selectReplicaAndWorkerWithBucket(this);
+        return scanWorkerSelector.selectReplicaAndWorkerWithBucket(
+                this, statementContext.getConnectContext()
+        );
     }
 
     @Override
     protected List<AssignedJob> insideMachineParallelization(
             Map<DistributedPlanWorker, UninstancedScanSource> workerToScanRanges,
-            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributedPlanWorkerManager workerManager) {
+            ListMultimap<ExchangeNode, AssignedJob> inputJobs, DistributeContext distributeContext) {
         // separate buckets to instanceNum groups, let one instance process some buckets.
         // for example, colocate join:
         // {
@@ -129,7 +133,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         //    ...
         // }
         List<AssignedJob> assignedJobs = super.insideMachineParallelization(
-                workerToScanRanges, inputJobs, workerManager);
+                workerToScanRanges, inputJobs, distributeContext);
 
         // the case:
         // ```sql
@@ -219,7 +223,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
                 if (!mergedBucketsInSameWorkerInstance) {
                     fillUpInstance = new LocalShuffleAssignedJob(
                             newInstances.size(), shareScanIdGenerator.getAndIncrement(),
-                            context.nextInstanceId(), this, worker, scanSource
+                            false, context.nextInstanceId(), this, worker, scanSource
                     );
                 }
             } else {

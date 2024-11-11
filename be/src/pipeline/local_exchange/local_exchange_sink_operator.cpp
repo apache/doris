@@ -36,17 +36,17 @@ std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
 }
 
 Status LocalExchangeSinkOperatorX::init(ExchangeType type, const int num_buckets,
-                                        const bool should_disable_bucket_shuffle,
+                                        const bool use_global_hash_shuffle,
                                         const std::map<int, int>& shuffle_idx_to_instance_idx) {
     _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
     _type = type;
     if (_type == ExchangeType::HASH_SHUFFLE) {
-        _use_global_shuffle = should_disable_bucket_shuffle;
+        _use_global_shuffle = use_global_hash_shuffle;
         // For shuffle join, if data distribution has been broken by previous operator, we
         // should use a HASH_SHUFFLE local exchanger to shuffle data again. To be mentioned,
         // we should use map shuffle idx to instance idx because all instances will be
         // distributed to all BEs. Otherwise, we should use shuffle idx directly.
-        if (should_disable_bucket_shuffle) {
+        if (use_global_hash_shuffle) {
             std::for_each(shuffle_idx_to_instance_idx.begin(), shuffle_idx_to_instance_idx.end(),
                           [&](const auto& item) {
                               DCHECK(item.first != -1);
@@ -110,6 +110,18 @@ Status LocalExchangeSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_close_timer);
+    if (Base::_closed) {
+        return Status::OK();
+    }
+    if (_shared_state) {
+        _shared_state->sub_running_sink_operators();
+    }
+    return Base::close(state, exec_status);
+}
+
 std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
@@ -132,11 +144,7 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {
-        local_state._shared_state->sub_running_sink_operators();
         return Status::EndOfFile("receiver eof");
-    }
-    if (eos) {
-        local_state._shared_state->sub_running_sink_operators();
     }
 
     return Status::OK();

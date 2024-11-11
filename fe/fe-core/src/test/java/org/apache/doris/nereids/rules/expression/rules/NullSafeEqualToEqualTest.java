@@ -54,7 +54,7 @@ class NullSafeEqualToEqualTest extends ExpressionRewriteTestHelper {
         assertRewrite(new NullSafeEqual(new IntegerLiteral(0), NullLiteral.INSTANCE), BooleanLiteral.FALSE);
     }
 
-    // "NULL <=> Null" to false
+    // "NULL <=> Null" to true
     @Test
     void testNullSafeEqualToTrue() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(

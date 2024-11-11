@@ -22,6 +22,7 @@ import org.apache.doris.planner.ScanNode;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -35,7 +36,7 @@ public class DefaultScanSource extends ScanSource {
     public final Map<ScanNode, ScanRanges> scanNodeToScanRanges;
 
     public DefaultScanSource(Map<ScanNode, ScanRanges> scanNodeToScanRanges) {
-        this.scanNodeToScanRanges = scanNodeToScanRanges;
+        this.scanNodeToScanRanges = Maps.newLinkedHashMap(scanNodeToScanRanges);
     }
 
     public static DefaultScanSource empty() {
@@ -82,11 +83,6 @@ public class DefaultScanSource extends ScanSource {
         return scanNodeToScanRanges.isEmpty();
     }
 
-    @Override
-    public void toString(StringBuilder str, String prefix) {
-        toString(scanNodeToScanRanges, str, prefix);
-    }
-
     /** toString */
     public static void toString(Map<ScanNode, ScanRanges> scanNodeToScanRanges, StringBuilder str, String prefix) {
         if (scanNodeToScanRanges.isEmpty()) {
@@ -111,5 +107,15 @@ public class DefaultScanSource extends ScanSource {
             }
         }
         str.append("\n").append(prefix).append("]");
+    }
+
+    @Override
+    public void toString(StringBuilder str, String prefix) {
+        toString(scanNodeToScanRanges, str, prefix);
+    }
+
+    @Override
+    public ScanSource newEmpty() {
+        return empty();
     }
 }

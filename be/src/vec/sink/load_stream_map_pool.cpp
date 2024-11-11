@@ -20,6 +20,7 @@
 #include "util/debug_points.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TExpr;
 
 LoadStreamMap::LoadStreamMap(UniqueId load_id, int64_t src_id, int num_streams, int num_use,
@@ -107,7 +108,7 @@ bool LoadStreamMap::release() {
 
 void LoadStreamMap::close_load(bool incremental) {
     for (auto& [dst_id, streams] : _streams_for_node) {
-        if (streams->is_incremental()) {
+        if (streams->is_incremental() != incremental) {
             continue;
         }
         std::vector<PTabletID> tablets_to_commit;

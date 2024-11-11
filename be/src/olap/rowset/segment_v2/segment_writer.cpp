@@ -85,13 +85,14 @@ inline std::string segment_mem_tracker_name(uint32_t segment_id) {
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, const SegmentWriterOptions& opts,
-                             io::FileWriterPtr inverted_file_writer)
+                             InvertedIndexFileWriter* inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
+          _inverted_index_file_writer(inverted_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
@@ -131,17 +132,6 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 _key_index_size.push_back(column.index_length());
             }
         }
-    }
-    if (_tablet_schema->has_inverted_index()) {
-        _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                _opts.rowset_ctx->fs(),
-                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
-                        file_writer->path().c_str())},
-                _opts.rowset_ctx->rowset_id.to_string(), segment_id,
-                _tablet_schema->get_inverted_index_storage_format(),
-                std::move(inverted_file_writer));
-        _inverted_index_file_writer->set_file_writer_opts(
-                _opts.rowset_ctx->get_file_writer_options());
     }
 }
 
@@ -217,21 +207,21 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
-    // indexes for this column
-    opts.indexes = schema->get_indexes_for_column(column);
+
     if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
         opts.need_zone_map = false;
         opts.need_bloom_filter = false;
         opts.need_bitmap_index = false;
     }
-    opts.inverted_index_file_writer = _inverted_index_file_writer.get();
-    for (const auto* index : opts.indexes) {
-        if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
-            opts.inverted_index = index;
-            opts.need_inverted_index = true;
-            // TODO support multiple inverted index
-            break;
-        }
+
+    // indexes for this column
+    if (const auto& index = schema->inverted_index(column);
+        index != nullptr && !skip_inverted_index) {
+        opts.inverted_index = index;
+        opts.need_inverted_index = true;
+        DCHECK(_inverted_index_file_writer != nullptr);
+        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        // TODO support multiple inverted index
     }
 #define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
     if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
@@ -255,6 +245,35 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
 
 #undef CHECK_FIELD_TYPE
 
+    if (_opts.rowset_ctx != nullptr) {
+        int64_t storage_page_size = _opts.rowset_ctx->storage_page_size;
+        // storage_page_size must be between 4KB and 10MB.
+        if (storage_page_size >= 4096 && storage_page_size <= 10485760) {
+            opts.data_page_size = storage_page_size;
+        }
+    }
+    DBUG_EXECUTE_IF("VerticalSegmentWriter._create_column_writer.storage_page_size", {
+        auto table_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "VerticalSegmentWriter._create_column_writer.storage_page_size", "table_id",
+                INT_MIN);
+        auto target_data_page_size = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "VerticalSegmentWriter._create_column_writer.storage_page_size",
+                "storage_page_size", INT_MIN);
+        if (table_id == INT_MIN || target_data_page_size == INT_MIN) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Debug point parameters missing: either 'table_id' or 'storage_page_size' not "
+                    "set.");
+        }
+        if (table_id == _tablet_schema->table_id() &&
+            opts.data_page_size != target_data_page_size) {
+            return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                    "Mismatch in 'storage_page_size': expected size does not match the current "
+                    "data page size. "
+                    "Expected: " +
+                    std::to_string(target_data_page_size) +
+                    ", Actual: " + std::to_string(opts.data_page_size) + ".");
+        }
+    })
     if (column.is_row_store_column()) {
         // smaller page size for row store column
         auto page_size = _tablet_schema->row_store_page_size();
@@ -1025,10 +1044,6 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
-    if (_inverted_index_file_writer != nullptr) {
-        RETURN_IF_ERROR(_inverted_index_file_writer->close());
-        _inverted_index_file_info = _inverted_index_file_writer->get_index_file_info();
-    }
     return Status::OK();
 }
 
@@ -1267,13 +1282,6 @@ Status SegmentWriter::_generate_short_key_index(
         last_key = std::move(key);
     }
     return Status::OK();
-}
-
-int64_t SegmentWriter::get_inverted_index_total_size() {
-    if (_inverted_index_file_writer != nullptr) {
-        return _inverted_index_file_writer->get_index_file_total_size();
-    }
-    return 0;
 }
 
 inline bool SegmentWriter::_is_mow() {

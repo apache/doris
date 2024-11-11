@@ -19,6 +19,9 @@ name: Build Third Party Libraries
 
 on:
   pull_request:
+  workflow_dispatch:
+  issue_comment:
+    types: [ created ]  
 
 concurrency:
   group: ${{ github.ref }} (Build Third Party Libraries)
@@ -28,6 +31,12 @@ jobs:
   changes:
     name: Detect Changes
     runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'issue_comment' &&
+       github.event.comment.body == 'run buildall' &&
+       github.actor == 'doris-robot' &&
+       github.event.issue.user.login == 'github-actions[bot]') 
     outputs:
       thirdparty_changes: ${{ steps.filter.outputs.thirdparty_changes }}
     steps:

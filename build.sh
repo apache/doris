@@ -271,12 +271,6 @@ else
     fi
 fi
 
-ARCH="$(uname -m)"
-if [[ "${ARCH}" == "aarch64" ]]; then
-    echo "WARNING: Cloud module is not supported on ARM platform, will skip building it."
-    BUILD_CLOUD=0
-fi
-
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
@@ -448,6 +442,10 @@ if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
 fi
 
+if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
+    ENABLE_CACHE_LOCK_DEBUG='OFF'
+fi
+
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
 fi
@@ -494,6 +492,7 @@ echo "Get params:
     USE_JEMALLOC                -- ${USE_JEMALLOC}
     USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
     ENABLE_INJECTION_POINT      -- ${ENABLE_INJECTION_POINT}
+    ENABLE_CACHE_LOCK_DEBUG     -- ${ENABLE_CACHE_LOCK_DEBUG}
     DENABLE_CLANG_COVERAGE      -- ${DENABLE_CLANG_COVERAGE}
     DISPLAY_BUILD_TIME          -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                  -- ${ENABLE_PCH}
@@ -580,6 +579,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
         -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
+        -DENABLE_CACHE_LOCK_DEBUG="${ENABLE_CACHE_LOCK_DEBUG}" \
         -DMAKE_TEST=OFF \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
@@ -631,6 +631,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DCMAKE_MAKE_PROGRAM="${MAKE_PROGRAM}" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
         -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+        -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
         -DMAKE_TEST=OFF \
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \

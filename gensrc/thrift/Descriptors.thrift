@@ -228,6 +228,7 @@ struct TOlapTableIndex {
   4: optional string comment
   5: optional i64 index_id
   6: optional map<string, string> properties
+  7: optional list<i32> column_unique_ids
 }
 
 struct TOlapTableIndexSchema {
@@ -255,7 +256,7 @@ struct TOlapTableSchemaParam {
     11: optional string auto_increment_column
     12: optional i32 auto_increment_column_unique_id = -1
     13: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V1
-    14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode = Types.TUniqueKeyUpdateMode.UPSERT
+    14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
     15: optional i32 sequence_map_col_unique_id = -1
 }
 
@@ -352,7 +353,6 @@ struct TJdbcTable {
   12: optional i32 connection_pool_max_life_time
   13: optional bool connection_pool_keep_alive
   14: optional i64 catalog_id
-  15: optional bool enable_connection_pool
 }
 
 struct TMCTable {

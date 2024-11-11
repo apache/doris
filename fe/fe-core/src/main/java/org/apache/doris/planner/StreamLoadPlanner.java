@@ -101,7 +101,7 @@ public class StreamLoadPlanner {
         analyzer = new Analyzer(Env.getCurrentEnv(), null);
         // TODO(cmy): currently we do not support UDF in stream load command.
         // Because there is no way to check the privilege of accessing UDF..
-        analyzer.setUDFAllowed(false);
+        analyzer.setUDFAllowed(Config.enable_udf_in_load);
         descTable = analyzer.getDescTbl();
     }
 
