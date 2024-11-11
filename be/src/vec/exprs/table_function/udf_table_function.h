@@ -26,6 +26,7 @@
 #include "vec/functions/array/function_array_utils.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class UDFTableFunction final : public TableFunction {
     ENABLE_FACTORY_CREATOR(UDFTableFunction);
@@ -94,4 +95,5 @@ private:
     size_t _array_offset = 0;        // start offset of array[row_idx]
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
