@@ -51,10 +51,14 @@ namespace doris::vectorized {
 class Arena;
 class BufferReadable;
 
-struct PercentileApproxState {
+struct PercentileApproxStateOld {
+    // Since TDigest internally performs calculations using float32, but the function definitions use double,
+    // there is an additional type conversion overhead. To ensure compatibility with both up- and down-casting,
+    // the original code is appended with the suffix "Old". The BE will support both float32 and float64 implementations.
+    // To ensure the result remains unchanged, the return value is still float64.
     static constexpr double INIT_QUANTILE = -1.0;
-    PercentileApproxState() = default;
-    ~PercentileApproxState() = default;
+    PercentileApproxStateOld() = default;
+    ~PercentileApproxStateOld() = default;
 
     void init(double compression = 10000) {
         if (!init_flag) {
@@ -109,7 +113,7 @@ struct PercentileApproxState {
         }
     }
 
-    void merge(const PercentileApproxState& rhs) {
+    void merge(const PercentileApproxStateOld& rhs) {
         if (!rhs.init_flag) {
             return;
         }
@@ -121,7 +125,7 @@ struct PercentileApproxState {
             digest->merge(rhs.digest.get());
             init_flag = true;
         }
-        if (target_quantile == PercentileApproxState::INIT_QUANTILE) {
+        if (target_quantile == PercentileApproxStateOld::INIT_QUANTILE) {
             target_quantile = rhs.target_quantile;
         }
     }
@@ -152,40 +156,40 @@ struct PercentileApproxState {
     double compressions = 10000;
 };
 
-class AggregateFunctionPercentileApprox
-        : public IAggregateFunctionDataHelper<PercentileApproxState,
-                                              AggregateFunctionPercentileApprox> {
+class AggregateFunctionPercentileApproxOld
+        : public IAggregateFunctionDataHelper<PercentileApproxStateOld,
+                                              AggregateFunctionPercentileApproxOld> {
 public:
-    AggregateFunctionPercentileApprox(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<PercentileApproxState,
-                                           AggregateFunctionPercentileApprox>(argument_types_) {}
+    AggregateFunctionPercentileApproxOld(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<PercentileApproxStateOld,
+                                           AggregateFunctionPercentileApproxOld>(argument_types_) {}
 
     String get_name() const override { return "percentile_approx"; }
 
     void reset(AggregateDataPtr __restrict place) const override {
-        AggregateFunctionPercentileApprox::data(place).reset();
+        AggregateFunctionPercentileApproxOld::data(place).reset();
     }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
-        AggregateFunctionPercentileApprox::data(place).merge(
-                AggregateFunctionPercentileApprox::data(rhs));
+        AggregateFunctionPercentileApproxOld::data(place).merge(
+                AggregateFunctionPercentileApproxOld::data(rhs));
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
-        AggregateFunctionPercentileApprox::data(place).write(buf);
+        AggregateFunctionPercentileApproxOld::data(place).write(buf);
     }
 
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena*) const override {
-        AggregateFunctionPercentileApprox::data(place).read(buf);
+        AggregateFunctionPercentileApproxOld::data(place).read(buf);
     }
 };
 
-class AggregateFunctionPercentileApproxTwoParams : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxTwoParamsOld : public AggregateFunctionPercentileApproxOld {
 public:
-    AggregateFunctionPercentileApproxTwoParams(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
+    AggregateFunctionPercentileApproxTwoParamsOld(const DataTypes& argument_types_)
+            : AggregateFunctionPercentileApproxOld(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources =
@@ -200,7 +204,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
+        double result = AggregateFunctionPercentileApproxOld::data(place).get();
 
         if (std::isnan(result)) {
             col.insert_default();
@@ -210,10 +214,11 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxThreeParams : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxThreeParamsOld
+        : public AggregateFunctionPercentileApproxOld {
 public:
-    AggregateFunctionPercentileApproxThreeParams(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
+    AggregateFunctionPercentileApproxThreeParamsOld(const DataTypes& argument_types_)
+            : AggregateFunctionPercentileApproxOld(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources =
@@ -231,7 +236,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
+        double result = AggregateFunctionPercentileApproxOld::data(place).get();
 
         if (std::isnan(result)) {
             col.insert_default();
@@ -241,11 +246,11 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxWeightedThreeParams
-        : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxWeightedThreeParamsOld
+        : public AggregateFunctionPercentileApproxOld {
 public:
-    AggregateFunctionPercentileApproxWeightedThreeParams(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
+    AggregateFunctionPercentileApproxWeightedThreeParamsOld(const DataTypes& argument_types_)
+            : AggregateFunctionPercentileApproxOld(argument_types_) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
@@ -265,7 +270,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
+        double result = AggregateFunctionPercentileApproxOld::data(place).get();
 
         if (std::isnan(result)) {
             col.insert_default();
@@ -275,11 +280,11 @@ public:
     }
 };
 
-class AggregateFunctionPercentileApproxWeightedFourParams
-        : public AggregateFunctionPercentileApprox {
+class AggregateFunctionPercentileApproxWeightedFourParamsOld
+        : public AggregateFunctionPercentileApproxOld {
 public:
-    AggregateFunctionPercentileApproxWeightedFourParams(const DataTypes& argument_types_)
-            : AggregateFunctionPercentileApprox(argument_types_) {}
+    AggregateFunctionPercentileApproxWeightedFourParamsOld(const DataTypes& argument_types_)
+            : AggregateFunctionPercentileApproxOld(argument_types_) {}
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
         const auto& sources =
@@ -300,7 +305,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        double result = AggregateFunctionPercentileApprox::data(place).get();
+        double result = AggregateFunctionPercentileApproxOld::data(place).get();
 
         if (std::isnan(result)) {
             col.insert_default();
@@ -351,7 +356,7 @@ struct PercentileState {
         }
     }
 
-    void add(T source, const PaddedPODArray<Float64>& quantiles, int arg_size) {
+    void add(T source, const PaddedPODArray<Float64>& quantiles, int64_t arg_size) {
         if (!inited_flag) {
             vec_counts.resize(arg_size);
             vec_quantile.resize(arg_size, -1);
