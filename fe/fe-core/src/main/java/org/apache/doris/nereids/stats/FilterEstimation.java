@@ -171,7 +171,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
     public Statistics visitAnd(And and, EstimationContext context) {
         List<Expression> conjuncts = ExpressionUtils.extractConjunction(and);
         Statistics outputStats;
-        Pair<List<EqualPredicate>, List<Expression>>  equalAndNonEqual = extractEquals(conjuncts);
+        Pair<List<EqualPredicate>, List<Expression>> equalAndNonEqual = extractEquals(conjuncts);
         if (equalAndNonEqual.first.size() >= EQUAL_PREDICATE_LARGE_THRESHOLD) {
             outputStats = estimateBasicAnd(equalAndNonEqual.second, context);
             outputStats = estimateMultiEqualConjuncts(equalAndNonEqual.first, new EstimationContext(outputStats));
