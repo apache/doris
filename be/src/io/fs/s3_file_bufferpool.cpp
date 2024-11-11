@@ -40,6 +40,8 @@ namespace doris {
 namespace io {
 
 bvar::Adder<uint64_t> s3_file_buffer_allocated("s3_file_buffer_allocated");
+bvar::LatencyRecorder s3_file_upload_thread_pool_queue_size(
+        "s3_file_upload_thread_pool_queue_size");
 
 template <typename Allocator = Allocator<false>>
 struct Memory : boost::noncopyable, Allocator {
@@ -110,8 +112,14 @@ Status UploadFileBuffer::append_data(const Slice& data) {
  */
 static Status submit_upload_buffer(std::shared_ptr<FileBuffer> buffer) {
     TEST_SYNC_POINT_RETURN_WITH_VALUE("UploadFileBuffer::submit", Status::OK(), buffer.get());
-    return ExecEnv::GetInstance()->s3_file_upload_thread_pool()->submit_func(
-            [buf = std::move(buffer)]() { buf->execute_async(); });
+    auto pool = ExecEnv::GetInstance()->s3_file_upload_thread_pool();
+    auto s = pool->submit_func([buf = std::move(buffer)]() { buf->execute_async(); });
+    if (s.ok()) [[likely]] {
+        s3_file_upload_thread_pool_queue_size << pool->get_queue_size();
+    } else {
+        LOG(WARNING) << "failed to submit upload buffer to executor";
+    }
+    return s;
 }
 
 std::ostream& operator<<(std::ostream& os, const BufferType& value) {
