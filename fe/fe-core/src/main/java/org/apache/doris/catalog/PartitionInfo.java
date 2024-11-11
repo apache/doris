@@ -416,7 +416,7 @@ public class PartitionInfo {
 
     public void resetPartitionIdForRestore(
             Map<Long, Long> partitionIdMap,
-            ReplicaAllocation restoreReplicaAlloc, boolean isSinglePartitioned) {
+            ReplicaAllocation restoreReplicaAlloc, boolean reserveStoragePolicy, boolean isSinglePartitioned) {
         Map<Long, DataProperty> origIdToDataProperty = idToDataProperty;
         Map<Long, ReplicaAllocation> origIdToReplicaAllocation = idToReplicaAllocation;
         Map<Long, PartitionItem> origIdToItem = idToItem;
@@ -429,7 +429,8 @@ public class PartitionInfo {
         idToStoragePolicy = Maps.newHashMap();
 
         for (Map.Entry<Long, Long> entry : partitionIdMap.entrySet()) {
-            idToDataProperty.put(entry.getKey(), origIdToDataProperty.get(entry.getValue()));
+            idToDataProperty.put(entry.getKey(), reserveStoragePolicy
+                    ? origIdToDataProperty.get(entry.getValue()) : DataProperty.DEFAULT_HDD_DATA_PROPERTY);
             idToReplicaAllocation.put(entry.getKey(),
                     restoreReplicaAlloc == null ? origIdToReplicaAllocation.get(entry.getValue())
                             : restoreReplicaAlloc);
@@ -437,7 +438,8 @@ public class PartitionInfo {
                 idToItem.put(entry.getKey(), origIdToItem.get(entry.getValue()));
             }
             idToInMemory.put(entry.getKey(), origIdToInMemory.get(entry.getValue()));
-            idToStoragePolicy.put(entry.getKey(), origIdToStoragePolicy.get(entry.getValue()));
+            idToStoragePolicy.put(entry.getKey(), reserveStoragePolicy
+                    ? origIdToStoragePolicy.get(entry.getValue()) : "");
         }
     }
 

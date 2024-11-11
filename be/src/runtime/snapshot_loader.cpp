@@ -170,8 +170,7 @@ static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet
     std::string remote_tablet_path = fmt::format("{}/{}", DATA_PREFIX, tablet_id);
 
     for (int i = 0; i < segments; i++) {
-        std::string remote_seg_path =
-                fmt::format("{}/{}_{}.dat", remote_tablet_path, rowset, i);
+        std::string remote_seg_path = fmt::format("{}/{}_{}.dat", remote_tablet_path, rowset, i);
         std::string local_seg_path = fmt::format("{}/{}_{}.dat", local_path, rowset, i);
         std::string dest_seg_path = fmt::format("{}/{}_{}.dat", dest_path, rowset, i);
 
@@ -188,8 +187,7 @@ static Status upload_remote_rowset(io::RemoteFileSystem& dest_fs, int64_t tablet
                                                      &remote_index_files));
 
     for (auto& index_file : remote_index_files) {
-        std::string remote_index_path =
-                fmt::format("{}/{}", remote_tablet_path, index_file);
+        std::string remote_index_path = fmt::format("{}/{}", remote_tablet_path, index_file);
         std::string local_seg_path = fmt::format("{}/{}", local_path, index_file);
         std::string dest_seg_path = fmt::format("{}/{}", dest_path, index_file);
 
@@ -896,9 +894,9 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    auto res = _engine.snapshot_mgr()->convert_rowset_ids(snapshot_path, tablet_id,
-                                                          tablet->replica_id(), tablet->table_id(),
-                                                          tablet->partition_id(), schema_hash);
+    auto res = _engine.snapshot_mgr()->convert_rowset_ids(
+            snapshot_path, tablet_id, tablet->replica_id(), tablet->table_id(),
+            tablet->partition_id(), schema_hash, tablet->storage_policy_id());
     if (!res.has_value()) [[unlikely]] {
         auto err_msg =
                 fmt::format("failed to convert rowsetids in snapshot: {}, tablet path: {}, err: {}",

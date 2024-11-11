@@ -238,7 +238,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
-            boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId) {
+            boolean isCleanPartitions, boolean isAtomicRestore, String storageResource,
+            boolean reserveStoragePolicy, Env env, long repoId) {
         super(JobType.RESTORE, label, dbId, dbName, timeoutMs, env, repoId);
         this.backupTimestamp = backupTs;
         this.jobInfo = jobInfo;
@@ -256,6 +257,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         this.isCleanTables = isCleanTables;
         this.isCleanPartitions = isCleanPartitions;
         this.isAtomicRestore = isAtomicRestore;
+        this.storageResource = storageResource;
+        this.reserveStoragePolicy = reserveStoragePolicy;
         properties.put(PROP_RESERVE_REPLICA, String.valueOf(reserveReplica));
         properties.put(PROP_RESERVE_DYNAMIC_PARTITION_ENABLE, String.valueOf(reserveDynamicPartitionEnable));
         properties.put(PROP_IS_BEING_SYNCED, String.valueOf(isBeingSynced));
@@ -267,10 +270,11 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
     public RestoreJob(String label, String backupTs, long dbId, String dbName, BackupJobInfo jobInfo, boolean allowLoad,
             ReplicaAllocation replicaAlloc, long timeoutMs, int metaVersion, boolean reserveReplica,
             boolean reserveDynamicPartitionEnable, boolean isBeingSynced, boolean isCleanTables,
-            boolean isCleanPartitions, boolean isAtomicRestore, Env env, long repoId, BackupMeta backupMeta) {
+            boolean isCleanPartitions, boolean isAtomicRestore, String storageResource,
+            boolean reserveStoragePolicy, Env env, long repoId, BackupMeta backupMeta) {
         this(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
-                reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions, isAtomicRestore, env,
-                repoId);
+                reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions, isAtomicRestore,
+                storageResource, reserveStoragePolicy, env, repoId);
         this.backupMeta = backupMeta;
     }
 
@@ -676,7 +680,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
         }
 
         for (BackupJobInfo.BackupS3ResourceInfo backupS3ResourceInfo : jobInfo.newBackupObjects.s3Resources) {
-            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(backupS3ResourceInfo.name);
+            Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(storageResource != null
+                    ? storageResource : backupS3ResourceInfo.name);
             if (resource == null) {
                 continue;
             }
@@ -756,6 +761,16 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             BackupPartitionInfo backupPartInfo = partitionEntry.getValue();
                             Partition localPartition = localOlapTbl.getPartition(partitionName);
                             Partition remotePartition = remoteOlapTbl.getPartition(partitionName);
+
+                            String policyName = remoteOlapTbl.getPartitionInfo()
+                                    .getDataProperty(remotePartition.getId()).getStoragePolicy();
+                            if (StringUtils.isNotEmpty(policyName)) {
+                                status = new Status(ErrCode.COMMON_ERROR, "Can't restore remote partition "
+                                        + partitionName + " in table " + remoteTbl.getName() + " with storage policy "
+                                        + policyName + " when local table " + localTbl.getName() + " exist."
+                                        + " Please drop old table and restore again.");
+                                return;
+                            }
                             if (localPartition != null) {
                                 // Partition already exist.
                                 PartitionInfo localPartInfo = localOlapTbl.getPartitionInfo();
@@ -841,7 +856,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
 
                     // reset all ids in this table
                     String srcDbName = jobInfo.dbName;
-                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc, reserveReplica, srcDbName);
+                    Status st = remoteOlapTbl.resetIdsForRestore(env, db, replicaAlloc,
+                            reserveReplica, reserveStoragePolicy, srcDbName);
                     if (!st.ok()) {
                         status = st;
                         return;
@@ -932,6 +948,18 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             if (isAtomicRestore && !restoredPartitions.isEmpty()) {
                 throw new RuntimeException("atomic restore is set, but the restored partitions is not empty");
             }
+
+            // check and restore resources
+            checkAndRestoreResources();
+            if (!status.ok()) {
+                return;
+            }
+            // check and restore storage policies, should before createReplicas to get storage_policy_id
+            checkAndRestoreStoragePolicies();
+            if (!status.ok()) {
+                return;
+            }
+
             for (Pair<String, Partition> entry : restoredPartitions) {
                 OlapTable localTbl = (OlapTable) db.getTableNullable(entry.first);
                 Preconditions.checkNotNull(localTbl, localTbl.getName());
@@ -985,17 +1013,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         } finally {
             db.readUnlock();
-        }
-
-        // check and restore resources
-        checkAndRestoreResources();
-        if (!status.ok()) {
-            return;
-        }
-        // check and restore storage policies
-        checkAndRestoreStoragePolicies();
-        if (!status.ok()) {
-            return;
         }
 
         if (LOG.isDebugEnabled()) {
@@ -1303,54 +1320,87 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
+        if (!reserveStoragePolicy) {
+            return;
+        }
+
         for (BackupJobInfo.BackupS3ResourceInfo backupS3ResourceInfo : jobInfo.newBackupObjects.s3Resources) {
             String backupResourceName = backupS3ResourceInfo.name;
-            Resource localResource = resourceMgr.getResource(backupResourceName);
+            Resource localResource = resourceMgr.getResource(storageResource != null
+                    ? storageResource : backupResourceName);
             S3Resource remoteS3Resource = (S3Resource) backupMeta.getResource(backupResourceName);
-            if (localResource != null) {
-                if (localResource.getType() != Resource.ResourceType.S3) {
-                    status = new Status(ErrCode.COMMON_ERROR, "The type of local resource "
-                        + backupResourceName + " is not same as restored resource");
-                    return;
-                }
-                S3Resource localS3Resource = (S3Resource) localResource;
-                if (localS3Resource.getSignature(BackupHandler.SIGNATURE_VERSION)
-                        != remoteS3Resource.getSignature(BackupHandler.SIGNATURE_VERSION)) {
-                    status = new Status(ErrCode.COMMON_ERROR, "S3 resource "
-                        + jobInfo.getAliasByOriginNameIfSet(backupResourceName)
-                        + " already exist but with different properties");
+
+            if (storageResource != null) {
+                if (localResource != null) {
+                    if (localResource.getType() != Resource.ResourceType.S3) {
+                        status = new Status(ErrCode.COMMON_ERROR, "The type of local resource "
+                            + backupResourceName + " is not same as restored resource");
+                        return;
+                    }
+                    S3Resource localS3Resource = (S3Resource) localResource;
+                    if (localS3Resource.getProperty(S3Properties.ENDPOINT)
+                            .equals(remoteS3Resource.getProperty(S3Properties.ENDPOINT))
+                            && localS3Resource.getProperty(S3Properties.BUCKET)
+                            .equals(remoteS3Resource.getProperty(S3Properties.BUCKET))
+                            && localS3Resource.getProperty(S3Properties.ROOT_PATH)
+                            .equals(remoteS3Resource.getProperty(S3Properties.ROOT_PATH))) {
+                        status = new Status(ErrCode.COMMON_ERROR, "local S3 resource "
+                                + storageResource + " root path " + localS3Resource.getProperty(S3Properties.ROOT_PATH)
+                                + " should not same as restored resource root path");
+                        return;
+                    }
+                } else {
+                    status = new Status(ErrCode.COMMON_ERROR,
+                            "The local resource " + storageResource + " is not exist.");
                     return;
                 }
             } else {
-                try {
-                    // restore resource
-                    resourceMgr.createResource(remoteS3Resource);
-                } catch (DdlException e) {
-                    status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
-                    return;
+                if (localResource != null) {
+                    if (localResource.getType() != Resource.ResourceType.S3) {
+                        status = new Status(ErrCode.COMMON_ERROR, "The type of local resource "
+                                + backupResourceName + " is not same as restored resource");
+                        return;
+                    }
+                    S3Resource localS3Resource = (S3Resource) localResource;
+                    if (localS3Resource.getSignature(BackupHandler.SIGNATURE_VERSION)
+                            != remoteS3Resource.getSignature(BackupHandler.SIGNATURE_VERSION)) {
+                        status = new Status(ErrCode.COMMON_ERROR, "S3 resource "
+                                + jobInfo.getAliasByOriginNameIfSet(backupResourceName)
+                                + " already exist but with different properties");
+                        return;
+                    }
+                } else {
+                    try {
+                        // restore resource
+                        resourceMgr.createResource(remoteS3Resource);
+                    } catch (DdlException e) {
+                        status = new Status(ErrCode.COMMON_ERROR, e.getMessage());
+                        return;
+                    }
+                    restoredResources.add(remoteS3Resource);
                 }
-                restoredResources.add(remoteS3Resource);
             }
         }
     }
 
     private void checkAndRestoreStoragePolicies() {
+        if (!reserveStoragePolicy) {
+            return;
+        }
         PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
         for (BackupJobInfo.BackupStoragePolicyInfo backupStoragePolicyInfo : jobInfo.newBackupObjects.storagePolicies) {
             String backupStoragePoliceName = backupStoragePolicyInfo.name;
             Optional<Policy> localPolicy = policyMgr.findPolicy(backupStoragePoliceName,
                     PolicyTypeEnum.STORAGE);
             StoragePolicy backupStoargePolicy = backupMeta.getStoragePolicy(backupStoragePoliceName);
+
+            // use specified storageResource
+            if (storageResource != null) {
+                backupStoargePolicy.setStorageResource(storageResource);
+            }
             if (localPolicy.isPresent()) {
                 StoragePolicy localStoargePolicy = (StoragePolicy) localPolicy.get();
-                if (localStoargePolicy.getVersion()
-                        != backupStoargePolicy.getVersion()) {
-                    status = new Status(ErrCode.COMMON_ERROR, "Storage policy "
-                            + jobInfo.getAliasByOriginNameIfSet(backupStoragePoliceName)
-                            + " already exist but with different properties");
-                    return;
-                }
-                // storage policy id should be same
+                // storage policy name and resource name should be same
                 if (localStoargePolicy.getSignature(BackupHandler.SIGNATURE_VERSION)
                         != backupStoargePolicy.getSignature(BackupHandler.SIGNATURE_VERSION)) {
                     status = new Status(ErrCode.COMMON_ERROR, "Storage policy "
@@ -1447,7 +1497,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getPartitionInfo().getTabletType(restorePart.getId()),
                             null,
                             localTbl.getCompressionType(),
-                            localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
+                            localTbl.getEnableUniqueKeyMergeOnWrite(),
+                            storagePolicy,
                             localTbl.disableAutoCompaction(),
                             localTbl.enableSingleReplicaCompaction(),
                             localTbl.skipWriteIndexOnLoad(),
@@ -1662,6 +1713,22 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             }
         }
 
+        // restored resource
+        ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
+        for (Resource resource : restoredResources) {
+            resourceMgr.replayCreateResource(resource);
+        }
+
+        // restored storage policy
+        PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
+        for (StoragePolicy storagePolicy : storagePolicies) {
+            Optional<Policy> localPolicy = policyMgr.findPolicy(storagePolicy.getPolicyName(),
+                    PolicyTypeEnum.STORAGE);
+            if (!localPolicy.isPresent()) {
+                policyMgr.replayCreate(storagePolicy);
+            }
+        }
+
         // restored partitions
         for (Pair<String, Partition> entry : restoredPartitions) {
             OlapTable localTbl = (OlapTable) db.getTableNullable(entry.first);
@@ -1730,22 +1797,6 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                 }
             } finally {
                 olapRestoreTbl.writeUnlock();
-            }
-        }
-
-        // restored resource
-        ResourceMgr resourceMgr = Env.getCurrentEnv().getResourceMgr();
-        for (Resource resource : restoredResources) {
-            resourceMgr.replayCreateResource(resource);
-        }
-
-        // restored storage policy
-        PolicyMgr policyMgr = Env.getCurrentEnv().getPolicyMgr();
-        for (StoragePolicy storagePolicy : storagePolicies) {
-            Optional<Policy> localPolicy = policyMgr.findPolicy(storagePolicy.getPolicyName(),
-                    PolicyTypeEnum.STORAGE);
-            if (!localPolicy.isPresent()) {
-                policyMgr.replayCreate(storagePolicy);
             }
         }
 
