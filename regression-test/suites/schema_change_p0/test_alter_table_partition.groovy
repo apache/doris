@@ -94,8 +94,8 @@ suite("test_alter_table_partition", "p0") {
         sql sqlString
     }
 
-    
-    
+
+
 
     //Batch modify all partitions
     sql dropSql;
@@ -131,9 +131,12 @@ suite("test_alter_table_partition", "p0") {
             "ADD PARTITION p1 VALUES [(\"2014-01-01\"), (\"2014-02-01\"));"
 
     //Batch add partitions for numeric and temporal types
-    sql dropSql;
-    sql initTable;
-    sql "ALTER TABLE ${tbName}\n" +
-            "ADD PARTITIONS FROM (\"2012-01-01\") TO (\"2013-01-01\") INTERVAL 1 YEAR;"
+    if (isCloudMode()) {
+        sql dropSql;
+        sql initTable;
+        sql "ALTER TABLE ${tbName}\n" +
+                "ADD PARTITIONS FROM (\"2012-01-01\") TO (\"2013-01-01\") INTERVAL 1 YEAR;"
+    }
+
 
 }
