@@ -114,8 +114,7 @@ Status ResultBufferMgr::find_arrow_schema(const TUniqueId& finst_id,
                 "no arrow schema for this query, maybe query has been canceled, finst_id={}",
                 print_id(finst_id));
     }
-    *schema = cb->find_arrow_schema();
-    return Status::OK();
+    return cb->find_arrow_schema(schema);
 }
 
 void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {

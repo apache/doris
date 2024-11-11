@@ -17,11 +17,11 @@
 
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
 
+#include <arrow/io/memory.h>
+#include <arrow/ipc/reader.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
 #include <gen_cpp/internal_service.pb.h>
-
-#include <utility>
 
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
@@ -33,12 +33,10 @@
 #include "util/arrow/utils.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
-#include "util/string_util.h"
+#include "util/runtime_profile.h"
 #include "vec/core/block.h"
 
 namespace doris::flight {
-
-constexpr size_t BRPC_CONTROLLER_TIMEOUT_MS = 60 * 1000;
 
 ArrowFlightBatchReaderBase::ArrowFlightBatchReaderBase(
         const std::shared_ptr<QueryStatement>& statement)
@@ -152,7 +150,52 @@ arrow::Result<std::shared_ptr<ArrowFlightBatchRemoteReader>> ArrowFlightBatchRem
     return result;
 }
 
-arrow::Status ArrowFlightBatchRemoteReader::_fetch_data(bool first_fetch_for_init) {
+arrow::Status ArrowFlightBatchRemoteReader::_fetch_schema() {
+    Status st;
+    auto request = std::make_shared<PFetchArrowFlightSchemaRequest>();
+    auto* pfinst_id = request->mutable_finst_id();
+    pfinst_id->set_hi(_statement->query_id.hi);
+    pfinst_id->set_lo(_statement->query_id.lo);
+    auto callback = DummyBrpcCallback<PFetchArrowFlightSchemaResult>::create_shared();
+    auto closure = AutoReleaseClosure<
+            PFetchArrowFlightSchemaRequest,
+            DummyBrpcCallback<PFetchArrowFlightSchemaResult>>::create_unique(request, callback);
+    callback->cntl_->set_timeout_ms(config::arrow_flight_reader_brpc_controller_timeout_ms);
+    callback->cntl_->ignore_eovercrowded();
+
+    _brpc_stub->fetch_arrow_flight_schema(closure->cntl_.get(), closure->request_.get(),
+                                          closure->response_.get(), closure.get());
+    closure.release();
+    callback->join();
+
+    if (callback->cntl_->Failed()) {
+        if (!ExecEnv::GetInstance()->brpc_internal_client_cache()->available(
+                    _brpc_stub, _statement->result_addr.hostname, _statement->result_addr.port)) {
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    callback->cntl_->remote_side());
+        }
+        auto error_code = callback->cntl_->ErrorCode();
+        auto error_text = callback->cntl_->ErrorText();
+        return _return_invalid_status(fmt::format("fetch schema error: {}, error_text: {}",
+                                                  berror(error_code), error_text));
+    }
+    st = Status::create(callback->response_->status());
+    ARROW_RETURN_NOT_OK(to_arrow_status(st));
+
+    if (callback->response_->has_schema() && !callback->response_->schema().empty()) {
+        auto input =
+                arrow::io::BufferReader::FromString(std::string(callback->response_->schema()));
+        ARROW_ASSIGN_OR_RAISE(auto reader,
+                              arrow::ipc::RecordBatchStreamReader::Open(
+                                      input.get(), arrow::ipc::IpcReadOptions::Defaults()));
+        _schema = reader->schema();
+    } else {
+        return _return_invalid_status(fmt::format("fetch schema error: not find schema"));
+    }
+    return arrow::Status::OK();
+}
+
+arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
     DCHECK(_block == nullptr);
     while (true) {
         // if `continue` occurs, data is invalid, continue fetch, block is nullptr.
@@ -166,7 +209,7 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data(bool first_fetch_for_ini
         auto closure = AutoReleaseClosure<
                 PFetchArrowDataRequest,
                 DummyBrpcCallback<PFetchArrowDataResult>>::create_unique(request, callback);
-        callback->cntl_->set_timeout_ms(BRPC_CONTROLLER_TIMEOUT_MS);
+        callback->cntl_->set_timeout_ms(config::arrow_flight_reader_brpc_controller_timeout_ms);
         callback->cntl_->ignore_eovercrowded();
 
         _brpc_stub->fetch_arrow_data(closure->cntl_.get(), closure->request_.get(),
@@ -183,8 +226,8 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data(bool first_fetch_for_ini
             }
             auto error_code = callback->cntl_->ErrorCode();
             auto error_text = callback->cntl_->ErrorText();
-            return _return_invalid_status(
-                    fmt::format("error={}, error_text={}", berror(error_code), error_text));
+            return _return_invalid_status(fmt::format("fetch data error={}, error_text: {}",
+                                                      berror(error_code), error_text));
         }
         st = Status::create(callback->response_->status());
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
@@ -192,18 +235,13 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data(bool first_fetch_for_ini
         DCHECK(callback->response_->has_packet_seq());
         if (_packet_seq != callback->response_->packet_seq()) {
             return _return_invalid_status(
-                    fmt::format("receive packet failed, expect={}, receive={}", _packet_seq,
-                                callback->response_->packet_seq()));
+                    fmt::format("fetch data receive packet failed, expect: {}, receive: {}",
+                                _packet_seq, callback->response_->packet_seq()));
         }
         _packet_seq++;
 
         if (callback->response_->has_eos() && callback->response_->eos()) {
-            if (!first_fetch_for_init) {
-                break;
-            } else {
-                return _return_invalid_status(fmt::format("received unexpected eos, packet_seq={}",
-                                                          callback->response_->packet_seq()));
-            }
+            break;
         }
 
         if (callback->response_->has_empty_batch() && callback->response_->empty_batch()) {
@@ -215,13 +253,10 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data(bool first_fetch_for_ini
             continue;
         }
 
-        if (first_fetch_for_init) {
+        std::call_once(_timezone_once_flag, [this, callback] {
             DCHECK(callback->response_->has_timezone());
-            DCHECK(callback->response_->has_fields_labels());
-            _timezone = callback->response_->timezone();
-            TimezoneUtils::find_cctz_time_zone(_timezone, _timezone_obj);
-            _arrow_schema_field_names = callback->response_->fields_labels();
-        }
+            TimezoneUtils::find_cctz_time_zone(callback->response_->timezone(), _timezone_obj);
+        });
 
         {
             SCOPED_ATOMIC_TIMER(&_deserialize_block_timer);
@@ -231,47 +266,30 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data(bool first_fetch_for_ini
             break;
         }
 
-        if (!first_fetch_for_init) {
-            const auto rows = _block->rows();
-            if (rows == 0) {
-                _block = nullptr;
-                continue;
-            }
+        const auto rows = _block->rows();
+        if (rows == 0) {
+            _block = nullptr;
+            continue;
         }
     }
     return arrow::Status::OK();
 }
 
 arrow::Status ArrowFlightBatchRemoteReader::init_schema() {
-    SCOPED_ATTACH_TASK(_mem_tracker);
-    ARROW_RETURN_NOT_OK(_fetch_data(true));
-    if (_block == nullptr) {
-        return _return_invalid_status("failed to fetch data for schema");
-    }
-    RETURN_ARROW_STATUS_IF_ERROR(get_arrow_schema_from_block(*_block, &_schema, _timezone));
-
-    // Block does not contain the real column name (label), for example: select avg(k) from tbl
-    //  - Block.name: type=decimal(38, 9)
-    //  - Real column name (label): avg(k)
-    // so, the first fetch data Block will return the actual column name, and then modify the schema.
-    std::vector<std::string> arrow_schema_field_names = split(_arrow_schema_field_names, ",");
-    std::vector<std::shared_ptr<arrow::Field>> fields;
-    for (int i = 0; i < arrow_schema_field_names.size(); i++) {
-        fields.push_back(_schema->fields()[i]->WithName(arrow_schema_field_names[i]));
-    }
-    _schema = arrow::schema(std::move(fields));
+    ARROW_RETURN_NOT_OK(_fetch_schema());
+    DCHECK(_schema != nullptr);
     return arrow::Status::OK();
 }
 
 arrow::Status ArrowFlightBatchRemoteReader::ReadNext(std::shared_ptr<arrow::RecordBatch>* out) {
     // parameter *out not nullptr
     *out = nullptr;
+    SCOPED_ATTACH_TASK(_mem_tracker);
+    ARROW_RETURN_NOT_OK(_fetch_data());
     if (_block == nullptr) {
-        // eof, normal path end
-        // last ReadNext -> _fetch_data return block is nullptr
+        // eof, normal path end, last _fetch_data return block is nullptr
         return arrow::Status::OK();
     }
-    SCOPED_ATTACH_TASK(_mem_tracker);
     {
         // convert one batch
         SCOPED_ATOMIC_TIMER(&_convert_arrow_batch_timer);
@@ -281,7 +299,6 @@ arrow::Status ArrowFlightBatchRemoteReader::ReadNext(std::shared_ptr<arrow::Reco
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
     }
     _block = nullptr;
-    ARROW_RETURN_NOT_OK(_fetch_data(false));
 
     if (*out != nullptr) {
         VLOG_NOTICE << "ArrowFlightBatchRemoteReader read next: " << (*out)->num_rows() << ", "

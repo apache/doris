@@ -112,7 +112,7 @@ void GetArrowResultBatchCtx::on_close(int64_t packet_seq) {
 void GetArrowResultBatchCtx::on_data(
         const std::shared_ptr<vectorized::Block>& block, int64_t packet_seq, int be_exec_version,
         segment_v2::CompressionTypePB fragement_transmission_compression_type, std::string timezone,
-        std::string arrow_schema_field_names, RuntimeProfile::Counter* serialize_batch_ns_timer,
+        RuntimeProfile::Counter* serialize_batch_ns_timer,
         RuntimeProfile::Counter* uncompressed_bytes_counter,
         RuntimeProfile::Counter* compressed_bytes_counter) {
     Status st = Status::OK();
@@ -128,7 +128,6 @@ void GetArrowResultBatchCtx::on_data(
             result->set_eos(false);
             if (packet_seq == 0) {
                 result->set_timezone(timezone);
-                result->set_fields_labels(arrow_schema_field_names);
             }
         } else {
             result->clear_block();
@@ -237,9 +236,8 @@ Status BufferControlBlock::add_arrow_batch(RuntimeState* state,
         auto* ctx = _waiting_arrow_result_batch_rpc.front();
         _waiting_arrow_result_batch_rpc.pop_front();
         ctx->on_data(result, _packet_num, _be_exec_version,
-                     _fragement_transmission_compression_type, _timezone, _arrow_schema_field_names,
-                     _serialize_batch_ns_timer, _uncompressed_bytes_counter,
-                     _compressed_bytes_counter);
+                     _fragement_transmission_compression_type, _timezone, _serialize_batch_ns_timer,
+                     _uncompressed_bytes_counter, _compressed_bytes_counter);
         _packet_num++;
     }
 
@@ -287,7 +285,7 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<vectorized::Block>* r
         return _status;
     }
     if (_is_cancelled) {
-        return Status::Cancelled("Cancelled");
+        return Status::Cancelled(fmt::format("Cancelled ()", print_id(_fragment_id)));
     }
 
     while (_arrow_flight_result_batch_queue.empty() && !_is_cancelled && !_is_close) {
@@ -295,7 +293,7 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<vectorized::Block>* r
     }
 
     if (_is_cancelled) {
-        return Status::Cancelled("Cancelled");
+        return Status::Cancelled(fmt::format("Cancelled ()", print_id(_fragment_id)));
     }
 
     if (!_arrow_flight_result_batch_queue.empty()) {
@@ -322,7 +320,8 @@ Status BufferControlBlock::get_arrow_batch(std::shared_ptr<vectorized::Block>* r
                 _mem_tracker->peak_consumption(), ss.str());
         return Status::OK();
     }
-    return Status::InternalError("Get Arrow Batch Abnormal Ending");
+    return Status::InternalError(
+            fmt::format("Get Arrow Batch Abnormal Ending ()", print_id(_fragment_id)));
 }
 
 void BufferControlBlock::get_arrow_batch(GetArrowResultBatchCtx* ctx) {
@@ -334,7 +333,7 @@ void BufferControlBlock::get_arrow_batch(GetArrowResultBatchCtx* ctx) {
         return;
     }
     if (_is_cancelled) {
-        ctx->on_failure(Status::Cancelled("Cancelled"));
+        ctx->on_failure(Status::Cancelled(fmt::format("Cancelled ()", print_id(_fragment_id))));
         return;
     }
 
@@ -347,8 +346,8 @@ void BufferControlBlock::get_arrow_batch(GetArrowResultBatchCtx* ctx) {
         _instance_rows_in_queue.pop_front();
 
         ctx->on_data(block, _packet_num, _be_exec_version, _fragement_transmission_compression_type,
-                     _timezone, _arrow_schema_field_names, _serialize_batch_ns_timer,
-                     _uncompressed_bytes_counter, _compressed_bytes_counter);
+                     _timezone, _serialize_batch_ns_timer, _uncompressed_bytes_counter,
+                     _compressed_bytes_counter);
         _packet_num++;
         return;
     }
@@ -370,8 +369,30 @@ void BufferControlBlock::get_arrow_batch(GetArrowResultBatchCtx* ctx) {
 }
 
 void BufferControlBlock::register_arrow_schema(const std::shared_ptr<arrow::Schema>& arrow_schema) {
+    std::lock_guard<std::mutex> l(_lock);
     _arrow_schema = arrow_schema;
-    _arrow_schema_field_names = join(_arrow_schema->field_names(), ",");
+}
+
+Status BufferControlBlock::find_arrow_schema(std::shared_ptr<arrow::Schema>* arrow_schema) {
+    std::unique_lock<std::mutex> l(_lock);
+    if (!_status.ok()) {
+        return _status;
+    }
+    if (_is_cancelled) {
+        return Status::Cancelled(fmt::format("Cancelled ()", print_id(_fragment_id)));
+    }
+
+    // normal path end
+    if (_arrow_schema != nullptr) {
+        *arrow_schema = _arrow_schema;
+        return Status::OK();
+    }
+
+    if (_is_close) {
+        return Status::RuntimeError(fmt::format("Closed ()", print_id(_fragment_id)));
+    }
+    return Status::InternalError(
+            fmt::format("Get Arrow Schema Abnormal Ending ()", print_id(_fragment_id)));
 }
 
 Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
@@ -405,18 +426,37 @@ Status BufferControlBlock::close(const TUniqueId& id, Status exec_status) {
         }
         _waiting_rpc.clear();
     }
+
+    if (!_waiting_arrow_result_batch_rpc.empty()) {
+        if (_status.ok()) {
+            for (auto& ctx : _waiting_arrow_result_batch_rpc) {
+                ctx->on_close(_packet_num);
+            }
+        } else {
+            for (auto& ctx : _waiting_arrow_result_batch_rpc) {
+                ctx->on_failure(_status);
+            }
+        }
+        _waiting_arrow_result_batch_rpc.clear();
+    }
     return Status::OK();
 }
 
 void BufferControlBlock::cancel(const Status& reason) {
     std::unique_lock<std::mutex> l(_lock);
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_mem_tracker);
     _is_cancelled = true;
     _arrow_data_arrival.notify_all();
     for (auto& ctx : _waiting_rpc) {
         ctx->on_failure(reason);
     }
     _waiting_rpc.clear();
+    for (auto& ctx : _waiting_arrow_result_batch_rpc) {
+        ctx->on_failure(Status::Cancelled("Cancelled"));
+    }
+    _waiting_arrow_result_batch_rpc.clear();
     _update_dependency();
+    _arrow_flight_result_batch_queue.clear();
 }
 
 void BufferControlBlock::set_dependency(

@@ -295,7 +295,6 @@ message PFetchArrowDataResult {
     optional PBlock block = 4;
     optional bool empty_batch = 5;
     optional string timezone = 6;
-    optional string fields_labels = 7;
 };
 
 message PFetchArrowFlightSchemaRequest {

@@ -93,15 +93,13 @@ public:
 private:
     ArrowFlightBatchRemoteReader(const std::shared_ptr<QueryStatement>& statement,
                                  const std::shared_ptr<PBackendService_Stub>& stub);
-    // If first_fetch_for_init is true, some additional information will be returned
-    // to initialize the schema. in this case, the fetched block is allowed to be empty,
-    // but eos is not expected to be returned.
-    arrow::Status _fetch_data(bool first_fetch_for_init);
+
+    arrow::Status _fetch_schema();
+    arrow::Status _fetch_data();
 
     std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
-    std::string _timezone;
+    std::once_flag _timezone_once_flag;
     std::shared_ptr<vectorized::Block> _block;
-    std::string _arrow_schema_field_names;
 };
 
 } // namespace flight
