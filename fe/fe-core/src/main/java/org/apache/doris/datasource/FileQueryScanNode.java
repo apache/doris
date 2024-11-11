@@ -31,6 +31,8 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.AcidInfo;
@@ -103,18 +105,17 @@ public abstract class FileQueryScanNode extends FileScanNode {
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                              StatisticalType statisticalType, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+        if (ConnectContext.get().getExecutor() != null) {
+            ConnectContext.get().getExecutor().getSummaryProfile().createNodeTimer(id.toString());
+        }
     }
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
-        }
-        super.init(analyzer);
-        initFileSplitSize();
-        doInitialize();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
+        try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.INIT_SCAN_NODE_TIME)) {
+            super.init(analyzer);
+            initFileSplitSize();
+            doInitialize();
         }
     }
 
@@ -123,13 +124,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
      */
     @Override
     public void init() throws UserException {
-        super.init();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeStartTime();
-        }
-        doInitialize();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setInitScanNodeFinishTime();
+        try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.INIT_SCAN_NODE_TIME)) {
+            super.init();
+            doInitialize();
         }
     }
 
@@ -209,14 +206,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     // Create scan range locations and the statistics.
     protected void doFinalize() throws UserException {
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeStartTime();
-        }
-        convertPredicate();
-        createScanRangeLocations();
-        updateRequiredSlots();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setFinalizeScanNodeFinishTime();
+        try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.FINALIZE_SCAN_NODE_TIME)) {
+            convertPredicate();
+            createScanRangeLocations();
+            updateRequiredSlots();
         }
     }
 
@@ -264,9 +257,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
     @Override
     public void createScanRangeLocations() throws UserException {
         long start = System.currentTimeMillis();
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsStartTime();
-        }
         TFileFormatType fileFormatType = getFileFormatType();
         if (fileFormatType == TFileFormatType.FORMAT_ORC) {
             genSlotToSchemaIdMapForOrc();
@@ -314,60 +304,56 @@ public abstract class FileQueryScanNode extends FileScanNode {
             splitAssignment = new SplitAssignment(
                     backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
             splitAssignment.init();
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
-            }
             if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
                 return;
             }
-            selectedSplitNum = numApproximateSplits();
-
-            FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
-            TFileType locationType = fileSplit.getLocationType();
-            totalFileSize = fileSplit.getLength() * selectedSplitNum;
-            long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
-            // Not accurate, only used to estimate concurrency.
-            int numSplitsPerBE = numApproximateSplits() / backendPolicy.numBackends();
-            for (Backend backend : backendPolicy.getBackends()) {
-                SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
-                splitSources.add(splitSource);
-                Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
-                TScanRangeLocations curLocations = newLocations();
-                TSplitSource tSource = new TSplitSource();
-                tSource.setSplitSourceId(splitSource.getUniqueId());
-                tSource.setNumSplits(numSplitsPerBE);
-                curLocations.getScanRange().getExtScanRange().getFileScanRange().setSplitSource(tSource);
-                TScanRangeLocation location = new TScanRangeLocation();
-                location.setBackendId(backend.getId());
-                location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
-                curLocations.addToLocations(location);
-                // So there's only one scan range for each backend.
-                // Each backend only starts up one ScanNode instance.
-                // However, even one ScanNode instance can provide maximum scanning concurrency.
-                scanRangeLocations.add(curLocations);
-                setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
+            try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.CREATE_SCAN_RANGE_TIME)) {
+                selectedSplitNum = numApproximateSplits();
+                FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
+                TFileType locationType = fileSplit.getLocationType();
+                totalFileSize = fileSplit.getLength() * selectedSplitNum;
+                long maxWaitTime = ConnectContext.get().getSessionVariable().getFetchSplitsMaxWaitTime();
+                // Not accurate, only used to estimate concurrency.
+                int numSplitsPerBE = numApproximateSplits() / backendPolicy.numBackends();
+                for (Backend backend : backendPolicy.getBackends()) {
+                    SplitSource splitSource = new SplitSource(backend, splitAssignment, maxWaitTime);
+                    splitSources.add(splitSource);
+                    Env.getCurrentEnv().getSplitSourceManager().registerSplitSource(splitSource);
+                    TScanRangeLocations curLocations = newLocations();
+                    TSplitSource tSource = new TSplitSource();
+                    tSource.setSplitSourceId(splitSource.getUniqueId());
+                    tSource.setNumSplits(numSplitsPerBE);
+                    curLocations.getScanRange().getExtScanRange().getFileScanRange().setSplitSource(tSource);
+                    TScanRangeLocation location = new TScanRangeLocation();
+                    location.setBackendId(backend.getId());
+                    location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+                    curLocations.addToLocations(location);
+                    // So there's only one scan range for each backend.
+                    // Each backend only starts up one ScanNode instance.
+                    // However, even one ScanNode instance can provide maximum scanning concurrency.
+                    scanRangeLocations.add(curLocations);
+                    setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
+                }
             }
         } else {
-            List<Split> inputSplits = getSplits();
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
+            List<Split> inputSplits;
+            try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.GET_SPLITS_TIME)) {
+                inputSplits = getSplits();
             }
             selectedSplitNum = inputSplits.size();
             if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
-            Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
-            for (Backend backend : assignment.keySet()) {
-                Collection<Split> splits = assignment.get(backend);
-                for (Split split : splits) {
-                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
-                    totalFileSize += split.getLength();
+            try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.CREATE_SCAN_RANGE_TIME)) {
+                Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
+                for (Backend backend : assignment.keySet()) {
+                    Collection<Split> splits = assignment.get(backend);
+                    for (Split split : splits) {
+                        scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
+                        totalFileSize += split.getLength();
+                    }
                 }
             }
-        }
-
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setCreateScanRangeFinishTime();
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("create #{} ScanRangeLocations cost: {} ms",

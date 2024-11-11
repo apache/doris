@@ -28,6 +28,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.FileQueryScanNode;
@@ -124,42 +126,41 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
-        List<HivePartition> resPartitions = Lists.newArrayList();
-        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
-        List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
-        if (!partitionColumnTypes.isEmpty()) {
-            // partitioned table
-            Collection<PartitionItem> partitionItems;
-            // partitions has benn pruned by Nereids, in PruneFileScanPartition,
-            // so just use the selected partitions.
-            this.totalPartitionNum = selectedPartitions.totalPartitionNum;
-            partitionItems = selectedPartitions.selectedPartitions.values();
-            Preconditions.checkNotNull(partitionItems);
-            this.selectedPartitionNum = partitionItems.size();
+        try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.GET_PARTITIONS_TIME)) {
+            List<HivePartition> resPartitions = Lists.newArrayList();
+            HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
+            List<Type> partitionColumnTypes = hmsTable.getPartitionColumnTypes();
+            if (!partitionColumnTypes.isEmpty()) {
+                // partitioned table
+                Collection<PartitionItem> partitionItems;
+                // partitions has benn pruned by Nereids, in PruneFileScanPartition,
+                // so just use the selected partitions.
+                this.totalPartitionNum = selectedPartitions.totalPartitionNum;
+                partitionItems = selectedPartitions.selectedPartitions.values();
+                Preconditions.checkNotNull(partitionItems);
+                this.selectedPartitionNum = partitionItems.size();
 
-            // get partitions from cache
-            List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
-            for (PartitionItem item : partitionItems) {
-                partitionValuesList.add(
-                        ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
+                // get partitions from cache
+                List<List<String>> partitionValuesList = Lists.newArrayListWithCapacity(partitionItems.size());
+                for (PartitionItem item : partitionItems) {
+                    partitionValuesList.add(
+                            ((ListPartitionItem) item).getItems().get(0).getPartitionValuesAsStringListForHive());
+                }
+                resPartitions = cache.getAllPartitionsWithCache(hmsTable.getDbName(), hmsTable.getName(),
+                        partitionValuesList);
+            } else {
+                // non partitioned table, create a dummy partition to save location and inputformat,
+                // so that we can unify the interface.
+                HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
+                        hmsTable.getRemoteTable().getSd().getInputFormat(),
+                        hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
+                this.totalPartitionNum = 1;
+                this.selectedPartitionNum = 1;
+                resPartitions.add(dummyPartition);
             }
-            resPartitions = cache.getAllPartitionsWithCache(hmsTable.getDbName(), hmsTable.getName(),
-                    partitionValuesList);
-        } else {
-            // non partitioned table, create a dummy partition to save location and inputformat,
-            // so that we can unify the interface.
-            HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
-                    hmsTable.getRemoteTable().getSd().getInputFormat(),
-                    hmsTable.getRemoteTable().getSd().getLocation(), null, Maps.newHashMap());
-            this.totalPartitionNum = 1;
-            this.selectedPartitionNum = 1;
-            resPartitions.add(dummyPartition);
+            return resPartitions;
         }
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionsFinishTime();
-        }
-        return resPartitions;
     }
 
     @Override
@@ -174,9 +175,8 @@ public class HiveScanNode extends FileQueryScanNode {
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
-            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName);
-            if (ConnectContext.get().getExecutor() != null) {
-                ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
+            try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.GET_PARTITION_FILES_TIME)) {
+                getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName);
             }
             if (LOG.isDebugEnabled()) {
                 LOG.debug("get #{} files for table: {}.{}, cost: {} ms",
@@ -213,12 +213,15 @@ public class HiveScanNode extends FileQueryScanNode {
                     CompletableFuture.runAsync(() -> {
                         try {
                             List<Split> allFiles = Lists.newArrayList();
-                            getFileSplitByPartitions(
-                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName);
+                            try (ProfileSpan ignored = ProfileSpan.create(id.toString(),
+                                    SummaryProfile.GET_PARTITION_FILES_TIME)) {
+                                getFileSplitByPartitions(
+                                        cache, Collections.singletonList(partition), allFiles, bindBrokerName);
+                            }
                             if (allFiles.size() > numSplitsPerPartition.get()) {
                                 numSplitsPerPartition.set(allFiles.size());
                             }
-                            splitAssignment.addToQueue(allFiles);
+                            splitAssignment.addToQueue(allFiles, id.toString());
                         } catch (IOException e) {
                             batchException.set(new UserException(e.getMessage(), e));
                         } finally {
