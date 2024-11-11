@@ -293,6 +293,15 @@ private:
     bool _check_slot_can_push_down(const VExprSPtr& expr);
     bool _check_rest_children_can_push_down(const VExprSPtr& expr);
     bool _check_expr_can_push_down(const VExprSPtr& expr);
+    bool _build_less_than(const VExprSPtr& expr,
+                          std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_less_than_equals(const VExprSPtr& expr,
+                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_equals(const VExprSPtr& expr, std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_filter_in(const VExprSPtr& expr,
+                          std::unique_ptr<orc::SearchArgumentBuilder>& builder);
+    bool _build_is_null(const VExprSPtr& expr,
+                        std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _build_search_argument(const VExprSPtr& expr,
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _init_search_argument(const VExprContextSPtrs& conjuncts);
