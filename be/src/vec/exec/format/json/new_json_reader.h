@@ -307,6 +307,7 @@ private:
     // in the data to lowercase,and use the last one as the insertion value
 
     DataTypeSerDeSPtrs _serdes;
+    vectorized::DataTypeSerDe::FormatOptions _serde_options;
 };
 
 } // namespace vectorized

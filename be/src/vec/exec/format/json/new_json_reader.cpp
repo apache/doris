@@ -777,17 +777,14 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
 
     if (_is_hive_table) {
         //don't like _fuzzy_parse,each line read in must modify name_map once.
-        for (auto* v : slot_descs) {
-            for (int i = 0; i < objectValue.MemberCount(); ++i) {
-                auto it = objectValue.MemberBegin() + i;
-                std::string field_name(it->name.GetString(), it->name.GetStringLength());
-                std::transform(field_name.begin(), field_name.end(), field_name.begin(), ::tolower);
 
-                if (v->col_name() == field_name) {
-                    _name_map[v->col_name()] = i;
-                    //Use the last value with the same name,so no break
-                }
-            }
+        for (int i = 0; i < objectValue.MemberCount(); ++i) {
+            auto it = objectValue.MemberBegin() + i;
+            std::string field_name(it->name.GetString(), it->name.GetStringLength());
+            std::transform(field_name.begin(), field_name.end(), field_name.begin(), ::tolower);
+
+            //Use the last value with the same name.
+            _name_map.emplace(field_name, i);
         }
     }
     for (size_t slot_idx = 0; slot_idx < slot_descs.size(); ++slot_idx) {
@@ -883,7 +880,6 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
     ColumnNullable* nullable_column = nullptr;
     vectorized::IColumn* data_column_ptr = column_ptr;
     DataTypeSerDeSPtr data_serde = serde;
-    vectorized::DataTypeSerDe::FormatOptions _options;
 
     bool value_is_null = (value == nullptr) || (value->GetType() == rapidjson::Type::kNullType);
 
@@ -894,6 +890,7 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
 
         if (value_is_null) {
             nullable_column->insert_default();
+            *valid = true;
             return Status::OK();
         } else {
             nullable_column->get_null_map_data().push_back(0);
@@ -915,16 +912,59 @@ Status NewJsonReader::_write_data_to_column(rapidjson::Value::ConstValueIterator
     if (_is_load || !type_desc.is_complex_type()) {
         if (value->IsString()) {
             Slice slice {value->GetString(), value->GetStringLength()};
-            RETURN_IF_ERROR(
-                    data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice, _options));
+            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                       _serde_options));
 
         } else {
-            // Maybe we can `switch (value->GetType()) case: kNumberType`.
+            // We can `switch (value->GetType()) case: kNumberType`.
             // Note that `if (value->IsInt())`, but column is FloatColumn.
-            auto json_str = NewJsonReader::_print_json_value(*value);
-            Slice slice {json_str.c_str(), json_str.size()};
-            RETURN_IF_ERROR(
-                    data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice, _options));
+            // Or for any type, use `NewJsonReader::_print_json_value(*value)`.
+
+            const char* str_value = nullptr;
+            char tmp_buf[128] = {0};
+            size_t wbytes = 0;
+            std::string json_str;
+
+            switch (value->GetType()) {
+            case rapidjson::Type::kStringType:
+                str_value = value->GetString();
+                wbytes = value->GetStringLength();
+                break;
+            case rapidjson::Type::kNumberType:
+                if (value->IsUint()) {
+                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%u", value->GetUint());
+                } else if (value->IsInt()) {
+                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%d", value->GetInt());
+                } else if (value->IsUint64()) {
+                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRIu64, value->GetUint64());
+                } else if (value->IsInt64()) {
+                    wbytes = snprintf(tmp_buf, sizeof(tmp_buf), "%" PRId64, value->GetInt64());
+                } else if (value->IsFloat() || value->IsDouble()) {
+                    auto* end = fmt::format_to(tmp_buf, "{}", value->GetDouble());
+                    wbytes = end - tmp_buf;
+                } else {
+                    return Status::InternalError<false>("It should not here.");
+                }
+                str_value = tmp_buf;
+                break;
+            case rapidjson::Type::kFalseType:
+                wbytes = 1;
+                str_value = (char*)"0";
+                break;
+            case rapidjson::Type::kTrueType:
+                wbytes = 1;
+                str_value = (char*)"1";
+                break;
+            default:
+                // for other type, we convert it to string to save
+                json_str = NewJsonReader::_print_json_value(*value);
+                wbytes = json_str.size();
+                str_value = json_str.c_str();
+                break;
+            }
+            Slice slice {str_value, wbytes};
+            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                       _serde_options));
         }
     } else if (type_desc.type == TYPE_STRUCT) {
         if (!value->IsObject()) [[unlikely]] {
@@ -1496,6 +1536,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
             // This key is not exist in slot desc, just ignore
             continue;
         }
+        if (column_index == skip_bitmap_col_idx) {
+            continue;
+        }
         if (_seen_columns[column_index]) {
             if (_is_hive_table) {
                 //Since value can only be traversed once,
@@ -1505,12 +1548,8 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
                 continue;
             }
         }
-        if (column_index == skip_bitmap_col_idx) {
-            continue;
-        }
         simdjson::ondemand::value val = field.value();
         auto* column_ptr = block.get_by_position(column_index).column->assume_mutable().get();
-
         RETURN_IF_ERROR(_simdjson_write_data_to_column(
                 val, slot_descs[column_index]->type(), column_ptr,
                 slot_descs[column_index]->col_name(), _serdes[column_index], valid));
@@ -1610,8 +1649,6 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
     vectorized::IColumn* data_column_ptr = column_ptr;
     DataTypeSerDeSPtr data_serde = serde;
 
-    vectorized::DataTypeSerDe::FormatOptions _options;
-
     if (column_ptr->is_nullable()) {
         nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
 
@@ -1623,6 +1660,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             nullable_column->get_null_map_data().push_back(0);
         } else {
             nullable_column->insert_default();
+            *valid = true;
             return Status::OK();
         }
     } else if (value.type() == simdjson::ondemand::json_type::null) [[unlikely]] {
@@ -1641,16 +1679,16 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
         if (value.type() == simdjson::ondemand::json_type::string) {
             std::string_view value_string = value.get_string();
             Slice slice {value_string.data(), value_string.size()};
-            RETURN_IF_ERROR(
-                    data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice, _options));
+            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                       _serde_options));
 
         } else {
             // Maybe we can `switch (value->GetType()) case: kNumberType`.
             // Note that `if (value->IsInt())`, but column is FloatColumn.
             std::string_view json_str = simdjson::to_json_string(value);
             Slice slice {json_str.data(), json_str.size()};
-            RETURN_IF_ERROR(
-                    data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice, _options));
+            RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
+                                                                       _serde_options));
         }
     } else if (type_desc.type == TYPE_STRUCT) {
         if (value.type() != simdjson::ondemand::json_type::object) [[unlikely]] {
@@ -1720,9 +1758,9 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
 
         size_t field_count = 0;
         for (simdjson::ondemand::field member_value : object_value) {
-            auto f = [&_options](std::string_view key_view, const TypeDescriptor& type_desc,
-                                 vectorized::IColumn* column_ptr, DataTypeSerDeSPtr serde,
-                                 bool* valid) {
+            auto f = [](std::string_view key_view, const TypeDescriptor& type_desc,
+                        vectorized::IColumn* column_ptr, DataTypeSerDeSPtr serde,
+                        vectorized::DataTypeSerDe::FormatOptions serde_options, bool* valid) {
                 auto data_column_ptr = column_ptr;
                 auto data_serde = serde;
                 if (column_ptr->is_nullable()) {
@@ -1735,13 +1773,13 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
                 Slice slice(key_view.data(), key_view.length());
 
                 RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
-                                                                           _options));
+                                                                           serde_options));
                 return Status::OK();
             };
 
             RETURN_IF_ERROR(f(member_value.unescaped_key(), type_desc.children[0],
                               map_column_ptr->get_keys_ptr()->assume_mutable()->get_ptr(),
-                              sub_serdes[0], valid));
+                              sub_serdes[0], _serde_options, valid));
 
             simdjson::ondemand::value field_value = member_value.value();
             RETURN_IF_ERROR(_simdjson_write_data_to_column(
