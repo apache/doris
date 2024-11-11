@@ -189,7 +189,12 @@ public:
 
     inline bool is_alive() { return _client != nullptr; }
 
-    T* operator->() const { return _client; }
+    T* operator->() const {
+        if (_client == nullptr) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid RPC client!");
+        }
+        return _client;
+    }
 
 private:
     ClientCache<T>* _client_cache = nullptr;
