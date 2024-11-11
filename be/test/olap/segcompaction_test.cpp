@@ -60,6 +60,7 @@ public:
         config::tablet_map_shard_size = 1;
         config::txn_map_shard_size = 1;
         config::txn_shard_size = 1;
+        config::inverted_index_fd_number_limit_percent = 0;
 
         char buffer[MAX_PATH_LEN];
         EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
@@ -83,10 +84,12 @@ public:
 
         // use memory limit
         int64_t inverted_index_cache_limit = 0;
-        _inverted_index_searcher_cache =
-                InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit, 256);
+        _inverted_index_searcher_cache = std::unique_ptr<segment_v2::InvertedIndexSearcherCache>(
+                InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit,
+                                                                   256));
 
-        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(_inverted_index_searcher_cache);
+        ExecEnv::GetInstance()->set_inverted_index_searcher_cache(
+                _inverted_index_searcher_cache.get());
 
         doris::EngineOptions options;
         options.store_paths = paths;
@@ -115,6 +118,7 @@ public:
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         l_engine = nullptr;
         exec_env->set_storage_engine(nullptr);
+        exec_env->set_inverted_index_searcher_cache(nullptr);
     }
 
 protected:
@@ -272,7 +276,7 @@ protected:
 
 private:
     std::unique_ptr<DataDir> _data_dir;
-    InvertedIndexSearcherCache* _inverted_index_searcher_cache;
+    std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
 };
 
 TEST_F(SegCompactionTest, SegCompactionThenRead) {
