@@ -45,6 +45,10 @@ ExecEnv::~ExecEnv() {
 }
 
 #ifdef BE_TEST
+void ExecEnv::set_inverted_index_searcher_cache(
+        segment_v2::InvertedIndexSearcherCache* inverted_index_searcher_cache) {
+    _inverted_index_searcher_cache = inverted_index_searcher_cache;
+}
 void ExecEnv::set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine) {
     _storage_engine = std::move(engine);
 }
