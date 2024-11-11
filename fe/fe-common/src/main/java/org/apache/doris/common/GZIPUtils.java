@@ -17,6 +17,8 @@
 
 package org.apache.doris.common;
 
+import org.apache.commons.io.IOUtils;
+
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -40,7 +42,7 @@ public class GZIPUtils {
     public static byte[] decompress(byte[] data) throws IOException {
         ByteArrayInputStream bytesStream = new ByteArrayInputStream(data);
         try (GZIPInputStream gzipStream = new GZIPInputStream(bytesStream)) {
-            return gzipStream.readAllBytes();
+            return IOUtils.toByteArray(gzipStream);
         }
     }
 }
