@@ -3557,7 +3557,7 @@ public class StmtExecutor {
         try {
             try {
                 // disable shuffle for http stream (only 1 sink)
-                sessionVariable.disableStrictConsistencyDmlOnce();
+                sessionVariable.setVarOnce(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false");
                 httpStreamParams = generateHttpStreamNereidsPlan(queryId);
             } catch (NereidsException | ParseException e) {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {
