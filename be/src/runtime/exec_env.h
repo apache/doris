@@ -100,6 +100,7 @@ class FrontendServiceClient;
 class FileMetaCache;
 class GroupCommitMgr;
 class TabletSchemaCache;
+class TabletColumnObjectPool;
 class UserFunctionCache;
 class SchemaCache;
 class StoragePageCache;
@@ -272,6 +273,9 @@ public:
     void set_storage_engine(StorageEngine* se) { this->_storage_engine = se; }
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
+        this->_tablet_column_object_pool = c;
+    }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
@@ -298,6 +302,7 @@ public:
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
     StorageEngine* get_storage_engine() { return _storage_engine; }
+    TabletColumnObjectPool* get_tablet_column_object_pool() { return _tablet_column_object_pool; }
     SchemaCache* schema_cache() { return _schema_cache; }
     StoragePageCache* get_storage_page_cache() { return _storage_page_cache; }
     SegmentLoader* segment_loader() { return _segment_loader; }
@@ -439,6 +444,7 @@ private:
     // So we choose to use raw pointer, please remember to delete these pointer in deconstructor.
     TabletSchemaCache* _tablet_schema_cache = nullptr;
     StorageEngine* _storage_engine = nullptr;
+    TabletColumnObjectPool* _tablet_column_object_pool = nullptr;
     SchemaCache* _schema_cache = nullptr;
     StoragePageCache* _storage_page_cache = nullptr;
     SegmentLoader* _segment_loader = nullptr;
