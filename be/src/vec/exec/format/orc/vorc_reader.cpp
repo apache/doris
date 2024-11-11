@@ -609,11 +609,27 @@ std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_lite
 
 // check if the slot of expr can be pushed down to orc reader
 bool OrcReader::_check_slot_can_push_down(const VExprSPtr& expr) {
-    DCHECK(expr->children()[0]->is_slot_ref());
+    if (!expr->children()[0]->is_slot_ref()) {
+        return false;
+    }
     const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
     // check if the slot exists in orc file and not partition column
     return _col_name_to_file_col_name.contains(slot_ref->expr_name()) &&
            !_lazy_read_ctx.predicate_partition_columns.contains(slot_ref->expr_name());
+}
+
+// check if there are rest children of expr can be pushed down to orc reader
+bool OrcReader::_check_rest_children_can_push_down(const VExprSPtr& expr) {
+    if (expr->children().size() < 2) {
+        return false;
+    }
+
+    for (size_t i = 1; i < expr->children().size(); ++i) {
+        if (!expr->children()[i]->is_literal()) {
+            return false;
+        }
+    }
+    return true;
 }
 
 // check if the expr can be pushed down to orc reader
@@ -634,21 +650,15 @@ bool OrcReader::_check_expr_can_push_down(const VExprSPtr& expr) {
         DCHECK_EQ(expr->children().size(), 1);
         return _check_expr_can_push_down(expr->children()[0]);
 
-    case TExprOpcode::FILTER_IN:
-    case TExprOpcode::FILTER_NOT_IN:
-        // check not in empty set
-        if (expr->children().size() < 2) {
-            return false;
-        }
-        return _check_slot_can_push_down(expr);
-
     case TExprOpcode::GE:
     case TExprOpcode::GT:
     case TExprOpcode::LE:
     case TExprOpcode::LT:
     case TExprOpcode::EQ:
     case TExprOpcode::NE:
-        return _check_slot_can_push_down(expr);
+    case TExprOpcode::FILTER_IN:
+    case TExprOpcode::FILTER_NOT_IN:
+        return _check_slot_can_push_down(expr) && _check_rest_children_can_push_down(expr);
 
     case TExprOpcode::INVALID_OPCODE:
         if (expr->node_type() == TExprNodeType::FUNCTION_CALL) {
@@ -827,7 +837,6 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         builder->startNot();
         builder->in(slot_ref->expr_name(), predicate_type, literals);
         builder->end();
-
         break;
     }
     // is null and is not null is represented as function call
