@@ -77,7 +77,9 @@ public class S3FileSystem extends ObjFileSystem {
                     PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
                             .filter(entry -> entry.getKey() != null && entry.getValue() != null)
                             .forEach(entry -> conf.set(entry.getKey(), entry.getValue()));
-                    AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(conf);
+                    // S3 does not support Kerberos authentication,
+                    // so here we create a simple authentication
+                    AuthenticationConfig authConfig = AuthenticationConfig.getSimpleAuthenticationConfig(conf);
                     HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
