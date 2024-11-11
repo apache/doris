@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.profile;
+package org.apache.doris.nereids.trees.expressions.functions;
 
-public class ExecNodeNode extends ProfileTreeNode {
-
-    public ExecNodeNode(String name, String id) {
-        super(name, id);
-    }
-
-
+/**
+ * If input has NullLiteral, then output would be NullLiteral when folding constant
+ *
+ * e.g. Acos(NULL) ==> NULL.
+ */
+public interface PropagateNullLiteral {
 }
