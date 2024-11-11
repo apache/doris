@@ -33,6 +33,8 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 const char* EXECUTOR_CLASS = "org/apache/doris/udf/UdfExecutor";
 const char* EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* EXECUTOR_EVALUATE_SIGNATURE = "(Ljava/util/Map;Ljava/util/Map;)J";
@@ -206,4 +208,6 @@ int UDFTableFunction::get_value(MutableColumnPtr& column, int max_step) {
     forward(max_step);
     return max_step;
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized
