@@ -1456,10 +1456,9 @@ TEST(MetaServiceHttpTest, TxnLazyCommit) {
     }
 }
 
-TEST(MetaServiceHttpTest, stage_sk_response) {
+TEST(MetaServiceHttpTest, get_stage_response_sk) {
     auto sp = SyncPoint::get_instance();
     sp->enable_processing();
-    std::cout << "2";
     std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
                                                           [&](...) { sp->disable_processing(); });
 
@@ -1467,34 +1466,73 @@ TEST(MetaServiceHttpTest, stage_sk_response) {
     auto* stage = res.add_stage();
     stage->mutable_obj_info()->set_ak("stage-ak");
     stage->mutable_obj_info()->set_sk("stage-sk");
-    auto foo = [res](auto args) {
-        (*(try_any_cast<GetStageResponse**>(args[0])))->CopyFrom(res);
-        std::cout << "5";
-    };
-    std::cout << "1";
+    auto foo = [res](auto args) { (*(try_any_cast<GetStageResponse**>(args[0])))->CopyFrom(res); };
     sp->set_call_back("stage_sk_response", foo);
-    sp->set_call_back("stage_sk_response_return", [](auto&& args) {
-        *try_any_cast<bool*>(args.back()) = true;
-        std::cout << "6";
-    });
+    sp->set_call_back("stage_sk_response_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
 
     auto rate_limiter = std::make_shared<cloud::RateLimiter>();
 
     auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
 
-    auto bar = [a = *stage](auto args) {
-        std::cout << "7";
-        EXPECT_EQ(*try_any_cast<std::string*>(args[0]), "md5xx");
+    auto bar = [](auto args) {
         std::cout << *try_any_cast<std::string*>(args[0]);
+        
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("stage-sk") == std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
+                            .find("md5: f497d053066fa4b7d3b1f6564597d233") != std::string::npos);
     };
     sp->set_call_back("sk_finish_rpc", bar);
 
     GetStageResponse res1;
     GetStageRequest req1;
     brpc::Controller cntl;
-    std::cout << "3";
     ms->get_stage(&cntl, &req1, &res1, nullptr);
-    std::cout << "4";
+}
+
+TEST(MetaServiceHttpTest, get_obj_store_info_response_sk) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
+                                                          [&](...) { sp->disable_processing(); });
+
+    GetObjStoreInfoResponse res;
+    auto* obj_info = res.add_obj_info();
+    obj_info->set_ak("obj-store-info-ak1");
+    obj_info->set_sk("obj-store-info-sk1");
+    obj_info = res.add_storage_vault()->mutable_obj_info();
+    obj_info->set_ak("obj-store-info-ak2");
+    obj_info->set_sk("obj-store-info-sk2");
+    auto foo = [res](auto args) {
+        (*(try_any_cast<GetObjStoreInfoResponse**>(args[0])))->CopyFrom(res);
+    };
+    sp->set_call_back("obj-store-info_sk_response", foo);
+    sp->set_call_back("obj-store-info_sk_response_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+
+    auto rate_limiter = std::make_shared<cloud::RateLimiter>();
+
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+
+    auto bar = [](auto args) {
+        std::cout << *try_any_cast<std::string*>(args[0]);
+
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("obj-store-info-sk1") ==
+                    std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
+                            .find("md5: 35d5a637fd9d45a28207a888b751efc4") != std::string::npos);
+
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("obj-store-info-sk2") ==
+                    std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("md5: 01d7473ae201a2ecdf1f7c064eb81a95") !=
+                    std::string::npos);
+    };
+    sp->set_call_back("sk_finish_rpc", bar);
+
+    GetObjStoreInfoResponse res1;
+    GetObjStoreInfoRequest req1;
+    brpc::Controller cntl;
+    ms->get_obj_store_info(&cntl, &req1, &res1, nullptr);
 }
 
 } // namespace doris::cloud
