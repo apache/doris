@@ -581,6 +581,8 @@ private:
     bool _is_hive1_orc_or_use_idx = false;
 
     std::unordered_map<std::string, std::string> _col_name_to_file_col_name;
+    // TODO: check if we can remove _col_name_to_file_col_name_low_case
+    std::unordered_map<std::string, std::string> _col_name_to_file_col_name_low_case;
     std::unordered_map<std::string, const orc::Type*> _type_map;
     std::vector<const orc::Type*> _col_orc_type;
     std::unique_ptr<ORCFileInputStream> _file_input_stream;

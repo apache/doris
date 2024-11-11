@@ -391,6 +391,9 @@ Status OrcReader::_init_read_columns() {
             }
 
             _col_name_to_file_col_name[col_name] = read_col;
+            // TODO: refactor this
+            std::transform(read_col.begin(), read_col.end(), read_col.begin(), ::tolower);
+            _col_name_to_file_col_name_low_case[col_name] = read_col;
         }
     }
     return Status::OK();
@@ -564,11 +567,11 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
 
 std::tuple<bool, orc::Literal, orc::PredicateDataType> OrcReader::_make_orc_literal(
         const VSlotRef* slot_ref, const VLiteral* literal) {
+    const auto* orc_type = _type_map[_col_name_to_file_col_name_low_case[slot_ref->expr_name()]];
+    const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
     auto literal_data = literal->get_column_ptr()->get_data_at(0);
     auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
     auto slot_type = slot->type();
-    const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
-    const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
     switch (slot_type.type) {
 #define M(NAME)                                                                \
     case TYPE_##NAME: {                                                        \
@@ -846,16 +849,17 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
             DCHECK(expr->children().size() == 1);
             DCHECK(expr->children()[0]->is_slot_ref());
             const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
-            const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
+            const auto* orc_type =
+                    _type_map[_col_name_to_file_col_name_low_case[slot_ref->expr_name()]];
+            // TODO: if not exists
             const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
             builder->isNull(slot_ref->expr_name(), predicate_type);
         } else if (expr->fn().name.function_name == "is_not_null_pred") {
             DCHECK(expr->children().size() == 1);
             DCHECK(expr->children()[0]->is_slot_ref());
             const auto* slot_ref = static_cast<const VSlotRef*>(expr->children()[0].get());
-            auto* slot = _tuple_descriptor->slots()[slot_ref->column_id()];
-            const auto* orc_type = _type_map[_col_name_to_file_col_name[slot->col_name()]];
+            const auto* orc_type =
+                    _type_map[_col_name_to_file_col_name_low_case[slot_ref->expr_name()]];
             const auto predicate_type = TYPEKIND_TO_PREDICATE_TYPE[orc_type->getKind()];
             builder->startNot();
             builder->isNull(slot_ref->expr_name(), predicate_type);
