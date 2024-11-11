@@ -39,7 +39,6 @@ import com.google.common.collect.Sets;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Push down filter through project.
