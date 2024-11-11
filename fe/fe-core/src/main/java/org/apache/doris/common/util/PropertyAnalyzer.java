@@ -99,9 +99,6 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_ROW_STORE_PAGE_SIZE = "row_store_page_size";
     public static final long ROW_STORE_PAGE_SIZE_DEFAULT_VALUE = 16384L;
 
-    public static final String PROPERTIES_STORAGE_PAGE_SIZE = "storage_page_size";
-    public static final long STORAGE_PAGE_SIZE_DEFAULT_VALUE = 65536L;
-
     public static final String PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE = "light_schema_change";
 
     public static final String PROPERTIES_DISTRIBUTION_TYPE = "distribution_type";
@@ -1073,24 +1070,6 @@ public class PropertyAnalyzer {
         }
 
         return rowStorePageSize;
-    }
-
-    public static long analyzeStoragePageSize(Map<String, String> properties) throws AnalysisException {
-        long storagePageSize = STORAGE_PAGE_SIZE_DEFAULT_VALUE;
-        if (properties != null && properties.containsKey(PROPERTIES_STORAGE_PAGE_SIZE)) {
-            String storagePageSizeStr = properties.get(PROPERTIES_STORAGE_PAGE_SIZE);
-            try {
-                storagePageSize = Long.parseLong(storagePageSizeStr);
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid storage page size: " + storagePageSizeStr);
-            }
-            if (storagePageSize < 4096 || storagePageSize > 10485760) {
-                throw new AnalysisException("Storage page size must be between 4KB and 10MB.");
-            }
-            storagePageSize = alignTo4K(storagePageSize);
-            properties.remove(PROPERTIES_STORAGE_PAGE_SIZE);
-        }
-        return storagePageSize;
     }
 
     // analyzeStorageFormat will parse the storage format from properties
