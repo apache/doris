@@ -273,6 +273,8 @@ public:
     }
 
     void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
+    void set_inverted_index_searcher_cache(
+            segment_v2::InvertedIndexSearcherCache* inverted_index_searcher_cache);
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
