@@ -380,6 +380,11 @@ public class RestoreJob extends AbstractJob {
     }
 
     @Override
+    public boolean isFinished() {
+        return state == RestoreJobState.FINISHED;
+    }
+
+    @Override
     public synchronized Status updateRepo(Repository repo) {
         this.repo = repo;
 
