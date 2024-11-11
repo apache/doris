@@ -343,24 +343,22 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     assertEquals(result.size(), values.size());
 
 
-    // // wait cooldown
-    // result = sql "show data FROM ${dbName}.${tableName}"
-    // sqlResult = result[0][5].toString();
-    // int count = 0;
-    // while (sqlResult.contains("0.00")) {
-    //     if (++count >= 120) {  // 10min
-    //         logger.error('cooldown task is timeouted')
-    //         throw new Exception("cooldown task is timeouted after 10 mins")
-    //     }
-    //     Thread.sleep(5000)
+    // wait cooldown
+    result = sql "show data FROM ${dbName}.${tableName}"
+    sqlResult = result[0][5].toString();
+    int count = 0;
+    while (sqlResult.contains("0.00")) {
+        if (++count >= 120) {  // 10min
+            logger.error('cooldown task is timeouted')
+            throw new Exception("cooldown task is timeouted after 10 mins")
+        }
+        Thread.sleep(5000)
 
-    //     result = sql "show data FROM ${dbName}.${tableName}"
-    //     sqlResult = result[0][5].toString();
+        result = sql "show data FROM ${dbName}.${tableName}"
+        sqlResult = result[0][5].toString();
+    }
 
-
-    // }
-
-    // assertNotEquals('0.000 ', result[0][5].toString())
+    assertNotEquals('0.000 ', result[0][5].toString())
 
     sql """
         BACKUP SNAPSHOT ${dbName}.${snapshotName}
@@ -374,11 +372,11 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     assertTrue(snapshot != null)
 
     // 1 老表存在的情况
-    // 1.1 restore 不指定, 预期成功，且落冷
-    // 1.2 restore 指定 （"reserve_storage_policy"="true"）， 预期成功，且落冷
-    // 1.3 restore 指定 （"reserve_storage_policy"="false"），预期成功，且不落冷
+    // 1.1 restore 不指定。预期失败, 不支持将冷热属性的表恢复到已存在的表中。
+    // 1.2 restore 指定 （"reserve_storage_policy"="true"),  预期失败, 不支持将冷热属性的表恢复到已存在的表中。
+    // 1.3 restore 指定 （"reserve_storage_policy"="false"), 预期成功，且不落冷
 
-    // 2 删除表
+    // 2 删除老表
     // 1.1 restore 不指定 预期成功，且落冷
     // 1.2 restore 指定 （"reserve_storage_policy"="true"）预期成功，且落冷
     // 1.3 restore 指定 （"reserve_storage_policy"="false"）预期成功，且不落冷
@@ -391,9 +389,9 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
 
 
     // 1. old table exist
-    // 1.1 restore normal
-    // 1.2 restore with（"reserve_storage_policy"="true"）
-    // 1.3 restore with（"reserve_storage_policy"="false"）
+    // 1.1 restore normal fail 
+    // 1.2 restore with（"reserve_storage_policy"="true") fail
+    // 1.3 restore with（"reserve_storage_policy"="false") success and don't cooldown
     logger.info(" ====================================== 1.1 ==================================== ")
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
@@ -466,9 +464,9 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
 
 
     // 2. drop old table 
-    // 2.1 restore normal
-    // 2.2 restore with （"reserve_storage_policy"="true"）
-    // 2.3 restore with （"reserve_storage_policy"="false"）
+    // 2.1 restore normal success and cooldown
+    // 2.2 restore with （"reserve_storage_policy"="true"）success and cooldown
+    // 2.3 restore with （"reserve_storage_policy"="false"）success and don't cooldown
     logger.info(" ====================================== 2.1 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
@@ -572,9 +570,9 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
 
 
     // 3. drop old table and resource and policy
-    // 3.1 restore normal
-    // 3.2 restore with（"reserve_storage_policy"="true"）
-    // 3.3 restore with（"reserve_storage_policy"="false"）
+    // 3.1 restore normal success and cooldown
+    // 3.2 restore with（"reserve_storage_policy"="true"）success and cooldown
+    // 3.3 restore with（"reserve_storage_policy"="false"）success and don't cooldown
     logger.info(" ====================================== 3.1 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     try_sql """
@@ -717,7 +715,7 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     assertEquals(found, 0)
 
 
-    // 4. alter policy 
+    // 4. alter policy and success
     logger.info(" ====================================== 4.1 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
@@ -945,35 +943,37 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
     assertTrue(snapshot != null)
 
     // 1 老表存在的情况
-    // 1.1 restore 指定 （"storage_resource"="resource_name1"）， 预期失败，路径需不一致
-    // 1.2 restore 指定 （"storage_resource"="resource_name_not_exist"），预期失败，resource不存在
-    // 1.3 restore 指定 （"storage_resource"="resource_new_name"）， 预期失败，有stroage policy属性的表不允许restore到已存在的表
+    // 1.1 restore 指定 （"storage_resource"="resource_name_exist"),  预期失败，不支持将冷热属性的表恢复到已存在的表中。
+    // 1.2 restore 指定 （"storage_resource"="resource_name_not_exist"), 预期失败，resource不存在
+    // 1.3 restore 指定 （"storage_resource"="resource_new_name"),  预期失败，不支持将冷热属性的表恢复到已存在的表中。
 
 
     // 2 删除表
-    // 2.1 restore 指定 （"storage_resource"="resource_name1"）， 预期失败，resource路径需不一致
-    // 2.2 restore 指定 （"storage_resource"="resource_name_not_exist"），预期失败，resource不存在
-    // 2.3 restore 指定 （"storage_resource"="resource_new_name"）， storage policy 存在失败
+    // 2.1 restore 指定 （"storage_resource"="resource_name_exist"),  预期失败，resource路径需不一致
+    // 2.2 restore 指定 （"storage_resource"="resource_name_not_exist"), 预期失败，resource不存在
+    // 2.3 restore 指定 （"storage_resource"="resource_new_name"),  storage policy 存在失败
 
 
     // 3 删除表和policy
-    // 3.1 restore 指定 （"storage_resource"="resource_name_not_exist"），预期失败，resource不存在
-    // 3.2 restore 指定 （"storage_resource"="resource_new_name"）， 成功
+    // 3.1 restore 指定 （"storage_resource"="resource_name_not_exist"), 预期失败，resource不存在
+    // 3.2 restore 指定 （"storage_resource"="resource_new_name"),  成功
     
 
 
     // 4 删除表和policy 同时指定storage_resource和reserve_storage_policy
-    // 4.1 restore 指定 （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="true"），预期失败，resource不存在
-    // 4.2 restore 指定 （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="false"），预期失败，resource不存在
-    // 4.3 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="true"），预期成功
-    // 4.4 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="false"），预期成功
+    // 4.1 restore 指定 （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="true"), 预期失败，resource不存在
+    // 4.2 restore 指定 （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="false"), 预期失败，resource不存在
+    // 4.3 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="true"), 预期成功,且落冷
+    // 4.4 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="false"), 预期成功，且不落冷
+
+
 
 
 
     // 1 old table exist
-    // 1.1 restore with （"storage_resource"="resource_name1"）， 预期失败，路径需不一致
-    // 1.2 restore with （"storage_resource"="resource_name_not_exist"），预期失败，resource不存在
-    // 1.3 restore with （"storage_resource"="resource_new_name"）， 预期失败，有stroage policy属性的表不允许restore到已存在的表
+    // 1.1 restore with （"storage_resource"="resource_name1") fail
+    // 1.2 restore with （"storage_resource"="resource_name_not_exist") fail
+    // 1.3 restore with （"storage_resource"="resource_new_name") fail
     logger.info(" ====================================== 1.1 ==================================== ")
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
@@ -1017,7 +1017,6 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
 
     assertEquals(fail_restore_1, null)
 
-    // 1.3 restore 指定 （"storage_resource"="resource_new_name"）， 预期失败，有stroage policy属性的表不允许restore到已存在的表
     logger.info(" ====================================== 1.3 ==================================== ")
     sql """
         RESTORE SNAPSHOT ${dbName}.${snapshotName}
@@ -1044,10 +1043,10 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
 
 
 
-    // 2 删除表
-    // 2.1 restore 指定 （"storage_resource"="resource_name1"）， 预期失败，resource路径需不一致
-    // 2.2 restore 指定 （"storage_resource"="resource_name_not_exist"），预期失败，resource不存在
-    // 2.3 restore 指定 （"storage_resource"="resource_new_name"）， storage policy 存在失败
+    // 2 drop old table
+    // 2.1 restore with （"storage_resource"="resource_name_exist"）fail
+    // 2.2 restore with （"storage_resource"="resource_name_not_exist"） fail
+    // 2.3 restore with （"storage_resource"="resource_new_name"）fail
     logger.info(" ====================================== 2.1 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
@@ -1089,7 +1088,6 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
     assertEquals(fail_restore_2, null)
 
 
-    // 2.3 restore 指定 （"storage_resource"="resource_new_name"）， storage policy 存在失败
     logger.info(" ====================================== 2.3 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     sql """
@@ -1111,10 +1109,9 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
     row = records[records.size() - 1] 
     assertTrue(row.Status.contains("already exist but with different properties"))
 
-
-    // 3 删除表和policy
-    // 3.1 restore 指定 （"storage_resource"="resource_name_not_exist"），预期失败，resource不存在
-    // 3.2 restore 指定 （"storage_resource"="resource_new_name"）， 成功
+    // 3 drop table and resource and policy
+    // 3.1 restore with （"storage_resource"="resource_name_not_exist") fail
+    // 3.2 restore with （"storage_resource"="resource_new_name") success and cooldown
     logger.info(" ====================================== 3.1 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     try_sql """
@@ -1203,11 +1200,11 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
 
     
 
-    // 4 删除表和policy 
-    // 4.1 restore 指定 （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="true"），预期失败，resource不存在
-    // 4.2 restore 指定 （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="false"），预期失败，resource不存在
-    // 4.3 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="true"），预期成功
-    // 4.4 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="false"），预期成功
+    // 4 drop table/resource/policy,  set both storage_resource and reserve_storage_policy
+    // 4.1 restore with （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="true") fail
+    // 4.2 restore with （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="false") fail
+    // 4.3 restore with （"storage_resource"="resource_new_name", "reserve_storage_policy"="true") success and cooldown
+    // 4.4 restore with （"storage_resource"="resource_new_name", "reserve_storage_policy"="false") success and don't cooldown
     logger.info(" ====================================== 4.1 ==================================== ")
     sql "DROP TABLE if exists ${dbName}.${tableName}"
     try_sql """
@@ -1232,7 +1229,6 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
     assertEquals(fail_restore_4, null)
 
 
-    // 4.2 restore 指定 （"storage_resource"="resource_name_not_exist", "reserve_storage_policy"="false"），预期成功
     logger.info(" ====================================== 4.2 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     try_sql """
@@ -1258,7 +1254,6 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
     assertEquals(fail_restore_5, null)
 
 
-    // 4.3 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="true"），预期成功
     logger.info(" ====================================== 4.3 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     try_sql """
@@ -1326,7 +1321,6 @@ suite("test_backup_cooldown_2", "backup_cooldown_data") {
 
 
 
-    // 4.4 restore 指定 （"storage_resource"="resource_new_name", "reserve_storage_policy"="false"），预期成功
     logger.info(" ====================================== 4.4 ==================================== ")
     sql "DROP TABLE IF EXISTS ${dbName}.${tableName}"
     try_sql """
