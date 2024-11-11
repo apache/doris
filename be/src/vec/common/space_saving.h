@@ -244,7 +244,7 @@ public:
 
     void read(BufferReadable& rb) {
         destroy_elements();
-        size_t count = 0;
+        UInt64 count = 0;
         read_var_uint(count, rb);
 
         for (size_t i = 0; i < count; ++i) {
@@ -259,7 +259,7 @@ public:
 
     // Reads the alpha map data from the provided readable buffer.
     void read_alpha_map(BufferReadable& rb) {
-        size_t alpha_size = 0;
+        UInt64 alpha_size = 0;
         read_var_uint(alpha_size, rb);
         for (size_t i = 0; i < alpha_size; ++i) {
             uint64_t alpha = 0;
