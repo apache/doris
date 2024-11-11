@@ -123,8 +123,8 @@ suite("test_load_and_schema_change_row_store_ck", "p0") {
         PROPERTIES("replication_num" = "1");
         """
 
-    wait_job_done.call("tbl_scalar_types_dup")
-    sql "INSERT INTO tbl_scalar_types_dup_ck_1 SELECT * from tbl_scalar_types_dup"
+    wait_job_done.call(testTable)
+    sql "INSERT INTO tbl_scalar_types_dup_ck_1 SELECT * from ${testTable}"
     sql """alter table tbl_scalar_types_dup_ck_1 set ("bloom_filter_columns" = "c_largeint")"""    
     wait_job_done.call("tbl_scalar_types_dup_ck_1")
     sql """alter table tbl_scalar_types_dup_ck_1 set ("store_row_column" = "true")"""    
