@@ -76,6 +76,7 @@ namespace ErrorCode {
     TStatusError(HTTP_ERROR, true);                       \
     TStatusError(TABLET_MISSING, true);                   \
     TStatusError(NOT_MASTER, true);                       \
+    TStatusError(OBTAIN_LOCK_FAILED, false);              \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
@@ -487,6 +488,7 @@ public:
     ERROR_CTOR(HttpError, HTTP_ERROR)
     ERROR_CTOR_NOSTACK(NeedSendAgain, NEED_SEND_AGAIN)
     ERROR_CTOR_NOSTACK(CgroupError, CGROUP_ERROR)
+    ERROR_CTOR_NOSTACK(ObtainLockFailed, OBTAIN_LOCK_FAILED)
 #undef ERROR_CTOR
 
     template <int code>
