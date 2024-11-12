@@ -250,9 +250,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     auto* fragment_context = this;
 
-    LOG_INFO("Preparing instance {}|{}, backend_num {}", print_id(_query_id),
-             print_id(local_params.fragment_instance_id), local_params.backend_num);
-
     // 1. init _runtime_state
     _runtime_state = RuntimeState::create_unique(
             local_params.fragment_instance_id, request.query_id, request.fragment_id,

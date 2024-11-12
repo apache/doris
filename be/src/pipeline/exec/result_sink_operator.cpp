@@ -17,12 +17,12 @@
 
 #include "result_sink_operator.h"
 
+#include <fmt/format.h>
 #include <sys/select.h>
 
 #include <memory>
 
 #include "common/config.h"
-#include "common/object_pool.h"
 #include "exec/rowid_fetcher.h"
 #include "pipeline/exec/operator.h"
 #include "runtime/buffer_control_block.h"
@@ -202,9 +202,10 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
             final_status = st;
         }
 
-        LOG_INFO("Query {} result sink closed with status {} and has written {} rows",
-                 print_id(state->query_id()), final_status.to_string_no_stack(),
-                 _writer->get_written_rows());
+        VLOG_NOTICE << fmt::format(
+                "Query {} result sink closed with status {} and has written {} rows",
+                print_id(state->query_id()), final_status.to_string_no_stack(),
+                _writer->get_written_rows());
     }
 
     // close sender, this is normal path end
