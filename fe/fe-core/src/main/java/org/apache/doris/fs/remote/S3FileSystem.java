@@ -43,6 +43,7 @@ import java.util.Map;
 public class S3FileSystem extends ObjFileSystem {
 
     private static final Logger LOG = LogManager.getLogger(S3FileSystem.class);
+    private HadoopAuthenticator authenticator = null;
 
     public S3FileSystem(Map<String, String> properties) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, new S3ObjStorage(properties));
@@ -89,6 +90,7 @@ public class S3FileSystem extends ObjFileSystem {
                                 throw new RuntimeException(e);
                             }
                         });
+                        this.authenticator = authenticator;
                         RemoteFSPhantomManager.registerPhantomReference(this);
                     } catch (Exception e) {
                         throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
@@ -135,5 +137,10 @@ public class S3FileSystem extends ObjFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
+    }
+
+    @VisibleForTesting
+    public HadoopAuthenticator getAuthenticator() {
+        return authenticator;
     }
 }
