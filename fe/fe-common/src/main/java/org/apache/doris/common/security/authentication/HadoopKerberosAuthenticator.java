@@ -111,6 +111,12 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
         return UserGroupInformation.getUGIFromSubject(subject);
     }
 
+    /**
+     * Calculate the next time to refresh kerberos ticket.
+     *
+     * @param subject the subject of kerberos authentication
+     * @return the next time to refresh kerberos ticket
+     */
     private static long calculateNextRefreshTime(Subject subject) {
         Preconditions.checkArgument(subject != null, "subject must be present in kerberos based UGI");
         KerberosTicket tgtTicket = KerberosTicketUtils.getTicketGrantingTicket(subject);
