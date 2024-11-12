@@ -30,6 +30,10 @@ public class KerberosAuthenticationConfig extends AuthenticationConfig {
     private Configuration conf;
     private boolean printDebugLog;
 
+    /**
+     * Constructor of KerberosAuthenticationConfig
+     * @return
+     */
     @Override
     public boolean isValid() {
         return StringUtils.isNotEmpty(kerberosPrincipal) && StringUtils.isNotEmpty(kerberosKeytab);
