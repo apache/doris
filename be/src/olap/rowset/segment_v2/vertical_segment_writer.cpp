@@ -156,8 +156,19 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     if (tablet_index) {
         opts.need_bloom_filter = true;
         opts.is_ngram_bf_index = true;
-        opts.gram_size = tablet_index->get_gram_size();
-        opts.gram_bf_size = tablet_index->get_gram_bf_size();
+        //narrow convert from int32_t to uint8_t and uint16_t which is dangerous
+        auto gram_size = tablet_index->get_gram_size();
+        auto gram_bf_size = tablet_index->get_gram_bf_size();
+        if (gram_size > 256 || gram_size < 1) {
+            return Status::NotSupported("Do not support ngram bloom filter for ngram_size: ",
+                                        gram_size);
+        }
+        if (gram_bf_size > 65535 || gram_bf_size < 64) {
+            return Status::NotSupported("Do not support ngram bloom filter for bf_size: ",
+                                        gram_bf_size);
+        }
+        opts.gram_size = gram_size;
+        opts.gram_bf_size = gram_bf_size;
     }
 
     opts.need_bitmap_index = column.has_bitmap_index();
