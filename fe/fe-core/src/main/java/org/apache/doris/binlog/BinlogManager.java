@@ -588,8 +588,13 @@ public class BinlogManager {
                     continue;
                 }
 
-                // Step 2.2: check if there is in next db Binlogs region
                 long dbId = binlog.getDbId();
+                if (binlog.getType().getValue() >= TBinlogType.MIN_UNKNOWN.getValue()) {
+                    LOG.warn("skip unknown binlog, type: {}, db: {}", binlog.getType().getValue(), dbId);
+                    continue;
+                }
+
+                // Step 2.2: check if there is in next db Binlogs region
                 if (dbId != currentDbId) {
                     // if there is in next db Binlogs region, check and update metadata
                     Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
