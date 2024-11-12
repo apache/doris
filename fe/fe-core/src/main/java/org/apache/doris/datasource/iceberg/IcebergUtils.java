@@ -41,6 +41,7 @@ import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.info.SimpleTableInfo;
@@ -604,7 +605,7 @@ public class IcebergUtils {
             if (snapshot == null) {
                 LOG.info("Iceberg table {}.{}.{} is empty, return row count 0.", catalog.getName(), dbName, tbName);
                 // empty table
-                return 0;
+                return TableIf.UNKNOWN_ROW_COUNT;
             }
             Map<String, String> summary = snapshot.summary();
             long rows = Long.parseLong(summary.get(TOTAL_RECORDS))
@@ -614,7 +615,7 @@ public class IcebergUtils {
         } catch (Exception e) {
             LOG.warn("Fail to collect row count for db {} table {}", dbName, tbName, e);
         }
-        return -1;
+        return TableIf.UNKNOWN_ROW_COUNT;
     }
 
 

@@ -200,7 +200,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             makeSureInitialized();
         } catch (Exception e) {
             LOG.warn("Failed to initialize table {}.{}.{}", catalog.getName(), dbName, name, e);
-            return 0;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // All external table should get external row count from cache.
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
@@ -226,7 +226,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * This is called by ExternalRowCountCache to load row count cache.
      */
     public long fetchRowCount() {
-        return 0;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
