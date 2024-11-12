@@ -72,10 +72,14 @@ suite("test_insert_with_index", "p0") {
     }
 
     set_be_config("inverted_index_ram_dir_enable", "true")
+    sql """ set disable_inverted_index_v1_for_variant = false """
     test.call("V1")
+    sql """ set disable_inverted_index_v1_for_variant = true """
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "false")
+    sql """ set disable_inverted_index_v1_for_variant = false """
     test.call("V1")
+    sql """ set disable_inverted_index_v1_for_variant = true """
     test.call("V2")
     set_be_config("inverted_index_ram_dir_enable", "true")
 }
