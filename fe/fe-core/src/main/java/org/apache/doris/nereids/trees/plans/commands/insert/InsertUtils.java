@@ -198,7 +198,7 @@ public class InsertUtils {
         String label = txnEntry.getLabel();
         try {
             long txnId;
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
             if (Config.isCloudMode() || Env.getCurrentEnv().isMaster()) {
                 txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
                         txnConf.getDbId(), Lists.newArrayList(tblObj.getId()), label,
