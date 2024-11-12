@@ -34,7 +34,7 @@ public class StatisticConstants {
     public static final String STATISTIC_TBL_NAME = "column_statistics";
     public static final String HISTOGRAM_TBL_NAME = "histogram_statistics";
 
-    public static final int MAX_NAME_LEN = 64;
+    public static final int MAX_NAME_LEN = 1024;
 
     public static final int ID_LEN = 4096;
 
