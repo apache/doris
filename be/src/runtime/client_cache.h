@@ -191,7 +191,7 @@ public:
 
     T* operator->() const {
         if (_client == nullptr) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "Invalid RPC client!");
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid RPC client!");
         }
         return _client;
     }
