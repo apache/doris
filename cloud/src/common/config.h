@@ -220,4 +220,6 @@ CONF_Int32(max_tablet_index_num_per_batch, "1000");
 
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
+
+CONF_Bool(enable_check_instance_id, "true");
 } // namespace doris::cloud::config
