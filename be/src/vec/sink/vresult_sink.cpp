@@ -18,6 +18,7 @@
 #include "vec/sink/vresult_sink.h"
 
 #include <fmt/format.h>
+#include <sys/select.h>
 #include <time.h>
 
 #include <new>
@@ -105,7 +106,8 @@ Status VResultSink::prepare(RuntimeState* state) {
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;
-        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema));
+        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema,
+                                                       state->timezone()));
         state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
                                                                arrow_schema);
         _writer.reset(new (std::nothrow) VArrowFlightResultWriter(_sender.get(), _output_vexpr_ctxs,

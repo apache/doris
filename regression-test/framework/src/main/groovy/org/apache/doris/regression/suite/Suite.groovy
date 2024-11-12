@@ -255,13 +255,13 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        boolean pipelineIsCloud = isCloudCluster()
+        boolean pipelineIsCloud = isCloudMode()
         boolean dockerIsCloud = false
         if (options.cloudMode == null) {
             dockerIsCloud = pipelineIsCloud
         } else {
             dockerIsCloud = options.cloudMode
-            if (dockerIsCloud != pipelineIsCloud && options.skipRunWhenPipelineDiff) {
+            if (dockerIsCloud != pipelineIsCloud) {
                 return
             }
         }

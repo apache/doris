@@ -28,12 +28,15 @@ public class Daemon extends Thread {
     private static final Logger LOG = LogManager.getLogger(Daemon.class);
     private static final int DEFAULT_INTERVAL_SECONDS = 30; // 30 seconds
 
-    private long intervalMs;
-    private AtomicBoolean isStop;
-    private Runnable runnable;
-    private AtomicBoolean isStart = new AtomicBoolean(false);
+    protected long intervalMs;
 
-    private MetaContext metaContext = null;
+    protected AtomicBoolean isStop;
+
+    protected MetaContext metaContext = null;
+
+    private Runnable runnable;
+
+    private AtomicBoolean isStart = new AtomicBoolean(false);
 
     {
         setDaemon(true);

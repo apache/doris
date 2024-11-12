@@ -1846,10 +1846,12 @@ public class StmtExecutor {
                                 : new ShortCircuitQueryContext(planner, (Queriable) parsedStmt);
             coordBase = new PointQueryExecutor(shortCircuitQueryContext,
                         context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            context.getState().setIsQuery(true);
         } else if (queryStmt instanceof SelectStmt && ((SelectStmt) parsedStmt).isPointQueryShortCircuit()) {
             // this branch is for legacy planner, to be removed
             coordBase = new PointQueryExec(planner, analyzer,
                     context.getSessionVariable().getMaxMsgSizeOfResultReceiver());
+            context.getState().setIsQuery(true);
         } else {
             coord = new Coordinator(context, analyzer, planner, context.getStatsErrorEstimator());
             profile.addExecutionProfile(coord.getExecutionProfile());

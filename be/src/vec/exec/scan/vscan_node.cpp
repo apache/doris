@@ -321,7 +321,7 @@ void VScanNode::_start_scanners(const std::list<std::shared_ptr<ScannerDelegate>
     } else {
         _scanner_ctx = ScannerContext::create_shared(_state, this, _output_tuple_desc,
                                                      _output_row_descriptor.get(), scanners,
-                                                     limit(), false);
+                                                     limit(), false, true);
     }
 }
 

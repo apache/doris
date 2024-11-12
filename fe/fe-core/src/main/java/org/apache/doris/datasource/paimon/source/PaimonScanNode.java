@@ -28,7 +28,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -101,9 +101,14 @@ public class PaimonScanNode extends FileQueryScanNode {
     private int rawFileSplitNum = 0;
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
+    private SessionVariable sessionVariable;
 
-    public PaimonScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+    public PaimonScanNode(PlanNodeId id,
+                          TupleDescriptor desc,
+                          boolean needCheckColumnPriv,
+                          SessionVariable sessionVariable) {
         super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv);
+        this.sessionVariable = sessionVariable;
     }
 
     @Override
@@ -159,6 +164,7 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
         fileDesc.setTblId(source.getTargetTable().getId());
         fileDesc.setLastUpdateTime(source.getTargetTable().getUpdateTime());
+        fileDesc.setPaimonTable(encodeObjectToString(source.getPaimonTable()));
         // The hadoop conf should be same with PaimonExternalCatalog.createCatalog()#getConfiguration()
         fileDesc.setHadoopConf(source.getCatalog().getCatalogProperty().getHadoopProperties());
         Optional<DeletionFile> optDeletionFile = paimonSplit.getDeletionFile();
@@ -176,7 +182,9 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits() throws UserException {
-        boolean forceJniScanner = ConnectContext.get().getSessionVariable().isForceJniScanner();
+        boolean forceJniScanner = sessionVariable.isForceJniScanner();
+        SessionVariable.IgnoreSplitType ignoreSplitType =
+                SessionVariable.IgnoreSplitType.valueOf(sessionVariable.getIgnoreSplitType());
         List<Split> splits = new ArrayList<>();
         int[] projected = desc.getSlots().stream().mapToInt(
                 slot -> (source.getPaimonTable().rowType().getFieldNames().indexOf(slot.getColumn().getName())))
@@ -196,7 +204,11 @@ public class PaimonScanNode extends FileQueryScanNode {
                 selectedPartitionValues.add(partitionValue);
                 Optional<List<RawFile>> optRawFiles = dataSplit.convertToRawFiles();
                 Optional<List<DeletionFile>> optDeletionFiles = dataSplit.deletionFiles();
+
                 if (supportNativeReader(optRawFiles)) {
+                    if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_NATIVE) {
+                        continue;
+                    }
                     splitStat.setType(SplitReadType.NATIVE);
                     splitStat.setRawFileConvertable(true);
                     List<RawFile> rawFiles = optRawFiles.get();
@@ -252,10 +264,16 @@ public class PaimonScanNode extends FileQueryScanNode {
                         }
                     }
                 } else {
+                    if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
+                        continue;
+                    }
                     splits.add(new PaimonSplit(split));
                     ++paimonSplitNum;
                 }
             } else {
+                if (ignoreSplitType == SessionVariable.IgnoreSplitType.IGNORE_JNI) {
+                    continue;
+                }
                 splits.add(new PaimonSplit(split));
                 ++paimonSplitNum;
             }
@@ -263,6 +281,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
         this.selectedPartitionNum = selectedPartitionValues.size();
         // TODO: get total partition number
+        // We should set fileSplitSize at the end because fileSplitSize may be modified in splitFile.
+        splits.forEach(s -> s.setTargetSplitSize(fileSplitSize));
         return splits;
     }
 

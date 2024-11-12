@@ -19,7 +19,7 @@ suite("test_audit_log_behavior") {
     try {
         sql "set global enable_audit_plugin = true"
         sql "set global audit_plugin_max_sql_length = 58"
-        sql "set global audit_plugin_max_batch_interval_sec = 1"
+        // sql "set global audit_plugin_max_batch_interval_sec = 1"
     } catch (Exception e) {
         log.warn("skip this case, because " + e.getMessage())
         assertTrue(e.getMessage().toUpperCase().contains("ADMIN"))
@@ -71,6 +71,8 @@ suite("test_audit_log_behavior") {
             ]
     ]
 
+    qt_audit_log_schema """desc internal.__internal_schema.audit_log"""
+
     for (def on : [true, false]) {
         sql "set enable_nereids_planner=${on}"
         sql "truncate table  __internal_schema.audit_log"
@@ -80,6 +82,13 @@ suite("test_audit_log_behavior") {
             sql tuple2[0]
         }
 
+        if (on == true) {
+            // only new planner supports call flush_audit_log
+            // make sure audit event is created.
+            // see WorkloadRuntimeStatusMgr.getQueryNeedAudit()
+            Thread.sleep(6000)
+            sql """call flush_audit_log()"""
+        }
         // check result
         for (int i = 0; i < cnt; i++) {
             def tuple2 = sqls.get(i)
@@ -96,6 +105,7 @@ suite("test_audit_log_behavior") {
             assertEquals(res[0][0].toString(), tuple2[1].toString())
         }
     }
+    // do not turn off
     sql "set global enable_audit_plugin = false"
     sql "set global audit_plugin_max_sql_length = 4096"
     sql "set global audit_plugin_max_batch_interval_sec = 60"

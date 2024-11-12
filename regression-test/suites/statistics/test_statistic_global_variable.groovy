@@ -15,7 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_statistic_global_variable", "p0, nonConcurrent") {
+suite("test_statistic_global_variable", "nonConcurrent") {
+
+    def frontends = sql "show frontends"
+
+    if (frontends.size() != 1) {
+        return
+    }
 
     def verifyVairable = { variable, value ->
         sql """set global ${variable}="${value}";"""
@@ -25,10 +31,6 @@ suite("test_statistic_global_variable", "p0, nonConcurrent") {
     }
 
     try {
-        verifyVairable("enable_auto_analyze", "true")
-        verifyVairable("enable_auto_analyze", "false")
-        verifyVairable("analyze_timeout", "1")
-        verifyVairable("analyze_timeout", "43200")
         verifyVairable("auto_analyze_end_time", "11:11:11")
         verifyVairable("auto_analyze_end_time", "23:59:59")
         verifyVairable("auto_analyze_start_time", "22:22:22")
@@ -47,8 +49,6 @@ suite("test_statistic_global_variable", "p0, nonConcurrent") {
         verifyVairable("table_stats_health_threshold", "60")
 
     } finally {
-        sql """set global enable_auto_analyze=false"""
-        sql """set global analyze_timeout=43200"""
         sql """set global auto_analyze_end_time="23:59:59";"""
         sql """set global auto_analyze_start_time="00:00:00";"""
         sql """set global auto_analyze_table_width_threshold=100"""

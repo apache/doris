@@ -3076,11 +3076,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public boolean needAutoRefresh() {
-        return true;
-    }
-
-    @Override
     public boolean isPartitionColumnAllowNull() {
         return true;
     }

@@ -469,6 +469,11 @@ public class VariableMgr {
         try {
             String json = info.getPersistJsonString();
             JSONObject root = (JSONObject) JSONValue.parse(json);
+            // if not variable version, we set it to 0 to ensure we could force set global variable.
+            boolean hasVariableVersion = root.containsKey(GlobalVariable.VARIABLE_VERSION);
+            if (!hasVariableVersion) {
+                GlobalVariable.variableVersion = GlobalVariable.VARIABLE_VERSION_0;
+            }
             for (Object varName : root.keySet()) {
                 VarContext varContext = ctxByVarName.get((String) varName);
                 if (Env.isCheckpointThread()) {
@@ -728,6 +733,11 @@ public class VariableMgr {
         rlock.lock();
         try {
             for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+                VarAttr varAttr = entry.getValue().getField().getAnnotation(VarAttr.class);
+                // not show invisible variables
+                if ((VariableMgr.INVISIBLE & varAttr.flag()) != 0) {
+                    continue;
+                }
                 // Filter variable not match to the regex.
                 if (matcher != null && !matcher.match(entry.getKey())) {
                     continue;
@@ -941,5 +951,39 @@ public class VariableMgr {
             builder.put(attr.name(), new VarContext(field, null, GLOBAL | attr.flag(), getValue(null, field)));
         }
         return builder;
+    }
+
+    public static void forceUpdateVariables() {
+        int currentVariableVersion = GlobalVariable.variableVersion;
+        if (currentVariableVersion == GlobalVariable.VARIABLE_VERSION_0) {
+            // update from 2.0.15 or below to 2.0.16 or higher
+            if (VariableMgr.newSessionVariable().nereidsTimeoutSecond == 5) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.NEREIDS_TIMEOUT_SECOND, "30");
+            }
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_100) {
+            // update from 2.1.6 or below to 2.1.7 or higher
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_NEREIDS_DML,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_NEREIDS_DML_WITH_PIPELINE,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_NEREIDS_PLANNER,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_FALLBACK_TO_ORIGINAL_PLANNER,
+                    String.valueOf(true));
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    SessionVariable.ENABLE_PIPELINE_X_ENGINE,
+                    String.valueOf(true));
+        }
+        if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
+            VariableMgr.refreshDefaultSessionVariables("update variable version",
+                    GlobalVariable.VARIABLE_VERSION,
+                    String.valueOf(GlobalVariable.CURRENT_VARIABLE_VERSION));
+        }
     }
 }

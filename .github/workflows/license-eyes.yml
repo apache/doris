@@ -19,13 +19,21 @@
 name: License Check
 on:
   pull_request_target:
+  pull_request:
+    types: [opened, synchronize, labeled]
   push:
     branches:
       - master
+
 jobs:
   license-check:
     name: "License Check"
     runs-on: ubuntu-latest
+    if: |
+      (github.event_name == 'pull_request_target') ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+      (github.event.label.name == 'run-workflow' &&
+       github.event.issue.user.login == 'github-actions[bot]')
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         if: ${{ github.event_name != 'pull_request_target' }}

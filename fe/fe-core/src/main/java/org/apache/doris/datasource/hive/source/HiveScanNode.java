@@ -90,6 +90,8 @@ public class HiveScanNode extends FileQueryScanNode {
     private final Semaphore splittersOnFlight = new Semaphore(NUM_SPLITTERS_ON_FLIGHT);
     private final AtomicInteger numSplitsPerPartition = new AtomicInteger(NUM_SPLITS_PER_PARTITION);
 
+    private boolean skipCheckingAcidVersionFile = false;
+
     /**
      * * External file scan node for Query Hive table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
@@ -117,6 +119,7 @@ public class HiveScanNode extends FileQueryScanNode {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
+            skipCheckingAcidVersionFile = ConnectContext.get().getSessionVariable().skipCheckingAcidVersionFile;
         }
     }
 
@@ -343,7 +346,7 @@ public class HiveScanNode extends FileQueryScanNode {
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
         return cache.getFilesByTransaction(partitions, validWriteIds,
-            hiveTransaction.isFullAcid(), hmsTable.getId(), bindBrokerName);
+            hiveTransaction.isFullAcid(), skipCheckingAcidVersionFile, hmsTable.getId(), bindBrokerName);
     }
 
     @Override
@@ -382,20 +385,36 @@ public class HiveScanNode extends FileQueryScanNode {
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
         Table table = hmsTable.getRemoteTable();
-        // 1. set column separator
-        textParams.setColumnSeparator(HiveProperties.getColumnSeparator(table));
-        // 2. set line delimiter
-        textParams.setLineDelimiter(HiveProperties.getLineDelimiter(table));
-        // 3. set mapkv delimiter
-        textParams.setMapkvDelimiter(HiveProperties.getMapKvDelimiter(table));
-        // 4. set collection delimiter
-        textParams.setCollectionDelimiter(HiveProperties.getCollectionDelimiter(table));
-        // 5. set quote char
-        HiveProperties.getQuoteChar(table).ifPresent(d -> textParams.setEnclose(d.getBytes()[0]));
-        // 6. set escape delimiter
-        HiveProperties.getEscapeDelimiter(table).ifPresent(d -> textParams.setEscape(d.getBytes()[0]));
-        // 7. set null format
-        textParams.setNullFormat(HiveProperties.getNullFormat(table));
+        // TODO: separate hive text table and OpenCsv table
+        String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
+        if (serDeLib.equals("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe")) {
+            // set properties of LazySimpleSerDe
+            // 1. set column separator
+            textParams.setColumnSeparator(HiveProperties.getFieldDelimiter(table));
+            // 2. set line delimiter
+            textParams.setLineDelimiter(HiveProperties.getLineDelimiter(table));
+            // 3. set mapkv delimiter
+            textParams.setMapkvDelimiter(HiveProperties.getMapKvDelimiter(table));
+            // 4. set collection delimiter
+            textParams.setCollectionDelimiter(HiveProperties.getCollectionDelimiter(table));
+            // 5. set escape delimiter
+            HiveProperties.getEscapeDelimiter(table).ifPresent(d -> textParams.setEscape(d.getBytes()[0]));
+            // 6. set null format
+            textParams.setNullFormat(HiveProperties.getNullFormat(table));
+        } else if (serDeLib.equals("org.apache.hadoop.hive.serde2.OpenCSVSerde")) {
+            // set set properties of OpenCSVSerde
+            // 1. set column separator
+            textParams.setColumnSeparator(HiveProperties.getSeparatorChar(table));
+            // 2. set line delimiter
+            textParams.setLineDelimiter(HiveProperties.getLineDelimiter(table));
+            // 3. set enclose char
+            textParams.setEnclose(HiveProperties.getQuoteChar(table).getBytes()[0]);
+            // 4. set escape char
+            textParams.setEscape(HiveProperties.getEscapeChar(table).getBytes()[0]);
+        } else {
+            throw new UserException(
+                    "unsupported hive table serde: " + serDeLib);
+        }
 
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);

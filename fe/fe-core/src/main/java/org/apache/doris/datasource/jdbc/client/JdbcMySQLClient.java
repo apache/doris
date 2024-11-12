@@ -76,10 +76,11 @@ public class JdbcMySQLClient extends JdbcClient {
 
     @Override
     public List<String> getDatabaseNameList() {
-        Connection conn = getConnection();
+        Connection conn = null;
         ResultSet rs = null;
         List<String> remoteDatabaseNames = Lists.newArrayList();
         try {
+            conn = getConnection();
             if (isOnlySpecifiedDatabase && includeDatabaseMap.isEmpty() && excludeDatabaseMap.isEmpty()) {
                 String currentDatabase = conn.getCatalog();
                 remoteDatabaseNames.add(currentDatabase);
@@ -130,12 +131,13 @@ public class JdbcMySQLClient extends JdbcClient {
      */
     @Override
     public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
-        Connection conn = getConnection();
+        Connection conn = null;
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
         String remoteDbName = getRemoteDatabaseName(localDbName);
         String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
+            conn = getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
@@ -294,30 +296,33 @@ public class JdbcMySQLClient extends JdbcClient {
      * get all columns like DatabaseMetaData.getColumns in mysql-jdbc-connector
      */
     private Map<String, String> getColumnsDataTypeUseQuery(String remoteDbName, String remoteTableName) {
-        Connection conn = getConnection();
+        Connection conn = null;
+        Statement stmt = null;
         ResultSet resultSet = null;
-        Map<String, String> fieldtoType = Maps.newHashMap();
+        Map<String, String> fieldToType = Maps.newHashMap();
 
         StringBuilder queryBuf = new StringBuilder("SHOW FULL COLUMNS FROM ");
         queryBuf.append(remoteTableName);
         queryBuf.append(" FROM ");
         queryBuf.append(remoteDbName);
-        try (Statement stmt = conn.createStatement()) {
+        try {
+            conn = getConnection();
+            stmt = conn.createStatement();
             resultSet = stmt.executeQuery(queryBuf.toString());
             while (resultSet.next()) {
                 // get column name
                 String fieldName = resultSet.getString("Field");
                 // get original type name
                 String typeName = resultSet.getString("Type");
-                fieldtoType.put(fieldName, typeName);
+                fieldToType.put(fieldName, typeName);
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get jdbc columns info for remote table `%s.%s`: %s",
                     remoteDbName, remoteTableName, Util.getRootCauseMessage(e));
         } finally {
-            close(resultSet, conn);
+            close(resultSet, stmt, conn);
         }
-        return fieldtoType;
+        return fieldToType;
     }
 
     private Type dorisTypeToDoris(JdbcFieldSchema fieldSchema) {

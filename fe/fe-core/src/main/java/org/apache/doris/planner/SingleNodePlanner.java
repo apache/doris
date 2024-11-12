@@ -1987,7 +1987,8 @@ public class SingleNodePlanner {
                 scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case PAIMON_EXTERNAL_TABLE:
-                scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                scanNode = new PaimonScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true,
+                    ConnectContext.get().getSessionVariable());
                 break;
             case MAX_COMPUTE_EXTERNAL_TABLE:
                 // TODO: support max compute scan node

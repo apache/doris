@@ -227,6 +227,7 @@ struct TOlapTableIndex {
   4: optional string comment
   5: optional i64 index_id
   6: optional map<string, string> properties
+  7: optional list<i32> column_unique_ids
 }
 
 struct TOlapTableIndexSchema {

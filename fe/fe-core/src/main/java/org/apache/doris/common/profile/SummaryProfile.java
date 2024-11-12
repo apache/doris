@@ -88,6 +88,8 @@ public class SummaryProfile {
     public static final String NEREIDS_REWRITE_TIME = "Nereids Rewrite Time";
     public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
     public static final String NEREIDS_TRANSLATE_TIME = "Nereids Translate Time";
+    public static final String NEREIDS_GARBAGE_COLLECT_TIME = "Nereids GarbageCollect Time";
+    public static final String NEREIDS_BE_FOLD_CONST_TIME = "Nereids BeFoldConst Time";
 
     public static final String FRAGMENT_COMPRESSED_SIZE = "Fragment Compressed Size";
     public static final String FRAGMENT_RPC_COUNT = "Fragment RPC Count";
@@ -196,6 +198,8 @@ public class SummaryProfile {
     private long nereidsRewriteFinishTime = -1;
     private long nereidsOptimizeFinishTime = -1;
     private long nereidsTranslateFinishTime = -1;
+    private long nereidsGarbageCollectionTime = -1;
+    private long nereidsBeFoldConstTime = 0;
     // timestamp of query begin
     private long queryBeginTime = -1;
     // Analysis end time
@@ -311,6 +315,8 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
         executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
         executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
+        executionSummaryProfile.addInfoString(NEREIDS_GARBAGE_COLLECT_TIME, getPrettyNereidsGarbageCollectionTime());
+        executionSummaryProfile.addInfoString(NEREIDS_BE_FOLD_CONST_TIME, getPrettyNereidsBeFoldConstTime());
         executionSummaryProfile.addInfoString(ANALYSIS_TIME,
                 getPrettyTime(queryAnalysisFinishTime, queryBeginTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(PLAN_TIME,
@@ -405,6 +411,14 @@ public class SummaryProfile {
 
     public void setNereidsTranslateTime() {
         this.nereidsTranslateFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setNereidsGarbageCollectionTime(long nereidsGarbageCollectionTime) {
+        this.nereidsGarbageCollectionTime = nereidsGarbageCollectionTime;
+    }
+
+    public void sumBeFoldTime(long beFoldConstTimeOnce) {
+        this.nereidsBeFoldConstTime += beFoldConstTimeOnce;
     }
 
     public void setQueryBeginTime() {
@@ -638,12 +652,20 @@ public class SummaryProfile {
         return getPrettyTime(nereidsOptimizeFinishTime, nereidsRewriteFinishTime, TUnit.TIME_MS);
     }
 
-    private String getPrettyCount(long cnt) {
-        return RuntimeProfile.printCounter(cnt, TUnit.UNIT);
-    }
-
     public String getPrettyNereidsTranslateTime() {
         return getPrettyTime(nereidsTranslateFinishTime, nereidsOptimizeFinishTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyNereidsGarbageCollectionTime() {
+        return RuntimeProfile.printCounter(nereidsGarbageCollectionTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyNereidsBeFoldConstTime() {
+        return RuntimeProfile.printCounter(nereidsBeFoldConstTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyCount(long cnt) {
+        return RuntimeProfile.printCounter(cnt, TUnit.UNIT);
     }
 
     private String getPrettyTime(long end, long start, TUnit unit) {

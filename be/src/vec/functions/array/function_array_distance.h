@@ -121,7 +121,7 @@ public:
         // prepare return data
         auto dst = ColumnVector<Float64>::create(input_rows_count);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(input_rows_count);
+        auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         const auto& offsets1 = *arr1.offsets_ptr;

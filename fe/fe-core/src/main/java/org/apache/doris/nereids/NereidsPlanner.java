@@ -52,8 +52,8 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -72,6 +72,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.lang.management.GarbageCollectorMXBean;
+import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -174,6 +176,7 @@ public class NereidsPlanner extends Planner {
                 ExplainLevel explainLevel, boolean showPlanProcess,
                 Consumer<Plan> lockCallback) {
         try {
+            long beforePlanGcTime = getGarbageCollectionTime();
             if (plan instanceof LogicalSqlCache) {
                 rewrittenPlan = analyzedPlan = plan;
                 LogicalSqlCache logicalSqlCache = (LogicalSqlCache) plan;
@@ -201,6 +204,10 @@ public class NereidsPlanner extends Planner {
             try (Lock lock = new Lock(plan, cascadesContext)) {
                 Plan resultPlan = planWithoutLock(plan, explainLevel, showPlanProcess, requireProperties);
                 lockCallback.accept(resultPlan);
+                if (statementContext.getConnectContext().getExecutor() != null) {
+                    statementContext.getConnectContext().getExecutor().getSummaryProfile()
+                            .setNereidsGarbageCollectionTime(getGarbageCollectionTime() - beforePlanGcTime);
+                }
                 return resultPlan;
             }
         } finally {
@@ -251,9 +258,10 @@ public class NereidsPlanner extends Planner {
         //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
         if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest
                 && !cascadesContext.isLeadingDisableJoinReorder()) {
-            List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
-                    .collectToList(LogicalOlapScan.class::isInstance);
-            StatsCalculator.disableJoinReorderIfTableRowCountNotAvailable(scans, cascadesContext);
+            List<CatalogRelation> scans = cascadesContext.getRewritePlan()
+                    .collectToList(CatalogRelation.class::isInstance);
+            Optional<String> reason = StatsCalculator.disableJoinReorderIfStatsInvalid(scans, cascadesContext);
+            reason.ifPresent(LOG::info);
         }
         optimize();
         if (statementContext.getConnectContext().getExecutor() != null) {
@@ -455,6 +463,15 @@ public class NereidsPlanner extends Planner {
             LOG.warn("Failed to choose best plan, memo structure:{}", cascadesContext.getMemo(), e);
             throw new AnalysisException("Failed to choose best plan: " + e.getMessage(), e);
         }
+    }
+
+    private long getGarbageCollectionTime() {
+        List<GarbageCollectorMXBean> gcMxBeans = ManagementFactory.getGarbageCollectorMXBeans();
+        long initialGCTime = 0;
+        for (GarbageCollectorMXBean gcBean : gcMxBeans) {
+            initialGCTime += gcBean.getCollectionTime();
+        }
+        return initialGCTime;
     }
 
     /**

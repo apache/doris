@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.PrimitiveType;
@@ -27,10 +28,12 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -87,7 +90,7 @@ import java.util.stream.Collectors;
 /**
  * Hive metastore external table.
  */
-public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf {
+public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf {
     private static final Logger LOG = LogManager.getLogger(HMSExternalTable.class);
 
     public static final Set<String> SUPPORTED_HIVE_FILE_FORMATS;
@@ -249,6 +252,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         // we will return false if null, which means that the table type maybe unsupported.
         if (remoteTable.getSd() == null) {
             throw new NotSupportedException("remote table's storage descriptor is null");
+        }
+        // If this is hive view, no need to check file format.
+        if (remoteTable.isSetViewExpandedText() || remoteTable.isSetViewOriginalText()) {
+            return true;
         }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         if (inputFileFormat == null) {
@@ -526,7 +533,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         long rowCount = getRowCountFromExternalSource();
         // Only hive table supports estimate row count by listing file.
         if (rowCount == -1 && dlaType.equals(DLAType.HIVE)) {
-            LOG.debug("Will estimate row count from file list.");
+            LOG.info("Will estimate row count for table {} from file list.", name);
             rowCount = getRowCountFromFileList();
         }
         return rowCount;
@@ -587,9 +594,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             case ICEBERG:
                 if (GlobalVariable.enableFetchIcebergStats) {
                     return StatisticsUtil.getIcebergColumnStats(colName,
-                        Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
-                            catalog, dbName, name
-                        ));
+                            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(
+                                    catalog, dbName, name
+                            ));
                 } else {
                     break;
                 }
@@ -822,11 +829,6 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public boolean needAutoRefresh() {
-        return true;
-    }
-
-    @Override
     public boolean isPartitionColumnAllowNull() {
         return true;
     }
@@ -839,14 +841,16 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             return -1;
         }
         if (isView()) {
+            LOG.info("Table {} is view, return 0.", name);
             return 0;
         }
         HiveMetaStoreCache.HivePartitionValues partitionValues = getAllPartitionValues();
 
         // Get files for all partitions.
         int samplePartitionSize = Config.hive_stats_partition_sample_size;
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = getFilesForPartitions(partitionValues,
-                samplePartitionSize);
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions =
+                getFilesForPartitions(partitionValues, samplePartitionSize);
+        LOG.info("Number of files selected for hive table {} is {}", name, filesByPartitions.size());
         long totalSize = 0;
         // Calculate the total file size.
         for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
@@ -865,14 +869,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             estimatedRowSize += column.getDataType().getSlotSize();
         }
         if (estimatedRowSize == 0) {
+            LOG.warn("Table {} estimated size is 0, return 0.", name);
             return 0;
         }
 
         int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
         if (samplePartitionSize != 0 && samplePartitionSize < totalPartitionSize) {
+            LOG.info("Table {} sampled {} of {} partitions, sampled size is {}",
+                    name, samplePartitionSize, totalPartitionSize, totalSize);
             totalSize = totalSize * totalPartitionSize / samplePartitionSize;
         }
-        return totalSize / estimatedRowSize;
+        long rows = totalSize / estimatedRowSize;
+        LOG.info("Table {} rows {}, total size is {}, estimatedRowSize is {}",
+                name, rows, totalSize, estimatedRowSize);
+        return rows;
     }
 
     // Get all partition values from cache.
@@ -890,6 +900,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             // no need to worry that this call will invalid or refresh the cache.
             // because it has enough space to keep partition info of all tables in cache.
             partitionValues = cache.getPartitionValues(dbName, name, partitionColumnTypes);
+            if (partitionValues == null || partitionValues.getPartitionNameToIdMap() == null) {
+                LOG.warn("Partition values for hive table {} is null", name);
+            } else {
+                LOG.info("Partition values size for hive table {} is {}",
+                        name, partitionValues.getPartitionNameToIdMap().size());
+            }
         }
         return partitionValues;
     }
@@ -925,6 +941,7 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
             // get partitions without cache, so that it will not invalid the cache when executing
             // non query request such as `show table status`
             hivePartitions = cache.getAllPartitionsWithoutCache(dbName, name, partitionValuesList);
+            LOG.info("Partition list size for hive partition table {} is {}", name, hivePartitions.size());
         } else {
             hivePartitions.add(new HivePartition(dbName, name, true,
                     getRemoteTable().getSd().getInputFormat(),
@@ -932,6 +949,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         }
         // Get files for all partitions.
         String bindBrokerName = catalog.bindBrokerName();
+        if (LOG.isDebugEnabled()) {
+            for (HivePartition partition : hivePartitions) {
+                LOG.debug("Chosen partition for table {}. [{}]", name, partition.toString());
+            }
+        }
         return cache.getFilesByPartitionsWithoutCache(hivePartitions, bindBrokerName);
     }
 
@@ -939,5 +961,11 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public boolean isPartitionedTable() {
         makeSureInitialized();
         return !isView() && remoteTable.getPartitionKeysSize() > 0;
+    }
+
+    @Override
+    public void beforeMTMVRefresh(MTMV mtmv) throws DdlException {
+        Env.getCurrentEnv().getRefreshManager()
+                .refreshTable(getCatalog().getName(), getDbName(), getName(), true);
     }
 }
