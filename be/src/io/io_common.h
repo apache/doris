@@ -59,6 +59,7 @@ struct IOContext {
     bool should_stop = false;
     int64_t expiration_time = 0;
     const TUniqueId* query_id = nullptr;             // Ref
+
     FileCacheStatistics* file_cache_stats = nullptr; // Ref
 };
 
