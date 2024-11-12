@@ -45,10 +45,8 @@ void QueryStatistics::merge(const QueryStatistics& other) {
         this->current_used_memory_bytes = other_memory_used;
     }
 
-    _spill_write_block_bytes += other._spill_write_block_bytes;
-    _spill_write_file_bytes += other._spill_write_file_bytes;
-    _spill_read_block_bytes += other._spill_read_block_bytes;
-    _spill_read_file_bytes += other._spill_read_file_bytes;
+    _spill_write_bytes_to_local_storage += other._spill_write_bytes_to_local_storage;
+    _spill_read_bytes_from_local_storage += other._spill_read_bytes_from_local_storage;
 }
 
 void QueryStatistics::to_pb(PQueryStatistics* statistics) {
@@ -60,10 +58,8 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
     statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
     statistics->set_scan_bytes_from_remote_storage(_scan_bytes_from_remote_storage);
     statistics->set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
-    statistics->set_spill_write_block_bytes(_spill_write_block_bytes);
-    statistics->set_spill_write_file_bytes(_spill_write_file_bytes);
-    statistics->set_spill_read_block_bytes(_spill_read_block_bytes);
-    statistics->set_spill_read_file_bytes(_spill_read_file_bytes);
+    statistics->set_spill_write_bytes_to_local_storage(_spill_write_bytes_to_local_storage);
+    statistics->set_spill_read_bytes_from_local_storage(_spill_read_bytes_from_local_storage);
 }
 
 void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
@@ -78,10 +74,8 @@ void QueryStatistics::to_thrift(TQueryStatistics* statistics) const {
     statistics->__set_shuffle_send_rows(shuffle_send_rows);
     statistics->__set_scan_bytes_from_remote_storage(_scan_bytes_from_remote_storage);
     statistics->__set_scan_bytes_from_local_storage(_scan_bytes_from_local_storage);
-    statistics->__set_spill_write_block_bytes(_spill_write_block_bytes);
-    statistics->__set_spill_write_file_bytes(_spill_write_file_bytes);
-    statistics->__set_spill_read_block_bytes(_spill_read_block_bytes);
-    statistics->__set_spill_read_file_bytes(_spill_read_file_bytes);
+    statistics->__set_spill_write_bytes_to_local_storage(_spill_write_bytes_to_local_storage);
+    statistics->__set_spill_read_bytes_from_local_storage(_spill_read_bytes_from_local_storage);
 }
 
 void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
@@ -90,10 +84,8 @@ void QueryStatistics::from_pb(const PQueryStatistics& statistics) {
     cpu_nanos = statistics.cpu_ms() * NANOS_PER_MILLIS;
     _scan_bytes_from_local_storage = statistics.scan_bytes_from_local_storage();
     _scan_bytes_from_remote_storage = statistics.scan_bytes_from_remote_storage();
-    _spill_write_block_bytes = statistics.spill_write_block_bytes();
-    _spill_write_file_bytes = statistics.spill_write_file_bytes();
-    _spill_read_block_bytes = statistics.spill_read_block_bytes();
-    _spill_read_file_bytes = statistics.spill_read_file_bytes();
+    _spill_write_bytes_to_local_storage = statistics.spill_write_bytes_to_local_storage();
+    _spill_read_bytes_from_local_storage = statistics.spill_read_bytes_from_local_storage();
 }
 
 QueryStatistics::~QueryStatistics() {}
