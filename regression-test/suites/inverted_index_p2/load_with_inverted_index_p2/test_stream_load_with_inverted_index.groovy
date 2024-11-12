@@ -171,8 +171,10 @@ suite("test_stream_load_with_inverted_index", "p2") {
             sql """ DROP TABLE IF EXISTS ${tableName}; """
         }
         set_be_config("inverted_index_ram_dir_enable", "true")
+        // test.call("V1")
         test.call("V2")
         set_be_config("inverted_index_ram_dir_enable", "false")
+        // test.call("V1")
         test.call("V2")
         set_be_config("inverted_index_ram_dir_enable", "true")
     } finally {
