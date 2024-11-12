@@ -489,4 +489,9 @@ public class DFSFileSystem extends RemoteFileSystem {
         }
         return Status.OK;
     }
+
+    @VisibleForTesting
+    public HadoopAuthenticator getAuthenticator() {
+        return authenticator;
+    }
 }
