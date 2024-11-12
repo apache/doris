@@ -34,8 +34,11 @@ import org.pentaho.di.trans.steps.dorisstreamloader.serializer.DorisRecordSerial
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Properties;
 
+import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.COLUMNS_KEY;
 import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.CSV;
 import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.FIELD_DELIMITER_DEFAULT;
 import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.FIELD_DELIMITER_KEY;
@@ -45,125 +48,138 @@ import static org.pentaho.di.trans.steps.dorisstreamloader.load.LoadConstants.FO
  * Doris Stream Load
  */
 public class DorisStreamLoader extends BaseStep implements StepInterface {
-  private static Class<?> PKG = DorisStreamLoaderMeta.class; // for i18n purposes, needed by Translator2!!
-  private static final Logger LOG = LoggerFactory.getLogger(DorisStreamLoader.class);
-  private DorisStreamLoaderMeta meta;
-  private DorisStreamLoaderData data;
-  private DorisBatchStreamLoad streamLoad;
-  private DorisOptions options;
+    private static Class<?> PKG = DorisStreamLoaderMeta.class; // for i18n purposes, needed by Translator2!!
+    private static final Logger LOG = LoggerFactory.getLogger(DorisStreamLoader.class);
+    private DorisStreamLoaderMeta meta;
+    private DorisStreamLoaderData data;
+    private DorisBatchStreamLoad streamLoad;
+    private DorisOptions options;
 
-  public DorisStreamLoader(StepMeta stepMeta, StepDataInterface stepDataInterface, int copyNr, TransMeta transMeta,
-                           Trans trans ) {
-    super( stepMeta, stepDataInterface, copyNr, transMeta, trans );
-  }
-
-  @Override
-  public boolean processRow( StepMetaInterface smi, StepDataInterface sdi ) throws KettleException {
-    meta = (DorisStreamLoaderMeta) smi;
-    data = (DorisStreamLoaderData) sdi;
-
-    try {
-      Object[] r = getRow(); // Get row from input rowset & set row busy!
-
-      if ( r == null ) { // no more input to be expected...
-        setOutputDone();
-        closeOutput();
-        return false;
-      }
-      if ( first ) {
-        first = false;
-        // Cache field indexes.
-        data.keynrs = new int[meta.getFieldStream().length];
-        for ( int i = 0; i < data.keynrs.length; i++ ) {
-          data.keynrs[i] = getInputRowMeta().indexOfValue( meta.getFieldStream()[i] );
-        }
-        data.formatMeta = new ValueMetaInterface[data.keynrs.length];
-        for ( int i = 0; i < data.keynrs.length; i++ ) {
-          ValueMetaInterface sourceMeta = getInputRowMeta().getValueMeta(data.keynrs[i]);
-          data.formatMeta[i] = sourceMeta.clone();
-        }
-
-        Properties loadProperties = options.getStreamLoadProp();
-        //builder serializer
-        data.serializer = DorisRecordSerializer.builder()
-                .setType(loadProperties.getProperty(FORMAT_KEY, CSV))
-                .setFieldNames(getInputRowMeta().getFieldNames())
-                .setFormatMeta(data.formatMeta)
-                .setFieldDelimiter(loadProperties.getProperty(FIELD_DELIMITER_KEY, FIELD_DELIMITER_DEFAULT))
-                .setLogChannelInterface(log)
-                .build();
-      }
-
-      //serializer data
-      streamLoad.writeRecord(meta.getDatabase(), meta.getTable(), data.serializer.serialize(r));
-      putRow( getInputRowMeta(), r );
-      incrementLinesOutput();
-
-      return true;
-    } catch ( Exception e ) {
-      logError( BaseMessages.getString( PKG, "DorisStreamLoader.Log.ErrorInStep" ), e );
-      setErrors( 1 );
-      stopAll();
-      setOutputDone(); // signal end to receiver(s)
-      return false;
+    public DorisStreamLoader(StepMeta stepMeta, StepDataInterface stepDataInterface, int copyNr, TransMeta transMeta,
+                             Trans trans) {
+        super(stepMeta, stepDataInterface, copyNr, transMeta, trans);
     }
-  }
 
-  private void closeOutput() throws Exception {
-    logDetailed("Closing output...");
-    streamLoad.forceFlush();
-    streamLoad.close();
-    streamLoad = null;
-  }
+    @Override
+    public boolean processRow(StepMetaInterface smi, StepDataInterface sdi) throws KettleException {
+        meta = (DorisStreamLoaderMeta) smi;
+        data = (DorisStreamLoaderData) sdi;
 
-  @Override
-  public boolean init( StepMetaInterface smi, StepDataInterface sdi ) {
-    meta = (DorisStreamLoaderMeta) smi;
-    data = (DorisStreamLoaderData) sdi;
-    if (super.init(smi, sdi)){
-      Properties streamHeaders = new Properties();
-      String streamLoadProp = meta.getStreamLoadProp();
-      if (StringUtils.isNotBlank(streamLoadProp)) {
-        String[] keyValues = streamLoadProp.split(";");
-        for (String keyValue : keyValues) {
-          String[] kv = keyValue.split(":");
-          if (kv.length == 2) {
-            streamHeaders.put(kv[0], kv[1]);
-          }
+
+        try {
+            Object[] r = getRow(); // Get row from input rowset & set row busy!
+            if (r == null) { // no more input to be expected...
+                setOutputDone();
+                closeOutput();
+                return false;
+            }
+            if (first) {
+                first = false;
+                // Cache field indexes.
+                data.keynrs = new int[meta.getFieldStream().length];
+                for (int i = 0; i < data.keynrs.length; i++) {
+                    data.keynrs[i] = getInputRowMeta().indexOfValue(meta.getFieldStream()[i]);
+                }
+                data.formatMeta = new ValueMetaInterface[data.keynrs.length];
+                for (int i = 0; i < data.keynrs.length; i++) {
+                    ValueMetaInterface sourceMeta = getInputRowMeta().getValueMeta(data.keynrs[i]);
+                    data.formatMeta[i] = sourceMeta.clone();
+                }
+
+                Properties loadProperties = options.getStreamLoadProp();
+                //builder serializer
+                String columns = loadProperties.getProperty(COLUMNS_KEY);
+                if (null != columns && columns.trim().length() > 0) {
+                    String[] filedNames = columns.split(",");
+                    data.serializer = DorisRecordSerializer.builder()
+                        .setType(loadProperties.getProperty(FORMAT_KEY, CSV))
+                        .setFieldNames(getInputRowMeta().getFieldNames())
+                        .setFormatMeta(data.formatMeta)
+                        .setFieldNames(filedNames)
+                        .setFieldDelimiter(loadProperties.getProperty(FIELD_DELIMITER_KEY, FIELD_DELIMITER_DEFAULT))
+                        .setLogChannelInterface(log)
+                        .build();
+                } else {
+                    data.serializer = DorisRecordSerializer.builder()
+                        .setType(loadProperties.getProperty(FORMAT_KEY, CSV))
+                        .setFieldNames(getInputRowMeta().getFieldNames())
+                        .setFormatMeta(data.formatMeta)
+                        .setFieldDelimiter(loadProperties.getProperty(FIELD_DELIMITER_KEY, FIELD_DELIMITER_DEFAULT))
+                        .setLogChannelInterface(log)
+                        .build();
+                }
+            }
+
+            //serializer data
+            streamLoad.writeRecord(meta.getDatabase(), meta.getTable(), data.serializer.serialize(r));
+            putRow(getInputRowMeta(), r);
+            incrementLinesOutput();
+
+            return true;
+        } catch (Exception e) {
+            logError(BaseMessages.getString(PKG, "DorisStreamLoader.Log.ErrorInStep"), e);
+            setErrors(1);
+            stopAll();
+            setOutputDone(); // signal end to receiver(s)
+            return false;
         }
-      }
-      options = DorisOptions.builder()
-              .withFenodes(meta.getFenodes())
-              .withDatabase(meta.getDatabase())
-              .withTable(meta.getTable())
-              .withUsername(meta.getUsername())
-              .withPassword(meta.getPassword())
-              .withBufferFlushMaxBytes(meta.getBufferFlushMaxBytes())
-              .withBufferFlushMaxRows(meta.getBufferFlushMaxRows())
-              .withMaxRetries(meta.getMaxRetries())
-              .withStreamLoadProp(streamHeaders).build();
-      streamLoad = new DorisBatchStreamLoad(options, log);
-      return true;
     }
-    return false;
-  }
 
-  @Override
-  public void dispose( StepMetaInterface smi, StepDataInterface sdi ) {
-    meta = (DorisStreamLoaderMeta) smi;
-    data = (DorisStreamLoaderData) sdi;
-    // Close the output streams if still needed.
-    try {
-      if (streamLoad != null && streamLoad.isLoadThreadAlive()) {
+    private void closeOutput() throws Exception {
+        logDetailed("Closing output...");
         streamLoad.forceFlush();
         streamLoad.close();
         streamLoad = null;
-      }
-    } catch (Exception e) {
-      setErrors(1L);
-      logError(BaseMessages.getString(PKG, "DorisStreamLoader.Message.UNEXPECTEDERRORCLOSING"), e);
     }
 
-    super.dispose( smi, sdi );
-  }
+    @Override
+    public boolean init(StepMetaInterface smi, StepDataInterface sdi) {
+        meta = (DorisStreamLoaderMeta) smi;
+        data = (DorisStreamLoaderData) sdi;
+        if (super.init(smi, sdi)) {
+            Properties streamHeaders = new Properties();
+            String streamLoadProp = meta.getStreamLoadProp();
+            if (StringUtils.isNotBlank(streamLoadProp)) {
+                String[] keyValues = streamLoadProp.split(";");
+                for (String keyValue : keyValues) {
+                    String[] kv = keyValue.split(":");
+                    if (kv.length == 2) {
+                        streamHeaders.put(kv[0], kv[1]);
+                    }
+                }
+            }
+            options = DorisOptions.builder()
+                .withFenodes(meta.getFenodes())
+                .withDatabase(meta.getDatabase())
+                .withTable(meta.getTable())
+                .withUsername(meta.getUsername())
+                .withPassword(meta.getPassword())
+                .withBufferFlushMaxBytes(meta.getBufferFlushMaxBytes())
+                .withBufferFlushMaxRows(meta.getBufferFlushMaxRows())
+                .withMaxRetries(meta.getMaxRetries())
+                .withStreamLoadProp(streamHeaders).build();
+            streamLoad = new DorisBatchStreamLoad(options, log);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public void dispose(StepMetaInterface smi, StepDataInterface sdi) {
+        meta = (DorisStreamLoaderMeta) smi;
+        data = (DorisStreamLoaderData) sdi;
+        // Close the output streams if still needed.
+        try {
+            if (streamLoad != null && streamLoad.isLoadThreadAlive()) {
+                streamLoad.forceFlush();
+                streamLoad.close();
+                streamLoad = null;
+            }
+        } catch (Exception e) {
+            setErrors(1L);
+            logError(BaseMessages.getString(PKG, "DorisStreamLoader.Message.UNEXPECTEDERRORCLOSING"), e);
+        }
+
+        super.dispose(smi, sdi);
+    }
 }

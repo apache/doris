@@ -39,6 +39,7 @@ import org.eclipse.swt.widgets.Listener;
 import org.eclipse.swt.widgets.Shell;
 import org.eclipse.swt.widgets.TableItem;
 import org.eclipse.swt.widgets.Text;
+import org.json.JSONArray;
 import org.pentaho.di.core.Const;
 import org.pentaho.di.core.SourceToTargetMapping;
 import org.pentaho.di.core.annotations.PluginDialog;
@@ -589,7 +590,13 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
             return;
         }
         //todo: get target fields from doris
-        List<String> targetFields = Arrays.asList(sourceFields.getFieldNames());
+        JSONArray fields = input.getFields();
+        List<String> targetFields = new ArrayList<>();
+        for (int i = 0; i < fields.length(); i++) {
+            targetFields.add(fields.getJSONArray(i).getString(0));
+        }
+
+       // List<String> targetFields = Arrays.asList(sourceFields.getFieldNames());
 
         // refresh data
         input.setFenodes(wFenodes.getText());
@@ -733,6 +740,7 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
             public void run() {
                 if (!wFenodes.isDisposed() && !wTableName.isDisposed() && !wDatabaseName.isDisposed() && !wUser.isDisposed() && !wPassword.isDisposed()) {
                     // todo: query column from doris
+                    JSONArray fields = input.getFields();
                     for (ColumnInfo colInfo : tableFieldColumns) {
                         colInfo.setComboValues(new String[]{});
                     }
