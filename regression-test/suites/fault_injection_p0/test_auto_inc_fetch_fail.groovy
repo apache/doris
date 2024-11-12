@@ -50,6 +50,7 @@ suite("test_auto_inc_fetch_fail", "nonConcurrent") {
         Thread.sleep(1000)
         
         sql """insert into ${table1}(k,c1,c2,c3) values(1,1,1,1),(2,2,2,2),(3,3,3,3),(4,4,4,4); """
+        qt_sql "select count(*) from ${table1};"
         qt_sql "select count(*) from ${table1} where id < 10000;"
 
     } catch(Exception e) {
