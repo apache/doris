@@ -93,6 +93,13 @@ MutableColumnPtr ColumnStr<T>::get_shrinked_column() {
     return shrinked_column;
 }
 
+// This method is only called by MutableBlock::merge_ignore_overflow
+// by hash join operator to collect build data to avoid
+// the total string length of a ColumnStr<uint32_t> column exceeds the 4G limit.
+//
+// After finishing collecting build data, a ColumnStr<uint32_t> column
+// will be converted to ColumnStr<uint64_t> if the total string length
+// exceeds the 4G limit by calling Block::replace_if_overflow.
 template <typename T>
 void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IColumn& src,
                                                      size_t start, size_t length) {
@@ -122,6 +129,8 @@ void ColumnStr<T>::insert_range_from_ignore_overflow(const doris::vectorized::IC
         offsets.resize(old_size + length);
 
         for (size_t i = 0; i < length; ++i) {
+            // unsinged integer overflow is well defined in C++,
+            // so we don't need to check the overflow here.
             offsets[old_size + i] =
                     src_concrete.offsets[start + i] - nested_offset + prev_max_offset;
         }
