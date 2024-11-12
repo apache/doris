@@ -106,6 +106,9 @@ public class IndexDefinition {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString()
                         + " index. " + "invalid index: " + name);
             }
+
+            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
+            // when the subcolumn type changes, it may result in missing files, causing link file failure.
             if (colType.isVariantType() && isIndexFormatV1) {
                 throw new AnalysisException(colType + " is not supported in inverted index format V1");
             }
