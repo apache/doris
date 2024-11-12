@@ -303,13 +303,20 @@ class StatusReporter {
 public:
     ENABLE_FACTORY_CREATOR(StatusReporter);
     StatusReporter(const BaseReportStatusRequest&& request);
-    void set_query_type(TQueryType::type query_type) { _query_type = query_type; }
+    StatusReporter& set_query_type(TQueryType::type query_type) {
+        _query_type = query_type;
+        return *this;
+    }
+    StatusReporter& set_context(std::shared_ptr<pipeline::PipelineFragmentContext> context) {
+        _context = context;
+        return *this;
+    }
     Status report(const ReportStatusRequest& request);
 
 private:
     void _do_report(const ReportStatusRequest& request);
 
-    std::shared_ptr<pipeline::PipelineFragmentContext> _context;
+    std::shared_ptr<pipeline::PipelineFragmentContext> _context = nullptr;
     ThreadPool* _thread_pool;
     ExecEnv* _exec_env;
     TReportExecStatusParams _params;

@@ -50,7 +50,6 @@ class PipelineFragmentContext;
 struct BaseReportStatusRequest {
     TUniqueId query_id;
     int fragment_id;
-    std::shared_ptr<pipeline::PipelineFragmentContext> context;
     ThreadPool* global_thread_pool;
     ExecEnv* exec_env;
 };

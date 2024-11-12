@@ -129,10 +129,8 @@ PipelineFragmentContext::PipelineFragmentContext(
           _call_back(call_back),
           _is_report_on_cancel(true),
           _global_thread_pool(thread_pool) {
-    _status_reporter = StatusReporter::create_unique(BaseReportStatusRequest {
-            _query_id, _fragment_id,
-            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()),
-            _global_thread_pool, _exec_env});
+    _status_reporter = StatusReporter::create_unique(
+            BaseReportStatusRequest {_query_id, _fragment_id, _global_thread_pool, _exec_env});
     _fragment_watcher.start();
 }
 
@@ -268,7 +266,9 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
                 request.query_id, request.fragment_id, request.query_options,
                 _query_ctx->query_globals, _exec_env, _query_ctx.get());
 
-        _status_reporter->set_query_type(_runtime_state->query_type());
+        _status_reporter->set_query_type(_runtime_state->query_type())
+                .set_context(
+                        std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 
         SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         if (request.__isset.backend_id) {
@@ -1811,6 +1811,7 @@ Status PipelineFragmentContext::send_report(bool done) {
         }
     }
 
+    DCHECK(_status_reporter);
     return _status_reporter->report({exec_status, runtime_states, done || !exec_status.ok(),
                                      _query_ctx->coord_addr, _runtime_state.get()});
 }
@@ -1890,9 +1891,7 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 }
 
 StatusReporter::StatusReporter(const BaseReportStatusRequest&& request)
-        : _context(request.context),
-          _thread_pool(request.global_thread_pool),
-          _exec_env(request.exec_env) {
+        : _thread_pool(request.global_thread_pool), _exec_env(request.exec_env) {
     _params.protocol_version = FrontendServiceVersion::V1;
     _params.__set_query_id(request.query_id);
     _params.__set_backend_num(-1);
@@ -1906,6 +1905,7 @@ StatusReporter::StatusReporter(const BaseReportStatusRequest&& request)
 
 Status StatusReporter::report(const ReportStatusRequest& request) {
     return _thread_pool->submit_func([this, request]() {
+        DCHECK(_context != nullptr) << print_id(_params.query_id);
         SCOPED_ATTACH_TASK(_context->get_query_ctx()->query_mem_tracker);
         _do_report(request);
         if (!request.done) {
