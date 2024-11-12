@@ -578,7 +578,7 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
                                  : std::make_shared<DataTypeJsonb>();
     ColumnsWithTypeAndName arguments {
             {source, json_type, ""},
-            {type_string->create_column_const(1, Field(jsonpath.data(), jsonpath.size())),
+            {type_string->create_column_const(1, Field(String(jsonpath.data(), jsonpath.size()))),
              type_string, ""}};
     auto function =
             SimpleFunctionFactory::instance().get_function("jsonb_extract", arguments, json_type);
