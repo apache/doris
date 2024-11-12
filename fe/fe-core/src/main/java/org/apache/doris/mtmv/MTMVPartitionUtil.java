@@ -72,7 +72,7 @@ public class MTMVPartitionUtil {
             );
 
     /**
-     * Determine whether the partition is sync with retated partition and other baseTables
+     * Determine whether the partition is sync with related partition and other baseTables
      *
      * @param refreshContext
      * @param partitionName
