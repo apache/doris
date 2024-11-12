@@ -38,6 +38,8 @@ suite ("aggOnAggMV1") {
     sql """insert into aggOnAggMV1 values("2020-01-03",3,"c",3,3,3);"""
 
 
+    sql """alter table aggOnAggMV1 modify column time_col set stats ('row_count'='4');"""
+
     createMV("create materialized view aggOnAggMV1_mv as select deptno, sum(salary), max(commission) from aggOnAggMV1 group by deptno ;")
 
     sleep(3000)

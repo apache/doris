@@ -87,6 +87,8 @@ suite ("multiple_ssb") {
         exception "not in select list"
     }
 
+
+sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     createMV ("""create materialized view lineorder_q_1_1 as 
                 SELECT LO_ORDERKEY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat

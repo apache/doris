@@ -37,6 +37,8 @@ suite ("unionDis") {
     sql """insert into unionDis values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into unionDis values("2020-01-03",3,"c",3,3,3);"""
 
+    sql """alter table unionDis modify column time_col set stats ('row_count'='4');"""
+
     createMV("create materialized view unionDis_mv as select empid, deptno from unionDis order by empid, deptno;")
 
     sleep(3000)

@@ -48,6 +48,8 @@ suite ("null_insert") {
 
     sql """INSERT INTO `test` (`date`) VALUES ('2023-07-19');"""
 
+    sql """alter table test modify column date set stats ('row_count'='3');"""
+
     createMV("""CREATE materialized view mv_test AS
                 SELECT date, vid, os, ver, ip_country, hll_union(hll_hash(uid))
                 FROM test

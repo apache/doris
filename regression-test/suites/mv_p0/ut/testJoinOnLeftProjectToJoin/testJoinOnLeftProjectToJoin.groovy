@@ -29,6 +29,8 @@ suite ("testJoinOnLeftProjectToJoin") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+    sql """alter table emps modify column time_col set stats ('row_count'='3');"""
+
     sql """insert into emps values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into emps values("2020-01-02",2,"b",2,7,2);"""
@@ -42,6 +44,8 @@ suite ("testJoinOnLeftProjectToJoin") {
             cost int) 
         partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
+
+    sql """alter table depts modify column time_col set stats ('row_count'='3');"""
 
     sql """insert into depts values("2020-01-02",2,"b",2);"""
     sql """insert into depts values("2020-01-03",3,"c",3);"""

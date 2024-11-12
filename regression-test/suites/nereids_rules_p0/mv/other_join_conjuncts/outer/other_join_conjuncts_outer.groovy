@@ -140,6 +140,10 @@ suite("other_join_conjuncts_outer") {
     sql """analyze table lineitem with sync"""
     sql """analyze table orders with sync"""
 
+    sql """alter table orders modify column lo_orderdate set stats ('row_count'='18');"""
+    sql """alter table lineitem modify column lo_orderdate set stats ('row_count'='10');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     // =, !=, >, <, <=, >=
     // left outer join
     // other conjuncts in join condition
@@ -1372,9 +1376,8 @@ suite("other_join_conjuncts_outer") {
               ps_partkey
             from
               orders
-              full outer join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
-              full outer join partsupp on ps_partkey = l_partkey
-              where l_orderkey + o_orderkey != ps_availqty;
+              full outer join lineitem on l_orderkey = o_orderkey 
+              full outer join partsupp on ps_partkey = l_partkey;
             """
     def query9_4 =
             """
@@ -1386,8 +1389,9 @@ suite("other_join_conjuncts_outer") {
               ps_partkey
             from
               orders
-              full outer join lineitem on l_orderkey = o_orderkey 
-              full outer join partsupp on ps_partkey = l_partkey;
+              full outer join lineitem on l_orderkey = o_orderkey and l_shipdate < o_orderdate
+              full outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
             """
     order_qt_query9_4_before "${query9_4}"
     // mv has other conjuncts but query not

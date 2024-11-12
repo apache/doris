@@ -31,6 +31,8 @@ suite ("testIncorrectMVRewriteInSubquery") {
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
+    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
+
     createMV("create materialized view user_tags_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags group by user_id;")
 
     sql """insert into user_tags values("2020-01-01",1,"a",2);"""

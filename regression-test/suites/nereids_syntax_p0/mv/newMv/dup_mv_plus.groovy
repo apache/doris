@@ -46,6 +46,7 @@ suite ("dup_mv_plus") {
     sql "analyze table dup_mv_plus with sync;"
     sql """set enable_stats=false;"""
 
+     sql """alter table dup_mv_plus modify column k1 set stats ('row_count'='4');"""
 
     order_qt_select_star "select * from dup_mv_plus order by k1;"
 

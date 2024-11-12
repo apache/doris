@@ -40,6 +40,8 @@ suite ("multi_slot3") {
 
     sleep(3000)
 
+    sql """alter table multi_slot3 modify column k1 set stats ('row_count'='4');"""
+
     sql "insert into multi_slot3 select -4,-4,-4,'d';"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"

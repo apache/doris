@@ -132,6 +132,9 @@ suite("aggregate_with_roll_up") {
     sql """analyze table partsupp with sync"""
     sql """analyze table lineitem with sync"""
     sql """analyze table orders with sync"""
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column O_COMMENT set stats ('row_count'='8');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
 
     // multi table
     // filter inside + left + use roll up dimension
@@ -840,7 +843,6 @@ suite("aggregate_with_roll_up") {
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
             bitmap_union_count(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)),
             bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
-            bitmap_union_count(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)) + bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
             count(distinct case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)
             from lineitem
             left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate

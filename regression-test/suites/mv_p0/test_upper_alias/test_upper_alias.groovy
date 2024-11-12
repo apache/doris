@@ -52,6 +52,8 @@ suite ("test_upper_alias") {
     sql "analyze table test_0401 with sync;"
     sql """set enable_stats=false;"""
 
+    sql """alter table test_0401 modify column d_b set stats ('row_count'='3');"""
+
     mv_rewrite_success("SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;", "test_0401_mv");
     qt_select_mv "SELECT upper(d_b) AS d_b FROM test_0401 GROUP BY upper(d_b) order by 1;"
 

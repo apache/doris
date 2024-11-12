@@ -38,6 +38,7 @@ suite ("aggMVCalcAggFun") {
     sql """insert into aggMVCalcAggFun values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into aggMVCalcAggFun values("2020-01-03",3,"c",3,3,3);"""
 
+    sql """alter table aggMVCalcAggFun modify column time_col set stats ('row_count'='4');"""
 
     createMV("create materialized view aggMVCalcAggFunMv as select deptno, empid, sum(salary) from aggMVCalcAggFun group by empid, deptno;")
 

@@ -34,6 +34,8 @@ suite ("orderByOnPView") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
+    sql """alter table orderByOnPView modify column time_col set stats ('row_count'='4');"""
+
     sql """insert into orderByOnPView values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into orderByOnPView values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into orderByOnPView values("2020-01-03",3,"c",3,3,3);"""

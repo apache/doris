@@ -37,6 +37,8 @@ suite ("MVMultiUsage") {
     sql """insert into MVMultiUsage values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into MVMultiUsage values("2020-01-03",3,"c",3,3,3);"""
 
+    sql """alter table MVMultiUsage modify column time_col set stats ('row_count'='4');"""
+
     createMV("create materialized view MVMultiUsage_mv as select deptno, empid, salary from MVMultiUsage order by deptno;")
 
     sleep(3000)

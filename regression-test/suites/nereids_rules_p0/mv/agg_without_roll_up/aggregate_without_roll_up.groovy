@@ -121,6 +121,12 @@ suite("aggregate_without_roll_up") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+
+    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     // single table
     // with filter
     def mv1_0 = """

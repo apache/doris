@@ -43,6 +43,7 @@ suite ("test_dup_group_by_mv_plus") {
 
     sql """analyze table d_table with sync;"""
     sql """set enable_stats=false;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
 
     qt_select_star "select * from d_table order by k1;"
 

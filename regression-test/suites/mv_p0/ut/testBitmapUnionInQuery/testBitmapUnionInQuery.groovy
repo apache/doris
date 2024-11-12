@@ -39,6 +39,8 @@ suite ("testBitmapUnionInQuery") {
     sql "analyze table user_tags with sync;"
     sql """set enable_stats=false;"""
 
+    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
+
     mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
     qt_select_star "select * from user_tags order by time_col,tag_id;"
 

@@ -124,6 +124,15 @@ suite("partition_mv_rewrite_dimension_2_6") {
     (3, null, 1, 99.5, 'yy'); 
     """
 
+    sql """insert into orders_2_6 values (...);"""
+    sql """alter table orders_2_6 modify column o_comment set stats ('row_count'='10');"""
+
+    sql """insert into lineitem_2_6 values (...);"""
+    sql """alter table lineitem_2_6 modify column l_comment set stats ('row_count'='7');"""
+
+    sql """insert into partsupp_2_6 values (...);"""
+    sql """alter table partsupp_2_6 modify column ps_comment set stats ('row_count'='3');"""
+
     sql """analyze table orders_2_6 with sync;"""
     sql """analyze table lineitem_2_6 with sync;"""
     sql """analyze table partsupp_2_6 with sync;"""

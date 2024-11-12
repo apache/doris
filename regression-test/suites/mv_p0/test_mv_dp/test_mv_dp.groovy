@@ -56,6 +56,8 @@ suite ("test_mv_dp") {
         time 10000 // limit inflight 10s
     }
 */
+
+    sql """alter table dp modify column d set stats ('row_count'='4');"""
     mv_rewrite_success("""select d,
                         bitmap_union_count(bitmap_from_array(cast(uid_list as array<bigint>))),
                         bitmap_union_count(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))

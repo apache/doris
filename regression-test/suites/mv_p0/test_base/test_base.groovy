@@ -46,6 +46,7 @@ suite ("test_base") {
     sql "analyze table dwd with sync;"
     sql """set enable_stats=false;"""
 
+    sql """alter table dwd modify column id set stats ('row_count'='2');"""
     mv_rewrite_success("SELECT created_at, id  FROM dwd where created_at = '2020-09-09 00:00:00' order by 1, 2;", "dwd_mv")
     qt_select_mv "SELECT created_at, id FROM dwd order by 1, 2;"
 

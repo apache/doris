@@ -132,6 +132,10 @@ suite("nested_mtmv") {
     sql """analyze table lineitem_1 with sync;"""
     sql """analyze table partsupp_1 with sync;"""
 
+    sql """alter table orders_1 modify column o_orderdate set stats ('row_count'='10');"""
+    sql """alter table lineitem_1 modify column l_shipdate set stats ('row_count'='10');"""
+    sql """alter table partsupp_1 modify column ps_comment set stats ('row_count'='4');"""
+
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
@@ -659,126 +663,61 @@ suite("nested_mtmv") {
         left join (
             select t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6 
             from (
-                select t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6 
+                select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
+                t.agg1 as agg1, 
+                t.sum_total as agg3,
+                t.max_total as agg4,
+                t.min_total as agg5,
+                t.count_all as agg6,
+                cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
                 from (
-                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
-                    t.agg1 as agg1, 
-                    t.sum_total as agg3,
-                    t.max_total as agg4,
-                    t.min_total as agg5,
-                    t.count_all as agg6,
-                    cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
-                    from (
-                        select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
-                        sum(o_totalprice) as sum_total, 
-                        max(o_totalprice) as max_total, 
-                        min(o_totalprice) as min_total, 
-                        count(*) as count_all, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-                        from lineitem_1
-                        inner join orders_1
-                        on lineitem_1.l_orderkey = orders_1.o_orderkey
-                        where lineitem_1.l_shipdate >= "2023-10-17"
-                        group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
-                    ) as t
-                    inner join partsupp_1
-                    on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
-                    where partsupp_1.ps_suppkey > 1
-                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
-                ) as t1
-                left join (
-                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
-                    t.agg1 as agg1, 
-                    t.sum_total as agg3,
-                    t.max_total as agg4,
-                    t.min_total as agg5,
-                    t.count_all as agg6,
-                    cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
-                    from (
-                        select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
-                        sum(o_totalprice) as sum_total, 
-                        max(o_totalprice) as max_total, 
-                        min(o_totalprice) as min_total, 
-                        count(*) as count_all, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-                        from lineitem_1
-                        inner join orders_1
-                        on lineitem_1.l_orderkey = orders_1.o_orderkey
-                        where lineitem_1.l_shipdate >= "2023-10-17"
-                        group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
-                    ) as t
-                    inner join partsupp_1
-                    on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
-                    where partsupp_1.ps_suppkey > 1
-                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
-                ) as t2
-                on t1.l_orderkey = t2.l_orderkey
-                where t1.l_orderkey > 1
-                group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
+                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
+                    sum(o_totalprice) as sum_total, 
+                    max(o_totalprice) as max_total, 
+                    min(o_totalprice) as min_total, 
+                    count(*) as count_all, 
+                    bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
+                    bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
+                    from lineitem_1
+                    inner join orders_1
+                    on lineitem_1.l_orderkey = orders_1.o_orderkey
+                    where lineitem_1.l_shipdate >= "2023-10-17"
+                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
+                ) as t
+                inner join partsupp_1
+                on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
+                where partsupp_1.ps_suppkey > 1
+                group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
             ) as t1
             left join (
-                select t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6 
+                select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
+                t.agg1 as agg1, 
+                t.sum_total as agg3,
+                t.max_total as agg4,
+                t.min_total as agg5,
+                t.count_all as agg6,
+                cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
                 from (
-                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
-                    t.agg1 as agg1, 
-                    t.sum_total as agg3,
-                    t.max_total as agg4,
-                    t.min_total as agg5,
-                    t.count_all as agg6,
-                    cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
-                    from (
-                        select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
-                        sum(o_totalprice) as sum_total, 
-                        max(o_totalprice) as max_total, 
-                        min(o_totalprice) as min_total, 
-                        count(*) as count_all, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-                        from lineitem_1
-                        inner join orders_1
-                        on lineitem_1.l_orderkey = orders_1.o_orderkey
-                        where lineitem_1.l_shipdate >= "2023-10-17"
-                        group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
-                    ) as t
-                    inner join partsupp_1
-                    on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
-                    where partsupp_1.ps_suppkey > 1
-                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
-                ) as t1
-                left join (
-                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, 
-                    t.agg1 as agg1, 
-                    t.sum_total as agg3,
-                    t.max_total as agg4,
-                    t.min_total as agg5,
-                    t.count_all as agg6,
-                    cast(sum(IFNULL(ps_suppkey, 0) * IFNULL(ps_partkey, 0)) as decimal(28, 8)) as agg2
-                    from (
-                        select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
-                        sum(o_totalprice) as sum_total, 
-                        max(o_totalprice) as max_total, 
-                        min(o_totalprice) as min_total, 
-                        count(*) as count_all, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
-                        bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
-                        from lineitem_1
-                        inner join orders_1
-                        on lineitem_1.l_orderkey = orders_1.o_orderkey
-                        where lineitem_1.l_shipdate >= "2023-10-17"
-                        group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
-                    ) as t
-                    inner join partsupp_1
-                    on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
-                    where partsupp_1.ps_suppkey > 1
-                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
-                ) as t2
-                on t1.l_orderkey = t2.l_orderkey
-                where t1.l_orderkey > 1
-                group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
+                    select l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, cast(sum(IFNULL(o_orderkey, 0) * IFNULL(o_custkey, 0)) as decimal(28, 8)) as agg1,
+                    sum(o_totalprice) as sum_total, 
+                    max(o_totalprice) as max_total, 
+                    min(o_totalprice) as min_total, 
+                    count(*) as count_all, 
+                    bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, 
+                    bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
+                    from lineitem_1
+                    inner join orders_1
+                    on lineitem_1.l_orderkey = orders_1.o_orderkey
+                    where lineitem_1.l_shipdate >= "2023-10-17"
+                    group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey
+                ) as t
+                inner join partsupp_1
+                on t.l_partkey = partsupp_1.ps_partkey and t.l_suppkey = partsupp_1.ps_suppkey
+                where partsupp_1.ps_suppkey > 1
+                group by l_orderkey, l_partkey, l_suppkey, o_orderkey, o_custkey, ps_partkey, ps_suppkey, agg1, agg3, agg4, agg5, agg6
             ) as t2
             on t1.l_orderkey = t2.l_orderkey
+            where t1.l_orderkey > 1
             group by t1.l_orderkey, t2.l_partkey, t1.l_suppkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.ps_suppkey, t2.agg1, t1.agg2, t2.agg3, t1.agg4, t2.agg5, t1.agg6
         ) as t2
         on t1.l_orderkey = t2.l_orderkey

@@ -29,6 +29,8 @@ suite ("dup_mv_year") {
             properties("replication_num" = "1");
         """
 
+    sql """alter table dup_mv_year modify column k1 set stats ('row_count'='4');"""
+
     sql "insert into dup_mv_year select 1,'2003-12-31','2003-12-31 01:02:03';"
     sql "insert into dup_mv_year select 2,'2013-12-31','2013-12-31 01:02:03';"
     sql "insert into dup_mv_year select 3,'2023-12-31','2023-12-31 01:02:03';"

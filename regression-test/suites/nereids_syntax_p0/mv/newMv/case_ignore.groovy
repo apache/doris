@@ -36,6 +36,9 @@ suite ("case_ignore") {
     sql "insert into case_ignore select 2,2,2,'b';"
     sql "insert into case_ignore select 3,-3,null,'c';"
 
+
+    sql """alter table case_ignore modify column k1 set stats ('row_count'='4');"""
+
     createMV ("create materialized view k12a as select K1,abs(K2) from case_ignore;")
     sleep(3000)
 

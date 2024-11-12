@@ -31,6 +31,7 @@ suite ("dup_gb_mv_plus") {
             distributed BY hash(k1) buckets 3
             properties("replication_num" = "1");
         """
+    sql """alter table dup_gb_mv_plus modify column k1 set stats ('row_count'='4');"""
 
     sql "insert into dup_gb_mv_plus select 1,1,1,'a';"
     sql "insert into dup_gb_mv_plus select 2,2,2,'b';"

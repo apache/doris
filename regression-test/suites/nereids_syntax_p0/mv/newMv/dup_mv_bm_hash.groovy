@@ -29,6 +29,8 @@ suite ("dup_mv_bm_hash") {
             properties("replication_num" = "1");
         """
 
+    sql """alter table dup_mv_bm_hash modify column k1 set stats ('row_count'='5');"""
+
     sql "insert into dup_mv_bm_hash select 1,1,'a';"
     sql "insert into dup_mv_bm_hash select 2,2,'b';"
     sql "insert into dup_mv_bm_hash select 3,3,'c';"

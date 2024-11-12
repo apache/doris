@@ -47,6 +47,7 @@ suite ("single_slot") {
     sql "analyze table single_slot with sync;"
     sql """set enable_stats=false;"""
 
+    sql """alter table single_slot modify column k1 set stats ('row_count'='4');"""
 
     order_qt_select_star "select * from single_slot order by k1;"
 

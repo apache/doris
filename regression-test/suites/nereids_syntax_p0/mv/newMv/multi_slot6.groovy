@@ -30,6 +30,8 @@ suite ("multi_slot6") {
             properties("replication_num" = "1");
         """
 
+    sql """alter table multi_slot6 modify column k1 set stats ('row_count'='4');"""
+
     sql "insert into multi_slot6 select 1,1,1,'a';"
     sql "insert into multi_slot6 select 2,2,2,'b';"
     sql "insert into multi_slot6 select 3,-3,null,'c';"

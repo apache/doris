@@ -30,6 +30,8 @@ suite ("sum_devide_count") {
             properties("replication_num" = "1");
         """
 
+    sql """alter table sum_devide_count modify column k1 set stats ('row_count'='5');"""
+
     sql "insert into sum_devide_count select 1,1,1,'a';"
     sql "insert into sum_devide_count select 2,2,2,'b';"
     sql "insert into sum_devide_count select 3,-3,null,'c';"

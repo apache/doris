@@ -37,6 +37,8 @@ suite ("case_ignore") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
+    sql """alter table d_table modify column k4 set stats ('row_count'='4');"""
+
     createMV ("create materialized view k12a as select K1,abs(K2) from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'d';"

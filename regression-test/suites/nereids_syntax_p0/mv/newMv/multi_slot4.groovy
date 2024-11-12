@@ -37,6 +37,8 @@ suite ("multi_slot4") {
     sql "insert into multi_slot4 select 3,-3,null,'c';"
     sql "insert into multi_slot4 select 3,-3,null,'c';"
 
+    sql """alter table multi_slot4 modify column k1 set stats ('row_count'='5');"""
+
     createMV ("create materialized view k1p2ap3ps as select k1+1,sum(abs(k2+2)+k3+3) from multi_slot4 group by k1+1;")
 
     sleep(3000)

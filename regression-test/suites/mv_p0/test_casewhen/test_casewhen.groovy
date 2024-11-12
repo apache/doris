@@ -34,6 +34,7 @@ suite ("test_casewhen") {
     sql """analyze table sales_records with sync;"""
     sql """set enable_stats=false;"""
 
+sql """alter table sales_records modify column record_id set stats ('row_count'='4');"""
     qt_select_star "select * from sales_records order by 1,2;"
 
     mv_rewrite_success("select store_id, sum(case when sale_amt>10 then 1 else 2 end) from sales_records group by store_id order by 1;", "store_amt")

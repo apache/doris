@@ -34,6 +34,8 @@ suite ("testAggQueryOnAggMV2") {
     sql """insert into emps values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into emps values("2020-01-02",2,"b",2,7,2);"""
 
+    sql """alter table emps modify column time_col set stats ('row_count'='3');"""
+
     explain {
         sql("select deptno, sum(salary) from emps group by deptno order by deptno;")
         contains "(emps)"

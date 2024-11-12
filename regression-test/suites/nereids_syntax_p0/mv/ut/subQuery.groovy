@@ -37,6 +37,7 @@ suite ("subQuery") {
     sql """insert into subQuery values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into subQuery values("2020-01-03",3,"c",3,3,3);"""
 
+    sql """alter table subQuery modify column time_col set stats ('row_count'='4');"""
 
     createMV("create materialized view subQuery_mv as select deptno, empid from subQuery;")
 

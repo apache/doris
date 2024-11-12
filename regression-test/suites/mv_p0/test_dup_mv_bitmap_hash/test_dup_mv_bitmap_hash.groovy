@@ -42,6 +42,7 @@ suite ("test_dup_mv_bitmap_hash") {
 
     sql """analyze table d_table with sync;"""
     sql """set enable_stats=false;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
 
     mv_rewrite_success("select bitmap_union_count(to_bitmap(k2)) from d_table group by k1 order by k1;", "k1g2bm")
     qt_select_mv "select bitmap_union_count(to_bitmap(k2)) from d_table group by k1 order by k1;"

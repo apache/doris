@@ -35,6 +35,8 @@ suite ("joinOnCalcToJoin") {
     sql """insert into joinOnCalcToJoin values("2020-01-03",3,"c",3,3,3);"""
     sql """insert into joinOnCalcToJoin values("2020-01-02",2,"b",2,7,2);"""
 
+    sql """alter table joinOnCalcToJoin modify column time_col set stats ('row_count'='3');"""
+
     sql """ DROP TABLE IF EXISTS joinOnCalcToJoin_1; """
     sql """
         create table joinOnCalcToJoin_1 (
@@ -48,6 +50,8 @@ suite ("joinOnCalcToJoin") {
     sql """insert into joinOnCalcToJoin_1 values("2020-01-02",2,"b",2);"""
     sql """insert into joinOnCalcToJoin_1 values("2020-01-03",3,"c",3);"""
     sql """insert into joinOnCalcToJoin_1 values("2020-01-02",2,"b",1);"""
+
+    sql """alter table joinOnCalcToJoin_1 modify column time_col set stats ('row_count'='3');"""
 
     createMV("create materialized view joinOnLeftPToJoin_mv as select empid, deptno from joinOnCalcToJoin;")
     sleep(3000)

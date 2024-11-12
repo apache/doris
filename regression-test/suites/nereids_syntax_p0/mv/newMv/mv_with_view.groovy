@@ -33,6 +33,8 @@ suite ("mv_with_view") {
             properties("replication_num" = "1");
         """
 
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
+
     sql """insert into d_table select 1,1,1,'a';"""
     sql """insert into d_table select 2,2,2,'b';"""
 

@@ -36,6 +36,7 @@ suite ("test_dup_mv_year") {
     sql "insert into d_table select 2,'2013-12-31','2013-12-31 01:02:03';"
     sql "insert into d_table select 3,'2023-12-31','2023-12-31 01:02:03';"
 
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     createMV "create materialized view k12y as select k1,year(k2) from d_table;"
 
     sql """analyze table d_table with sync;"""
