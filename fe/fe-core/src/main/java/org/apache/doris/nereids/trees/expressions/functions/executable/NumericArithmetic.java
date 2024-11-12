@@ -694,12 +694,17 @@ public class NumericArithmetic {
         return input;
     }
 
+    private static Expression castDecimalV3Literal(DecimalV3Literal literal, int precision) {
+        return new DecimalV3Literal(DecimalV3Type.createDecimalV3Type(precision, literal.getValue().scale()),
+                literal.getValue());
+    }
+
     /**
      * round
      */
     @ExecFunction(name = "round")
     public static Expression round(DecimalV3Literal first) {
-        return first.round(0);
+        return castDecimalV3Literal(first.round(0), first.getValue().precision());
     }
 
     /**
@@ -707,7 +712,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "round")
     public static Expression round(DecimalV3Literal first, IntegerLiteral second) {
-        return first.round(second.getValue());
+        return castDecimalV3Literal(first.round(second.getValue()), first.getValue().precision());
     }
 
     /**
@@ -733,7 +738,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DecimalV3Literal first) {
-        return first.roundCeiling(0);
+        return castDecimalV3Literal(first.roundCeiling(0), first.getValue().precision());
     }
 
     /**
@@ -741,7 +746,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "ceil")
     public static Expression ceil(DecimalV3Literal first, IntegerLiteral second) {
-        return first.roundCeiling(second.getValue());
+        return castDecimalV3Literal(first.roundCeiling(second.getValue()), first.getValue().precision());
     }
 
     /**
@@ -767,7 +772,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DecimalV3Literal first) {
-        return first.roundFloor(0);
+        return castDecimalV3Literal(first.roundFloor(0), first.getValue().precision());
     }
 
     /**
@@ -775,7 +780,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "floor")
     public static Expression floor(DecimalV3Literal first, IntegerLiteral second) {
-        return first.roundFloor(second.getValue());
+        return castDecimalV3Literal(first.roundFloor(second.getValue()), first.getValue().precision());
     }
 
     /**
@@ -1136,21 +1141,10 @@ public class NumericArithmetic {
     public static Expression truncate(DecimalV3Literal first, IntegerLiteral second) {
         if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
             return first;
+        } else if (first.getValue().compareTo(BigDecimal.ZERO) < 0) {
+            return castDecimalV3Literal(first.roundCeiling(second.getValue()), first.getValue().precision());
         } else {
-            if (first.getValue().scale() < second.getValue()) {
-                return first;
-            }
-            if (second.getValue() < 0) {
-                double factor = Math.pow(10, Math.abs(second.getValue()));
-                return new DecimalV3Literal(
-                    DecimalV3Type.createDecimalV3Type(first.getValue().precision(), 0),
-                    BigDecimal.valueOf(Math.floor(first.getDouble() / factor) * factor));
-            }
-            if (first.getValue().compareTo(BigDecimal.ZERO) == -1) {
-                return first.roundCeiling(second.getValue());
-            } else {
-                return first.roundFloor(second.getValue());
-            }
+            return castDecimalV3Literal(first.roundFloor(second.getValue()), first.getValue().precision());
         }
     }
 
