@@ -270,6 +270,7 @@ class SuiteCluster {
     final Config config
     private boolean running
     private boolean sqlModeNodeMgr = false
+    private boolean isCloudMode = false
 
     SuiteCluster(String name, Config config) {
         this.name = name
@@ -281,6 +282,8 @@ class SuiteCluster {
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
+
+        this.isCloudMode = isCloud
 
         def cmd = [
             'up', name, config.image
@@ -515,40 +518,42 @@ class SuiteCluster {
         return running
     }
 
+    boolean isCloudMode() {
+        return this.isCloudMode
+    }
+
+    int START_WAIT_TIMEOUT = 120
+
     // if not specific fe indices, then start all frontends
     void startFrontends(int... indices) {
-        runFrontendsCmd('start', indices)
-        waitHbChanged()
+        runFrontendsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
     // if not specific be indices, then start all backends
     void startBackends(int... indices) {
-        runBackendsCmd('start', indices)
-        waitHbChanged()
+        runBackendsCmd(START_WAIT_TIMEOUT + 5, "start  --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
     // if not specific fe indices, then stop all frontends
     void stopFrontends(int... indices) {
-        runFrontendsCmd('stop', indices)
+        runFrontendsCmd(60, 'stop', indices)
         waitHbChanged()
     }
 
     // if not specific be indices, then stop all backends
     void stopBackends(int... indices) {
-        runBackendsCmd('stop', indices)
+        runBackendsCmd(60, 'stop', indices)
         waitHbChanged()
     }
 
     // if not specific fe indices, then restart all frontends
     void restartFrontends(int... indices) {
-        runFrontendsCmd('restart', indices)
-        waitHbChanged()
+        runFrontendsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
     // if not specific be indices, then restart all backends
     void restartBackends(int... indices) {
-        runBackendsCmd('restart', indices)
-        waitHbChanged()
+        runBackendsCmd(START_WAIT_TIMEOUT + 5, "restart --wait-timeout ${START_WAIT_TIMEOUT}".toString(), indices)
     }
 
     // if not specific fe indices, then drop all frontends
@@ -557,7 +562,7 @@ class SuiteCluster {
         if (clean) {
             cmd += ' --clean'
         }
-        runFrontendsCmd(cmd, indices)
+        runFrontendsCmd(60, cmd, indices)
     }
 
     // if not specific be indices, then decommission all backends
@@ -575,7 +580,7 @@ class SuiteCluster {
         if (clean) {
             cmd += ' --clean'
         }
-        runBackendsCmd(cmd, indices)
+        runBackendsCmd(60, cmd, indices)
     }
 
     void checkFeIsAlive(int index, boolean isAlive) {
@@ -610,23 +615,24 @@ class SuiteCluster {
         }
     }
 
+    void addRWPermToAllFiles() {
+        def cmd = 'add-rw-perm ' + name
+        runCmd(cmd)
+    }
+
     private void waitHbChanged() {
         // heart beat interval is 5s
         Thread.sleep(7000)
     }
 
-    private void runFrontendsCmd(String op, int... indices) {
+    private void runFrontendsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --fe-id ' + indices.join(' ')
-        runCmd(cmd)
+        runCmd(cmd, timeoutSecond)
     }
 
-    private void runBackendsCmd(Integer timeoutSecond = null, String op, int... indices) {
+    private void runBackendsCmd(int timeoutSecond, String op, int... indices) {
         def cmd = op + ' ' + name + ' --be-id ' + indices.join(' ')
-        if (timeoutSecond == null) {
-            runCmd(cmd)
-        } else {
-            runCmd(cmd, timeoutSecond)
-        }
+        runCmd(cmd, timeoutSecond)
     }
 
     private Object runCmd(String cmd, int timeoutSecond = 60) throws Exception {

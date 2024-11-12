@@ -47,6 +47,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -513,17 +514,17 @@ public class MetadataGenerator {
 
     private static TFetchSchemaTableDataResult catalogsMetadataResult(TMetadataTableRequestParams params) {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
-        List<CatalogIf> info = Env.getCurrentEnv().getCatalogMgr().listCatalogs();
-        List<TRow> dataBatch = Lists.newArrayList();
 
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        List<CatalogIf> info = Env.getCurrentEnv().getCatalogMgr().listCatalogsWithCheckPriv(currentUserIdentity);
+        List<TRow> dataBatch = Lists.newArrayList();
         for (CatalogIf catalog : info) {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setLongVal(catalog.getId()));
             trow.addToColumnValue(new TCell().setStringVal(catalog.getName()));
             trow.addToColumnValue(new TCell().setStringVal(catalog.getType()));
 
-            Map<String, String> properties = catalog.getProperties();
-
+            Map<String, String> properties = CatalogMgr.getCatalogPropertiesWithPrintable(catalog);
             for (Map.Entry<String, String> entry : properties.entrySet()) {
                 TRow subTrow = new TRow(trow);
                 subTrow.addToColumnValue(new TCell().setStringVal(entry.getKey()));
@@ -666,7 +667,7 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setLongVal(-1));
             }
 
-            List<TPipelineWorkloadGroup> tgroupList = queryInfo.getCoord().gettWorkloadGroups();
+            List<TPipelineWorkloadGroup> tgroupList = queryInfo.getCoord().getTWorkloadGroups();
             if (tgroupList != null && tgroupList.size() == 1) {
                 trow.addToColumnValue(new TCell().setLongVal(tgroupList.get(0).id));
             } else {

@@ -31,11 +31,14 @@
 #include <sstream>
 
 #include "bvar/bvar.h"
+#include "cloud/config.h"
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
+#include "olap/tablet.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
@@ -149,6 +152,14 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
         signal::set_signal_task_id(_load_id);
         g_load_stream_flush_running_threads << -1;
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf, file_type);
+        if (!st.ok() && !config::is_cloud_mode()) {
+            auto res = ExecEnv::get_tablet(_id);
+            TabletSharedPtr tablet =
+                    res.has_value() ? std::dynamic_pointer_cast<Tablet>(res.value()) : nullptr;
+            if (tablet) {
+                tablet->report_error(st);
+            }
+        }
         if (eos && st.ok()) {
             DBUG_EXECUTE_IF("TabletStream.append_data.unknown_file_type",
                             { file_type = static_cast<FileType>(-1); });
@@ -266,30 +277,43 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     return _status;
 }
 
-Status TabletStream::close() {
-    if (!_status.ok()) {
-        return _status;
-    }
-
-    SCOPED_TIMER(_close_wait_timer);
+Status TabletStream::_run_in_heavy_work_pool(std::function<Status()> fn) {
     bthread::Mutex mu;
     std::unique_lock<bthread::Mutex> lock(mu);
     bthread::ConditionVariable cv;
-    auto wait_func = [this, &mu, &cv] {
+    auto st = Status::OK();
+    auto func = [this, &mu, &cv, &st, &fn] {
         signal::set_signal_task_id(_load_id);
-        for (auto& token : _flush_tokens) {
-            token->wait();
-        }
+        st = fn();
         std::lock_guard<bthread::Mutex> lock(mu);
         cv.notify_one();
     };
-    bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(wait_func);
-    if (ret) {
-        cv.wait(lock);
-    } else {
-        _status = Status::Error<ErrorCode::INTERNAL_ERROR>(
+    bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(func);
+    if (!ret) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
                 "there is not enough thread resource for close load");
-        return _status;
+    }
+    cv.wait(lock);
+    return st;
+}
+
+void TabletStream::pre_close() {
+    if (!_status.ok()) {
+        return;
+    }
+
+    SCOPED_TIMER(_close_wait_timer);
+    _status = _run_in_heavy_work_pool([this]() {
+        for (auto& token : _flush_tokens) {
+            token->wait();
+        }
+        return Status::OK();
+    });
+    // it is necessary to check status after wait_func,
+    // for create_rowset could fail during add_segment when loading to MOW table,
+    // in this case, should skip close to avoid submit_calc_delete_bitmap_task which could cause coredump.
+    if (!_status.ok()) {
+        return;
     }
 
     DBUG_EXECUTE_IF("TabletStream.close.segment_num_mismatch", { _num_segments++; });
@@ -297,32 +321,19 @@ Status TabletStream::close() {
         _status = Status::Corruption(
                 "segment num mismatch in tablet {}, expected: {}, actual: {}, load_id: {}", _id,
                 _num_segments, _next_segid.load(), print_id(_load_id));
-        return _status;
+        return;
     }
 
-    // it is necessary to check status after wait_func,
-    // for create_rowset could fail during add_segment when loading to MOW table,
-    // in this case, should skip close to avoid submit_calc_delete_bitmap_task which could cause coredump.
+    _status = _run_in_heavy_work_pool([this]() { return _load_stream_writer->pre_close(); });
+}
+
+Status TabletStream::close() {
     if (!_status.ok()) {
         return _status;
     }
 
-    auto close_func = [this, &mu, &cv]() {
-        signal::set_signal_task_id(_load_id);
-        auto st = _load_stream_writer->close();
-        if (!st.ok() && _status.ok()) {
-            _status = st;
-        }
-        std::lock_guard<bthread::Mutex> lock(mu);
-        cv.notify_one();
-    };
-    ret = _load_stream_mgr->heavy_work_pool()->try_offer(close_func);
-    if (ret) {
-        cv.wait(lock);
-    } else {
-        _status = Status::Error<ErrorCode::INTERNAL_ERROR>(
-                "there is not enough thread resource for close load");
-    }
+    SCOPED_TIMER(_close_wait_timer);
+    _status = _run_in_heavy_work_pool([this]() { return _load_stream_writer->close(); });
     return _status;
 }
 
@@ -389,6 +400,10 @@ void IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
             // for compatibility reasons (sink from old version BE)
             tablet_stream->disable_num_segments_check();
         }
+    }
+
+    for (auto& [_, tablet_stream] : _tablet_streams_map) {
+        tablet_stream->pre_close();
     }
 
     for (auto& [_, tablet_stream] : _tablet_streams_map) {

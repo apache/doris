@@ -141,6 +141,13 @@ public class DBBinlog {
                     }
                 }
             }
+        } else if (binlog.getType() == TBinlogType.TRUNCATE_TABLE) {
+            TruncateTableRecord record = TruncateTableRecord.fromJson(binlog.data);
+            if (record != null) {
+                for (long partitionId : record.getOldPartitionIds()) {
+                    droppedPartitions.add(Pair.of(partitionId, binlog.getCommitSeq()));
+                }
+            }
         }
 
         if (tableIds == null) {
@@ -213,6 +220,11 @@ public class DBBinlog {
                             droppedIndexes.add(Pair.of(indexId, binlog.getCommitSeq()));
                         }
                     }
+                }
+            } else if (binlog.getType() == TBinlogType.TRUNCATE_TABLE && raw instanceof TruncateTableRecord) {
+                TruncateTableRecord truncateTableRecord = (TruncateTableRecord) raw;
+                for (long partitionId : truncateTableRecord.getOldPartitionIds()) {
+                    droppedPartitions.add(Pair.of(partitionId, binlog.getCommitSeq()));
                 }
             }
 

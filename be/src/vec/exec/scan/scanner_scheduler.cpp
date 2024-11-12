@@ -123,7 +123,6 @@ Status ScannerScheduler::init(ExecEnv* env) {
 
 Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
                                 std::shared_ptr<ScanTask> scan_task) {
-    scan_task->last_submit_time = GetCurrentTimeNanos();
     if (ctx->done()) {
         return Status::OK();
     }
@@ -154,7 +153,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
             if (!status.ok()) {
                 scanner_ref->set_status(status);
-                ctx->append_block_to_queue(scanner_ref);
+                ctx->push_back_scan_task(scanner_ref);
             }
         });
         if (!s.ok()) {
@@ -170,13 +169,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
         scanner_delegate->_scanner->start_wait_worker_timer();
         TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
         auto sumbit_task = [&]() {
-            bool is_local = type == TabletStorageType::STORAGE_TYPE_LOCAL;
-            SimplifiedScanScheduler* scan_sched =
-                    is_local ? ctx->get_simple_scan_scheduler() : ctx->get_remote_scan_scheduler();
-            if (!scan_sched) { // query without workload group
-                scan_sched =
-                        is_local ? _local_scan_thread_pool.get() : _remote_scan_thread_pool.get();
-            }
+            SimplifiedScanScheduler* scan_sched = ctx->get_scan_scheduler();
             auto work_func = [scanner_ref = scan_task, ctx]() {
                 DorisMetrics::instance()->scanner_task_queued->increment(-1);
                 DorisMetrics::instance()->scanner_task_running->increment(1);
@@ -190,7 +183,7 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
 
                 if (!status.ok()) {
                     scanner_ref->set_status(status);
-                    ctx->append_block_to_queue(scanner_ref);
+                    ctx->push_back_scan_task(scanner_ref);
                 }
             };
             SimplifiedScanTask simple_scan_task = {work_func, ctx};
@@ -218,8 +211,6 @@ std::unique_ptr<ThreadPoolToken> ScannerScheduler::new_limited_scan_pool_token(
 
 void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                                      std::shared_ptr<ScanTask> scan_task) {
-    // record the time from scanner submission to actual execution in nanoseconds
-    ctx->incr_ctx_scheduling_time(GetCurrentTimeNanos() - scan_task->last_submit_time);
     auto task_lock = ctx->task_exec_ctx();
     if (task_lock == nullptr) {
         return;
@@ -349,7 +340,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
         scanner->mark_to_need_to_close();
     }
     scan_task->set_eos(eos);
-    ctx->append_block_to_queue(scan_task);
+    ctx->push_back_scan_task(scan_task);
 }
 
 void ScannerScheduler::_register_metrics() {

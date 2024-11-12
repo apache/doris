@@ -56,7 +56,6 @@ public:
     static constexpr auto name = "array_enumerate";
     static FunctionPtr create() { return std::make_shared<FunctionArrayEnumerate>(); }
     String get_name() const override { return name; }
-    bool use_default_implementation_for_nulls() const override { return true; }
     size_t get_number_of_arguments() const override { return 1; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         const DataTypeArray* array_type =
@@ -80,7 +79,7 @@ public:
         return return_type;
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnArray* array =

@@ -150,7 +150,10 @@ DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
-// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+// The actual meaning of this parameter is `debug_memory`.
+// 1. crash in memory tracker inaccurate, if memory tracker value is inaccurate, BE will crash.
+//    usually used in test environments, default value is false.
+// 2. print more memory logs.
 DEFINE_mBool(crash_in_memory_tracker_inaccurate, "false");
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
@@ -393,7 +396,7 @@ DEFINE_mInt64(base_compaction_max_compaction_score, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
-DEFINE_Bool(enable_skip_tablet_compaction, "true");
+DEFINE_Bool(enable_skip_tablet_compaction, "false");
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 DEFINE_mInt64(compaction_promotion_size_mbytes, "1024");
@@ -537,7 +540,6 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
-DEFINE_mBool(exchange_sink_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -898,9 +900,10 @@ DEFINE_mInt32(orc_natural_read_size_mb, "8");
 DEFINE_mInt64(big_column_size_buffer, "65535");
 DEFINE_mInt64(small_column_size_buffer, "100");
 
-// rf will decide whether the next sampling_frequency blocks need to be filtered based on the filtering rate of the current block.
+// Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "64");
-
+DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
+DEFINE_mBool(execution_ignore_eovercrowded, "true");
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");
 DEFINE_mInt64(generate_cooldown_task_interval_sec, "20");
@@ -922,6 +925,9 @@ DEFINE_mBool(enable_query_like_bloom_filter, "true");
 DEFINE_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
 DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
+DEFINE_mInt64(block_cache_wait_timeout_ms, "1000");
+DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
+DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
@@ -976,6 +982,8 @@ DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
+// Whether use schema dict in backend side instead of MetaService side(cloud mode)
+DEFINE_mBool(variant_use_cloud_schema_dict, "true");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
@@ -995,7 +1003,7 @@ DEFINE_Bool(enable_file_cache, "false");
 // or use the default storage value:
 //     {"path": "memory", "total_size":53687091200}
 // Both will use the directory "memory" on the disk instead of the real RAM.
-DEFINE_String(file_cache_path, "");
+DEFINE_String(file_cache_path, "[{\"path\":\"${DORIS_HOME}/file_cache\"}]");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
@@ -1003,13 +1011,11 @@ DEFINE_Bool(enable_file_cache_query_limit, "false");
 DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_read_cache_file_directly, "false");
-DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "false");
+DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
 DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
-// rename ttl filename to new format during read, with some performance cost
-DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
 DEFINE_mBool(enbale_dump_error_file, "true");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
@@ -1019,7 +1025,7 @@ DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
-DEFINE_Int32(inverted_index_fd_number_limit_percent, "40"); // 40%
+DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
 // inverted index match bitmap cache size
@@ -1068,9 +1074,9 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_Int32(segment_cache_capacity, "-1");
-DEFINE_Int32(segment_cache_fd_percentage, "40");
-DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
-DEFINE_Int32(segment_cache_memory_percentage, "2");
+DEFINE_Int32(segment_cache_fd_percentage, "20");
+DEFINE_mInt32(estimated_mem_per_column_reader, "512");
+DEFINE_Int32(segment_cache_memory_percentage, "5");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1284,7 +1290,7 @@ DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
 // The max ratio for ttl cache's size
-DEFINE_mInt64(max_ttl_cache_ratio, "90");
+DEFINE_mInt64(max_ttl_cache_ratio, "50");
 // The maximum jvm heap usage ratio for hdfs write workload
 DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1345,7 +1351,13 @@ DEFINE_mInt32(lz4_compression_block_size, "262144");
 
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
+DEFINE_mInt32(check_score_rounds_num, "1000");
+
 DEFINE_Int32(query_cache_size, "512");
+
+DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
+// Enable validation to check the correctness of table size.
+DEFINE_Bool(enable_table_size_correctness_check, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1681,6 +1693,13 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<int64_t>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<double>, fill_conf_map, set_to_default);
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
+    }
+
+    if (config::is_cloud_mode()) {
+        auto st = config::set_config("enable_file_cache", "true", true, true);
+        LOG(INFO) << "set config enable_file_cache "
+                  << "true"
+                  << " " << st;
     }
 
     return true;

@@ -198,6 +198,8 @@ public:
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
+
     template <typename ColumnType>
     void insert_from_with_type(const IColumn& src, size_t n) {
         const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
@@ -479,8 +481,4 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
-// check if argument column is nullable. If so, extract its concrete column and set null_map.
-//TODO: use this to replace inner usages.
-// is_single: whether null_map is null map of a ColumnConst
-void check_set_nullable(ColumnPtr&, ColumnVector<UInt8>::MutablePtr& null_map, bool is_single);
 } // namespace doris::vectorized

@@ -218,6 +218,9 @@ public:
     Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, int rows,
                                               int* num_deserialized,
                                               const FormatOptions& options) const override {
+        if (rows < 1) [[unlikely]] {
+            return Status::OK();
+        }
         Status st = deserialize_one_cell_from_json(column, slice, options);
         if (!st.ok()) {
             return st;
@@ -229,6 +232,9 @@ public:
     }
 
     void insert_column_last_value_multiple_times(IColumn& column, int times) const override {
+        if (times < 1) [[unlikely]] {
+            return;
+        }
         auto& col = static_cast<ColumnString&>(column);
         auto sz = col.size();
 

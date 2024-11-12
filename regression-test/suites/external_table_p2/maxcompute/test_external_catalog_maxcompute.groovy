@@ -65,6 +65,7 @@
     INSERT INTO `multi_partitions` PARTITION (yy='2023', mm='08', dd='05', pt=5) VALUES
     ('San Jose', FALSE, CAST(14 AS SMALLINT), CAST(1.20 AS FLOAT), CAST(9999.111111111 AS DECIMAL(24,9)),
      CAST('2023-08-05' AS DATE), CAST('2023-08-05 15:30:00' AS DATETIME), CAST('2023-08-05 16:00:00' AS timestamp_ntz));
+    
     drop table mc_parts;
     CREATE TABLE `mc_parts` (
       `mc_bigint` bigint,
@@ -82,6 +83,7 @@
     (1004, 'Sample data 4');
     INSERT INTO `mc_parts` PARTITION (dt='2023-08-05') VALUES
     (1005, 'Sample data 5');
+
     CREATE TABLE int_types (
       mc_boolean BOOLEAN,
       mc_tinyint TINYINT,
@@ -105,6 +107,7 @@
     (FALSE, CAST(8 AS TINYINT), CAST(800 AS SMALLINT), CAST(8000 AS BIGINT)),
     (TRUE, CAST(9 AS TINYINT), CAST(900 AS SMALLINT), CAST(9000 AS BIGINT)),
     (FALSE, CAST(10 AS TINYINT), CAST(1000 AS SMALLINT), CAST(10000 AS BIGINT));
+
     CREATE TABLE web_site (
       web_site_sk BIGINT,
       web_site_id STRING,
@@ -278,6 +281,7 @@
       CAST(-7.0 AS DOUBLE),
       CAST(8.00 AS DECIMAL(5,2))
     );
+
     drop table mc_test_null;
     CREATE TABLE `mc_test_null` (
       `id` int,
@@ -285,13 +289,40 @@
     );
     insert into mc_test_null values (1,1),(2,NULL),(3,NULL),(4,4),(5,NULL),(6,6);
 
+    -- other project :  other_mc_datalake_test
+    CREATE TABLE other_db_mc_tb ( 
+      `id` int,
+      `col` int
+    );
+    insert into other_db_mc_tb values (1,10),(2,20),(3,30);
+
+
+    CREATE TABLE `other_db_mc_parts` (
+      `mc_bigint` bigint,
+      `mc_string` string
+    )PARTITIONED BY (
+    `dt` string
+    );
+    INSERT INTO `other_db_mc_parts` PARTITION (dt='a') VALUES
+    (1001, 'Sample data 1');
+    INSERT INTO `other_db_mc_parts` PARTITION (dt='b') VALUES
+    (1002, 'Sample data 2');
+    INSERT INTO `other_db_mc_parts` PARTITION (dt='c') VALUES
+    (1003, 'Sample data 3');
+    INSERT INTO `other_db_mc_parts` PARTITION (dt='d') VALUES
+    (1004, 'Sample data 4');
+    INSERT INTO `other_db_mc_parts` PARTITION (dt='e') VALUES
+    (1005, 'Sample data 5');
+
+
+
  */
 suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remote,external_remote_maxcompute") {
     String enabled = context.config.otherConfigs.get("enableMaxComputeTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String ak = context.config.otherConfigs.get("aliYunAk")
-        String sk = context.config.otherConfigs.get("aliYunSk");
-        String mc_db = "jz_datalake"
+        String ak = context.config.otherConfigs.get("ak")
+        String sk = context.config.otherConfigs.get("sk");
+        String mc_db = "mc_datalake"
         String mc_catalog_name = "test_external_mc_catalog"
 
         sql """drop catalog if exists ${mc_catalog_name};"""
@@ -360,11 +391,36 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
         order_qt_multi_partition_q9 """ select city,mnt,gender,finished_time,order_rate,cut_date,create_time,pt, yy, mm, dd from multi_partitions where pt >= 2 and pt < 4 and finished_time is not null; """
         order_qt_multi_partition_q10 """ select pt, yy, mm, dd from multi_partitions where pt >= 2 and create_time > '2023-08-03 03:11:00' order by pt, yy, mm, dd; """
 
+
+
+
+        sql """
+            create catalog if not exists ${mc_catalog_name}_2 properties (
+                "type" = "max_compute",
+                "mc.default.project" = "other_mc_datalake_test",
+                "mc.access_key" = "${ak}",
+                "mc.secret_key" = "${sk}",
+                "mc.endpoint" = "http://service.cn-beijing-vpc.maxcompute.aliyun-inc.com/api"
+            );
+        """
+        sql """ switch `${mc_catalog_name}_2` """
+
+        //other db 
+        sql """ use other_mc_datalake_test """
+        order_qt_other_db_show  """ show tables ; """
+        order_qt_other_db_select """ select * from other_db_mc_tb """
+        order_qt_other_db_select_partiton """ select * from  other_db_mc_parts  """
+        order_qt_other_db_show_partiton """show partitions from other_db_mc_parts;"""
+
+
+        sql """ switch `${mc_catalog_name}`; """
+        sql """ use `${mc_db}`; """
         //test null value 
         order_qt_null_1 """ select * from mc_test_null; """
         order_qt_null_2 """ select * from mc_test_null where col is not null ; """ 
         order_qt_null_3 """ select * from mc_test_null where col is  null ; """ 
-      
+        order_qt_show_partition """ show partitions from  mc_parts """ 
+        
 
     }
 }

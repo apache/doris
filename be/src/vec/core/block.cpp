@@ -726,7 +726,7 @@ std::string Block::print_use_count() {
     return ss.str();
 }
 
-void Block::clear_column_data(int column_size) noexcept {
+void Block::clear_column_data(int64_t column_size) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
@@ -749,6 +749,24 @@ void Block::erase_tmp_columns() noexcept {
     for (auto& name : all_column_names) {
         if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
             erase(name);
+        }
+    }
+}
+
+void Block::clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
+                                      bool need_keep_first) {
+    if (data.size() >= column_keep_flags.size()) {
+        auto origin_rows = rows();
+        for (size_t i = 0; i < column_keep_flags.size(); ++i) {
+            if (!column_keep_flags[i]) {
+                data[i].column = data[i].column->clone_empty();
+            }
+        }
+
+        if (need_keep_first && !column_keep_flags[0]) {
+            auto first_column = data[0].column->clone_empty();
+            first_column->resize(origin_rows);
+            data[0].column = std::move(first_column);
         }
     }
 }
@@ -1065,7 +1083,7 @@ Status MutableBlock::add_rows(const Block* block, size_t row_begin, size_t lengt
     return Status::OK();
 }
 
-Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
+Status MutableBlock::add_rows(const Block* block, const std::vector<int64_t>& rows) {
     RETURN_IF_CATCH_EXCEPTION({
         DCHECK_LE(columns(), block->columns());
         const auto& block_data = block->get_columns_with_type_and_name();
@@ -1075,7 +1093,7 @@ Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
             auto& dst = _columns[i];
             const auto& src = *block_data[i].column.get();
             dst->reserve(dst->size() + length);
-            for (size_t row : rows) {
+            for (auto row : rows) {
                 // we can introduce a new function like `insert_assume_reserved` for IColumn.
                 dst->insert_from(src, row);
             }

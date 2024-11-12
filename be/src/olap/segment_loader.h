@@ -117,7 +117,8 @@ public:
     // Load segments of "rowset", return the "cache_handle" which contains segments.
     // If use_cache is true, it will be loaded from _cache.
     Status load_segments(const BetaRowsetSharedPtr& rowset, SegmentCacheHandle* cache_handle,
-                         bool use_cache = false, bool need_load_pk_index_and_bf = false);
+                         bool use_cache = false, bool need_load_pk_index_and_bf = false,
+                         OlapReaderStatistics* index_load_stats = nullptr);
 
     void erase_segment(const SegmentCache::CacheKey& key);
 
@@ -159,6 +160,18 @@ public:
     void set_inited() {
         DCHECK(!_init);
         _init = true;
+    }
+
+    segment_v2::SegmentSharedPtr pop_unhealthy_segment() {
+        if (segments.empty()) {
+            return nullptr;
+        }
+        segment_v2::SegmentSharedPtr last_segment = segments.back();
+        if (last_segment->healthy_status().ok()) {
+            return nullptr;
+        }
+        segments.pop_back();
+        return last_segment;
     }
 
 private:

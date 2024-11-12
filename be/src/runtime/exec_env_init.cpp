@@ -53,6 +53,7 @@
 #include "olap/schema_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_column_object_pool.h"
 #include "olap/tablet_schema_cache.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/pipeline_tracing.h"
@@ -71,9 +72,11 @@
 #include "runtime/load_path_mgr.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/memory/cache_manager.h"
+#include "runtime/memory/heap_profiler.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
+#include "runtime/process_profile.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
@@ -337,6 +340,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _tablet_schema_cache =
             TabletSchemaCache::create_global_schema_cache(config::tablet_schema_cache_capacity);
 
+    _tablet_column_object_pool = TabletColumnObjectPool::create_global_column_cache(
+            config::tablet_schema_cache_capacity);
+
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
@@ -379,9 +385,8 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 
     LOG_INFO("pipeline executors_size set ").tag("size", executors_size);
     // TODO pipeline workload group combie two blocked schedulers.
-    auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     _without_group_task_scheduler =
-            new pipeline::TaskScheduler(this, t_queue, "PipeNoGSchePool", nullptr);
+            new pipeline::TaskScheduler(executors_size, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
 
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
@@ -440,8 +445,11 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     }
     for (const auto& status : cache_status) {
         if (!status.ok()) {
-            LOG(FATAL) << "failed to init file cache, err: " << status;
-            exit(-1);
+            if (!doris::config::ignore_broken_disk) {
+                LOG(FATAL) << "failed to init file cache, err: " << status;
+                exit(-1);
+            }
+            LOG(WARNING) << "failed to init file cache, err: " << status;
         }
     }
 }
@@ -450,6 +458,8 @@ Status ExecEnv::_init_mem_env() {
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
+    _process_profile = ProcessProfile::create_global_instance();
+    _heap_profiler = HeapProfiler::create_global_instance();
     init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
@@ -672,7 +682,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset and _cache_manager destory
-    // shouldn't use SAFE_STOP. otherwise will lead to twice stop.
+    SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
     SAFE_STOP(_spill_stream_mgr);
@@ -771,6 +781,9 @@ void ExecEnv::destroy() {
 
     // dns cache is a global instance and need to be released at last
     SAFE_DELETE(_dns_cache);
+
+    SAFE_DELETE(_process_profile);
+    SAFE_DELETE(_heap_profiler);
 
     _s_tracking_memory = false;
 

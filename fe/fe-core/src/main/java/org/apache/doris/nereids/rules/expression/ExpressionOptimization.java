@@ -48,7 +48,6 @@ public class ExpressionOptimization extends ExpressionRewrite {
                     SimplifyDecimalV3Comparison.INSTANCE,
                     SimplifyRange.INSTANCE,
                     OrToIn.INSTANCE,
-                    SimplifyRange.INSTANCE,
                     DateFunctionRewrite.INSTANCE,
                     ArrayContainToArrayOverlap.INSTANCE,
                     CaseWhenToIf.INSTANCE,

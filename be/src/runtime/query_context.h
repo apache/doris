@@ -79,8 +79,8 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
-                 TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids,
-                 TNetworkAddress current_connect_fe, QuerySource query_type);
+                 TNetworkAddress coord_addr, bool is_nereids, TNetworkAddress current_connect_fe,
+                 QuerySource query_type);
 
     ~QueryContext();
 
@@ -193,8 +193,6 @@ public:
 
     ThreadPool* get_memtable_flush_pool();
 
-    std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
-
     int64_t mem_limit() const { return _bytes_limit; }
 
     void set_merge_controller_handler(
@@ -248,7 +246,6 @@ private:
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
     int64_t _bytes_limit = 0;
-    bool _is_pipeline = false;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
 
@@ -257,7 +254,7 @@ private:
     // And will be shared by all instances of this query.
     // So that we can control the max thread that a query can be used to execute.
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token;
+    std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
     void _init_query_mem_tracker();
 

@@ -109,7 +109,7 @@ void FunctionTokenize::_do_tokenize(const ColumnString& src_column_string,
 }
 
 Status FunctionTokenize::execute_impl(FunctionContext* /*context*/, Block& block,
-                                      const ColumnNumbers& arguments, size_t result,
+                                      const ColumnNumbers& arguments, uint32_t result,
                                       size_t /*input_rows_count*/) const {
     DCHECK_EQ(arguments.size(), 2);
     const auto& [src_column, left_const] =

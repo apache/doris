@@ -48,6 +48,8 @@
 #include "cloud/cloud_delete_task.h"
 #include "cloud/cloud_engine_calc_delete_bitmap_task.h"
 #include "cloud/cloud_schema_change_job.h"
+#include "cloud/cloud_tablet_mgr.h"
+#include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -114,6 +116,10 @@ bool register_task_info(const TTaskType::type task_type, int64_t signature) {
         task_type == TTaskType::type::PUSH_COOLDOWN_CONF ||
         task_type == TTaskType::type::COMPACTION) {
         // no need to report task of these types
+        return true;
+    }
+    if (task_type == TTaskType::type::DROP && config::is_cloud_mode()) {
+        // cloud no need to report drop task status
         return true;
     }
 
@@ -1134,6 +1140,46 @@ void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_inf
     }
 }
 
+void report_tablet_callback(CloudStorageEngine& engine, const TMasterInfo& master_info) {
+    // Random sleep 1~5 seconds before doing report.
+    // In order to avoid the problem that the FE receives many report requests at the same time
+    // and can not be processed.
+    if (config::report_random_wait) {
+        random_sleep(5);
+    }
+
+    TReportRequest request;
+    request.__set_backend(BackendOptions::get_local_backend());
+    request.__isset.tablets = true;
+
+    increase_report_version();
+    uint64_t report_version;
+    uint64_t total_num_tablets = 0;
+    for (int i = 0; i < 5; i++) {
+        request.tablets.clear();
+        report_version = s_report_version;
+        engine.tablet_mgr().build_all_report_tablets_info(&request.tablets, &total_num_tablets);
+        if (report_version == s_report_version) {
+            break;
+        }
+    }
+
+    if (report_version < s_report_version) {
+        LOG(WARNING) << "report version " << report_version << " change to " << s_report_version;
+        DorisMetrics::instance()->report_all_tablets_requests_skip->increment(1);
+        return;
+    }
+
+    request.__set_report_version(report_version);
+    request.__set_num_tablets(total_num_tablets);
+
+    bool succ = handle_report(request, master_info, "tablet");
+    report_tablet_total << 1;
+    if (!succ) [[unlikely]] {
+        report_tablet_failed << 1;
+    }
+}
+
 void upload_callback(StorageEngine& engine, ExecEnv* env, const TAgentTaskRequest& req) {
     const auto& upload_request = req.upload_req;
 
@@ -1390,15 +1436,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
         DCHECK_EQ(existed_fs->type(), io::FileSystemType::S3) << param.id << ' ' << param.name;
         auto client = static_cast<io::S3FileSystem*>(existed_fs.get())->client_holder();
         auto new_s3_conf = S3Conf::get_s3_conf(param.s3_storage_param);
-        S3ClientConf conf {
-                .endpoint {},
-                .region {},
-                .ak = std::move(new_s3_conf.client_conf.ak),
-                .sk = std::move(new_s3_conf.client_conf.sk),
-                .token = std::move(new_s3_conf.client_conf.token),
-                .bucket {},
-                .provider = new_s3_conf.client_conf.provider,
-        };
+        S3ClientConf conf = std::move(new_s3_conf.client_conf);
         st = client->reset(conf);
         fs = std::move(existed_fs);
     }
@@ -1406,7 +1444,7 @@ void update_s3_resource(const TStorageResource& param, io::RemoteFileSystemSPtr 
     if (!st.ok()) {
         LOG(WARNING) << "update s3 resource failed: " << st;
     } else {
-        LOG_INFO("successfully update hdfs resource")
+        LOG_INFO("successfully update s3 resource")
                 .tag("resource_id", param.id)
                 .tag("resource_name", param.name);
         put_storage_resource(param.id, {std::move(fs)}, param.version);
@@ -1608,6 +1646,21 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
+}
+
+void drop_tablet_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    const auto& drop_tablet_req = req.drop_tablet_req;
+    DBUG_EXECUTE_IF("WorkPoolCloudDropTablet.drop_tablet_callback.failed", {
+        LOG_WARNING("WorkPoolCloudDropTablet.drop_tablet_callback.failed")
+                .tag("tablet_id", drop_tablet_req.tablet_id);
+        return;
+    });
+    // 1. erase lru from tablet mgr
+    // TODO(dx) clean tablet file cache
+    // get tablet's info(such as cachekey, tablet id, rsid)
+    engine.tablet_mgr().erase_tablet(drop_tablet_req.tablet_id);
+    // 2. gen clean file cache task
+    return;
 }
 
 void push_callback(StorageEngine& engine, const TAgentTaskRequest& req) {

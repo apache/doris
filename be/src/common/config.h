@@ -200,7 +200,10 @@ DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 // modify this parameter to crash when large memory allocation occur will help
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
 
-// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+// The actual meaning of this parameter is `debug_memory`.
+// 1. crash in memory tracker inaccurate, if memory tracker value is inaccurate, BE will crash.
+//    usually used in test environments, default value is false.
+// 2. print more memory logs.
 DECLARE_mBool(crash_in_memory_tracker_inaccurate);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
@@ -584,7 +587,6 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
-DECLARE_mBool(exchange_sink_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -955,6 +957,8 @@ DECLARE_mInt64(big_column_size_buffer);
 DECLARE_mInt64(small_column_size_buffer);
 
 DECLARE_mInt32(runtime_filter_sampling_frequency);
+DECLARE_mInt32(execution_max_rpc_timeout_sec);
+DECLARE_mBool(execution_ignore_eovercrowded);
 
 // cooldown task configs
 DECLARE_Int32(cooldown_thread_num);
@@ -981,6 +985,9 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
+DECLARE_mInt64(block_cache_wait_timeout_ms);
+DECLARE_mInt64(cache_lock_long_tail_threshold);
+DECLARE_Int64(file_cache_recycle_keys_size);
 
 DECLARE_Bool(enable_brpc_builtin_services);
 
@@ -1056,8 +1063,6 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
-// rename ttl filename to new format during read, with some performance cost
-DECLARE_Bool(translate_to_new_ttl_format_during_read);
 DECLARE_mBool(enbale_dump_error_file);
 // limit the max size of error log on disk
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
@@ -1175,6 +1180,7 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
+DECLARE_mBool(variant_use_cloud_schema_dict);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
@@ -1430,8 +1436,14 @@ DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
+DECLARE_mInt32(check_score_rounds_num);
+
 // MB
 DECLARE_Int32(query_cache_size);
+
+DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
+// Enable validation to check the correctness of table size.
+DECLARE_Bool(enable_table_size_correctness_check);
 
 #ifdef BE_TEST
 // test s3

@@ -37,8 +37,6 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
-
     bool is_variadic() const override { return false; }
 
     size_t get_number_of_arguments() const override { return 2; }
@@ -59,7 +57,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& [left_column, left_is_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto& [right_column, right_is_const] =

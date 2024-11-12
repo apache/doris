@@ -304,6 +304,11 @@ public class SlotReference extends Slot {
                 Optional.ofNullable(index));
     }
 
+    public SlotReference withColumn(Column column) {
+        return new SlotReference(exprId, name, dataType, nullable, qualifier, table, column, internalName, subPath,
+                indexInSqlString);
+    }
+
     public boolean isVisible() {
         return column == null || column.isVisible();
     }

@@ -63,14 +63,14 @@ void CloudWarmUpManager::handle_jobs() {
 #ifndef BE_TEST
     constexpr int WAIT_TIME_SECONDS = 600;
     while (true) {
-        JobMeta cur_job;
+        std::shared_ptr<JobMeta> cur_job = nullptr;
         {
             std::unique_lock lock(_mtx);
             _cond.wait(lock, [this]() { return _closed || !_pending_job_metas.empty(); });
             if (_closed) break;
-            cur_job = std::move(_pending_job_metas.front());
+            cur_job = _pending_job_metas.front();
         }
-        for (int64_t tablet_id : cur_job.tablet_ids) {
+        for (int64_t tablet_id : cur_job->tablet_ids) {
             if (_cur_job_id == 0) { // The job is canceled
                 break;
             }
@@ -147,15 +147,13 @@ void CloudWarmUpManager::handle_jobs() {
                     auto schema_ptr = rs->tablet_schema();
                     auto idx_version = schema_ptr->get_inverted_index_storage_format();
                     if (idx_version == InvertedIndexStorageFormatPB::V1) {
-                        for (const auto& index : schema_ptr->indexes()) {
-                            if (index.index_type() == IndexType::INVERTED) {
-                                wait->add_count();
-                                auto idx_path = storage_resource.value()->remote_idx_v1_path(
-                                        *rs, seg_id, index.index_id(), index.get_index_suffix());
-                                download_idx_file(idx_path);
-                            }
+                        for (const auto& index : schema_ptr->inverted_indexes()) {
+                            wait->add_count();
+                            auto idx_path = storage_resource.value()->remote_idx_v1_path(
+                                    *rs, seg_id, index->index_id(), index->get_index_suffix());
+                            download_idx_file(idx_path);
                         }
-                    } else if (idx_version == InvertedIndexStorageFormatPB::V2) {
+                    } else {
                         if (schema_ptr->has_inverted_index()) {
                             wait->add_count();
                             auto idx_path =
@@ -173,7 +171,7 @@ void CloudWarmUpManager::handle_jobs() {
         }
         {
             std::unique_lock lock(_mtx);
-            _finish_job.push_back(std::move(cur_job));
+            _finish_job.push_back(cur_job);
             _pending_job_metas.pop_front();
         }
     }
@@ -230,8 +228,9 @@ Status CloudWarmUpManager::check_and_set_batch_id(int64_t job_id, int64_t batch_
 void CloudWarmUpManager::add_job(const std::vector<TJobMeta>& job_metas) {
     {
         std::lock_guard lock(_mtx);
-        std::for_each(job_metas.begin(), job_metas.end(),
-                      [this](const TJobMeta& meta) { _pending_job_metas.emplace_back(meta); });
+        std::for_each(job_metas.begin(), job_metas.end(), [this](const TJobMeta& meta) {
+            _pending_job_metas.emplace_back(std::make_shared<JobMeta>(meta));
+        });
     }
     _cond.notify_all();
 }

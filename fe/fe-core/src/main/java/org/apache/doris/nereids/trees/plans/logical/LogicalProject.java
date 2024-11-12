@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.NoneMovableFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -85,7 +86,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         Preconditions.checkArgument(!projects.isEmpty() || !(child instanceof Unbound),
                 "projects can not be empty when child plan is unbound");
         this.projects = projects.isEmpty()
-                ? ImmutableList.of(ExpressionUtils.selectMinimumColumn(child.get(0).getOutput()))
+                ? ImmutableList.of(new Alias(new TinyIntLiteral((byte) 1)))
                 : projects;
         this.projectsSet = Suppliers.memoize(() -> ImmutableSet.copyOf(this.projects));
         this.isDistinct = isDistinct;

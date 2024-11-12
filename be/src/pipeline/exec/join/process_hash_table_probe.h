@@ -55,20 +55,20 @@ struct ProcessHashTableProbe {
                                   int last_probe_index, bool all_match_one,
                                   bool have_other_join_conjunct);
 
-    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType>
+    template <bool need_judge_null, typename HashTableType>
     Status process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                    vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
-                   size_t probe_rows, bool is_mark_join, bool have_other_join_conjunct);
+                   uint32_t probe_rows, bool is_mark_join, bool have_other_join_conjunct);
 
     // Only process the join with no other join conjunct, because of no other join conjunt
     // the output block struct is same with mutable block. we can do more opt on it and simplify
     // the logic of probe
     // TODO: opt the visited here to reduce the size of hash table
-    template <bool need_null_map_for_probe, bool ignore_null, typename HashTableType,
-              bool with_other_conjuncts, bool is_mark_join>
+    template <bool need_judge_null, typename HashTableType, bool with_other_conjuncts,
+              bool is_mark_join>
     Status do_process(HashTableType& hash_table_ctx, ConstNullMapPtr null_map,
                       vectorized::MutableBlock& mutable_block, vectorized::Block* output_block,
-                      size_t probe_rows);
+                      uint32_t probe_rows);
     // In the presence of other join conjunct, the process of join become more complicated.
     // each matching join column need to be processed by other join conjunct. so the struct of mutable block
     // and output block may be different
@@ -87,13 +87,12 @@ struct ProcessHashTableProbe {
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
     template <typename HashTableType>
-    Status process_data_in_hashtable(HashTableType& hash_table_ctx,
-                                     vectorized::MutableBlock& mutable_block,
-                                     vectorized::Block* output_block, bool* eos, bool is_mark_join);
+    Status finish_probing(HashTableType& hash_table_ctx, vectorized::MutableBlock& mutable_block,
+                          vectorized::Block* output_block, bool* eos, bool is_mark_join);
 
     /// For null aware join with other conjuncts, if the probe key of one row on left side is null,
     /// we should make this row match with all rows in build side.
-    size_t _process_probe_null_key(uint32_t probe_idx);
+    uint32_t _process_probe_null_key(uint32_t probe_idx);
 
     pipeline::HashJoinProbeLocalState* _parent = nullptr;
     const int _batch_size;
@@ -132,15 +131,14 @@ struct ProcessHashTableProbe {
     bool _need_calculate_build_index_has_zero = true;
     bool* _has_null_in_build_side;
 
-    RuntimeProfile::Counter* _rows_returned_counter = nullptr;
     RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
     RuntimeProfile::Counter* _init_probe_side_timer = nullptr;
     RuntimeProfile::Counter* _build_side_output_timer = nullptr;
     RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _finish_probe_phase_timer = nullptr;
 
-    int _right_col_idx;
-    int _right_col_len;
+    size_t _right_col_idx;
+    size_t _right_col_len;
 };
 
 } // namespace pipeline

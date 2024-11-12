@@ -34,16 +34,23 @@
 namespace doris::vectorized {
 
 Status FunctionMultiMatch::execute_impl(FunctionContext* /*context*/, Block& block,
-                                        const ColumnNumbers& arguments, size_t result,
+                                        const ColumnNumbers& arguments, uint32_t result,
                                         size_t /*input_rows_count*/) const {
     return Status::RuntimeError("only inverted index queries are supported");
 }
 
 InvertedIndexQueryType get_query_type(const std::string& query_type) {
-    if (query_type == "phrase_prefix") {
+    if (query_type == "any") {
+        return InvertedIndexQueryType::MATCH_ANY_QUERY;
+    } else if (query_type == "all") {
+        return InvertedIndexQueryType::MATCH_ALL_QUERY;
+    } else if (query_type == "phrase") {
+        return InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+    } else if (query_type == "phrase_prefix") {
         return InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
+    } else {
+        return InvertedIndexQueryType::UNKNOWN_QUERY;
     }
-    return InvertedIndexQueryType::UNKNOWN_QUERY;
 }
 
 Status FunctionMultiMatch::evaluate_inverted_index(
@@ -62,7 +69,6 @@ Status FunctionMultiMatch::evaluate_inverted_index(
                 "parameter query type incorrect for function multi_match: query_type = {}",
                 query_type);
     }
-
     // query
     auto query_str = arguments[1].column->get_data_at(0);
     auto param_type = arguments[1].type->get_type_as_type_descriptor().type;

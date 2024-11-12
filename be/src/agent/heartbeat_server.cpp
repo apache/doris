@@ -26,6 +26,7 @@
 #include <ostream>
 #include <string>
 
+#include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/status.h"
@@ -273,6 +274,11 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         config::enable_use_cloud_unique_id_from_fe) {
         auto st = config::set_config("cloud_unique_id", master_info.cloud_unique_id, true);
         LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
+    }
+
+    if (master_info.__isset.tablet_report_inactive_duration_ms) {
+        doris::g_tablet_report_inactive_duration_ms =
+                master_info.tablet_report_inactive_duration_ms;
     }
 
     if (need_report) {

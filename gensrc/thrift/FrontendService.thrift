@@ -761,6 +761,7 @@ struct TStreamLoadPutRequest {
     54: optional bool group_commit // deprecated
     55: optional i32 stream_per_node;
     56: optional string group_commit_mode
+    57: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
 
     // For cloud
     1000: optional string cloud_cluster
@@ -1187,6 +1188,7 @@ enum TBinlogType {
   TRUNCATE_TABLE = 13,
   RENAME_TABLE = 14,
   RENAME_COLUMN = 15,
+  MODIFY_COMMENT = 16,
 }
 
 struct TBinlog {
@@ -1235,6 +1237,7 @@ struct TGetSnapshotRequest {
     7: optional string label_name
     8: optional string snapshot_name
     9: optional TSnapshotType snapshot_type
+    10: optional bool enable_compress;
 }
 
 struct TGetSnapshotResult {
@@ -1242,6 +1245,7 @@ struct TGetSnapshotResult {
     2: optional binary meta
     3: optional binary job_info
     4: optional Types.TNetworkAddress master_address
+    5: optional bool compressed;
 }
 
 struct TTableRef {
@@ -1265,6 +1269,7 @@ struct TRestoreSnapshotRequest {
     13: optional bool clean_tables
     14: optional bool clean_partitions
     15: optional bool atomic_restore
+    16: optional bool compressed;
 }
 
 struct TRestoreSnapshotResult {

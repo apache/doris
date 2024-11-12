@@ -54,7 +54,6 @@ private:
 
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
 
-    bool _eos = false;
     vectorized::SpillStreamSPtr _spilling_stream;
     std::shared_ptr<Dependency> _finish_dependency;
 };

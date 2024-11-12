@@ -401,15 +401,15 @@ S3Conf S3Conf::get_s3_conf(const cloud::ObjectStoreInfoPB& info) {
     S3Conf ret {
             .bucket = info.bucket(),
             .prefix = info.prefix(),
-            .client_conf {
-                    .endpoint = info.endpoint(),
-                    .region = info.region(),
-                    .ak = info.ak(),
-                    .sk = info.sk(),
-                    .token {},
-                    .bucket = info.bucket(),
-                    .provider = io::ObjStorageType::AWS,
-            },
+            .client_conf {.endpoint = info.endpoint(),
+                          .region = info.region(),
+                          .ak = info.ak(),
+                          .sk = info.sk(),
+                          .token {},
+                          .bucket = info.bucket(),
+                          .provider = io::ObjStorageType::AWS,
+                          .use_virtual_addressing =
+                                  info.has_use_path_style() ? !info.use_path_style() : true},
             .sse_enabled = info.sse_enabled(),
     };
 

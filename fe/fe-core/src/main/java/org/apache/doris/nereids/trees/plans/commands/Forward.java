@@ -18,10 +18,13 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.RedirectStatus;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * forward to master.
  */
 public interface Forward {
     RedirectStatus toRedirectStatus();
+
+    default void afterForwardToMaster(ConnectContext ctx) throws Exception {}
 }

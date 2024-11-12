@@ -85,7 +85,6 @@ public class CacheHotspotManager extends MasterDaemon {
     public static final int MAX_SHOW_ENTRIES = 2000;
     private static final Logger LOG = LogManager.getLogger(CacheHotspotManager.class);
     private static final int CYCLE_COUNT_TO_CHECK_EXPIRE_CLOUD_WARM_UP_JOB = 20;
-    private static int MAX_ACTIVE_CLOUD_WARM_UP_JOB_SIZE = 10;
     private final CloudSystemInfoService nodeMgr;
 
     // periodically clear and re-build <id, table> message for
@@ -111,7 +110,7 @@ public class CacheHotspotManager extends MasterDaemon {
     private Set<String> runnableClusterSet = ConcurrentHashMap.newKeySet();
 
     private final ThreadPoolExecutor cloudWarmUpThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
-            MAX_ACTIVE_CLOUD_WARM_UP_JOB_SIZE, "cloud-warm-up-pool", true);
+            Config.max_active_cloud_warm_up_job, "cloud-warm-up-pool", true);
 
     public CacheHotspotManager(CloudSystemInfoService nodeMgr) {
         super("CacheHotspotManager", Config.fetch_cluster_cache_hotspot_interval_ms);
@@ -430,7 +429,7 @@ public class CacheHotspotManager extends MasterDaemon {
         for (Backend backend : backends) {
             Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
                                     .getCloudTabletRebalancer()
-                                    .getSnapshotTabletsByBeId(backend.getId());
+                                    .getSnapshotTabletsInPrimaryByBeId(backend.getId());
             List<Tablet> warmUpTablets = new ArrayList<>();
             for (Tablet tablet : tablets) {
                 if (beTabletIds.contains(tablet.getId())) {
@@ -560,7 +559,7 @@ public class CacheHotspotManager extends MasterDaemon {
             for (Backend backend : backends) {
                 Set<Long> beTabletIds = ((CloudEnv) Env.getCurrentEnv())
                                         .getCloudTabletRebalancer()
-                                        .getSnapshotTabletsByBeId(backend.getId());
+                                        .getSnapshotTabletsInPrimaryByBeId(backend.getId());
                 List<Tablet> warmUpTablets = new ArrayList<>();
                 for (Tablet tablet : tablets) {
                     if (beTabletIds.contains(tablet.getId())) {
@@ -620,7 +619,7 @@ public class CacheHotspotManager extends MasterDaemon {
     private void runCloudWarmUpJob() {
         runnableCloudWarmUpJobs.values().forEach(cloudWarmUpJob -> {
             if (!cloudWarmUpJob.isDone() && !activeCloudWarmUpJobs.containsKey(cloudWarmUpJob.getJobId())
-                    && activeCloudWarmUpJobs.size() < MAX_ACTIVE_CLOUD_WARM_UP_JOB_SIZE) {
+                    && activeCloudWarmUpJobs.size() < Config.max_active_cloud_warm_up_job) {
                 if (FeConstants.runningUnitTest) {
                     cloudWarmUpJob.run();
                 } else {

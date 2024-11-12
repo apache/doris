@@ -173,7 +173,7 @@ main() {
     add_be_to_cluster
 
     health_log "run start_be.sh"
-    bash $DORIS_HOME/bin/start_be.sh --daemon
+    bash $DORIS_HOME/bin/start_be.sh --daemon | tee -a $DORIS_HOME/log/be.out
 
     wait_process
 }

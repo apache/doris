@@ -85,13 +85,14 @@ inline std::string segment_mem_tracker_name(uint32_t segment_id) {
 SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                              TabletSchemaSPtr tablet_schema, BaseTabletSPtr tablet,
                              DataDir* data_dir, const SegmentWriterOptions& opts,
-                             io::FileWriterPtr inverted_file_writer)
+                             InvertedIndexFileWriter* inverted_file_writer)
         : _segment_id(segment_id),
           _tablet_schema(std::move(tablet_schema)),
           _tablet(std::move(tablet)),
           _data_dir(data_dir),
           _opts(opts),
           _file_writer(file_writer),
+          _inverted_index_file_writer(inverted_file_writer),
           _mem_tracker(std::make_unique<MemTracker>(segment_mem_tracker_name(segment_id))),
           _mow_context(std::move(opts.mow_ctx)) {
     CHECK_NOTNULL(file_writer);
@@ -131,17 +132,6 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
                 _key_index_size.push_back(column.index_length());
             }
         }
-    }
-    if (_tablet_schema->has_inverted_index()) {
-        _inverted_index_file_writer = std::make_unique<InvertedIndexFileWriter>(
-                _opts.rowset_ctx->fs(),
-                std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
-                        file_writer->path().c_str())},
-                _opts.rowset_ctx->rowset_id.to_string(), segment_id,
-                _tablet_schema->get_inverted_index_storage_format(),
-                std::move(inverted_file_writer));
-        _inverted_index_file_writer->set_file_writer_opts(
-                _opts.rowset_ctx->get_file_writer_options());
     }
 }
 
@@ -202,57 +192,60 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (tablet_index) {
         opts.need_bloom_filter = true;
         opts.is_ngram_bf_index = true;
-        opts.gram_size = tablet_index->get_gram_size();
-        opts.gram_bf_size = tablet_index->get_gram_bf_size();
+        //narrow convert from int32_t to uint8_t and uint16_t which is dangerous
+        auto gram_size = tablet_index->get_gram_size();
+        auto gram_bf_size = tablet_index->get_gram_bf_size();
+        if (gram_size > 256 || gram_size < 1) {
+            return Status::NotSupported("Do not support ngram bloom filter for ngram_size: ",
+                                        gram_size);
+        }
+        if (gram_bf_size > 65535 || gram_bf_size < 64) {
+            return Status::NotSupported("Do not support ngram bloom filter for bf_size: ",
+                                        gram_bf_size);
+        }
+        opts.gram_size = gram_size;
+        opts.gram_bf_size = gram_bf_size;
     }
 
     opts.need_bitmap_index = column.has_bitmap_index();
     bool skip_inverted_index = false;
     if (_opts.rowset_ctx != nullptr) {
-        // skip write inverted index for index compaction
-        skip_inverted_index = _opts.rowset_ctx->skip_inverted_index.count(column.unique_id()) > 0;
+        // skip write inverted index for index compaction column
+        skip_inverted_index =
+                _opts.rowset_ctx->columns_to_do_index_compaction.count(column.unique_id()) > 0;
     }
     // skip write inverted index on load if skip_write_index_on_load is true
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
+
     // indexes for this column
-    opts.indexes = schema->get_indexes_for_column(column);
-    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
-        opts.need_zone_map = false;
-        opts.need_bloom_filter = false;
-        opts.need_bitmap_index = false;
+    if (const auto& index = schema->inverted_index(column);
+        index != nullptr && !skip_inverted_index) {
+        opts.inverted_index = index;
+        opts.need_inverted_index = true;
+        DCHECK(_inverted_index_file_writer != nullptr);
+        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        // TODO support multiple inverted index
     }
-    opts.inverted_index_file_writer = _inverted_index_file_writer.get();
-    for (const auto* index : opts.indexes) {
-        if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
-            opts.inverted_index = index;
-            opts.need_inverted_index = true;
-            // TODO support multiple inverted index
-            break;
-        }
-    }
-#define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
-        opts.need_zone_map = false;                                                            \
-        if (opts.need_bloom_filter) {                                                          \
-            return Status::NotSupported("Do not support bloom filter for " type_name " type"); \
-        }                                                                                      \
-        if (opts.need_bitmap_index) {                                                          \
-            return Status::NotSupported("Do not support bitmap index for " type_name " type"); \
-        }                                                                                      \
+#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
+        opts.need_zone_map = false;                           \
+        opts.need_bloom_filter = false;                       \
+        opts.need_bitmap_index = false;                       \
     }
 
-    CHECK_FIELD_TYPE(STRUCT, "struct")
-    CHECK_FIELD_TYPE(ARRAY, "array")
-    CHECK_FIELD_TYPE(JSONB, "jsonb")
-    CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
-    CHECK_FIELD_TYPE(MAP, "map")
-    CHECK_FIELD_TYPE(OBJECT, "object")
-    CHECK_FIELD_TYPE(HLL, "hll")
-    CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+    DISABLE_INDEX_IF_FIELD_TYPE(STRUCT, "struct")
+    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
+    DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
+    DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
+    DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
+    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+    DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
+    DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
 
-#undef CHECK_FIELD_TYPE
+#undef DISABLE_INDEX_IF_FIELD_TYPE
 
     if (column.is_row_store_column()) {
         // smaller page size for row store column
@@ -464,10 +457,11 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 
 Status SegmentWriter::probe_key_for_mow(
         std::string key, std::size_t segment_pos, bool have_input_seq_column, bool have_delete_sign,
-        PartialUpdateReadPlan& read_plan, const std::vector<RowsetSharedPtr>& specified_rowsets,
+        const std::vector<RowsetSharedPtr>& specified_rowsets,
         std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
         bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
-        PartialUpdateStats& stats) {
+        const std::function<void(const RowLocation& loc)>& found_cb,
+        const std::function<Status()>& not_found_cb, PartialUpdateStats& stats) {
     RowLocation loc;
     // save rowset shared ptr so this rowset wouldn't delete
     RowsetSharedPtr rowset;
@@ -482,9 +476,7 @@ Status SegmentWriter::probe_key_for_mow(
                     {_opts.rowset_ctx->rowset_id, _segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
                     segment_pos);
         } else if (!have_delete_sign) {
-            RETURN_IF_ERROR(
-                    _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
-                            *_tablet_schema));
+            RETURN_IF_ERROR(not_found_cb());
         }
         ++stats.num_rows_new_added;
         has_default_or_nullable = true;
@@ -508,7 +500,7 @@ Status SegmentWriter::probe_key_for_mow(
         // partial update should not contain invisible columns
         use_default_or_null_flag.emplace_back(false);
         _rsid_to_rowset.emplace(rowset->rowset_id(), rowset);
-        read_plan.prepare_to_read(loc, segment_pos);
+        found_cb(loc);
     }
 
     if (st.is<KEY_ALREADY_EXISTS>()) {
@@ -546,6 +538,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     DCHECK(_is_mow());
 
     DCHECK(_opts.rowset_ctx->partial_update_info);
+    DCHECK(_opts.rowset_ctx->partial_update_info->is_fixed_partial_update());
     DCHECK(row_pos == 0);
 
     // find missing column cids
@@ -595,7 +588,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     const std::vector<RowsetSharedPtr>& specified_rowsets = _mow_context->rowset_ptrs;
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
 
-    PartialUpdateReadPlan read_plan;
+    FixedReadPlan read_plan;
 
     // locate rows in base data
     PartialUpdateStats stats;
@@ -625,10 +618,17 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
 
-        RETURN_IF_ERROR(probe_key_for_mow(key, segment_pos, have_input_seq_column, have_delete_sign,
-                                          read_plan, specified_rowsets, segment_caches,
+        auto not_found_cb = [&]() {
+            return _opts.rowset_ctx->partial_update_info->handle_non_strict_mode_not_found_error(
+                    *_tablet_schema);
+        };
+        auto update_read_plan = [&](const RowLocation& loc) {
+            read_plan.prepare_to_read(loc, segment_pos);
+        };
+        RETURN_IF_ERROR(probe_key_for_mow(std::move(key), segment_pos, have_input_seq_column,
+                                          have_delete_sign, specified_rowsets, segment_caches,
                                           has_default_or_nullable, use_default_or_null_flag,
-                                          stats));
+                                          update_read_plan, not_found_cb, stats));
     }
     CHECK_EQ(use_default_or_null_flag.size(), num_rows);
 
@@ -637,7 +637,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
                                                     _mow_context->rowset_ids);
     }
 
-    // read and fill block
+    // read to fill full block
     RETURN_IF_ERROR(read_plan.fill_missing_columns(
             _opts.rowset_ctx, _rsid_to_rowset, *_tablet_schema, full_block,
             use_default_or_null_flag, has_default_or_nullable, segment_start_pos, block));
@@ -692,10 +692,17 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
     if (_opts.rowset_ctx->partial_update_info &&
-        _opts.rowset_ctx->partial_update_info->is_partial_update &&
+        _opts.rowset_ctx->partial_update_info->is_partial_update() &&
         _opts.write_type == DataWriteType::TYPE_DIRECT &&
         !_opts.rowset_ctx->is_transient_rowset_writer) {
-        RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
+        if (_opts.rowset_ctx->partial_update_info->is_fixed_partial_update()) {
+            RETURN_IF_ERROR(append_block_with_partial_content(block, row_pos, num_rows));
+        } else {
+            return Status::NotSupported<false>(
+                    "SegmentWriter doesn't support flexible partial update, please set "
+                    "enable_vertical_segment_writer=true in be.conf on all BEs to use "
+                    "VerticalSegmentWriter.");
+        }
         return Status::OK();
     }
     CHECK(block->columns() >= _column_writers.size())
@@ -1010,10 +1017,6 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     if (*segment_file_size == 0) {
         return Status::Corruption("Bad segment, file size = 0");
     }
-    if (_inverted_index_file_writer != nullptr) {
-        RETURN_IF_ERROR(_inverted_index_file_writer->close());
-        _inverted_index_file_info = _inverted_index_file_writer->get_index_file_info();
-    }
     return Status::OK();
 }
 
@@ -1252,13 +1255,6 @@ Status SegmentWriter::_generate_short_key_index(
         last_key = std::move(key);
     }
     return Status::OK();
-}
-
-int64_t SegmentWriter::get_inverted_index_total_size() {
-    if (_inverted_index_file_writer != nullptr) {
-        return _inverted_index_file_writer->get_index_file_total_size();
-    }
-    return 0;
 }
 
 inline bool SegmentWriter::_is_mow() {

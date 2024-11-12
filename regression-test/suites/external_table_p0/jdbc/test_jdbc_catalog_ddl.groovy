@@ -25,7 +25,7 @@ suite("test_jdbc_catalog_ddl", "p0,external,mysql,external_docker,external_docke
     String mysql_port = context.config.otherConfigs.get("mysql_57_port");
     // String driver_url = "mysql-connector-java-5.1.49.jar"
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String catalog_name = "mysql_jdbc5_catalog";
+        String catalog_name = "test_jdbc_catalog_ddl";
 
         for (String useMetaCache : ["true", "false"]) {
             sql """drop catalog if exists ${catalog_name} """

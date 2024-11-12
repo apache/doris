@@ -94,7 +94,7 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     // transfer 0 (PREPARED -> COMMITTED): finish writing a rowset and the rowset' meta will not be changed
     // transfer 1 (PREPARED -> BEGIN_PARTIAL_UPDATE): finish writing a rowset, but may append new segments later and the rowset's meta may be changed
     // transfer 2 (BEGIN_PARTIAL_UPDATE -> VISIBLE): finish adding new segments and the rowset' meta will not be changed, the rowset is visible to users
-    if (_context.partial_update_info && _context.partial_update_info->is_partial_update) {
+    if (_context.partial_update_info && _context.partial_update_info->is_partial_update()) {
         _rowset_meta->set_rowset_state(BEGIN_PARTIAL_UPDATE);
     } else {
         _rowset_meta->set_rowset_state(COMMITTED);
@@ -115,13 +115,14 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
     } else {
         _rowset_meta->add_segments_file_size(seg_file_size.value());
     }
-
-    if (auto idx_files_info = _idx_files_info.get_inverted_files_info(_segment_start_id);
-        !idx_files_info.has_value()) [[unlikely]] {
-        LOG(ERROR) << "expected inverted index files info, but none presents: "
-                   << idx_files_info.error();
-    } else {
-        _rowset_meta->add_inverted_index_files_info(idx_files_info.value());
+    if (rowset_schema->has_inverted_index()) {
+        if (auto idx_files_info = _idx_files.inverted_index_file_info(_segment_start_id);
+            !idx_files_info.has_value()) [[unlikely]] {
+            LOG(ERROR) << "expected inverted index files info, but none presents: "
+                       << idx_files_info.error();
+        } else {
+            _rowset_meta->add_inverted_index_files_info(idx_files_info.value());
+        }
     }
 
     RETURN_NOT_OK_STATUS_WITH_WARN(RowsetFactory::create_rowset(rowset_schema, _context.tablet_path,

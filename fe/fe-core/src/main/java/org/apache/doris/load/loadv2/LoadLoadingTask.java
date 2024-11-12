@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Config;
@@ -217,6 +218,8 @@ public class LoadLoadingTask extends LoadTask {
         UUID uuid = UUID.randomUUID();
         this.loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         planner.updateLoadId(this.loadId);
+        // reset progress on each retry, otherwise the finished/total num will be incorrect
+        Env.getCurrentProgressManager().registerProgressSimple(String.valueOf(callback.getCallbackId()));
     }
 
     void settWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {

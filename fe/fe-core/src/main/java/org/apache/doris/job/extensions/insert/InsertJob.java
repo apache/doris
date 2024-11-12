@@ -299,7 +299,9 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     @Override
     public void cancelAllTasks() throws JobException {
         try {
-            checkAuth("CANCEL LOAD");
+            if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
+                checkAuth("CANCEL LOAD");
+            }
             super.cancelAllTasks();
             this.failMsg = new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel");
         } catch (DdlException e) {
@@ -438,7 +440,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             }
 
             // progress
-            String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(getJobId()));
+            String progress = Env.getCurrentProgressManager()
+                    .getProgressInfo(String.valueOf(getJobId()), getJobStatus() == JobStatus.FINISHED);
             switch (getJobStatus()) {
                 case RUNNING:
                     if (isPending()) {
@@ -518,6 +521,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         } catch (DdlException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    public String formatMsgWhenExecuteQueueFull(Long taskId) {
+        return commonFormatMsgWhenExecuteQueueFull(taskId, "insert_task_queue_size",
+                "job_insert_task_consumer_thread_num");
     }
 
     private String getPriority() {

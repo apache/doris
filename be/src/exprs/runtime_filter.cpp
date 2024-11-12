@@ -22,7 +22,6 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <stddef.h>
 
 #include <algorithm>
 // IWYU pragma: no_include <bits/chrono.h>
@@ -472,10 +471,10 @@ public:
                           const TExpr& probe_expr);
 
     Status merge(const RuntimePredicateWrapper* wrapper) {
-        if (is_ignored() || wrapper->is_ignored()) {
-            _context->ignored = true;
+        if (wrapper->is_ignored()) {
             return Status::OK();
         }
+        _context->ignored = false;
 
         bool can_not_merge_in_or_bloom =
                 _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER &&
@@ -493,7 +492,10 @@ public:
 
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
-            // try insert set
+            if (!_context->hybrid_set) {
+                _context->ignored = true;
+                return Status::OK();
+            }
             _context->hybrid_set->insert(wrapper->_context->hybrid_set.get());
             if (_max_in_num >= 0 && _context->hybrid_set->size() >= _max_in_num) {
                 _context->ignored = true;
@@ -1051,30 +1053,33 @@ class SyncSizeClosure : public AutoReleaseClosure<PSendFilterSizeRequest,
     // context, it not the memory is not released. And rpc is in another thread, it will hold rf context
     // after query context because the rpc is not returned.
     std::weak_ptr<RuntimeFilterContext> _rf_context;
-    std::string _rf_debug_info;
     using Base =
             AutoReleaseClosure<PSendFilterSizeRequest, DummyBrpcCallback<PSendFilterSizeResponse>>;
     ENABLE_FACTORY_CREATOR(SyncSizeClosure);
 
     void _process_if_rpc_failed() override {
-        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
-        LOG(WARNING) << "sync filter size meet rpc error, filter=" << _rf_debug_info;
+        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
+        auto ctx = _rf_context.lock();
+        if (!ctx) {
+            return;
+        }
+
+        ctx->err_msg = cntl_->ErrorText();
         Base::_process_if_rpc_failed();
     }
 
     void _process_if_meet_error_status(const Status& status) override {
-        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        Defer defer {[&]() { ((pipeline::CountedFinishDependency*)_dependency.get())->sub(); }};
+        auto ctx = _rf_context.lock();
+        if (!ctx) {
+            return;
+        }
+
         if (status.is<ErrorCode::END_OF_FILE>()) {
             // rf merger backend may finished before rf's send_filter_size, we just ignore filter in this case.
-            auto ctx = _rf_context.lock();
-            if (ctx) {
-                ctx->ignored = true;
-            } else {
-                LOG(WARNING) << "sync filter size returned but context is released, filter="
-                             << _rf_debug_info;
-            }
+            ctx->ignored = true;
         } else {
-            LOG(WARNING) << "sync filter size meet error status, filter=" << _rf_debug_info;
+            ctx->err_msg = status.to_string();
             Base::_process_if_meet_error_status(status);
         }
     }
@@ -1083,11 +1088,8 @@ public:
     SyncSizeClosure(std::shared_ptr<PSendFilterSizeRequest> req,
                     std::shared_ptr<DummyBrpcCallback<PSendFilterSizeResponse>> callback,
                     std::shared_ptr<pipeline::Dependency> dependency,
-                    RuntimeFilterContextSPtr rf_context, std::string_view rf_debug_info)
-            : Base(req, callback),
-              _dependency(std::move(dependency)),
-              _rf_context(rf_context),
-              _rf_debug_info(rf_debug_info) {}
+                    RuntimeFilterContextSPtr rf_context)
+            : Base(req, callback), _dependency(std::move(dependency)), _rf_context(rf_context) {}
 };
 
 Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
@@ -1131,8 +1133,8 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     auto callback = DummyBrpcCallback<PSendFilterSizeResponse>::create_shared();
     // IRuntimeFilter maybe deconstructed before the rpc finished, so that could not use
     // a raw pointer in closure. Has to use the context's shared ptr.
-    auto closure = SyncSizeClosure::create_unique(request, callback, _dependency,
-                                                  _wrapper->_context, this->debug_string());
+    auto closure =
+            SyncSizeClosure::create_unique(request, callback, _dependency, _wrapper->_context);
     auto* pquery_id = request->mutable_query_id();
     pquery_id->set_hi(_state->query_id.hi());
     pquery_id->set_lo(_state->query_id.lo());
@@ -1143,7 +1145,11 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
 
     request->set_filter_size(local_filter_size);
     request->set_filter_id(_filter_id);
-    callback->cntl_->set_timeout_ms(std::min(3600, state->execution_timeout()) * 1000);
+
+    callback->cntl_->set_timeout_ms(get_execution_rpc_timeout_ms(state->execution_timeout()));
+    if (config::execution_ignore_eovercrowded) {
+        callback->cntl_->ignore_eovercrowded();
+    }
 
     stub->send_filter_size(closure->cntl_.get(), closure->request_.get(), closure->response_.get(),
                            closure.get());
@@ -1177,10 +1183,14 @@ Status IRuntimeFilter::push_to_remote(const TNetworkAddress* addr) {
     pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_request->set_filter_id(_filter_id);
-    merge_filter_request->set_is_pipeline(true);
     auto column_type = _wrapper->column_type();
     RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
-    merge_filter_callback->cntl_->set_timeout_ms(wait_time_ms());
+
+    merge_filter_callback->cntl_->set_timeout_ms(
+            get_execution_rpc_timeout_ms(_state->execution_timeout));
+    if (config::execution_ignore_eovercrowded) {
+        merge_filter_callback->cntl_->ignore_eovercrowded();
+    }
 
     if (get_ignored()) {
         merge_filter_request->set_filter_type(PFilterType::UNKNOW_FILTER);
@@ -1214,7 +1224,7 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
     // The runtime filter is pushed down, adding filtering information.
     auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
     auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
-    auto* always_true_counter = ADD_COUNTER(_profile, "always_true", TUnit::UNIT);
+    auto* always_true_counter = ADD_COUNTER(_profile, "always_true_pass_rows", TUnit::UNIT);
     for (auto i = origin_size; i < push_exprs.size(); i++) {
         push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
                                               always_true_counter);
@@ -1278,16 +1288,17 @@ void IRuntimeFilter::set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTim
     _filter_timer.push_back(timer);
 }
 
-void IRuntimeFilter::set_dependency(std::shared_ptr<pipeline::Dependency> dependency) {
+void IRuntimeFilter::set_finish_dependency(
+        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
     _dependency = dependency;
-    ((pipeline::CountedFinishDependency*)_dependency.get())->add();
+    _dependency->add();
     CHECK(_dependency);
 }
 
 void IRuntimeFilter::set_synced_size(uint64_t global_size) {
     _synced_size = global_size;
     if (_dependency) {
-        ((pipeline::CountedFinishDependency*)_dependency.get())->sub();
+        _dependency->sub();
     }
 }
 
@@ -1305,10 +1316,6 @@ std::string IRuntimeFilter::formatted_state() const {
             "HasLocalTarget = {}, Ignored = {}]",
             _is_push_down, _get_explain_state_string(), _has_remote_target, _has_local_target,
             _wrapper->_context->ignored);
-}
-
-BloomFilterFuncBase* IRuntimeFilter::get_bloomfilter() const {
-    return _wrapper->get_bloomfilter();
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
@@ -1503,9 +1510,9 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
             "RuntimeFilter: (id = {}, type = {}, need_local_merge: {}, is_broadcast: {}, "
-            "build_bf_cardinality: {}",
+            "build_bf_cardinality: {}, error_msg: {}",
             _filter_id, to_string(_runtime_filter_type), _need_local_merge, _is_broadcast_join,
-            _wrapper->get_build_bf_cardinality());
+            _wrapper->get_build_bf_cardinality(), _wrapper->_context->err_msg);
 }
 
 Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {

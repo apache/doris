@@ -25,6 +25,7 @@
 #include <cstring>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -130,7 +131,7 @@ Field ColumnArray::operator[](size_t n) const {
 
     if (size > max_array_size_as_field)
         throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
+                ErrorCode::INVALID_ARGUMENT,
                 "Array of size {}, is too large to be manipulated as single field, maximum size {}",
                 size, max_array_size_as_field);
 
@@ -147,7 +148,7 @@ void ColumnArray::get(size_t n, Field& res) const {
 
     if (size > max_array_size_as_field)
         throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
+                ErrorCode::INVALID_ARGUMENT,
                 "Array of size {}, is too large to be manipulated as single field, maximum size {}",
                 size, max_array_size_as_field);
 
@@ -424,6 +425,8 @@ void ColumnArray::reserve(size_t n) {
 void ColumnArray::resize(size_t n) {
     auto last_off = get_offsets().back();
     get_offsets().resize_fill(n, last_off);
+    // make new size of data column
+    get_data().resize(get_offsets().back());
 }
 
 size_t ColumnArray::byte_size() const {
@@ -730,22 +733,17 @@ ColumnPtr ColumnArray::filter_generic(const Filter& filt, ssize_t result_size_hi
     if (size == 0) return ColumnArray::create(data);
 
     Filter nested_filt(get_offsets().back());
+    ssize_t nested_result_size_hint = 0;
     for (size_t i = 0; i < size; ++i) {
-        if (filt[i])
+        if (filt[i]) {
             memset(&nested_filt[offset_at(i)], 1, size_at(i));
-        else
+            nested_result_size_hint += size_at(i);
+        } else {
             memset(&nested_filt[offset_at(i)], 0, size_at(i));
+        }
     }
 
     auto res = ColumnArray::create(data->clone_empty());
-
-    ssize_t nested_result_size_hint = 0;
-    if (result_size_hint < 0)
-        nested_result_size_hint = result_size_hint;
-    else if (result_size_hint && result_size_hint < 1000000000 &&
-             data->size() < 1000000000) /// Avoid overflow.
-        nested_result_size_hint = result_size_hint * data->size() / size;
-
     res->data = data->filter(nested_filt, nested_result_size_hint);
 
     auto& res_offsets = res->get_offsets();
@@ -838,6 +836,12 @@ void ColumnArray::insert_indices_from(const IColumn& src, const uint32_t* indice
                                       const uint32_t* indices_end) {
     for (const auto* x = indices_begin; x != indices_end; ++x) {
         ColumnArray::insert_from(src, *x);
+    }
+}
+
+void ColumnArray::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    for (auto x = 0; x != length; ++x) {
+        ColumnArray::insert_from(src, position);
     }
 }
 

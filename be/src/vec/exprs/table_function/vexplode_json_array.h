@@ -20,21 +20,19 @@
 #include <glog/logging.h>
 #include <rapidjson/document.h>
 
-#include <ostream>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
-#include "gutil/integral_types.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/table_function/table_function.h"
-#include "vec/functions/function_string.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 template <typename T>
 struct ParsedData {
@@ -50,7 +48,7 @@ struct ParsedData {
                                                 int max_step) = 0;
     virtual void insert_many_same_value_from_parsed_data(MutableColumnPtr& column,
                                                          int64_t cur_offset, int length) = 0;
-    const char* get_null_flag_address(int cur_offset) {
+    const char* get_null_flag_address(size_t cur_offset) {
         return reinterpret_cast<const char*>(_values_null_flag.data() + cur_offset);
     }
     std::vector<UInt8> _values_null_flag;
@@ -77,7 +75,8 @@ struct ParsedDataInt : public ParsedData<int64_t> {
                 }
             } else if (v.IsDouble()) {
                 auto value = v.GetDouble();
-                if (value > MAX_VALUE) {
+                // target slot is int64(cast double to int64). so compare with int64_max
+                if (static_cast<int64_t>(value) > MAX_VALUE) {
                     _backup_data[i] = MAX_VALUE;
                 } else if (value < MIN_VALUE) {
                     _backup_data[i] = MIN_VALUE;
@@ -107,7 +106,8 @@ struct ParsedDataInt : public ParsedData<int64_t> {
                 _backup_data[i] = static_cast<const JsonbInt64Val&>(val).val();
             } else if (val.isDouble()) {
                 auto value = static_cast<const JsonbDoubleVal&>(val).val();
-                if (value > MAX_VALUE) {
+                // target slot is int64(cast double to int64). so compare with int64_max
+                if (static_cast<int64_t>(value) > MAX_VALUE) {
                     _backup_data[i] = MAX_VALUE;
                 } else if (value < MIN_VALUE) {
                     _backup_data[i] = MIN_VALUE;
@@ -420,4 +420,5 @@ private:
     DataTypePtr _text_datatype;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

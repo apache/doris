@@ -43,9 +43,9 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    Status close(RuntimeState* state, Status exec_status) override;
     std::string debug_string(int indentation_level) const override;
     std::vector<Dependency*> dependencies() const override;
+    Status close(RuntimeState* state, Status exec_status) override;
 
 private:
     friend class LocalExchangeSinkOperatorX;
@@ -69,7 +69,6 @@ private:
 
     // Used by random passthrough exchanger
     int _channel_id = 0;
-    bool _release_count = false;
 };
 
 // A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
@@ -102,7 +101,7 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(ExchangeType type, const int num_buckets, const bool should_disable_bucket_shuffle,
+    Status init(ExchangeType type, const int num_buckets, const bool use_global_hash_shuffle,
                 const std::map<int, int>& shuffle_idx_to_instance_idx) override;
 
     Status open(RuntimeState* state) override;
@@ -118,6 +117,7 @@ private:
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     const std::map<int, int> _bucket_seq_to_instance_idx;
     std::vector<std::pair<int, int>> _shuffle_idx_to_instance_idx;
+    bool _use_global_shuffle = false;
 };
 
 } // namespace doris::pipeline

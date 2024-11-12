@@ -50,15 +50,17 @@ statementBase
     | supportedCreateStatement          #supportedCreateStatementAlias
     | supportedAlterStatement           #supportedAlterStatementAlias
     | materializedViewStatement         #materializedViewStatementAlias
+    | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
+    | supportedSetStatement             #supportedSetStatementAlias
+    | supportedUnsetStatement           #supportedUnsetStatementAlias
+    | supportedShowStatement            #supportedShowStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
 unsupportedStatement
-    : unsupportedSetStatement
-    | unsupoortedUnsetStatement
-    | unsupportedUseStatement
+    : unsupportedUseStatement
     | unsupportedDmlStatement
     | unsupportedKillStatement
     | unsupportedDescribeStatement
@@ -102,7 +104,17 @@ materializedViewStatement
     | CANCEL MATERIALIZED VIEW TASK taskId=INTEGER_VALUE ON mvName=multipartIdentifier          #cancelMTMVTask
     | SHOW CREATE MATERIALIZED VIEW mvName=multipartIdentifier                                  #showCreateMTMV
     ;
-
+supportedJobStatement
+    : CREATE JOB label=multipartIdentifier ON SCHEDULE
+        (
+            (EVERY timeInterval=INTEGER_VALUE timeUnit=identifier
+            (STARTS (startTime=STRING_LITERAL | CURRENT_TIMESTAMP))?
+            (ENDS endsTime=STRING_LITERAL)?)
+            |
+            (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
+        commentSpec?
+        DO supportedDmlStatement                                                               #createScheduledJob                                                                    
+   ;
 constraintStatement
     : ALTER TABLE table=multipartIdentifier
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
@@ -178,6 +190,13 @@ supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
     ;
 
+supportedShowStatement
+    : SHOW (GLOBAL | SESSION | LOCAL)? VARIABLES wildWhere?                         #showVariables
+    | SHOW VIEW
+        (FROM |IN) tableName=multipartIdentifier
+        ((FROM | IN) database=identifier)?                                          #showView
+    ;
+
 unsupportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
@@ -213,7 +232,6 @@ unsupportedShowStatement
     | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
     | SHOW WHITELIST                                                                #showWhitelist
-    | SHOW (GLOBAL | SESSION | LOCAL)? VARIABLES wildWhere?                         #showVariables
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
@@ -291,9 +309,6 @@ unsupportedShowStatement
     | SHOW (KEY | KEYS | INDEX | INDEXES)
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=multipartIdentifier)?                                 #showIndex
-    | SHOW VIEW
-        (FROM |IN) tableName=multipartIdentifier
-        ((FROM | IN) database=multipartIdentifier)?                                 #showView
     | SHOW TRANSACTION ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showTransaction
     | SHOW QUERY PROFILE queryIdPath=STRING_LITERAL                                 #showQueryProfile
     | SHOW LOAD PROFILE loadIdPath=STRING_LITERAL                                   #showLoadProfile
@@ -413,16 +428,8 @@ unsupportedCleanStatement
     ;
 
 unsupportedJobStatement
-    : CREATE JOB label=multipartIdentifier ON SCHEDULE
-        (
-            (EVERY timeInterval=INTEGER_VALUE timeUnit=identifier
-            (STARTS (startTime=STRING_LITERAL | CURRENT_TIMESTAMP))?
-            (ENDS endsTime=STRING_LITERAL)?)
-            |
-            (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
-        commentSpec?
-        DO statement                                                                #createJob
-    | PAUSE JOB wildWhere?                                                          #pauseJob
+
+    : PAUSE JOB wildWhere?                                                          #pauseJob
     | DROP JOB (IF EXISTS)? wildWhere?                                              #dropJob
     | RESUME JOB wildWhere?                                                         #resumeJob
     | CANCEL TASK wildWhere?                                                        #cancelJobTask
@@ -609,7 +616,7 @@ alterTableClause
         SET LEFT_PAREN partitionProperties=propertyItemList RIGHT_PAREN             #modifyPartitionClause
     | REPLACE partitions=partitionSpec? WITH tempPartitions=partitionSpec?
         FORCE? properties=propertyClause?                                           #replacePartitionClause
-    | REPLACE WITH TABLE name=identifier properties=propertyClause?                 #replaceTableClause
+    | REPLACE WITH TABLE name=identifier properties=propertyClause?  FORCE?         #replaceTableClause
     | RENAME newName=identifier                                                     #renameClause
     | RENAME ROLLUP name=identifier newName=identifier                              #renameRollupClause
     | RENAME PARTITION name=identifier newName=identifier                           #renamePartitionClause
@@ -795,7 +802,7 @@ functionArgument
     | dataType
     ;
 
-unsupportedSetStatement
+supportedSetStatement
     : SET (optionWithType | optionWithoutType)
         (COMMA (optionWithType | optionWithoutType))*                   #setOptions
     | SET identifier AS DEFAULT STORAGE VAULT                           #setDefaultStorageVault
@@ -808,7 +815,7 @@ unsupportedSetStatement
     ;
 
 optionWithType
-    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)
+    : (GLOBAL | LOCAL | SESSION) identifier EQ (expression | DEFAULT)   #setVariableWithType
     ;
 
 optionWithoutType
@@ -817,7 +824,7 @@ optionWithoutType
     | NAMES (charsetName=identifierOrText | DEFAULT)
         (COLLATE collateName=identifierOrText | DEFAULT)?               #setCollate
     | PASSWORD (FOR userIdentify)? EQ (STRING_LITERAL
-        | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))             #setPassword
+        | (isPlain=PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))             #setPassword
     | LDAP_ADMIN_PASSWORD EQ (STRING_LITERAL
     | (PASSWORD LEFT_PAREN STRING_LITERAL RIGHT_PAREN))                 #setLdapAdminPassword
     | variable                                                          #setVariableWithoutType
@@ -836,7 +843,7 @@ isolationLevel
     : ISOLATION LEVEL ((READ UNCOMMITTED) | (READ COMMITTED) | (REPEATABLE READ) | (SERIALIZABLE))
     ;
 
-unsupoortedUnsetStatement
+supportedUnsetStatement
     : UNSET (GLOBAL | SESSION | LOCAL)? VARIABLE (ALL | identifier)
     | UNSET DEFAULT STORAGE VAULT
     ;
@@ -903,7 +910,7 @@ identityOrFunction
 
 dataDesc
     : ((WITH)? mergeType)? DATA INFILE LEFT_PAREN filePaths+=STRING_LITERAL (COMMA filePath+=STRING_LITERAL)* RIGHT_PAREN
-        INTO TABLE tableName=multipartIdentifier
+        INTO TABLE targetTableName=identifier
         (PARTITION partition=identifierList)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
         (LINES TERMINATED BY separator=STRING_LITERAL)?
@@ -917,8 +924,8 @@ dataDesc
         (deleteOn=deleteOnClause)?
         (sequenceColumn=sequenceColClause)?
         (propertyClause)?
-    | ((WITH)? mergeType)? DATA FROM TABLE tableName=multipartIdentifier
-        INTO TABLE tableName=multipartIdentifier
+    | ((WITH)? mergeType)? DATA FROM TABLE sourceTableName=identifier
+        INTO TABLE targetTableName=identifier
         (PARTITION partition=identifierList)?
         (columnMapping=colMappingList)?
         (where=whereClause)?
@@ -1003,7 +1010,7 @@ planType
     ;
 
 replayCommand
-    : REPLAYER replayType;
+    : PLAN REPLAYER replayType;
 
 replayType
     : DUMP query
@@ -1114,6 +1121,7 @@ querySpecification
       whereClause?
       aggClause?
       havingClause?
+      qualifyClause?
       {doris_legacy_SQL_syntax}? queryOrganization                         #regularQuerySpecification
     ;
 
@@ -1198,6 +1206,10 @@ groupingSet
 
 havingClause
     : HAVING booleanExpression
+    ;
+
+qualifyClause
+    : QUALIFY booleanExpression
     ;
 
 selectHint: hintStatements+=hintStatement (COMMA? hintStatements+=hintStatement)* HINT_END;
@@ -2015,6 +2027,7 @@ nonReserved
     | QUANTILE_UNION
     | QUERY
     | QUOTA
+    | QUALIFY
     | RANDOM
     | RECENT
     | RECOVER
@@ -2023,7 +2036,7 @@ nonReserved
     | REPEATABLE
     | REPLACE
     | REPLACE_IF_NOT_NULL
-    | REPLAY
+    | REPLAYER
     | REPOSITORIES
     | REPOSITORY
     | RESOURCE

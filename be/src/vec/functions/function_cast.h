@@ -94,6 +94,7 @@
 #include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/io/reader_buffer.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -145,7 +146,7 @@ struct TimeCast {
         } else {
             if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
                 // can be parse as a datetime
-                x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+                x = TimeValue::make_time(dv.hour(), dv.minute(), dv.second());
                 return true;
             }
             return false;
@@ -210,7 +211,7 @@ struct TimeCast {
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = hour * 3600 + minute * 60 + second;
+        x = TimeValue::make_time(hour, minute, second);
         return true;
     }
     // Cast from number
@@ -227,7 +228,7 @@ struct TimeCast {
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = hour * 3600 + minute * 60 + second;
+        x = TimeValue::make_time(hour, minute, second);
         return true;
     }
     template <typename S>
@@ -243,7 +244,7 @@ struct TimeCast {
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = hour * 3600 + minute * 60 + second;
+        x = TimeValue::make_time(hour, minute, second);
         return true;
     }
 };
@@ -258,7 +259,7 @@ struct ConvertImpl {
 
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count,
+                          uint32_t result, size_t input_rows_count,
                           Additions additions = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
@@ -428,7 +429,6 @@ struct ConvertImpl {
                     for (size_t i = 0; i < size; ++i) {
                         (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
                                 vec_from[i], vec_to[i], context->state()->timezone_obj());
-                        vec_to[i] *= (1000 * 1000);
                     }
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -472,7 +472,7 @@ template <typename T, typename Name>
     requires(!T::is_parametric)
 struct ConvertImpl<T, T, Name> {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t /*input_rows_count*/) {
+                          uint32_t result, size_t /*input_rows_count*/) {
         block.get_by_position(result).column = block.get_by_position(arguments[0]).column;
         return Status::OK();
     }
@@ -485,7 +485,7 @@ struct ConvertImplToTimeType {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           size_t /*input_rows_count*/) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
@@ -563,14 +563,14 @@ struct ConvertImplGenericToString {
     }
 
     static Status execute2(FunctionContext* /*ctx*/, Block& block, const ColumnNumbers& arguments,
-                           const size_t result, size_t /*input_rows_count*/) {
+                           const uint32_t result, size_t /*input_rows_count*/) {
         return execute(block, arguments, result);
     }
 };
 //this is for data in compound type
 struct ConvertImplGenericFromString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         // result column must set type
@@ -624,7 +624,7 @@ struct ConvertImplGenericFromString {
 template <typename ColumnType>
 struct ConvertImplNumberToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
 
         auto column_string = ColumnString::create();
@@ -665,7 +665,7 @@ struct ConvertImplNumberToJsonb {
 
 struct ConvertImplStringToJsonbAsJsonbString {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
@@ -689,7 +689,7 @@ struct ConvertImplStringToJsonbAsJsonbString {
 
 struct ConvertImplGenericFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
@@ -770,7 +770,7 @@ struct ConvertImplGenericFromJsonb {
 // Generic conversion of any type to jsonb.
 struct ConvertImplGenericToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IDataType& type = *col_with_type_and_name.type;
@@ -823,7 +823,7 @@ struct ConvertImplGenericToJsonb {
 
 struct ConvertNothingToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         auto data_type_to = block.get_by_position(result).type;
@@ -839,7 +839,7 @@ struct ConvertNothingToJsonb {
 template <TypeIndex type_index, typename ColumnType>
 struct ConvertImplFromJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IColumn& col_from = *col_with_type_and_name.column;
         // result column must set type
@@ -957,7 +957,7 @@ struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count,
+                          uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
         return Status::RuntimeError("not support convert from string");
     }
@@ -1061,7 +1061,6 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
         auto ret = TimeCast::try_parse_time(s, len, x, context->state()->timezone_obj());
-        x *= (1000 * 1000);
         return ret;
     }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {
@@ -1292,7 +1291,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         if (!arguments.size()) {
             return Status::RuntimeError("Function {} expects at least 1 arguments", get_name());
         }
@@ -1495,7 +1494,7 @@ public:
 
 protected:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return wrapper_function(context, block, arguments, result, input_rows_count);
     }
 
@@ -1517,7 +1516,7 @@ struct StringParsing {
 
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t input_rows_count,
+                          uint32_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
@@ -1643,7 +1642,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
 
         if (check_and_get_data_type<DataTypeString>(from_type)) {
@@ -1679,7 +1678,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         Status ret_status = Status::OK();
         const IDataType* from_type = block.get_by_position(arguments[0]).type.get();
         auto call = [&](const auto& types) -> bool {
@@ -1723,7 +1722,7 @@ public:
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& /*sample_block*/,
                                 const ColumnNumbers& /*arguments*/,
-                                size_t /*result*/) const override {
+                                uint32_t /*result*/) const override {
         return std::make_shared<PreparedFunctionCast>(
                 prepare_unpack_dictionaries(context, get_argument_types()[0], get_return_type()),
                 name);
@@ -1770,7 +1769,7 @@ private:
         { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
             return function->execute(context, block, arguments, result, input_rows_count);
         };
     }
@@ -1782,7 +1781,7 @@ private:
         { function->get_return_type(ColumnsWithTypeAndName(1, {nullptr, from_type, ""})); }
 
         return [function](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          const size_t result, size_t input_rows_count) {
+                          const uint32_t result, size_t input_rows_count) {
             return function->execute(context, block, arguments, result, input_rows_count);
         };
     }
@@ -1805,7 +1804,7 @@ private:
         }
 
         return [type_index, precision, scale](FunctionContext* context, Block& block,
-                                              const ColumnNumbers& arguments, const size_t result,
+                                              const ColumnNumbers& arguments, const uint32_t result,
                                               size_t input_rows_count) {
             auto res = call_on_index_and_data_type<ToDataType>(
                     type_index, [&](const auto& types) -> bool {
@@ -1834,7 +1833,7 @@ private:
 
     WrapperType create_identity_wrapper(const DataTypePtr&) const {
         return [](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                  const size_t result, size_t /*input_rows_count*/) {
+                  const uint32_t result, size_t /*input_rows_count*/) {
             block.get_by_position(result).column = block.get_by_position(arguments.front()).column;
             return Status::OK();
         };
@@ -1843,7 +1842,7 @@ private:
     WrapperType create_nothing_wrapper(const IDataType* to_type) const {
         ColumnPtr res = to_type->create_column_const_with_default_value(1);
         return [res](FunctionContext* context, Block& block, const ColumnNumbers&,
-                     const size_t result, size_t input_rows_count) {
+                     const uint32_t result, size_t input_rows_count) {
             /// Column of Nothing type is trivially convertible to any other column
             block.get_by_position(result).column =
                     res->clone_resized(input_rows_count)->convert_to_full_column_if_const();
@@ -1939,7 +1938,7 @@ private:
 
         return [nested_function, from_nested_type, to_nested_type](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const size_t result, size_t /*input_rows_count*/) -> Status {
+                       const uint32_t result, size_t /*input_rows_count*/) -> Status {
             ColumnPtr from_column = block.get_by_position(arguments.front()).column;
 
             const ColumnArray* from_col_array =
@@ -2037,7 +2036,7 @@ private:
 
     struct ConvertImplGenericFromVariant {
         static Status execute(const FunctionCast* fn, FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, const size_t result,
+                              const ColumnNumbers& arguments, const uint32_t result,
                               size_t input_rows_count) {
             auto& data_type_to = block.get_by_position(result).type;
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
@@ -2111,7 +2110,7 @@ private:
 
     struct ConvertImplGenericToVariant {
         static Status execute(FunctionContext* context, Block& block,
-                              const ColumnNumbers& arguments, const size_t result,
+                              const ColumnNumbers& arguments, const uint32_t result,
                               size_t input_rows_count) {
             // auto& data_type_to = block.get_by_position(result).type;
             const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
@@ -2135,7 +2134,7 @@ private:
     WrapperType create_variant_wrapper(const DataTypeObject& from_type,
                                        const DataTypePtr& to_type) const {
         return [this](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                      const size_t result, size_t input_rows_count) -> Status {
+                      const uint32_t result, size_t input_rows_count) -> Status {
             return ConvertImplGenericFromVariant::execute(this, context, block, arguments, result,
                                                           input_rows_count);
         };
@@ -2166,7 +2165,7 @@ private:
         auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
         return [kv_wrappers, from_kv_types, to_kv_types](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const size_t result, size_t /*input_rows_count*/) -> Status {
+                       const uint32_t result, size_t /*input_rows_count*/) -> Status {
             auto& from_column = block.get_by_position(arguments.front()).column;
             auto from_col_map = check_and_get_column<ColumnMap>(from_column.get());
             if (!from_col_map) {
@@ -2241,7 +2240,7 @@ private:
         auto element_wrappers = get_element_wrappers(context, from_element_types, to_element_types);
         return [element_wrappers, from_element_types, to_element_types](
                        FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                       const size_t result, size_t /*input_rows_count*/) -> Status {
+                       const uint32_t result, size_t /*input_rows_count*/) -> Status {
             auto& from_column = block.get_by_position(arguments.front()).column;
             auto from_col_struct = check_and_get_column<ColumnStruct>(from_column.get());
             if (!from_col_struct) {
@@ -2282,7 +2281,7 @@ private:
             }
 
             return [](FunctionContext* context, Block& block, const ColumnNumbers&,
-                      const size_t result, size_t input_rows_count) {
+                      const uint32_t result, size_t input_rows_count) {
                 auto& res = block.get_by_position(result);
                 res.column = res.type->create_column_const_with_default_value(input_rows_count)
                                      ->convert_to_full_column_if_const();
@@ -2391,7 +2390,7 @@ private:
 
         if (result_is_nullable) {
             return [this, from_type, to_type](FunctionContext* context, Block& block,
-                                              const ColumnNumbers& arguments, const size_t result,
+                                              const ColumnNumbers& arguments, const uint32_t result,
                                               size_t input_rows_count) {
                 auto from_type_not_nullable = remove_nullable(from_type);
                 auto to_type_not_nullable = remove_nullable(to_type);

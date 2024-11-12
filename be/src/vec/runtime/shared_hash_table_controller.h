@@ -29,6 +29,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RuntimeState;
 class MinMaxFuncBase;
@@ -46,6 +47,7 @@ struct RuntimeFilterContext {
     std::shared_ptr<BloomFilterFuncBase> bloom_filter_func;
     std::shared_ptr<BitmapFilterFuncBase> bitmap_filter_func;
     bool ignored = false;
+    std::string err_msg;
 };
 
 using RuntimeFilterContextSPtr = std::shared_ptr<RuntimeFilterContext>;
@@ -66,6 +68,7 @@ struct SharedHashTableContext {
     std::map<int, RuntimeFilterContextSPtr> runtime_filters;
     std::atomic<bool> signaled = false;
     bool short_circuit_for_null_in_probe_side = false;
+    std::atomic<bool> complete_build_stage = false;
 };
 
 using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;
@@ -76,7 +79,6 @@ public:
     void set_builder_and_consumers(TUniqueId builder, int node_id);
     TUniqueId get_builder_fragment_instance_id(int my_node_id);
     SharedHashTableContextPtr get_context(int my_node_id);
-    void signal(int my_node_id);
     void signal_finish(int my_node_id);
     void append_dependency(int node_id, std::shared_ptr<pipeline::Dependency> dep,
                            std::shared_ptr<pipeline::Dependency> finish_dep) {
@@ -101,3 +103,5 @@ private:
 
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"
