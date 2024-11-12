@@ -263,7 +263,7 @@ public:
             const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+            const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                            nullable_column_ptr->get_null_map_column())
                                            .get_data();
 
@@ -368,7 +368,7 @@ private:
             const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+            const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                            nullable_column_ptr->get_null_map_column())
                                            .get_data();
 
@@ -454,7 +454,7 @@ private:
             const auto* nullable_column_ptr =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = reinterpret_cast<const vectorized::ColumnUInt8&>(
+            const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
                                            nullable_column_ptr->get_null_map_column())
                                            .get_data();
 
