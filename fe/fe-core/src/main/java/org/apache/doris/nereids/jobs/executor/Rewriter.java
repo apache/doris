@@ -355,26 +355,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     bottomUp(new EliminateJoinByFK()),
                     topDown(new EliminateJoinByUnique())
                 ),
-
-                // this rule should be after topic "Column pruning and infer predicate"
-                topic("Join pull up",
-                        topDown(
-                            new EliminateFilter(),
-                            new PushDownFilterThroughProject(),
-                            new MergeProjects()
-                        ),
-                        topDown(
-                            new PullUpJoinFromUnionAll()
-                        ),
-                        custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
-                        bottomUp(RuleSet.PUSH_DOWN_FILTERS),
-                        custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
-                ),
-
-                // this rule should be invoked after topic "Join pull up"
                 topic("eliminate Aggregate according to fd items",
                         topDown(new EliminateGroupByKey()),
-                        topDown(new PushDownAggThroughJoinOnPkFk())
+                        topDown(new PushDownAggThroughJoinOnPkFk()),
+                        topDown(new PullUpJoinFromUnionAll())
                 ),
 
                 topic("Limit optimization",
