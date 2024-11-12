@@ -54,6 +54,8 @@ std::string encode_basic_auth(const std::string& user, const std::string& passwd
 }
 
 bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* passwd) {
+    // const auto& token = req.header(HttpHeaders::AUTH_TOKEN);
+
     const char k_basic[] = "Basic ";
     const auto& auth = req.header(HttpHeaders::AUTHORIZATION);
     if (auth.compare(0, sizeof(k_basic) - 1, k_basic, sizeof(k_basic) - 1) != 0) {
@@ -75,8 +77,11 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 }
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
+    // deprecated, removed in 3.1, use AUTH_TOKEN
     const auto& token = req.header("token");
+    // deprecated, removed in 3.1, use AUTH_TOKEN
     const auto& auth_code = req.header(HTTP_AUTH_CODE);
+    const auto& auth_token = req.header(HttpHeaders::AUTH_TOKEN);
 
     std::tuple<std::string, std::string, std::string> tmp;
     auto& [user, pass, cluster] = tmp;
@@ -93,9 +98,11 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
     }
 
     if (!token.empty()) {
-        auth->token = token;
+        auth->token = token; // deprecated
+    } else if (!auth_token.empty()) {
+        auth->token = auth_token;
     } else if (!auth_code.empty()) {
-        auth->auth_code = std::stoll(auth_code);
+        auth->auth_code = std::stoll(auth_code); // deprecated
     } else if (!valid_basic_auth) {
         return false;
     }
