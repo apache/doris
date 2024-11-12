@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultComma
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
@@ -213,6 +214,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateTableLikeCommand(CreateTableLikeCommand createTableLikeCommand, C context) {
         return visitCommand(createTableLikeCommand, context);
+    }
+
+    default R visitShowAuthorsCommand(ShowAuthorsCommand showAuthorsCommand, C context) {
+        return visitCommand(showAuthorsCommand, context);
     }
 
     default R visitShowConfigCommand(ShowConfigCommand showConfigCommand, C context) {
