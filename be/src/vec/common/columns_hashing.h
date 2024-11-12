@@ -29,7 +29,6 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing_impl.h"
-#include "vec/common/hash_table/hash_table.h"
 #include "vec/common/hash_table/ph_hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/unaligned.h"
