@@ -28,10 +28,12 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstdint>
 #include <iomanip>
 #include <iterator>
 #include <limits>
 #include <ranges>
+#include <string>
 
 #include "agent/be_exec_version_manager.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -60,6 +62,7 @@ enum CompressionTypePB : int;
 } // namespace doris::segment_v2
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 Block::Block(std::initializer_list<ColumnWithTypeAndName> il) : data {il} {
     initialize_index_by_name();
@@ -359,7 +362,7 @@ std::string Block::each_col_size() const {
     std::string ss;
     for (const auto& elem : data) {
         if (elem.column) {
-            ss += elem.column->size();
+            ss += std::to_string(elem.column->size());
             ss += " | ";
         } else {
             ss += "-1 | ";
@@ -473,10 +476,10 @@ std::string Block::dump_types() const {
 
 std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mismatch) const {
     std::vector<std::string> headers;
-    std::vector<size_t> headers_size;
+    std::vector<int32_t> headers_size;
     for (const auto& it : data) {
         std::string s = fmt::format("{}({})", it.name, it.type->get_name());
-        headers_size.push_back(s.size() > 15 ? s.size() : 15);
+        headers_size.push_back(s.size() > 15 ? static_cast<int32_t>(s.size()) : 15);
         headers.emplace_back(s);
     }
 
@@ -730,8 +733,9 @@ void Block::clear_column_data(int64_t column_size) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
-    if (column_size != -1 and data.size() > column_size) {
-        for (int i = data.size() - 1; i >= column_size; --i) {
+    const auto columns = int64_t(data.size());
+    if (column_size != -1 and columns > column_size) {
+        for (auto i = columns - 1; i >= column_size; --i) {
             erase(i);
         }
     }
@@ -1131,7 +1135,7 @@ void MutableBlock::erase(const String& name) {
 }
 
 Block MutableBlock::to_block(int start_column) {
-    return to_block(start_column, _columns.size());
+    return to_block(start_column, static_cast<int32_t>(_columns.size()));
 }
 
 Block MutableBlock::to_block(int start_column, int end_column) {
@@ -1145,10 +1149,10 @@ Block MutableBlock::to_block(int start_column, int end_column) {
 
 std::string MutableBlock::dump_data(size_t row_limit) const {
     std::vector<std::string> headers;
-    std::vector<size_t> headers_size;
+    std::vector<int32_t> headers_size;
     for (size_t i = 0; i < columns(); ++i) {
         std::string s = _data_types[i]->get_name();
-        headers_size.push_back(s.size() > 15 ? s.size() : 15);
+        headers_size.push_back(s.size() > 15 ? static_cast<int32_t>(s.size()) : 15);
         headers.emplace_back(s);
     }
 

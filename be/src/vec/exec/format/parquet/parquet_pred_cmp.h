@@ -51,7 +51,7 @@ private:
 
         ScanPredicate(const ScanPredicate& other) {
             op = other.op;
-            for (auto v : other.values) {
+            for (const auto* v : other.values) {
                 values.emplace_back(v);
             }
             scale = other.scale;
@@ -69,7 +69,7 @@ private:
         } else if (dest_scale < scale) {
             value /= DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
         }
-        return (DecimalPrimitiveType)value;
+        return static_cast<typename DecimalPrimitiveType::NativeType>(value);
     }
 
     template <typename DecimalPrimitiveType>
@@ -87,7 +87,7 @@ private:
         } else if (dest_scale < scale) {
             value /= DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
         }
-        return (DecimalPrimitiveType)value;
+        return static_cast<typename DecimalPrimitiveType::NativeType>(value);
     }
 
     template <typename CppType>

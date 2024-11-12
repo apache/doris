@@ -50,6 +50,7 @@ class ColumnVector;
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 /// Sort one block by `description`. If limit != 0, then the partial sort of the first `limit` rows is produced.
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
@@ -66,7 +67,8 @@ struct EqualRangeIterator {
     int range_begin;
     int range_end;
 
-    EqualRangeIterator(const EqualFlags& flags) : EqualRangeIterator(flags, 0, flags.size()) {}
+    EqualRangeIterator(const EqualFlags& flags)
+            : EqualRangeIterator(flags, 0, static_cast<int32_t>(flags.size())) {}
 
     EqualRangeIterator(const EqualFlags& flags, int begin, int end) : _flags(flags), _end(end) {
         range_begin = begin;
@@ -84,14 +86,14 @@ struct EqualRangeIterator {
         // should continue to sort this row according to current column. Using the first non-zero
         // value and first zero value after first non-zero value as two bounds, we can get an equal range here
         if (!(_cur_range_begin == 0) || !(_flags[_cur_range_begin] == 1)) {
-            _cur_range_begin = simd::find_one(_flags, _cur_range_begin + 1);
+            _cur_range_begin = static_cast<int32_t>(simd::find_one(_flags, _cur_range_begin + 1));
             if (_cur_range_begin >= _end) {
                 return false;
             }
             _cur_range_begin--;
         }
 
-        _cur_range_end = simd::find_zero(_flags, _cur_range_begin + 1);
+        _cur_range_end = static_cast<int32_t>(simd::find_zero(_flags, _cur_range_begin + 1));
         DCHECK(_cur_range_end <= _end);
 
         if (_cur_range_begin >= _cur_range_end) {
@@ -161,7 +163,7 @@ public:
             return column.compare_at(a, b, *_column_with_sort_desc.first, _nulls_direction);
         };
         ColumnPartialSortingLess less(_column_with_sort_desc);
-        auto do_sort = [&](size_t first_iter, size_t last_iter) {
+        auto do_sort = [&](auto first_iter, auto last_iter) {
             auto begin = perms.begin() + first_iter;
             auto end = perms.begin() + last_iter;
 
@@ -170,7 +172,7 @@ public:
                 std::partial_sort(begin, begin + n, end, less);
 
                 auto nth = perms[_limit - 1];
-                size_t equal_count = 0;
+                int32_t equal_count = 0;
                 for (auto iter = begin + n; iter < end; iter++) {
                     if (comparator(*iter, nth) == 0) {
                         std::iter_swap(iter, begin + n + equal_count);
@@ -250,7 +252,7 @@ public:
                 }
                 bool null_first = _nulls_direction * _direction < 0;
                 if (LIKELY(range_end - range_begin > 1)) {
-                    int range_split = 0;
+                    int64_t range_split = 0;
                     if (null_first) {
                         range_split = std::partition(perms.begin() + range_begin,
                                                      perms.begin() + range_end,
@@ -266,8 +268,8 @@ public:
                                                      }) -
                                       perms.begin();
                     }
-                    std::pair<size_t, size_t> is_null_range = {range_begin, range_split};
-                    std::pair<size_t, size_t> not_null_range = {range_split, range_end};
+                    std::pair<int64_t, int64_t> is_null_range = {range_begin, range_split};
+                    std::pair<int64_t, int64_t> not_null_range = {range_split, range_end};
                     if (!null_first) {
                         std::swap(is_null_range, not_null_range);
                     }
@@ -282,7 +284,7 @@ public:
 
                         if (UNLIKELY(_limit > is_null_range.first &&
                                      _limit <= is_null_range.second)) {
-                            _limit = is_null_range.second;
+                            _limit = static_cast<int32_t>(is_null_range.second);
                         }
                         is_null_ranges.push_back(std::move(is_null_range));
                     }
@@ -339,7 +341,7 @@ private:
             } else {
                 static_assert(always_false_v<ColumnType>);
             }
-            permutation_for_column[i].row_id = row_id;
+            permutation_for_column[i].row_id = static_cast<uint32_t>(row_id);
         }
     }
 
@@ -347,7 +349,7 @@ private:
     void _sort_by_default(const ColumnType& column, EqualFlags& flags, IColumn::Permutation& perms,
                           EqualRange& range, bool last_column) const {
         int new_limit = _limit;
-        auto comparator = [&](const size_t a, const size_t b) {
+        auto comparator = [&](const auto a, const auto b) {
             if constexpr (!std::is_same_v<ColumnType, ColumnString> &&
                           !std::is_same_v<ColumnType, ColumnString64>) {
                 auto value_a = column.get_data()[a];
@@ -358,10 +360,10 @@ private:
             }
         };
 
-        auto sort_comparator = [&](const size_t a, const size_t b) {
+        auto sort_comparator = [&](const auto a, const auto b) {
             return comparator(a, b) * _direction < 0;
         };
-        auto do_sort = [&](size_t first_iter, size_t last_iter) {
+        auto do_sort = [&](auto first_iter, auto last_iter) {
             auto begin = perms.begin() + first_iter;
             auto end = perms.begin() + last_iter;
 
@@ -370,7 +372,7 @@ private:
                 std::partial_sort(begin, begin + n, end, sort_comparator);
 
                 auto nth = perms[_limit - 1];
-                size_t equal_count = 0;
+                int32_t equal_count = 0;
                 for (auto iter = begin + n; iter < end; iter++) {
                     if (comparator(*iter, nth) == 0) {
                         std::iter_swap(iter, begin + n + equal_count);
@@ -428,7 +430,7 @@ private:
                                    const PermutationWithInlineValue<InlineType>& b) {
             return comparator(a, b) * _direction < 0;
         };
-        auto do_sort = [&](size_t first_iter, size_t last_iter) {
+        auto do_sort = [&](auto first_iter, auto last_iter) {
             auto begin = permutation_for_column.begin() + first_iter;
             auto end = permutation_for_column.begin() + last_iter;
 
@@ -437,7 +439,7 @@ private:
                 std::partial_sort(begin, begin + n, end, sort_comparator);
 
                 auto nth = permutation_for_column[_limit - 1];
-                size_t equal_count = 0;
+                int32_t equal_count = 0;
                 for (auto iter = begin + n; iter < end; iter++) {
                     if (comparator(*iter, nth) == 0) {
                         std::iter_swap(iter, begin + n + equal_count);
@@ -489,3 +491,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

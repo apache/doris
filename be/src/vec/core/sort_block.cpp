@@ -20,9 +20,12 @@
 
 #include "vec/core/sort_block.h"
 
+#include <cstdint>
+
 #include "vec/core/column_with_type_and_name.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 ColumnsWithSortDescriptions get_columns_with_sort_description(const Block& block,
                                                               const SortDescription& description) {
@@ -84,7 +87,7 @@ void sort_block(Block& src_block, Block& dest_block, const SortDescription& desc
 
             // TODO: ColumnSorter should be constructed only once.
             for (size_t i = 0; i < columns_with_sort_desc.size(); i++) {
-                ColumnSorter sorter(columns_with_sort_desc[i], limit);
+                ColumnSorter sorter(columns_with_sort_desc[i], static_cast<int32_t>(limit));
                 sorter.operator()(flags, perm, range, i == columns_with_sort_desc.size() - 1);
             }
         }

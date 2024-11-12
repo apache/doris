@@ -513,7 +513,7 @@ void convert_decimal_cols(
                                 from_data_type.to_string(vec_from[i]), from_data_type.get_name(),
                                 to_data_type.get_name());
                     } else {
-                        vec_to[i] = ToFieldType(res);
+                        vec_to[i] = ToFieldType(static_cast<NativeType<ToFieldType>::Type>(res));
                     }
                 }
             } else {
@@ -525,7 +525,7 @@ void convert_decimal_cols(
                                 to_data_type.get_name());
                     }
                 }
-                vec_to[i] = ToFieldType(res);
+                vec_to[i] = ToFieldType(static_cast<NativeType<ToFieldType>::Type>(res));
             }
         }
     } else if (scale_to == scale_from) {
@@ -538,7 +538,7 @@ void convert_decimal_cols(
                                                              to_data_type.get_name());
                 }
             }
-            vec_to[i] = ToFieldType(vec_from[i].value);
+            vec_to[i] = ToFieldType(static_cast<NativeType<ToFieldType>::Type>(vec_from[i].value));
         }
     } else {
         MaxNativeType multiplier =
@@ -553,9 +553,10 @@ void convert_decimal_cols(
                                 from_data_type.to_string(vec_from[i]), from_data_type.get_name(),
                                 to_data_type.get_name());
                     }
-                    vec_to[i] = ToFieldType(res);
+                    vec_to[i] = ToFieldType(static_cast<NativeType<ToFieldType>::Type>(res));
                 } else {
-                    vec_to[i] = ToFieldType((vec_from[i].value + multiplier / 2) / multiplier);
+                    vec_to[i] = ToFieldType(static_cast<NativeType<ToFieldType>::Type>(
+                            (vec_from[i].value + multiplier / 2) / multiplier));
                 }
             } else {
                 if constexpr (narrow_integral) {
@@ -565,9 +566,10 @@ void convert_decimal_cols(
                                 from_data_type.to_string(vec_from[i]), from_data_type.get_name(),
                                 to_data_type.get_name());
                     }
-                    vec_to[i] = ToFieldType(res);
+                    vec_to[i] = ToFieldType(static_cast<NativeType<ToFieldType>::Type>(res));
                 } else {
-                    vec_to[i] = ToFieldType((vec_from[i].value - multiplier / 2) / multiplier);
+                    vec_to[i] = ToFieldType(static_cast<NativeType<ToFieldType>::Type>(
+                            (vec_from[i].value - multiplier / 2) / multiplier));
                 }
             }
         }
@@ -608,8 +610,9 @@ void convert_from_decimal(typename ToDataType::FieldType* dst,
         }
     } else {
         convert_from_decimals<FromDataType, FromDataType, ToDataType, narrow_integral>(
-                dst, src, precision, scale, FromFieldType(min_result), FromFieldType(max_result),
-                size);
+                dst, src, precision, scale,
+                FromFieldType(static_cast<NativeType<FromFieldType>::Type>(min_result)),
+                FromFieldType(static_cast<NativeType<FromFieldType>::Type>(max_result)), size);
     }
 }
 
@@ -649,7 +652,9 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
         }
     } else {
         using DecimalFrom =
-                std::conditional_t<std::is_same_v<FromFieldType, Int128>, Decimal128V2,
+                std::conditional_t<std::is_same_v<FromFieldType, Int128> ||
+                                           std::is_same_v<FromFieldType, IPv6>,
+                                   Decimal128V2,
                                    std::conditional_t<std::is_same_v<FromFieldType, wide::Int256>,
                                                       Decimal256, Decimal64>>;
         convert_to_decimals<DataTypeDecimal<DecimalFrom>, FromDataType, ToDataType,

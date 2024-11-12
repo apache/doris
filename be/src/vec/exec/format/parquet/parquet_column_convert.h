@@ -19,6 +19,8 @@
 
 #include <gen_cpp/parquet_types.h>
 
+#include <type_traits>
+
 #include "vec/core/types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -435,7 +437,7 @@ public:
     Status _convert_internal(ColumnPtr& src_col, MutableColumnPtr& dst_col) {
         size_t rows = src_col->size() / fixed_type_length;
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
-        auto* buf = static_cast<const ColumnUInt8*>(src_col.get())->get_data().data();
+        const auto* buf = static_cast<const ColumnUInt8*>(src_col.get())->get_data().data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
 
@@ -460,7 +462,7 @@ public:
                 __builtin_unreachable();
             }
             auto& v = reinterpret_cast<DecimalType&>(data[start_idx + i]);
-            v = (DecimalType)value;
+            v = DecimalType(typename DecimalType::NativeType(value));
         }
 
         return Status::OK();

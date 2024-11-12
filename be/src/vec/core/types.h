@@ -33,6 +33,7 @@
 #include "vec/core/wide_integer_to_string.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class BitmapValue;
 class HyperLogLog;
@@ -388,7 +389,7 @@ std::string decimal_to_string(const T& value, UInt32 scale) {
     std::string str = std::string(max_result_length, '0');
 
     T abs_value = value;
-    int pos = 0;
+    int64_t pos = 0;
 
     if (is_nagetive) {
         abs_value = -value;
@@ -445,7 +446,7 @@ size_t decimal_to_string(const T& value, char* dst, UInt32 scale, const T& scale
 
     bool is_negative = value < 0;
     T abs_value = value;
-    int pos = 0;
+    int64_t pos = 0;
 
     if (is_negative) {
         abs_value = -value;
@@ -563,8 +564,9 @@ struct Decimal {
             return Decimal(integer * common::exp10_i128(scale) + fraction);
         } else if constexpr (std::is_same_v<T, wide::Int256>) {
             return Decimal(integer * common::exp10_i256(scale) + fraction);
+        } else {
+            return Decimal(integer * int_exp10(scale) + fraction);
         }
-        return Decimal(integer * int_exp10(scale) + fraction);
     }
 
     template <typename U>
@@ -578,6 +580,16 @@ struct Decimal {
 
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
     constexpr Decimal<T>& operator=(const Decimal<T>&) = default;
+
+    template <typename U, typename = std::enable_if_t<sizeof(U) <= sizeof(T)>>
+    constexpr Decimal<T>& operator=(Decimal<U>&& x) {
+        value = x.value;
+    }
+
+    template <typename U, typename = std::enable_if_t<sizeof(U) <= sizeof(T)>>
+    constexpr Decimal<T>& operator=(const Decimal<U>& x) {
+        value = x.value;
+    }
 
     operator T() const { return value; }
 
@@ -687,24 +699,15 @@ inline Decimal<T> operator%(const Decimal<T>& x, const Decimal<T>& y) {
 struct Decimal128V3 : public Decimal<Int128> {
     Decimal128V3() = default;
 
-#define DECLARE_NUMERIC_CTOR(TYPE) \
-    Decimal128V3(const TYPE& value_) : Decimal<Int128>(value_) {}
+    template <typename T, typename = std::enable_if_t<sizeof(T) <= sizeof(Int128)>>
+    Decimal128V3(const T& value_) : Decimal<Int128>(value_) {}
 
-    DECLARE_NUMERIC_CTOR(wide::Int256)
-    DECLARE_NUMERIC_CTOR(Int128)
-    DECLARE_NUMERIC_CTOR(IPv6)
-    DECLARE_NUMERIC_CTOR(Int32)
-    DECLARE_NUMERIC_CTOR(Int64)
-    DECLARE_NUMERIC_CTOR(UInt32)
-    DECLARE_NUMERIC_CTOR(UInt64)
-    DECLARE_NUMERIC_CTOR(Float32)
-    DECLARE_NUMERIC_CTOR(Float64)
-#undef DECLARE_NUMERIC_CTOR
-
-    template <typename U>
+    template <typename U, typename = std::enable_if_t<sizeof(U) <= sizeof(Int128)>>
     Decimal128V3(const Decimal<U>& x) {
-        value = x;
+        value = x.value;
     }
+
+    explicit Decimal128V3(const wide::Int256& x) { value = static_cast<Int128>(x); }
 };
 
 using Decimal32 = Decimal<Int32>;
@@ -800,8 +803,10 @@ template <typename T>
 constexpr bool IsDecimalV2 = IsDecimal128V2<T> && !IsDecimal128V3<T>;
 
 template <typename T, typename U>
-using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
-                                          std::conditional_t<IsDecimalNumber<T>, Decimal128V3, U>>;
+using DisposeDecimal = std::conditional_t<
+        IsDecimal256<T>, Decimal256,
+        std::conditional_t<IsDecimalV2<T>, Decimal128V2,
+                           std::conditional_t<IsDecimalNumber<T>, Decimal128V3, U>>>;
 
 template <typename T, typename U>
 using DisposeDecimal256 = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
@@ -1002,3 +1007,4 @@ constexpr bool typeindex_is_int(doris::vectorized::TypeIndex index) {
     }
     }
 }
+#include "common/compile_check_end.h"

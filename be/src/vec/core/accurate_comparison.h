@@ -36,7 +36,7 @@
 */
 
 namespace accurate {
-
+#include "common/compile_check_begin.h"
 /** Cases:
     1) Safe conversion (in case of default C++ operators)
         a) int vs any int
@@ -323,7 +323,7 @@ inline bool convertNumeric(From value, To& result) {
     if constexpr (std::is_floating_point_v<From> && std::is_floating_point_v<To>) {
         /// Note that NaNs doesn't compare equal to anything, but they are still in range of any Float type.
         if (is_nan(value)) {
-            result = value;
+            result = static_cast<To>(value);
             return true;
         }
         if (value == std::numeric_limits<From>::infinity()) {
@@ -447,3 +447,4 @@ struct GreaterOrEqualsOp<DecimalV2Value, DecimalV2Value> {
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

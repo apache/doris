@@ -970,9 +970,11 @@ static void decimal_checker(const DecimalTestDataSet& round_test_cases, bool dec
             auto input = std::get<0>(test_date);
             auto scale_arg = std::get<1>(test_date);
             auto expectation = std::get<2>(test_date);
-            col_general->get_element(rid) = DecimalType(input);
+            col_general->get_element(rid) =
+                    DecimalType(static_cast<NativeType<DecimalType>::Type>(input));
             col_scale->insert(scale_arg);
-            col_res_expected->get_element(rid) = DecimalType(expectation);
+            col_res_expected->get_element(rid) =
+                    DecimalType(static_cast<NativeType<DecimalType>::Type>(expectation));
             rid++;
         }
 

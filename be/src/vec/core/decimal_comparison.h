@@ -32,6 +32,7 @@
 #include "vec/functions/function_helpers.h" /// todo core should not depend on function"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 inline bool allow_decimal_comparison(const DataTypePtr& left_type, const DataTypePtr& right_type) {
     if (is_decimal(left_type)) {
@@ -61,8 +62,7 @@ struct ConstructDecInt<32> {
 
 template <typename T, typename U>
 struct DecCompareInt {
-    using Type = typename ConstructDecInt<
-            (!IsDecimalNumber<U> || sizeof(T) > sizeof(U)) ? sizeof(T) : sizeof(U)>::Type;
+    using Type = typename ConstructDecInt<(sizeof(T) > sizeof(U)) ? sizeof(T) : sizeof(U)>::Type;
     using TypeA = Type;
     using TypeB = Type;
 };
@@ -322,3 +322,4 @@ private:
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"

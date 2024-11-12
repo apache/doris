@@ -23,6 +23,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/common/arena.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 
@@ -161,7 +162,7 @@ public:
         columns[2] = ColumnFloat64::create();
 
         for (size_t i = 0; i < input_rows; ++i) {
-            auto item0 = FieldType(static_cast<uint64_t>(i));
+            auto item0 = FieldType(static_cast<NativeType<FieldType>::Type>(i));
             columns[0]->insert_data(reinterpret_cast<const char*>(&item0), 0);
             columns[1]->insert_data(reinterpret_cast<const char*>(&interval), 0);
             if (offset != 0) {

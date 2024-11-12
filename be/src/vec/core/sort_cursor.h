@@ -26,6 +26,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 struct HeapSortCursorBlockView {
 public:
@@ -40,7 +41,7 @@ public:
 
     // need exception safety
     void filter_block(IColumn::Filter& filter) {
-        Block::filter_block_internal(&block, filter, block.columns());
+        Block::filter_block_internal(&block, filter, static_cast<uint32_t>(block.columns()));
         _reset();
     }
 
@@ -310,8 +311,9 @@ struct MergeSortBlockCursor {
 
     /// Inverted so that the priority queue elements are removed in ascending order.
     bool operator<(const MergeSortBlockCursor& rhs) const {
-        return less_at(rhs, impl->rows - 1) == 1;
+        return less_at(rhs, static_cast<int32_t>(impl->rows - 1)) == 1;
     }
 };
 
 } // namespace doris::vectorized
+#include "common/compile_check_end.h"
