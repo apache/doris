@@ -52,6 +52,23 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
         return -1;
     }
 
+    // check auth by token
+    if (auth_info.token != "") {
+#ifdef BE_TEST
+        if (auth_info.token == "valid_token") {
+            return 0;
+#else
+        if (_exec_env->check_auth_token(auth_info.token)) {
+            return 0;
+#endif
+        } else {
+            LOG(WARNING) << "invalid auth token, request: " << req->debug_string();
+            HttpChannel::send_error(req, HttpStatus::BAD_REQUEST);
+            return -1;
+        }
+    }
+
+    // check auth by user/password
     auth_request.user = auth_info.user;
     auth_request.passwd = auth_info.passwd;
     auth_request.__set_cluster(auth_info.cluster);
@@ -65,7 +82,7 @@ int HttpHandlerWithAuth::on_header(HttpRequest* req) {
     }
 
 #ifndef BE_TEST
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     {
         auto status = ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,

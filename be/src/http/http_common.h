@@ -66,7 +66,7 @@ static const std::string HTTP_TXN_OPERATION_KEY = "txn_operation";
 static const std::string HTTP_MEMTABLE_ON_SINKNODE = "memtable_on_sink_node";
 static const std::string HTTP_LOAD_STREAM_PER_NODE = "load_stream_per_node";
 static const std::string HTTP_WAL_ID_KY = "wal_id";
-static const std::string HTTP_AUTH_CODE = "auth_code";
+static const std::string HTTP_AUTH_CODE = "auth_code"; // deprecated
 static const std::string HTTP_GROUP_COMMIT = "group_commit";
 static const std::string HTTP_CLOUD_CLUSTER = "cloud_cluster";
 
