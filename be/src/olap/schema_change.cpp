@@ -81,6 +81,7 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/exprs/vexpr.h"
@@ -1367,13 +1368,9 @@ Status SchemaChangeJob::parse_request(const SchemaChangeParams& sc_params,
             *sc_directly = true;
             return Status::OK();
         } else if (column_mapping->ref_column_idx >= 0) {
-            const auto& column_new = new_tablet_schema->column(i);
-            const auto& column_old = base_tablet_schema->column(column_mapping->ref_column_idx);
             // index changed
-            if (column_new.is_bf_column() != column_old.is_bf_column() ||
-                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
-                new_tablet_schema->has_inverted_index(column_new) !=
-                        base_tablet_schema->has_inverted_index(column_old)) {
+            if (vectorized::schema_util::has_schema_index_diff(
+                        new_tablet_schema, base_tablet_schema, i, column_mapping->ref_column_idx)) {
                 *sc_directly = true;
                 return Status::OK();
             }
