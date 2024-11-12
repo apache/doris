@@ -103,6 +103,8 @@ suite("aggregate_without_roll_up") {
     (5, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-12', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');
     """
 
+
+
     sql """
     insert into orders values
     (1, 1, 'o', 9.5, '2023-12-08', 'a', 'b', 1, 'yy'),
