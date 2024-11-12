@@ -425,8 +425,8 @@ public class ExportJob implements Writable {
             list.addItem(SelectListItem.createStarItem(this.tableName));
         } else {
             for (Column column : exportTable.getBaseSchema()) {
-                String colName = column.getName().toLowerCase();
-                if (exportColumns.contains(colName)) {
+                String colName = column.getName();
+                if (exportColumns.contains(colName.toLowerCase())) {
                     SlotRef slotRef = new SlotRef(this.tableName, colName);
                     SelectListItem selectListItem = new SelectListItem(slotRef, null);
                     list.addItem(selectListItem);
@@ -706,7 +706,7 @@ public class ExportJob implements Writable {
         if (FeConstants.runningUnitTest) {
             return;
         }
-        Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.CANCELLED);
+        Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.CANCELLED);
         LOG.info("cancel export job {}", id);
     }
 
@@ -750,7 +750,7 @@ public class ExportJob implements Writable {
         outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
         // Clear the jobExecutorList to release memory.
         jobExecutorList.clear();
-        Env.getCurrentEnv().getEditLog().logExportUpdateState(id, ExportJobState.FINISHED);
+        Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.FINISHED);
         LOG.info("finish export job {}", id);
     }
 

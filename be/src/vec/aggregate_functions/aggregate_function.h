@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "util/defer_op.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_string.h"
@@ -30,6 +32,7 @@
 #include "vec/core/column_numbers.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_string.h"
 
 namespace doris::vectorized {
@@ -221,6 +224,10 @@ public:
     virtual void set_version(const int version_) { version = version_; }
 
     virtual AggregateFunctionPtr transmit_to_stable() { return nullptr; }
+
+    /// Verify function signature
+    virtual Status verify_result_type(const bool without_key, const DataTypes& argument_types,
+                                      const DataTypePtr result_type) const = 0;
 
 protected:
     DataTypes argument_types;
@@ -493,6 +500,43 @@ public:
         assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->deserialize(rhs, buf,
                                                                                     arena);
         assert_cast<const Derived*, TypeCheckOnRelease::DISABLE>(this)->merge(place, rhs, arena);
+    }
+
+    Status verify_result_type(const bool without_key, const DataTypes& argument_types_with_nullable,
+                              const DataTypePtr result_type_with_nullable) const override {
+        DataTypePtr function_result_type = assert_cast<const Derived*>(this)->get_return_type();
+
+        if (function_result_type->equals(*result_type_with_nullable)) {
+            return Status::OK();
+        }
+
+        if (!remove_nullable(function_result_type)
+                     ->equals(*remove_nullable(result_type_with_nullable))) {
+            return Status::InternalError(
+                    "Result type of {} is not matched, planner expect {}, but get {}, with group "
+                    "by: "
+                    "{}",
+                    get_name(), result_type_with_nullable->get_name(),
+                    function_result_type->get_name(), !without_key);
+        }
+
+        if (without_key == true) {
+            if (result_type_with_nullable->is_nullable()) {
+                // This branch is decicated for NullableAggregateFunction.
+                // When they are executed without group by key, the result from planner will be AlwaysNullable
+                // since Planer does not know whether there are any invalid input at runtime, if so, the result
+                // should be Null, so the result type must be nullable.
+                // Backend will wrap a ColumnNullable in this situation. For example: AggLocalState::_get_without_key_result
+                return Status::OK();
+            }
+        }
+
+        // Executed with group by key, result type must be exactly same with the return type from Planner.
+        return Status::InternalError(
+                "Result type of {} is not matched, planner expect {}, but get {}, with group by: "
+                "{}",
+                get_name(), result_type_with_nullable->get_name(), function_result_type->get_name(),
+                !without_key);
     }
 };
 

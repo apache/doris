@@ -191,14 +191,20 @@ public:
 
     const auto& rowset_map() const { return _rs_version_map; }
 
+    // Merge all rowset schemas within a CloudTablet
+    Status merge_rowsets_schema();
+
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
     int64_t last_cumu_compaction_success_time_ms = 0;
     int64_t last_cumu_no_suitable_version_ms = 0;
+    int64_t last_access_time_ms = 0;
 
     // Return merged extended schema
     TabletSchemaSPtr merged_tablet_schema() const override;
+
+    void build_tablet_report_info(TTabletInfo* tablet_info);
 
 private:
     // FIXME(plat1ko): No need to record base size if rowsets are ordered by version
@@ -207,9 +213,6 @@ private:
     static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     Status sync_if_not_running();
-
-    // Merge all rowset schemas within a CloudTablet
-    Status merge_rowsets_schema();
 
     CloudStorageEngine& _engine;
 

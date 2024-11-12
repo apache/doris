@@ -430,6 +430,18 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
 
+            // drop bloom filter column
+            Set<String> bfCols = olapTable.getCopiedBfColumns();
+            if (bfCols != null) {
+                Set<String> newBfCols = new HashSet<>();
+                for (String bfCol : bfCols) {
+                    if (!bfCol.equalsIgnoreCase(dropColName)) {
+                        newBfCols.add(bfCol);
+                    }
+                }
+                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
+            }
+
             for (int i = 1; i < indexIds.size(); i++) {
                 List<Column> rollupSchema = indexSchemaMap.get(indexIds.get(i));
                 Iterator<Column> iter = rollupSchema.iterator();
@@ -2859,7 +2871,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 }
-                Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
+                if (!FeConstants.runningUnitTest) {
+                    Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
+                }
                 // Drop table column stats after light schema change finished.
                 Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
 
@@ -3118,7 +3132,9 @@ public class SchemaChangeHandler extends AlterHandler {
                     addIndexChangeJob(indexChangeJob);
 
                     // write edit log
-                    Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
+                    if (!FeConstants.runningUnitTest) {
+                        Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
+                    }
                     LOG.info("finish create table's inverted index job. table: {}, partition: {}, job: {}",
                             olapTable.getName(), partitionName, jobId);
                 } // end for partition

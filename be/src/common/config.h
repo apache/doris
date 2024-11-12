@@ -1003,6 +1003,9 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
+DECLARE_mInt64(block_cache_wait_timeout_ms);
+DECLARE_mInt64(cache_lock_long_tail_threshold);
+DECLARE_Int64(file_cache_recycle_keys_size);
 
 DECLARE_Bool(enable_brpc_builtin_services);
 
@@ -1078,8 +1081,6 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
-// rename ttl filename to new format during read, with some performance cost
-DECLARE_Bool(translate_to_new_ttl_format_during_read);
 DECLARE_mBool(enbale_dump_error_file);
 // limit the max size of error log on disk
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
@@ -1457,6 +1458,9 @@ DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
 // MB
 DECLARE_Int32(query_cache_size);
+
+// Enable validation to check the correctness of table size.
+DECLARE_Bool(enable_table_size_correctness_check);
 
 #ifdef BE_TEST
 // test s3

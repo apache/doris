@@ -330,6 +330,11 @@ Status NewJsonReader::get_parsed_schema(std::vector<std::string>* col_names,
         objectValue = _json_doc;
     }
 
+    if (!objectValue->IsObject()) {
+        return Status::DataQualityError("JSON data is not an object. but: {}",
+                                        objectValue->GetType());
+    }
+
     // use jsonpaths to col_names
     if (!_parsed_jsonpaths.empty()) {
         for (auto& _parsed_jsonpath : _parsed_jsonpaths) {

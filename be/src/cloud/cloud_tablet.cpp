@@ -164,9 +164,6 @@ Status CloudTablet::sync_rowsets(int64_t query_version, bool warmup_delta_data) 
         clear_cache();
     }
 
-    // Merge all rowset schemas within a CloudTablet
-    RETURN_IF_ERROR(merge_rowsets_schema());
-
     return st;
 }
 
@@ -437,7 +434,7 @@ int CloudTablet::delete_expired_stale_rowsets() {
 void CloudTablet::update_base_size(const Rowset& rs) {
     // Define base rowset as the rowset of version [2-x]
     if (rs.start_version() == 2) {
-        _base_size = rs.data_disk_size();
+        _base_size = rs.total_disk_size();
     }
 }
 
@@ -458,7 +455,7 @@ void CloudTablet::recycle_cached_data(const std::vector<RowsetSharedPtr>& rowset
                 // TODO: Segment::file_cache_key
                 auto file_key = Segment::file_cache_key(rs->rowset_id().to_string(), seg_id);
                 auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
-                file_cache->remove_if_cached(file_key);
+                file_cache->remove_if_cached_async(file_key);
             }
         }
     }
@@ -894,6 +891,14 @@ Status CloudTablet::sync_meta() {
     }
 
     return Status::OK();
+}
+
+void CloudTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
+    std::shared_lock rdlock(_meta_lock);
+    tablet_info->__set_total_version_count(_tablet_meta->version_count());
+    tablet_info->__set_tablet_id(_tablet_meta->tablet_id());
+    // Currently, this information will not be used by the cloud report,
+    // but it may be used in the future.
 }
 
 } // namespace doris

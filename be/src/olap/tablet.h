@@ -115,7 +115,6 @@ public:
 
     DataDir* data_dir() const { return _data_dir; }
     int64_t replica_id() const { return _tablet_meta->replica_id(); }
-    TabletUid tablet_uid() const { return _tablet_meta->tablet_uid(); }
 
     const std::string& tablet_path() const { return _tablet_path; }
 
@@ -276,8 +275,6 @@ public:
     void delete_all_files();
 
     void check_tablet_path_exists();
-
-    TabletInfo get_tablet_info() const;
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
@@ -449,13 +446,7 @@ public:
     void gc_binlogs(int64_t version);
     Status ingest_binlog_metas(RowsetBinlogMetasPB* metas_pb);
 
-    inline void report_error(const Status& st) {
-        if (st.is<ErrorCode::IO_ERROR>()) {
-            ++_io_error_times;
-        } else if (st.is<ErrorCode::CORRUPTION>()) {
-            _io_error_times = config::max_tablet_io_errors + 1;
-        }
-    }
+    void report_error(const Status& st);
 
     inline int64_t get_io_error_times() const { return _io_error_times; }
 
@@ -520,6 +511,10 @@ private:
     ////////////////////////////////////////////////////////////////////////////
 
     void _clear_cache_by_rowset(const BetaRowsetSharedPtr& rowset);
+    void check_table_size_correctness();
+    std::string get_segment_path(const RowsetMetaSharedPtr& rs_meta, int64_t seg_id);
+    int64_t get_segment_file_size(const RowsetMetaSharedPtr& rs_meta);
+    int64_t get_inverted_index_file_szie(const RowsetMetaSharedPtr& rs_meta);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

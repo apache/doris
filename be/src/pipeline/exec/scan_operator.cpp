@@ -45,6 +45,8 @@
 
 namespace doris::pipeline {
 
+const static int32_t ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT = 10000;
+
 #define RETURN_IF_PUSH_DOWN(stmt, status)    \
     if (pdt == PushDownType::UNACCEPTABLE) { \
         status = stmt;                       \
@@ -994,7 +996,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = vectorized::ScannerContext::create_shared(
             state(), this, p._output_tuple_desc, p.output_row_descriptor(), scanners, p.limit(),
-            _scan_dependency, p.is_serial_operator());
+            _scan_dependency, p.is_serial_operator(), p.is_file_scan_operator());
     return Status::OK();
 }
 
@@ -1186,6 +1188,34 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
     if (tnode.__isset.topn_filter_source_node_ids) {
         topn_filter_source_node_ids = tnode.topn_filter_source_node_ids;
     }
+
+    // The first branch is kept for compatibility with the old version of the FE
+    if (!query_options.__isset.enable_adaptive_pipeline_task_serial_read_on_limit) {
+        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+            // Which means the request could be fullfilled in a single segment iterator request.
+            if (tnode.limit > 0 &&
+                tnode.limit <= ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT) {
+                _should_run_serial = true;
+            }
+        }
+    } else {
+        DCHECK(query_options.__isset.adaptive_pipeline_task_serial_read_on_limit);
+        // The set of enable_adaptive_pipeline_task_serial_read_on_limit
+        // is checked in previous branch.
+        if (query_options.enable_adaptive_pipeline_task_serial_read_on_limit) {
+            int32_t adaptive_pipeline_task_serial_read_on_limit =
+                    ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT_DEFAULT;
+            if (query_options.__isset.adaptive_pipeline_task_serial_read_on_limit) {
+                adaptive_pipeline_task_serial_read_on_limit =
+                        query_options.adaptive_pipeline_task_serial_read_on_limit;
+            }
+
+            if (tnode.limit > 0 && tnode.limit <= adaptive_pipeline_task_serial_read_on_limit) {
+                _should_run_serial = true;
+            }
+        }
+    }
+
     return Status::OK();
 }
 
@@ -1269,6 +1299,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     if (*eos) {
         // reach limit, stop the scanners.
         local_state._scanner_ctx->stop_scanners(state);
+        local_state._scanner_profile->add_info_string("EOS", "True");
     }
 
     return Status::OK();

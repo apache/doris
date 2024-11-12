@@ -219,7 +219,7 @@ Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat
 
 Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end) {
-    return _writer->_create_segment_writer_for_segcompaction(writer, begin, end);
+    return _writer->create_segment_writer_for_segcompaction(writer, begin, end);
 }
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
@@ -310,7 +310,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
                                       _writer->_num_segcompacted);
     }
     RETURN_IF_ERROR(_writer->_rename_compacted_segments(begin, end));
-
+    if (_inverted_index_file_writer != nullptr) {
+        _inverted_index_file_writer.reset();
+    }
     if (VLOG_DEBUG_IS_ON) {
         _writer->vlog_buffer.clear();
         for (const auto& entry : std::filesystem::directory_iterator(ctx.tablet_path)) {

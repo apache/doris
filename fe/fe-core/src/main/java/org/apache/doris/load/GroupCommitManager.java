@@ -328,13 +328,11 @@ public class GroupCommitManager {
                 // Another thread gets the same tableId but can not find this tableId.
                 // So another thread needs to get the random backend.
                 Long backendId = tableToBeMap.get(encode(cluster, tableId));
-                Backend backend;
-                if (backendId != null) {
-                    backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                } else {
+                if (backendId == null) {
                     return null;
                 }
-                if (backend.isActive() && !backend.isDecommissioned()) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                if (backend != null && backend.isActive() && !backend.isDecommissioned()) {
                     return backend.getId();
                 } else {
                     tableToBeMap.remove(encode(cluster, tableId));
@@ -393,10 +391,10 @@ public class GroupCommitManager {
     private void updateLoadDataInternal(long tableId, long receiveData) {
         if (tableToPressureMap.containsKey(tableId)) {
             tableToPressureMap.get(tableId).add(receiveData);
-            LOG.info("Update load data for table{}, receiveData {}, tablePressureMap {}", tableId, receiveData,
+            LOG.info("Update load data for table {}, receiveData {}, tablePressureMap {}", tableId, receiveData,
                     tableToPressureMap.toString());
-        } else {
-            LOG.warn("can not find backend id: {}", tableId);
+        } else if (LOG.isDebugEnabled()) {
+            LOG.debug("can not find table id {}", tableId);
         }
     }
 }

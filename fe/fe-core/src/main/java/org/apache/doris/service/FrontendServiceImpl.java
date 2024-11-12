@@ -54,6 +54,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.GZIPUtils;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
@@ -271,6 +272,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -2875,7 +2877,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     // getSnapshotImpl
     private TGetSnapshotResult getSnapshotImpl(TGetSnapshotRequest request, String clientIp)
-            throws UserException {
+            throws UserException, IOException {
         // Step 1: Check all required arg: user, passwd, db, label_name, snapshot_name,
         // snapshot_type
         if (!request.isSetUser()) {
@@ -2908,15 +2910,30 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         // Step 3: get snapshot
+        String label = request.getLabelName();
         TGetSnapshotResult result = new TGetSnapshotResult();
         result.setStatus(new TStatus(TStatusCode.OK));
-        Snapshot snapshot = Env.getCurrentEnv().getBackupHandler().getSnapshot(request.getLabelName());
+        Snapshot snapshot = Env.getCurrentEnv().getBackupHandler().getSnapshot(label);
         if (snapshot == null) {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_NOT_EXIST);
-            result.getStatus().addToErrorMsgs("snapshot not exist");
+            result.getStatus().addToErrorMsgs(String.format("snapshot %s not exist", label));
         } else {
-            result.setMeta(snapshot.getMeta());
-            result.setJobInfo(snapshot.getJobInfo());
+            byte[] meta = snapshot.getMeta();
+            byte[] jobInfo = snapshot.getJobInfo();
+
+            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}",
+                    label, meta.length, jobInfo.length);
+            if (request.isEnableCompress()) {
+                meta = GZIPUtils.compress(meta);
+                jobInfo = GZIPUtils.compress(jobInfo);
+                result.setCompressed(true);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("get snapshot info with compress, snapshot: {}, compressed meta "
+                            + "size {}, compressed job info size {}", label, meta.length, jobInfo.length);
+                }
+            }
+            result.setMeta(meta);
+            result.setJobInfo(jobInfo);
         }
 
         return result;
@@ -3023,8 +3040,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 restoreTableRefClause = new AbstractBackupTableRefClause(isExclude, tableRefs);
             }
         }
-        RestoreStmt restoreStmt = new RestoreStmt(label, repoName, restoreTableRefClause, properties, request.getMeta(),
-                request.getJobInfo());
+
+        byte[] meta = request.getMeta();
+        byte[] jobInfo = request.getJobInfo();
+        if (Config.enable_restore_snapshot_rpc_compression && request.isCompressed()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("decompress meta and job info, compressed meta size {}, compressed job info size {}",
+                        meta.length, jobInfo.length);
+            }
+            try {
+                meta = GZIPUtils.decompress(meta);
+                jobInfo = GZIPUtils.decompress(jobInfo);
+            } catch (Exception e) {
+                LOG.warn("decompress meta and job info failed", e);
+                throw new UserException("decompress meta and job info failed", e);
+            }
+        } else if (GZIPUtils.isGZIPCompressed(jobInfo) || GZIPUtils.isGZIPCompressed(meta)) {
+            throw new UserException("The request is compressed, but the config "
+                    + "`enable_restore_snapshot_rpc_compressed` is not enabled.");
+        }
+
+        RestoreStmt restoreStmt = new RestoreStmt(label, repoName, restoreTableRefClause, properties, meta, jobInfo);
         restoreStmt.setIsBeingSynced();
         LOG.debug("restore snapshot info, restoreStmt: {}", restoreStmt);
         try {
@@ -3495,7 +3531,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(false)) {
+        for (Long id : systemInfoService.getAllBackendByCurrentCluster(false)) {
             Backend backend = systemInfoService.getBackend(id);
             nodeInfos.add(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }
@@ -3704,7 +3740,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // build nodes
         List<TNodeInfo> nodeInfos = Lists.newArrayList();
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-        for (Long id : systemInfoService.getAllBackendIds(false)) {
+        for (Long id : systemInfoService.getAllBackendByCurrentCluster(false)) {
             Backend backend = systemInfoService.getBackend(id);
             nodeInfos.add(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
         }

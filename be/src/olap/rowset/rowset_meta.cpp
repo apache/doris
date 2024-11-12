@@ -225,6 +225,7 @@ void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
     set_data_disk_size(data_disk_size() + other.data_disk_size());
     set_total_disk_size(total_disk_size() + other.total_disk_size());
     set_index_disk_size(index_disk_size() + other.index_disk_size());
+    set_total_disk_size(data_disk_size() + index_disk_size());
     for (auto&& key_bound : other.get_segments_key_bounds()) {
         add_segment_key_bounds(key_bound);
     }
@@ -266,18 +267,12 @@ InvertedIndexFileInfo RowsetMeta::inverted_index_file_info(int seg_id) {
 }
 
 void RowsetMeta::add_inverted_index_files_info(
-        const std::vector<InvertedIndexFileInfo>& idx_file_info) {
+        const std::vector<const InvertedIndexFileInfo*>& idx_file_info) {
     _rowset_meta_pb.set_enable_inverted_index_file_info(true);
     for (auto finfo : idx_file_info) {
         auto* new_file_info = _rowset_meta_pb.add_inverted_index_file_info();
-        *new_file_info = finfo;
+        *new_file_info = *finfo;
     }
-}
-
-void RowsetMeta::update_inverted_index_files_info(
-        const std::vector<InvertedIndexFileInfo>& idx_file_info) {
-    _rowset_meta_pb.clear_inverted_index_file_info();
-    add_inverted_index_files_info(idx_file_info);
 }
 
 bool operator==(const RowsetMeta& a, const RowsetMeta& b) {

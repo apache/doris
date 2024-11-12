@@ -17,8 +17,8 @@
 
 package org.apache.doris.httpv2.controller;
 
+import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 

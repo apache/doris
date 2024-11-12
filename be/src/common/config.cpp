@@ -949,6 +949,9 @@ DEFINE_mBool(enable_query_like_bloom_filter, "true");
 DEFINE_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
 DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
+DEFINE_mInt64(block_cache_wait_timeout_ms, "1000");
+DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
+DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
@@ -1037,8 +1040,6 @@ DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not 
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
-// rename ttl filename to new format during read, with some performance cost
-DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
 DEFINE_mBool(enbale_dump_error_file, "true");
 // limit the max size of error log on disk
 DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
@@ -1377,6 +1378,9 @@ DEFINE_mInt32(lz4_compression_block_size, "262144");
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
 DEFINE_Int32(query_cache_size, "512");
+
+// Enable validation to check the correctness of table size.
+DEFINE_Bool(enable_table_size_correctness_check, "false");
 
 // clang-format off
 #ifdef BE_TEST

@@ -470,6 +470,12 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
 
+    public static final String ORC_TINY_STRIPE_THRESHOLD_BYTES = "orc_tiny_stripe_threshold_bytes";
+
+    public static final String ORC_ONCE_MAX_READ_BYTES = "orc_once_max_read_bytes";
+
+    public static final String ORC_MAX_MERGE_DISTANCE_BYTES = "orc_max_merge_distance_bytes";
+
     public static final String ENABLE_PARQUET_FILTER_BY_MIN_MAX = "enable_parquet_filter_by_min_max";
 
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
@@ -668,6 +674,19 @@ public class SessionVariable implements Serializable, Writable {
     public static final String REQUIRE_SEQUENCE_IN_INSERT = "require_sequence_in_insert";
 
     public static final String SKIP_CHECKING_ACID_VERSION_FILE = "skip_checking_acid_version_file";
+
+    public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY =
+            "enable_cooldown_replica_affinity";
+    /**
+     * Inserting overwrite for auto partition table allows creating partition for
+     * datas which cannot find partition to overwrite.
+     */
+    public static final String ENABLE_AUTO_CREATE_WHEN_OVERWRITE = "enable_auto_create_when_overwrite";
+
+    public static final String ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
+                                    "enable_adaptive_pipeline_task_serial_read_on_limit";
+    public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
+                                    "adaptive_pipeline_task_serial_read_on_limit";
 
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
@@ -1510,7 +1529,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_NEREIDS_TIMEOUT, needForward = true)
     public boolean enableNereidsTimeout = true;
 
-    @VariableMgr.VarAttr(name = "nereids_timeout_second", needForward = true)
+    @VariableMgr.VarAttr(name = NEREIDS_TIMEOUT_SECOND, needForward = true)
     public int nereidsTimeoutSecond = 30;
 
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
@@ -1709,6 +1728,46 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcLazyMat = true;
+
+
+    @VariableMgr.VarAttr(
+            name = ORC_TINY_STRIPE_THRESHOLD_BYTES,
+            description = {"在orc文件中如果一个stripe的字节大小小于`orc_tiny_stripe_threshold`,"
+                    + "我们认为该stripe为 tiny stripe。对于多个连续的tiny stripe我们会进行读取优化，即一次性读多个tiny stripe."
+                    + "如果你不想使用该优化，可以将该值设置为0。默认为 8M。",
+                    "In an orc file, if the byte size of a stripe is less than `orc_tiny_stripe_threshold`,"
+                            + "we consider the stripe to be a tiny stripe. For multiple consecutive tiny stripes,"
+                            + "we will perform read optimization, that is, read multiple tiny stripes at a time."
+                            + "If you do not want to use this optimization, you can set this value to 0."
+                            + "The default is 8M."},
+            needForward = true,
+            setter = "setOrcTinyStripeThresholdBytes")
+    public long orcTinyStripeThresholdBytes  = 8L * 1024L * 1024L;
+
+
+    @VariableMgr.VarAttr(
+            name = ORC_ONCE_MAX_READ_BYTES,
+            description = {"在使用tiny stripe读取优化的时候，会对多个tiny stripe合并成一次IO，"
+                    + "该参数用来控制每次IO请求的最大字节大小。你不应该将值设置的小于`orc_tiny_stripe_threshold`。默认为 8M。",
+                    "When using tiny stripe read optimization, multiple tiny stripes will be merged into one IO."
+                            + "This parameter is used to control the maximum byte size of each IO request."
+                            + "You should not set the value less than `orc_tiny_stripe_threshold`."
+                            + "The default is 8M."},
+            needForward = true,
+            setter = "setOrcOnceMaxReadBytes")
+    public long orcOnceMaxReadBytes = 8L * 1024L * 1024L;
+
+
+    @VariableMgr.VarAttr(
+            name = ORC_MAX_MERGE_DISTANCE_BYTES,
+            description = {"在使用tiny stripe读取优化的时候，由于tiny stripe并不一定连续。"
+                    + "当两个tiny stripe之间距离大于该参数时，我们不会将其合并成一次IO。默认为 1M。",
+                    "When using tiny stripe read optimization, since tiny stripes are not necessarily continuous,"
+                            + "when the distance between two tiny stripes is greater than this parameter,"
+                            + "we will not merge them into one IO. The default value is 1M."},
+            needForward = true,
+            setter = "setOrcMaxMergeDistanceBytes")
+    public long orcMaxMergeDistanceBytes = 1024L * 1024L;
 
 
     @VariableMgr.VarAttr(
@@ -2202,11 +2261,38 @@ public class SessionVariable implements Serializable, Writable {
     public boolean requireSequenceInInsert = true;
 
 
+    @VariableMgr.VarAttr(name = ENABLE_AUTO_CREATE_WHEN_OVERWRITE, description = {
+        "开启后对自动分区表的 insert overwrite 操作会对没有找到分区的插入数据按自动分区规则创建分区，默认关闭",
+        "The insert overwrite operation on an auto-partitioned table will create partitions for inserted data"
+                + " for which no partition is found according to the auto-partitioning rules, which is turned off"
+                + " by default."
+    })
+    public boolean enableAutoCreateWhenOverwrite = false;
+
     @VariableMgr.VarAttr(name = SKIP_CHECKING_ACID_VERSION_FILE, needForward = true, description = {
             "跳过检查 transactional hive 版本文件 '_orc_acid_version.'",
             "Skip checking transactional hive version file '_orc_acid_version.'"
     })
     public boolean skipCheckingAcidVersionFile = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
+    public boolean enableCooldownReplicaAffinity = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = {
+        "开启后将会允许自动调整 pipeline task 的并发数。当 scan 节点没有过滤条件，且 limit 参数小于"
+            + "adaptive_pipeline_task_serial_read_on_limit 中指定的行数时，scan 的并行度将会被设置为 1",
+        "When enabled, the pipeline task concurrency will be adjusted automatically. When the scan node has no filter "
+            + "conditions and the limit parameter is less than the number of rows specified in "
+            + "adaptive_pipeline_task_serial_read_on_limit, the parallelism of the scan will be set to 1."
+    })
+    public boolean enableAdaptivePipelineTaskSerialReadOnLimit = true;
+
+    @VariableMgr.VarAttr(name = ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT, needForward = true, description = {
+        "当 enable_adaptive_pipeline_task_serial_read_on_limit 开启时，scan 的并行度将会被设置为 1 的行数阈值",
+            "When enable_adaptive_pipeline_task_serial_read_on_limit is enabled, "
+            + "the number of rows at which the parallelism of the scan will be set to 1."
+    })
+    public int adaptivePipelineTaskSerialReadOnLimit = 10000;
 
     public void setEnableEsParallelScroll(boolean enableESParallelScroll) {
         this.enableESParallelScroll = enableESParallelScroll;
@@ -2754,6 +2840,32 @@ public class SessionVariable implements Serializable, Writable {
         int val = checkFieldValue(PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, 1, value);
         this.parallelExecInstanceNum = val;
     }
+
+    public void setOrcTinyStripeThresholdBytes(String value) throws Exception {
+        long val = checkFieldLongValue(ORC_TINY_STRIPE_THRESHOLD_BYTES, 0, value);
+        this.orcTinyStripeThresholdBytes = val;
+    }
+
+    public void setOrcOnceMaxReadBytes(String value)  throws Exception {
+        long val = checkFieldLongValue(ORC_ONCE_MAX_READ_BYTES, 0, value);
+        this.orcOnceMaxReadBytes = val;
+    }
+
+    public void setOrcMaxMergeDistanceBytes(String value)  throws Exception {
+        long val = checkFieldLongValue(ORC_MAX_MERGE_DISTANCE_BYTES, 0, value);
+        this.orcMaxMergeDistanceBytes = val;
+    }
+
+    private long checkFieldLongValue(String variableName, long minValue, String value) throws Exception {
+        long val = Long.parseLong(value);
+        if (val < minValue) {
+            throw new Exception(
+                    variableName + " value should greater than or equal " + String.valueOf(minValue)
+                            + ", you set value is: " + value);
+        }
+        return val;
+    }
+
 
     private int checkFieldValue(String variableName, int minValue, String value) throws Exception {
         int val = Integer.valueOf(value);
@@ -3818,6 +3930,15 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
         tResult.setKeepCarriageReturn(keepCarriageReturn);
+        tResult.setEnableAutoCreateWhenOverwrite(enableAutoCreateWhenOverwrite);
+
+        tResult.setEnableAdaptivePipelineTaskSerialReadOnLimit(enableAdaptivePipelineTaskSerialReadOnLimit);
+        tResult.setAdaptivePipelineTaskSerialReadOnLimit(adaptivePipelineTaskSerialReadOnLimit);
+
+        tResult.setOrcTinyStripeThresholdBytes(orcTinyStripeThresholdBytes);
+        tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
+        tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
+
         return tResult;
     }
 
@@ -3879,7 +4000,6 @@ public class SessionVariable implements Serializable, Writable {
                 if (attr == null) {
                     continue;
                 }
-
                 if (!root.containsKey(attr.name())) {
                     continue;
                 }
@@ -4398,6 +4518,10 @@ public class SessionVariable implements Serializable, Writable {
         return this.maxMsgSizeOfResultReceiver;
     }
 
+    public boolean isEnableAutoCreateWhenOverwrite() {
+        return this.enableAutoCreateWhenOverwrite;
+    }
+
     public TSerdeDialect getSerdeDialect() {
         switch (serdeDialect) {
             case "doris":
@@ -4412,5 +4536,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isUseSerialExchange() {
         return useSerialExchange && getEnableLocalExchange();
+    }
+
+    public boolean isEnableCooldownReplicaAffinity() {
+        return enableCooldownReplicaAffinity;
     }
 }
