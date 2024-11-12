@@ -87,16 +87,12 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     public List<String> listDatabaseNames() {
         try {
-            preExecutionAuthenticator.execute(() -> {
-                return nsCatalog.listNamespaces().stream()
-                        .map(Namespace::toString)
-                        .collect(Collectors.toList());
-
-            });
+            return preExecutionAuthenticator.execute(() -> nsCatalog.listNamespaces().stream()
+                   .map(Namespace::toString)
+                   .collect(Collectors.toList()));
         } catch (Exception e) {
             throw new RuntimeException("Failed to list database names, error message is: " + e.getMessage());
         }
-        return new ArrayList<>();
     }
 
 
