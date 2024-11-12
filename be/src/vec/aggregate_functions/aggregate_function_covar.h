@@ -86,16 +86,26 @@ struct BaseData {
         count = 0;
     }
 
+    static double inf_to_nan(double val) {
+        // This function performs squaring operations, and due to differences in computation order,
+        // it might produce different values such as inf and nan.
+        // For performance reasons, we are uniformly changing it to nan
+        if (std::isinf(val)) [[unlikely]] {
+            return std::nan("");
+        }
+        return val;
+    };
+
     // Cov(X, Y) = E(XY) - E(X)E(Y)
     double get_pop_result() const {
         if (count == 1) {
             return 0.0;
         }
-        return sum_xy / count - sum_x * sum_y / (count * count);
+        return inf_to_nan((double)(sum_xy / count - sum_x / count * sum_y / count));
     }
 
     double get_samp_result() const {
-        return sum_xy / (count - 1) - sum_x * sum_y / (count * (count - 1));
+        return inf_to_nan((double)(sum_xy / (count - 1) - sum_x / count * sum_y / (count - 1)));
     }
 
     void merge(const BaseData& rhs) {
@@ -122,10 +132,10 @@ struct BaseData {
         count += 1;
     }
 
-    double sum_x;
-    double sum_y;
-    double sum_xy;
-    int64_t count;
+    long double sum_x {};
+    long double sum_y {};
+    long double sum_xy {};
+    int64_t count {};
 };
 
 template <typename T, typename Data>

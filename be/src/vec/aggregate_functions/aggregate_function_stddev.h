@@ -78,7 +78,7 @@ struct BaseData {
             // it might produce different values such as inf and nan.
             // In MySQL, this will directly result in an error due to exceeding the double range.
             // For performance reasons, we are uniformly changing it to nan
-            if (std::isinf(val)) {
+            if (std::isinf(val)) [[unlikely]] {
                 return std::nan("");
             }
             return val;
@@ -107,8 +107,8 @@ struct BaseData {
         if (rhs.count == 0) {
             return;
         }
-        double delta = mean - rhs.mean;
-        double sum_count = count + rhs.count;
+        long double delta = mean - rhs.mean;
+        long double sum_count = count + rhs.count;
         mean = rhs.mean + delta * count / sum_count;
         m2 = rhs.m2 + m2 + (delta * delta) * rhs.count * count / sum_count;
         count = int64_t(sum_count);
@@ -119,16 +119,16 @@ struct BaseData {
                 assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*column);
         double source_data = sources.get_data()[row_num];
 
-        double delta = source_data - mean;
-        double r = delta / (1 + count);
+        long double delta = source_data - mean;
+        long double r = delta / (1 + count);
         mean += r;
         m2 += count * delta * r;
         count += 1;
     }
 
-    double mean;
-    double m2;
-    int64_t count;
+    long double mean {};
+    long double m2 {};
+    int64_t count {};
 };
 
 template <typename T, typename Data>
