@@ -1891,21 +1891,14 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
 }
 
 StatusReporter::StatusReporter(const BaseReportStatusRequest&& request)
-        : _thread_pool(request.global_thread_pool), _exec_env(request.exec_env) {
-    _params.protocol_version = FrontendServiceVersion::V1;
-    _params.__set_query_id(request.query_id);
-    _params.__set_backend_num(-1);
-    _params.__set_fragment_instance_id(TUniqueId());
-    _params.__set_fragment_id(request.fragment_id);
-    _params.__isset.profile = false;
-    if (_exec_env->master_info()->__isset.backend_id) {
-        _params.__set_backend_id(_exec_env->master_info()->backend_id);
-    }
-}
+        : _thread_pool(request.global_thread_pool),
+          _exec_env(request.exec_env),
+          _query_id(request.query_id),
+          _fragment_id(request.fragment_id) {}
 
-Status StatusReporter::report(const ReportStatusRequest& request) {
+Status StatusReporter::report(const ReportStatusRequest request) {
     return _thread_pool->submit_func([this, request]() {
-        DCHECK(_context != nullptr) << print_id(_params.query_id);
+        DCHECK(_context != nullptr) << print_id(_query_id);
         SCOPED_ATTACH_TASK(_context->get_query_ctx()->query_mem_tracker);
         _do_report(request);
         if (!request.done) {
@@ -1930,15 +1923,30 @@ void StatusReporter::_do_report(const ReportStatusRequest& req) {
                                     &coord_status);
     if (!coord_status.ok()) {
         std::stringstream ss;
-        UniqueId uid(_params.query_id.hi, _params.query_id.lo);
+        UniqueId uid(_query_id.hi, _query_id.lo);
         static_cast<void>(_context->cancel(Status::InternalError(
                 "query_id: {}, couldn't get a client for {}, reason is {}", uid.to_string(),
                 PrintThriftNetworkAddress(req.coord_addr), coord_status.to_string())));
         return;
     }
 
-    _params.__set_status(exec_status.to_thrift());
-    _params.__set_done(req.done);
+    TReportExecStatusParams params;
+    params.protocol_version = FrontendServiceVersion::V1;
+    params.__set_query_id(_query_id);
+    params.__set_backend_num(-1);
+    params.__set_fragment_instance_id(TUniqueId());
+    params.__set_fragment_id(_fragment_id);
+    params.__set_status(exec_status.to_thrift());
+    params.__set_done(req.done);
+    params.__set_query_type(req.runtime_state->query_type());
+    params.__isset.profile = false;
+
+    DCHECK(req.runtime_state != nullptr);
+
+    if (req.runtime_state->query_type() == TQueryType::LOAD) {
+        params.__set_loaded_rows(req.runtime_state->num_rows_load_total());
+        params.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
+    }
 
     // load rows
     static std::string s_dpp_normal_all = "dpp.norm.ALL";
@@ -1947,97 +1955,161 @@ void StatusReporter::_do_report(const ReportStatusRequest& req) {
     int64_t num_rows_load_success = 0;
     int64_t num_rows_load_filtered = 0;
     int64_t num_rows_load_unselected = 0;
-    for (auto* rs : req.runtime_states) {
-        if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
-            req.runtime_state->num_finished_range() > 0) {
-            _params.__isset.load_counters = true;
-            num_rows_load_success += rs->num_rows_load_success();
-            num_rows_load_filtered += rs->num_rows_load_filtered();
-            num_rows_load_unselected += rs->num_rows_load_unselected();
-            _params.__isset.fragment_instance_reports = true;
-            TFragmentInstanceReport t;
-            t.__set_fragment_instance_id(rs->fragment_instance_id());
-            t.__set_num_finished_range(cast_set<int32_t>(rs->num_finished_range()));
-            t.__set_loaded_rows(rs->num_rows_load_total());
-            t.__set_loaded_bytes(rs->num_bytes_load_total());
-            _params.fragment_instance_reports.push_back(t);
-        }
-    }
-    _params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
-    _params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
-    _params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
+    if (req.runtime_state->num_rows_load_total() > 0 ||
+        req.runtime_state->num_rows_load_filtered() > 0 ||
+        req.runtime_state->num_finished_range() > 0) {
+        params.__isset.load_counters = true;
 
-    for (auto* rs : req.runtime_states) {
-        if (!rs->get_error_log_file_path().empty()) {
-            _params.__set_tracking_url(to_load_error_http_path(rs->get_error_log_file_path()));
-        }
-        if (rs->wal_id() > 0) {
-            _params.__set_txn_id(rs->wal_id());
-            _params.__set_label(rs->import_label());
+        num_rows_load_success = req.runtime_state->num_rows_load_success();
+        num_rows_load_filtered = req.runtime_state->num_rows_load_filtered();
+        num_rows_load_unselected = req.runtime_state->num_rows_load_unselected();
+        params.__isset.fragment_instance_reports = true;
+        TFragmentInstanceReport t;
+        t.__set_fragment_instance_id(req.runtime_state->fragment_instance_id());
+        t.__set_num_finished_range(cast_set<int>(req.runtime_state->num_finished_range()));
+        t.__set_loaded_rows(req.runtime_state->num_rows_load_total());
+        t.__set_loaded_bytes(req.runtime_state->num_bytes_load_total());
+        params.fragment_instance_reports.push_back(t);
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (rs->num_rows_load_total() > 0 || rs->num_rows_load_filtered() > 0 ||
+                req.runtime_state->num_finished_range() > 0) {
+                params.__isset.load_counters = true;
+                num_rows_load_success += rs->num_rows_load_success();
+                num_rows_load_filtered += rs->num_rows_load_filtered();
+                num_rows_load_unselected += rs->num_rows_load_unselected();
+                params.__isset.fragment_instance_reports = true;
+                TFragmentInstanceReport t;
+                t.__set_fragment_instance_id(rs->fragment_instance_id());
+                t.__set_num_finished_range(cast_set<int>(rs->num_finished_range()));
+                t.__set_loaded_rows(rs->num_rows_load_total());
+                t.__set_loaded_bytes(rs->num_bytes_load_total());
+                params.fragment_instance_reports.push_back(t);
+            }
         }
     }
-    for (auto* rs : req.runtime_states) {
-        if (!rs->export_output_files().empty()) {
-            _params.__isset.export_files = true;
-            _params.export_files.insert(_params.export_files.end(),
-                                        rs->export_output_files().begin(),
-                                        rs->export_output_files().end());
+    params.load_counters.emplace(s_dpp_normal_all, std::to_string(num_rows_load_success));
+    params.load_counters.emplace(s_dpp_abnormal_all, std::to_string(num_rows_load_filtered));
+    params.load_counters.emplace(s_unselected_rows, std::to_string(num_rows_load_unselected));
+
+    if (!req.runtime_state->get_error_log_file_path().empty()) {
+        params.__set_tracking_url(
+                to_load_error_http_path(req.runtime_state->get_error_log_file_path()));
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->get_error_log_file_path().empty()) {
+                params.__set_tracking_url(to_load_error_http_path(rs->get_error_log_file_path()));
+            }
+            if (rs->wal_id() > 0) {
+                params.__set_txn_id(rs->wal_id());
+                params.__set_label(rs->import_label());
+            }
         }
     }
-    for (auto* rs : req.runtime_states) {
-        if (!rs->tablet_commit_infos().empty()) {
-            _params.__isset.commitInfos = true;
-            _params.commitInfos.insert(_params.commitInfos.end(), rs->tablet_commit_infos().begin(),
-                                       rs->tablet_commit_infos().end());
+    if (!req.runtime_state->export_output_files().empty()) {
+        params.__isset.export_files = true;
+        params.export_files = req.runtime_state->export_output_files();
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->export_output_files().empty()) {
+                params.__isset.export_files = true;
+                params.export_files.insert(params.export_files.end(),
+                                           rs->export_output_files().begin(),
+                                           rs->export_output_files().end());
+            }
         }
     }
-    for (auto* rs : req.runtime_states) {
-        if (!rs->error_tablet_infos().empty()) {
-            _params.__isset.errorTabletInfos = true;
-            _params.errorTabletInfos.insert(_params.errorTabletInfos.end(),
-                                            rs->error_tablet_infos().begin(),
-                                            rs->error_tablet_infos().end());
+    if (!req.runtime_state->tablet_commit_infos().empty()) {
+        params.__isset.commitInfos = true;
+        params.commitInfos.reserve(req.runtime_state->tablet_commit_infos().size());
+        for (auto& info : req.runtime_state->tablet_commit_infos()) {
+            params.commitInfos.push_back(info);
+        }
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->tablet_commit_infos().empty()) {
+                params.__isset.commitInfos = true;
+                params.commitInfos.insert(params.commitInfos.end(),
+                                          rs->tablet_commit_infos().begin(),
+                                          rs->tablet_commit_infos().end());
+            }
+        }
+    }
+    if (!req.runtime_state->error_tablet_infos().empty()) {
+        params.__isset.errorTabletInfos = true;
+        params.errorTabletInfos.reserve(req.runtime_state->error_tablet_infos().size());
+        for (auto& info : req.runtime_state->error_tablet_infos()) {
+            params.errorTabletInfos.push_back(info);
+        }
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->error_tablet_infos().empty()) {
+                params.__isset.errorTabletInfos = true;
+                params.errorTabletInfos.insert(params.errorTabletInfos.end(),
+                                               rs->error_tablet_infos().begin(),
+                                               rs->error_tablet_infos().end());
+            }
         }
     }
 
-    for (auto* rs : req.runtime_states) {
-        if (!rs->hive_partition_updates().empty()) {
-            _params.__isset.hive_partition_updates = true;
-            _params.hive_partition_updates.insert(_params.hive_partition_updates.end(),
-                                                  rs->hive_partition_updates().begin(),
-                                                  rs->hive_partition_updates().end());
+    if (!req.runtime_state->hive_partition_updates().empty()) {
+        params.__isset.hive_partition_updates = true;
+        params.hive_partition_updates.reserve(req.runtime_state->hive_partition_updates().size());
+        for (auto& hive_partition_update : req.runtime_state->hive_partition_updates()) {
+            params.hive_partition_updates.push_back(hive_partition_update);
+        }
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->hive_partition_updates().empty()) {
+                params.__isset.hive_partition_updates = true;
+                params.hive_partition_updates.insert(params.hive_partition_updates.end(),
+                                                     rs->hive_partition_updates().begin(),
+                                                     rs->hive_partition_updates().end());
+            }
         }
     }
 
-    for (auto* rs : req.runtime_states) {
-        if (!rs->iceberg_commit_datas().empty()) {
-            _params.__isset.iceberg_commit_datas = true;
-            _params.iceberg_commit_datas.insert(_params.iceberg_commit_datas.end(),
-                                                rs->iceberg_commit_datas().begin(),
-                                                rs->iceberg_commit_datas().end());
+    if (!req.runtime_state->iceberg_commit_datas().empty()) {
+        params.__isset.iceberg_commit_datas = true;
+        params.iceberg_commit_datas.reserve(req.runtime_state->iceberg_commit_datas().size());
+        for (auto& iceberg_commit_data : req.runtime_state->iceberg_commit_datas()) {
+            params.iceberg_commit_datas.push_back(iceberg_commit_data);
+        }
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            if (!rs->iceberg_commit_datas().empty()) {
+                params.__isset.iceberg_commit_datas = true;
+                params.iceberg_commit_datas.insert(params.iceberg_commit_datas.end(),
+                                                   rs->iceberg_commit_datas().begin(),
+                                                   rs->iceberg_commit_datas().end());
+            }
         }
     }
 
     // Send new errors to coordinator
-    req.runtime_state->get_unreported_errors(&(_params.error_log));
-    _params.__isset.error_log = (!_params.error_log.empty());
+    req.runtime_state->get_unreported_errors(&(params.error_log));
+    params.__isset.error_log = (!params.error_log.empty());
+
+    if (_exec_env->master_info()->__isset.backend_id) {
+        params.__set_backend_id(_exec_env->master_info()->backend_id);
+    }
 
     TReportExecStatusResult res;
     Status rpc_status;
 
     VLOG_DEBUG << "reportExecStatus params is "
-               << apache::thrift::ThriftDebugString(_params).c_str();
+               << apache::thrift::ThriftDebugString(params).c_str();
     if (!exec_status.ok()) {
         LOG(WARNING) << "report error status: " << exec_status.msg()
                      << " to coordinator: " << req.coord_addr
-                     << ", query id: " << print_id(_params.query_id);
+                     << ", query id: " << print_id(_query_id);
     }
     try {
         try {
-            coord->reportExecStatus(res, _params);
+            coord->reportExecStatus(res, params);
         } catch (apache::thrift::transport::TTransportException& e) {
-            LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(_params.query_id)
-                         << " to " << req.coord_addr << ", err: " << e.what();
+            LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(_query_id) << " to "
+                         << req.coord_addr << ", err: " << e.what();
             rpc_status = coord.reopen();
 
             if (!rpc_status.ok()) {
@@ -2045,7 +2117,7 @@ void StatusReporter::_do_report(const ReportStatusRequest& req) {
                 _context->cancel(rpc_status);
                 return;
             }
-            coord->reportExecStatus(res, _params);
+            coord->reportExecStatus(res, params);
         }
 
         rpc_status = Status::create<false>(res.status);
@@ -2056,21 +2128,10 @@ void StatusReporter::_do_report(const ReportStatusRequest& req) {
 
     if (!rpc_status.ok()) {
         LOG_INFO("Going to cancel query {} since report exec status got rpc failed: {}",
-                 print_id(_params.query_id), rpc_status.to_string());
+                 print_id(_query_id), rpc_status.to_string());
         // we need to cancel the execution of this fragment
         _context->cancel(rpc_status);
     }
-
-    // Clear temp status
-    _params.error_log.clear();
-    _params.iceberg_commit_datas.clear();
-    _params.hive_partition_updates.clear();
-    _params.errorTabletInfos.clear();
-    _params.commitInfos.clear();
-    _params.export_files.clear();
-    _params.fragment_instance_reports.clear();
-    _params.__isset.txn_id = false;
-    _params.__isset.label = false;
 }
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

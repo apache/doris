@@ -311,7 +311,7 @@ public:
         _context = context;
         return *this;
     }
-    Status report(const ReportStatusRequest& request);
+    Status report(const ReportStatusRequest request);
 
 private:
     void _do_report(const ReportStatusRequest& request);
@@ -319,8 +319,9 @@ private:
     std::shared_ptr<pipeline::PipelineFragmentContext> _context = nullptr;
     ThreadPool* _thread_pool;
     ExecEnv* _exec_env;
-    TReportExecStatusParams _params;
     TQueryType::type _query_type;
+    const TUniqueId _query_id;
+    const int _fragment_id;
 };
 } // namespace pipeline
 } // namespace doris
