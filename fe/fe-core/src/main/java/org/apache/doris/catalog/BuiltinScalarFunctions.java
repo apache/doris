@@ -58,10 +58,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRange;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayWithConstant;
@@ -514,9 +516,11 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(ArrayRemove.class, "array_remove"),
             scalar(ArrayRepeat.class, "array_repeat"),
             scalar(ArrayReverseSort.class, "array_reverse_sort"),
+            scalar(ArrayReverseSplit.class, "array_reverse_split"),
             scalar(ArraySlice.class, "array_slice"),
             scalar(ArraySort.class, "array_sort"),
             scalar(ArraySortBy.class, "array_sortby"),
+            scalar(ArraySplit.class, "array_split"),
             scalar(ArrayShuffle.class, "array_shuffle", "shuffle"),
             scalar(ArraySum.class, "array_sum"),
             scalar(ArrayUnion.class, "array_union"),

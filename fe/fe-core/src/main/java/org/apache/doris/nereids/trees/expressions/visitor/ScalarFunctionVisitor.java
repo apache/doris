@@ -65,10 +65,12 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRangeYea
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRemove;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayRepeat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSort;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayReverseSplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayShuffle;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySlice;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySort;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArrayWithConstant;
@@ -641,6 +643,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitArraySortBy(ArraySortBy arraySortBy, C context) {
         return visitScalarFunction(arraySortBy, context);
+    }
+
+    default R visitArraySplit(ArraySplit arraySplit, C context) {
+        return visitScalarFunction(arraySplit, context);
+    }
+
+    default R visitArrayReverseSplit(ArrayReverseSplit arrayReverseSplit, C context) {
+        return visitScalarFunction(arrayReverseSplit, context);
     }
 
     default R visitArrayShuffle(ArrayShuffle arrayShuffle, C context) {
