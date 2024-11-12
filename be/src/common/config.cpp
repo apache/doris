@@ -1379,6 +1379,8 @@ DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
 DEFINE_Int32(query_cache_size, "512");
 
+DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
+
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
 
