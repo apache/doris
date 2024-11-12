@@ -94,8 +94,6 @@ private:
     Status _get_existing_files_from_local(const std::string& local_path,
                                           std::vector<std::string>* local_files);
 
-    bool _end_with(const std::string& str, const std::string& match);
-
     Status _replace_tablet_id(const std::string& file_name, int64_t tablet_id,
                               std::string* new_file_name);
 

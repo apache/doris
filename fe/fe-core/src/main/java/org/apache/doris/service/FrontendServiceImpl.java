@@ -29,6 +29,8 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.backup.AbstractJob;
+import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Snapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -277,6 +279,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 LOG.warn("tablet {} not found", info.tablet_id);
                 return;
             }
+
+            AbstractJob job = Env.getCurrentEnv().getBackupHandler().getJob(tabletMeta.getDbId());
+            if (job != null && job instanceof BackupJob) {
+                BackupJob backupJob = (BackupJob) job;
+                if (backupJob.isDone()
+                        && backupJob.getBackupMeta().getTable((tabletMeta.getTableId())) != null) {
+                    LOG.warn("Backup is running on this tablet {} ", info.tablet_id);
+                    return;
+                }
+            }
+
             Tablet tablet;
             int replicaNum;
             try {

@@ -269,6 +269,14 @@ public:
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
+    [[nodiscard]] bool has_inverted_index() const {
+        for (const auto& index : _indexes) {
+            if (index.index_type() == IndexType::INVERTED) {
+                return true;
+            }
+        }
+        return false;
+    }
     std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
     bool has_inverted_index(int32_t col_unique_id) const;
     bool has_inverted_index_with_index_id(int64_t index_id) const;
