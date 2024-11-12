@@ -54,7 +54,6 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
                 "oss.endpoint"="oss-cn-beijing.aliyuncs.com"
             );
 
-
         """
         logger.info("catalog " + catalog_cos + " created")
         logger.info("catalog " + catalog_oss + " created")
