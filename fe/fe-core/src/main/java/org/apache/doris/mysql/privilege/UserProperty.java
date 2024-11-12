@@ -392,9 +392,12 @@ public class UserProperty implements Writable {
 
     private String checkCloudDefaultCluster(String[] keyArr, String value, String defaultComputeGroup, boolean isReplay)
             throws ComputeGroupException, DdlException {
-        // check cluster auth
         // isReplay not check auth, not throw exception
-        if (!isReplay && !Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAuth().checkCloudPriv(
+        if (isReplay) {
+            return value;
+        }
+        // check cluster auth
+        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAuth().checkCloudPriv(
             new UserIdentity(qualifiedUser, "%"), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
             throw new ComputeGroupException(String.format("set default compute group failed, "
                 + "user %s has no permission to use compute group '%s', please grant use privilege first ",
