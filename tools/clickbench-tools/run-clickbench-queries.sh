@@ -113,9 +113,16 @@ get_session_variable() {
   fi
 
   if ! grep_output=$(grep " Value: " <<< "$output" 2>&1); then
-      printf "%s\n" "$grep_output" >&2
-      printf "Error: grep command failed while processing SQL output.\n" >&2
-      exit 1
+      grep_status=$?
+      
+      if [ $grep_status -eq 2 ]; then
+        printf "%s\n" "${grep_output}" >&2
+        printf "Error: grep command failed while processing SQL output.\n" >&2
+        exit 1
+      elif [ $grep_status -eq 1 ]; then
+        printf "Warning: 'Value: ' not found in the output of the query.\n" >&2
+        continue
+      fi
   fi
 
   if ! v=$(awk '{print $2}' <<< "$grep_output" 2>&1); then
@@ -152,35 +159,50 @@ cat ${QUERIES_FILE} | while read query; do
   echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null
 
   echo -n "query${QUERY_NUM}," | tee -a result.csv
+  printf "\n"
   for i in $(seq 1 $TRIES); do
-    output=$(mysql -vvv -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "${query}" 2>&1)
-    if [ $? -ne 0 ]; then
+    if ! output=$(mysql -vvv -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "${query}" 2>&1); then
         printf "%s\n" "$output" >&2
         printf "Error: Failed to execute SQL command: %s\n" "${query}" >&2
         exit 1
     fi
 
-    RES=$(perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' <<< "$output")
+    if ! RES=$(perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' <<< "$output"); then
+        printf "Error: Perl command failed while processing output: %s\n" "$output" >&2
+        exit 1
+    fi
     if [ -z "$RES" ]; then
         printf "Warning: No output received from the SQL command: %s.\n" "${query}" >&2
         continue
     fi
 
     if ! grep_output=$(grep " Value: " <<< "$output" 2>&1); then
-        printf "%s\n" "$grep_output" >&2
+      grep_status=$?
+      
+      if [ $grep_status -eq 2 ]; then
+        printf "%s\n" "${grep_output}" >&2
         printf "Error: grep command failed while processing SQL output.\n" >&2
         exit 1
+      elif [ $grep_status -eq 1 ]; then
+        printf "Warning: 'Value: ' not found in the output of the query.\n" >&2
+        continue
+      fi
+    fi
+
+    if [ -z "$grep_output" ]; then
+        printf "Warning: No 'Value: ' found in the query output.\n" >&2
+        continue
     fi
 
     if ! v=$(awk '{print $2}' <<< "$grep_output" 2>&1); then
-        printf "%s\n" "$v" >&2
+        printf "%s\n" "$v" 
         printf "Error: awk command failed while processing the grep output.\n" >&2
         exit 1
     fi
 
     if [[ -z $v ]]; then
-        printf "Warning: No 'Value: ' found for variable '%s'.\n" "$k" >&2
-        return 1
+        printf "222Warning: No 'Value: ' found for variable '%s'.\n" "$k" >&2
+        continue
     fi
     echo -n "${RES}" | tee -a result.csv
     [[ "$i" != $TRIES ]] && echo -n "," | tee -a result.csv

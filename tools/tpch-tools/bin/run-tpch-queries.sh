@@ -128,27 +128,32 @@ get_session_variable() {
     if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" \
         -e "show variables like '${k}'\G" 2>&1); then
         printf "%s\n" "${output}" >&2
-        printf "Error: Failed to execute SQL command: show variables like '%s'\G\n" "${k}" >&2
+        printf "Error: Failed to execute SQL command: 'show variables like %s\\G'\n" "${k}" >&2
         exit 1
     fi
 
     if ! grep_output=$(grep " Value: " <<<"${output}" 2>&1); then
-        printf "%s\n" "${grep_output}" >&2
-        printf "Error: grep command failed while processing SQL output.\n" >&2
-        exit 1
+        grep_status=$?
+        if [ $grep_status -eq 2 ]; then
+            printf "%s\n" "${grep_output}" >&2
+            printf "Error: grep command failed with status %d while processing SQL output for variable '%s'.\n" "$grep_status" "$k" >&2
+            exit 1
+        elif [ $grep_status -eq 1 ]; then
+            printf "Warning: No match for 'Value: ' found in the output of the query for variable '%s'.\n" "$k" >&2
+            return 1
+        fi
     fi
 
     if ! v=$(awk '{print $2}' <<<"${grep_output}" 2>&1); then
         printf "%s\n" "${v}" >&2
-        printf "Error: awk command failed while processing the grep output.\n" >&2
+        printf "Error: awk command failed while processing the grep output for variable '%s'.\n" "$k" >&2
         exit 1
     fi
 
     if [[ -z ${v} ]]; then
-        printf "Warning: No 'Value: ' found for variable '%s'.\n" "${k}" >&2
+        printf "Warning: No value found for variable '%s'. The 'Value:' might be missing or empty.\n" "$k" >&2
         return 1
     fi
-
     echo "${v}"
 }
 backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
@@ -192,6 +197,7 @@ for i in ${query_array[@]}; do
     start=$(date +%s%3N)
     if ! mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log; then
         printf "Error: Failed to execute query q%s (cold run). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
+        cat "${RESULT_DIR}"/result"${i}".log >&2
         continue
     fi
     end=$(date +%s%3N)
