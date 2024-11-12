@@ -36,6 +36,7 @@ suite("test_table_sample") {
         ); 
     """
 
+
     // result is random, couldn't check it
     sql """ select * from test_table_sample_tbl tablesample(4 rows);"""
     sql """select * from test_table_sample_tbl t tablesample(20 percent);"""
