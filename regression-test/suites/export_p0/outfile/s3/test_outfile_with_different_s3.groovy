@@ -101,7 +101,7 @@ suite("test_outfile_with_different_s3", "p0") {
         String sk = context.config.otherConfigs.get("txYunSk")
         String s3_endpoint = "cos.ap-beijing.myqcloud.com"
         String region = "ap-beijing"
-        String bucket = "sdb-qa-datalake-test-1308700295";
+        String bucket = "doris-build-1308700295";
 
         def outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
 
@@ -156,7 +156,7 @@ suite("test_outfile_with_different_s3", "p0") {
         String sk = context.config.otherConfigs.get("aliYunSk")
         String s3_endpoint = "obs.cn-north-4.myhuaweicloud.com"
         String region = "cn-north-4"
-        String bucket = "selectdb-qa-datalake-test";
+        String bucket = "doris-build";
         
         def outfile_url = outfile_to_S3(bucket, s3_endpoint, region, ak, sk)
 
