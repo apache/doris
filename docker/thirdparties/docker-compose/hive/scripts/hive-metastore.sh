@@ -114,6 +114,13 @@ ls /mnt/scripts/create_preinstalled_scripts/*.hql | xargs -n 1 -P 10 -I {} bash 
     echo "Script: {} executed in $EXECUTION_TIME seconds"
 '
 
+# create view
+START_TIME=$(date +%s)
+hive -f /mnt/scripts/create_view_scripts/create_view.hql
+END_TIME=$(date +%s)
+EXECUTION_TIME=$((END_TIME - START_TIME))
+echo "Script: create_view.hql executed in $EXECUTION_TIME seconds"
+
 touch /mnt/SUCCESS
 
 # Avoid container exit
