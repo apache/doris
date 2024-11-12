@@ -35,6 +35,7 @@
 #include <unordered_map>
 
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/status.h"
 #include "util/hash_util.hpp"
 #include "util/metrics.h"
