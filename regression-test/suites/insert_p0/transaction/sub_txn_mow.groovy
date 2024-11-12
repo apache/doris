@@ -19,7 +19,7 @@ suite("sub_txn_mow") {
     logger.info("mow tables with sub txn visible is not supported")
     return
 
-    sql """ set enable_query_in_transaction_load = true """
+    sql """ set enable_transaction_write_visibility = true """
     // case 1
     def table_txn = "sub_txn_mow"
     def table_normal = "sub_txn_mow_n"

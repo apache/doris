@@ -716,7 +716,7 @@ public class StmtExecutor {
             if (!(logicalPlan instanceof BatchInsertIntoTableCommand || logicalPlan instanceof InsertIntoTableCommand
                     || logicalPlan instanceof UpdateCommand || logicalPlan instanceof DeleteFromUsingCommand
                     || logicalPlan instanceof DeleteFromCommand || logicalPlan instanceof UnsupportedCommand
-                    || (context.getSessionVariable().enableQueryInTransactionLoad
+                    || (context.getSessionVariable().enableTransactionWriteVisibility
                     && !(logicalPlan instanceof Command)))) {
                 String errMsg = "This is in a transaction, only insert, update, delete, "
                         + "commit, rollback is acceptable.";

@@ -16,7 +16,7 @@
 // under the License.
 
 suite("sub_txn_aggregate") {
-    sql """ set enable_query_in_transaction_load = true """
+    sql """ set enable_transaction_write_visibility = true """
     // case 1
     def table_txn = "sub_txn_agg"
     def table_normal = "sub_txn_agg_n"

@@ -961,9 +961,12 @@ Status Tablet::capture_sub_txn_rowsets(const std::vector<int64_t>& sub_txn_ids,
         auto sub_txn_id = sub_txn_ids[i];
         auto rowset = _engine.txn_manager()->get_tablet_rowset(tablet_id(), tablet_uid(),
                                                                partition_id(), sub_txn_id);
-        DCHECK(rowset != nullptr) << " rowset is nullptr for sub_txn_id=" << sub_txn_ids[i]
-                                  << ", partition_id=" << partition_id()
-                                  << ", tablet=" << tablet_id();
+        if (rowset == nullptr) {
+            return Status::InternalError(
+                    "could not find rowset for sub_txn=" + std::to_string(sub_txn_ids[i]) +
+                    ", table=" + std::to_string(table_id()) + ", partition=" +
+                    std::to_string(partition_id()) + ", tablet=" + std::to_string(tablet_id()));
+        }
         rowsets->push_back(rowset);
     }
     return Status::OK();

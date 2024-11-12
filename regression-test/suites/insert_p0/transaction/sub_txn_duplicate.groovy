@@ -16,7 +16,7 @@
 // under the License.
 
 suite("sub_txn_duplicate") {
-    sql """ set enable_query_in_transaction_load = true """
+    sql """ set enable_transaction_write_visibility = true """
     // case 1
     def table_txn = "sub_txn_dup"
     def table_normal = "sub_txn_dup_n"
