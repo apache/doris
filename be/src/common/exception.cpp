@@ -30,7 +30,7 @@ Exception::Exception(int code, const std::string_view& msg) {
     }
     if (config::exit_on_exception) {
         throw Exception(
-                Status::RuntimeError("[ExitOnException] error code: {}, message: {}", code, msg));
+                Status::FatalError("[ExitOnException] error code: {}, message: {}", code, msg));
     }
 }
 } // namespace doris

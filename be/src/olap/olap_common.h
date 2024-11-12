@@ -418,7 +418,7 @@ struct RowsetId {
                                            rowset_id_str.data() + rowset_id_str.length(), high);
             if (ec != std::errc {}) [[unlikely]] {
                 throw Exception(
-                        Status::InternalError("failed to init rowset id: {}", rowset_id_str));
+                        Status::FatalError("failed to init rowset id: {}", rowset_id_str));
             }
             init(1, high, 0, 0);
         } else {
@@ -438,7 +438,7 @@ struct RowsetId {
     void init(int64_t id_version, int64_t high, int64_t middle, int64_t low) {
         version = id_version;
         if (UNLIKELY(high >= MAX_ROWSET_ID)) {
-            throw Exception(Status::InternalError("inc rowsetid is too large:{}", high));
+            throw Exception(Status::FatalError("inc rowsetid is too large:{}", high));
         }
         hi = (id_version << 56) + (high & LOW_56_BITS);
         mi = middle;

@@ -246,7 +246,7 @@ inline void ThreadMemTrackerMgr::consume(int64_t size, int skip_large_memory_che
         }
         if (doris::config::crash_in_alloc_large_memory_bytes > 0 &&
             size > doris::config::crash_in_alloc_large_memory_bytes) {
-            throw Exception(Status::MemoryAllocFailed(
+            throw Exception(Status::FatalError(
                     "alloc large memory: {}, {}, crash generate core dumpsto help analyze, "
                     "stacktrace:\n{}",
                     size,

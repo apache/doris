@@ -10,14 +10,17 @@
 #include <ctype.h>
 #include <errno.h>
 #include <float.h> // for DBL_DIG and FLT_DIG
-#include <math.h>  // for HUGE_VAL
+#include <inttypes.h>
+#include <math.h> // for HUGE_VAL
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <inttypes.h>
 #include <sys/types.h>
+
 #include <limits>
 #include <ostream>
+
+#include "common/exception.h"
 
 using std::numeric_limits;
 #include <string>
@@ -28,7 +31,6 @@ using std::string;
 #include <fmt/format.h>
 
 #include "common/logging.h"
-
 #include "gutil/gscoped_ptr.h"
 #include "gutil/integral_types.h"
 #include "gutil/stringprintf.h"
@@ -702,12 +704,16 @@ size_t u64tostr_base36(uint64 number, size_t buf_size, char* buffer) {
 }
 
 // Generate functions that wrap safe_strtoXXX_base.
-#define GEN_SAFE_STRTO(name, type)                                                  \
-    bool name##_base(const string& str, type* value, int base) {                    \
-        return name##_base(str.c_str(), value, base);                               \
-    }                                                                               \
-    bool name(const char* str, type* value) { return name##_base(str, value, 10); } \
-    bool name(const string& str, type* value) { return name##_base(str.c_str(), value, 10); }
+#define GEN_SAFE_STRTO(name, type)                               \
+    bool name##_base(const string& str, type* value, int base) { \
+        return name##_base(str.c_str(), value, base);            \
+    }                                                            \
+    bool name(const char* str, type* value) {                    \
+        return name##_base(str, value, 10);                      \
+    }                                                            \
+    bool name(const string& str, type* value) {                  \
+        return name##_base(str.c_str(), value, 10);              \
+    }
 GEN_SAFE_STRTO(safe_strto32, int32);
 GEN_SAFE_STRTO(safe_strtou32, uint32);
 GEN_SAFE_STRTO(safe_strto64, int64);
@@ -772,8 +778,8 @@ uint64 atoi_kmgt(const char* s) {
             scale = GG_ULONGLONG(1) << 40;
             break;
         default:
-            LOG(FATAL) << "Invalid mnemonic: `" << c << "';"
-                       << " should be one of `K', `M', `G', and `T'.";
+            throw doris::Exception(doris::Status::FatalError(
+                    "Invalid mnemonic: `{}'; should be one of `K', `M', `G', and `T'.", c));
         }
     }
     return n * scale;

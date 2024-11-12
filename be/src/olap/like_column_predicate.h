@@ -128,7 +128,7 @@ private:
                     }
                 }
             } else {
-                throw Exception(Status::InternalError(
+                throw Exception(Status::FatalError(
                         "vectorized (not) like predicates should be dict column"));
                 __builtin_unreachable();
             }
@@ -154,7 +154,7 @@ private:
                     }
                 }
             } else {
-                throw Exception(Status::InternalError(
+                throw Exception(Status::FatalError(
                         "vectorized (not) like predicates should be dict column"));
                 __builtin_unreachable();
             }

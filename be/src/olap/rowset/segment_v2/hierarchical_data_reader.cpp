@@ -80,7 +80,7 @@ Status HierarchicalDataReader::init(const ColumnIteratorOptions& opts) {
 }
 
 Status HierarchicalDataReader::seek_to_first() {
-    throw Exception(Status::NotSupported("Not implemented"));
+    throw Exception(Status::FatalError("Not implemented"));
     __builtin_unreachable();
 }
 
@@ -159,7 +159,7 @@ Status ExtractReader::init(const ColumnIteratorOptions& opts) {
 }
 
 Status ExtractReader::seek_to_first() {
-    throw Exception(Status::NotSupported("Not implemented"));
+    throw Exception(Status::FatalError("Not implemented"));
     __builtin_unreachable();
 }
 

@@ -503,7 +503,8 @@ Status TabletMeta::save_meta(DataDir* data_dir) {
 Status TabletMeta::_save_meta(DataDir* data_dir) {
     // check if tablet uid is valid
     if (_tablet_uid.hi == 0 && _tablet_uid.lo == 0) {
-        throw Exception(Status::DataQualityError("tablet_uid is invalid tablet={} _tablet_uid={}", tablet_id(), _tablet_uid.to_string()));
+        throw Exception(Status::FatalError("tablet_uid is invalid tablet={} _tablet_uid={}",
+                                           tablet_id(), _tablet_uid.to_string()));
     }
     string meta_binary;
 
@@ -512,7 +513,7 @@ Status TabletMeta::_save_meta(DataDir* data_dir) {
     auto t2 = MonotonicMicros();
     Status status = TabletMetaManager::save(data_dir, tablet_id(), schema_hash(), meta_binary);
     if (!status.ok()) {
-        throw Exception(Status::InternalError(
+        throw Exception(Status::FatalError(
                 "fail to save tablet_meta. status={}, tablet_id={}, schema_hash={}", status,
                 tablet_id(), schema_hash()));
     }
@@ -560,7 +561,7 @@ void TabletMeta::serialize(string* meta_binary) {
     }
 
     if (!serialize_success) {
-        throw Exception(Status::InternalError("failed to serialize meta {}", tablet_id()));
+        throw Exception(Status::FatalError("failed to serialize meta {}", tablet_id()));
     }
 }
 

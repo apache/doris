@@ -118,7 +118,7 @@ public:
             return &_scan_ranges[0].scan_range.ext_scan_range.file_scan_range.params;
         }
         throw Exception(
-                Status::InternalError("Unreachable, params is got by file_scan_range_params_map"));
+                Status::FatalError("Unreachable, params is got by file_scan_range_params_map"));
     }
 };
 
@@ -162,7 +162,7 @@ public:
 
     TFileScanRangeParams* get_params() override {
         throw Exception(
-                Status::InternalError("Unreachable, params is got by file_scan_range_params_map"));
+                Status::FatalError("Unreachable, params is got by file_scan_range_params_map"));
     }
 };
 

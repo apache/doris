@@ -657,7 +657,7 @@ void StorageEngine::_exit_if_too_many_disks_are_failed() {
     }
 
     if (too_many_disks_are_failed(unused_root_path_num, total_root_path_num)) {
-        throw Exception(Status::IOError(
+        throw Exception(Status::FatalError(
                 "meet too many error disks, process exit. max_ratio_allowed={}%, "
                 "error_disk_count={}, total_disk_count={}",
                 config::max_percentage_of_error_disk, unused_root_path_num, total_root_path_num));
@@ -1162,8 +1162,8 @@ void StorageEngine::_parse_default_rowset_type() {
         LOG(WARNING) << "default_rowset_type in be.conf should be set to beta, alpha is not "
                         "supported any more";
     } else {
-        throw Exception(Status::InvalidArgument(
-                "unknown value {} in default_rowset_type in be.conf", default_rowset_type_config));
+        throw Exception(Status::FatalError("unknown value {} in default_rowset_type in be.conf",
+                                           default_rowset_type_config));
     }
 }
 

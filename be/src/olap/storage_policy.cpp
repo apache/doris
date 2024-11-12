@@ -142,9 +142,9 @@ namespace {
 
 [[noreturn]] void exit_at_unknown_path_version(std::string_view resource_id, int64_t path_version) {
     throw Exception(
-            Status::NotSupported("unknown path version, please upgrade BE or drop this storage "
-                                 "vault. resource_id={} path_version={}",
-                                 resource_id, path_version));
+            Status::FatalError("unknown path version, please upgrade BE or drop this storage "
+                               "vault. resource_id={} path_version={}",
+                               resource_id, path_version));
 }
 
 } // namespace

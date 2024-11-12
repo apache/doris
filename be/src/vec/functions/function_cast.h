@@ -433,8 +433,8 @@ struct ConvertImpl {
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
                     return Status::OK();
-                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>)&&(
-                                             std::is_same_v<ToDataType, DataTypeIPv6>)) {
+                } else if constexpr ((std::is_same_v<FromDataType, DataTypeIPv4>) &&
+                                     (std::is_same_v<ToDataType, DataTypeIPv6>)) {
                     for (size_t i = 0; i < size; ++i) {
                         map_ipv4_to_ipv6(vec_from[i], reinterpret_cast<UInt8*>(&vec_to[i]));
                     }
@@ -651,7 +651,14 @@ struct ConvertImplNumberToJsonb {
             } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
                 writer.writeDouble(data[i]);
             } else {
-                throw Exception(Status::NotSupported("unsupported type "));
+                static_assert(std::is_same_v<ColumnType, ColumnUInt8> ||
+                                      std::is_same_v<ColumnType, ColumnInt8> ||
+                                      std::is_same_v<ColumnType, ColumnInt16> ||
+                                      std::is_same_v<ColumnType, ColumnInt32> ||
+                                      std::is_same_v<ColumnType, ColumnInt64> ||
+                                      std::is_same_v<ColumnType, ColumnInt128> ||
+                                      std::is_same_v<ColumnType, ColumnFloat64>,
+                              "unsupported type");
                 __builtin_unreachable();
             }
             column_string->insert_data(writer.getOutput()->getBuffer(),
@@ -936,7 +943,7 @@ struct ConvertImplFromJsonb {
                         res[i] = 0;
                     }
                 } else {
-                    throw Exception(Status::NotSupported("unsupported type"));
+                    throw Exception(Status::FatalError("unsupported type"));
                     __builtin_unreachable();
                 }
             }
@@ -1230,7 +1237,7 @@ struct ToNumberMonotonicity {
                 return {};
             }
         }
-        throw Exception(Status::InternalError("__builtin_unreachable"));
+        throw Exception(Status::FatalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 };
@@ -1756,11 +1763,11 @@ private:
             /// that will not throw an exception but return NULL in case of malformed input.
             function = FunctionConvertFromString<DataType, NameCast>::create();
         } else if (requested_result_is_nullable &&
-                   (IsTimeType<DataType> || IsTimeV2Type<DataType>)&&!(
-                           check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDate>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
-                           check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
+                   (IsTimeType<DataType> || IsTimeV2Type<DataType>) &&
+                   !(check_and_get_data_type<DataTypeDateTime>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDate>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateV2>(from_type.get()) ||
+                     check_and_get_data_type<DataTypeDateTimeV2>(from_type.get()))) {
             function = FunctionConvertToTimeType<DataType, NameCast>::create();
         } else {
             function = FunctionTo<DataType>::Type::create();

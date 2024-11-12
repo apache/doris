@@ -194,7 +194,7 @@ void ThreadPoolToken::transition(State new_state) {
         CHECK(false); // QUIESCED is a terminal state
         break;
     default:
-        throw Exception(Status::InternalError("Unknown token state: {}", _state));
+        throw Exception(Status::FatalError("Unknown token state: {}", _state));
     }
 #endif
 
@@ -617,7 +617,7 @@ void ThreadPool::check_not_pool_thread_unlocked() {
     Thread* current = Thread::current_thread();
     if (ContainsKey(_threads, current)) {
         throw Exception(
-                Status::InternalError("Thread belonging to thread pool {}} with "
+                Status::FatalError("Thread belonging to thread pool {}} with "
                                       "name {}} called pool function that would result in deadlock",
                                       _name, current->name()));
     }

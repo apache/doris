@@ -643,7 +643,7 @@ Block Block::clone_with_columns(const Columns& columns) const {
     size_t num_columns = data.size();
 
     if (num_columns != columns.size()) {
-        throw Exception(Status::DataQualityError(
+        throw Exception(Status::FatalError(
                 "Cannot clone block with columns because block has {} columns, but {} columns "
                 "given.",
                 num_columns, columns.size()));

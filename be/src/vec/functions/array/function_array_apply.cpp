@@ -131,7 +131,7 @@ private:
         if constexpr (op == ApplyOp::GE) {
             return data >= comp;
         }
-        throw Exception(Status::InternalError("__builtin_unreachable"));
+        throw Exception(Status::FatalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 

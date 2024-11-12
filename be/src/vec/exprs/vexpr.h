@@ -229,7 +229,7 @@ public:
 
     // If this expr is a BloomPredicate, this method will return a BloomFilterFunc
     virtual std::shared_ptr<BloomFilterFuncBase> get_bloom_filter_func() const {
-        throw Exception(Status::NotSupported(
+        throw Exception(Status::FatalError(
                 "Method 'get_bloom_filter_func()' is not supported in expression: {}",
                 this->debug_string()));
         return nullptr;
@@ -239,7 +239,7 @@ public:
 
     // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
     virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
-        throw Exception(Status::NotSupported(
+        throw Exception(Status::FatalError(
                 "Method 'get_bitmap_filter_func()' is not supported in expression: {}",
                 this->debug_string()));
         return nullptr;

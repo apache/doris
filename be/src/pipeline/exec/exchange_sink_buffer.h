@@ -154,9 +154,9 @@ public:
                         start_rpc_time);
             }
         } catch (const std::exception& exp) {
-            throw Exception(Status::RuntimeError("brpc callback error: {}", exp.what()));
+            throw Exception(Status::FatalError("brpc callback error: {}", exp.what()));
         } catch (...) {
-            throw Exception(Status::RuntimeError("brpc callback error."));
+            throw Exception(Status::FatalError("brpc callback error."));
             __builtin_unreachable();
         }
     }

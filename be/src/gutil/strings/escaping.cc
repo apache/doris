@@ -4,11 +4,14 @@
 #include "gutil/strings/escaping.h"
 
 #include <assert.h>
+#include <glog/logging.h>
 #include <stdio.h>
 #include <string.h>
-#include <glog/logging.h>
+
 #include <limits>
 #include <ostream>
+
+#include "common/exception.h"
 
 using std::numeric_limits;
 #include <vector>
@@ -20,8 +23,8 @@ using std::vector;
 #include "gutil/integral_types.h"
 #include "gutil/port.h"
 #include "gutil/stl_util.h"
-#include "gutil/utf/utf.h" // for runetochar
 #include "gutil/strings/strcat.h"
+#include "gutil/utf/utf.h" // for runetochar
 
 namespace strings {
 
@@ -143,9 +146,9 @@ int UnescapeCEscapeSequences(const char* source, char* dest, vector<string>* err
                 if (IS_OCTAL_DIGIT(p[1]))     // safe (and easy) to do this twice
                     ch = ch * 8 + *++p - '0'; // now points at last digit
                 if (ch > 0xFF)
-                    LOG_STRING(ERROR, errors) << "Value of "
-                                              << "\\" << string(octal_start, p + 1 - octal_start)
-                                              << " exceeds 8 bits";
+                    LOG_STRING(ERROR, errors)
+                            << "Value of " << "\\" << string(octal_start, p + 1 - octal_start)
+                            << " exceeds 8 bits";
                 *d++ = ch;
                 break;
             }
@@ -166,8 +169,8 @@ int UnescapeCEscapeSequences(const char* source, char* dest, vector<string>* err
                     ch = (ch << 4) + hex_digit_to_int(*++p);
                 if (ch > 0xFF)
                     LOG_STRING(ERROR, errors)
-                            << "Value of "
-                            << "\\" << string(hex_start, p + 1 - hex_start) << " exceeds 8 bits";
+                            << "Value of " << "\\" << string(hex_start, p + 1 - hex_start)
+                            << " exceeds 8 bits";
                 *d++ = ch;
                 break;
             }
@@ -899,8 +902,7 @@ int Base64UnescapeInternal(const char* src, int szsrc, char* dest, int szdest,
     // of data bytes that must remain in the input to avoid aborting the
     // loop.
 #define GET_INPUT(label, remain)                              \
-    label:                                                    \
-    --szsrc;                                                  \
+    label : --szsrc;                                          \
     ch = *src++;                                              \
     decode = unbase64[ch];                                    \
     if (decode < 0) {                                         \
@@ -1084,7 +1086,8 @@ int Base64UnescapeInternal(const char* src, int szsrc, char* dest, int szdest,
 
     default:
         // state should have no other values at this point.
-        LOG(FATAL) << "This can't happen; base64 decoder state = " << state;
+        throw doris::Exception(
+                doris::Status::FatalError("This can't happen; base64 decoder state = {}", state));
     }
 
     // The remainder of the string should be all whitespace, mixed with

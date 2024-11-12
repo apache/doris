@@ -39,18 +39,16 @@ template <typename T>
 void ColumnStr<T>::sanity_check() const {
     auto count = offsets.size();
     if (chars.size() != offsets[count - 1]) {
-        throw Exception(
-                Status::DataQualityError("row count: {}, chars.size(): {}, offset[{}]: ", count,
-                                         chars.size(), count - 1, offsets[count - 1]));
+        throw Exception(Status::FatalError("row count: {}, chars.size(): {}, offset[{}]: ", count,
+                                           chars.size(), count - 1, offsets[count - 1]));
     }
     if (offsets[-1] != 0) {
-        throw Exception(Status::DataQualityError("wrong offsets[-1]: {}", offsets[-1]));
+        throw Exception(Status::FatalError("wrong offsets[-1]: {}", offsets[-1]));
     }
     for (size_t i = 0; i < count; ++i) {
         if (offsets[i] < offsets[i - 1]) {
-            throw Exception(
-                    Status::DataQualityError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
-                                             count, i, offsets[i], i - 1, offsets[i - 1]));
+            throw Exception(Status::FatalError("row count: {}, offsets[{}]: {}, offsets[{}]: {}",
+                                               count, i, offsets[i], i - 1, offsets[i - 1]));
         }
     }
 }

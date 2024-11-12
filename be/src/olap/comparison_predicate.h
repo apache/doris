@@ -216,8 +216,7 @@ public:
                 }
             }
         } else {
-            throw Exception(
-                    Status::NotSupported("Bloom filter is not supported by predicate type."));
+            throw Exception(Status::FatalError("Bloom filter is not supported by predicate type."));
             return true;
         }
     }
@@ -288,7 +287,8 @@ public:
                                                      dict_code);
                     } while (false);
                 } else {
-                    static_assert(false, "column_dictionary must use StringRef predicate.");
+                    static_assert(!std::is_same_v<T, StringRef>,
+                                  "column_dictionary must use StringRef predicate.");
                     __builtin_unreachable();
                 }
             } else {
@@ -319,7 +319,8 @@ public:
                         _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
                     } while (false);
                 } else {
-                    static_assert(false, "column_dictionary must use StringRef predicate.");
+                    static_assert(!std::is_same_v<T, StringRef>,
+                                  "column_dictionary must use StringRef predicate.");
                     __builtin_unreachable();
                 }
             } else {
@@ -525,7 +526,7 @@ private:
                 _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
                                                     dict_code);
             } else {
-                static_assert(false, "column_dictionary must use StringRef predicate.");
+                static_assert(!std::is_same_v<T, StringRef>, "column_dictionary must use StringRef predicate.");
                 __builtin_unreachable();
             }
         } else {
@@ -565,7 +566,7 @@ private:
 
                 return new_size;
             } else {
-                static_assert(false, "column_dictionary must use StringRef predicate.");
+                static_assert(!std::is_same_v<T, StringRef>, "column_dictionary must use StringRef predicate.");
                 return 0;
             }
         } else {

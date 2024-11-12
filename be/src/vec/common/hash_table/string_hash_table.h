@@ -327,7 +327,7 @@ protected:
                 return iterator5 == rhs.iterator5;
             }
             }
-            throw Exception(Status::InternalError("__builtin_unreachable"));
+            throw doris::Exception(doris::Status::FatalError("__builtin_unreachable"));
             __builtin_unreachable();
         }
 

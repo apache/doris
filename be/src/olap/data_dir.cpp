@@ -316,7 +316,7 @@ Status DataDir::_check_incompatible_old_format_tablet() {
                                           std::string_view value) -> bool {
         // if strict check incompatible old format, then log fatal
         if (config::storage_strict_check_incompatible_old_format) {
-            throw Exception(Status::NotSupported(
+            throw Exception(Status::FatalError(
                     "There are incompatible old format metas, current version does not support and "
                     "it may lead to data missing!!! tablet_id = {} schema_hash = {}",
                     tablet_id, schema_hash));
@@ -451,7 +451,7 @@ Status DataDir::load() {
                      << ", loaded tablet: " << tablet_ids.size()
                      << ", error tablet: " << failed_tablet_ids.size() << ", path: " << _path;
         if (!config::ignore_load_tablet_failure) {
-            throw Exception(Status::InternalError(
+            throw Exception(Status::FatalError(
                     "load tablets encounter failure. stop BE process. path: {}", _path));
         }
     }
@@ -495,7 +495,7 @@ Status DataDir::load() {
         }
     }
     if (rowset_partition_id_eq_0_num > config::ignore_invalid_partition_id_rowset_num) {
-        throw Exception(Status::DataQualityError(
+        throw Exception(Status::FatalError(
                 "roswet partition id eq 0 is {} bigger than config {}, be exit, plz check be.INFO",
                 rowset_partition_id_eq_0_num, config::ignore_invalid_partition_id_rowset_num));
         exit(-1);

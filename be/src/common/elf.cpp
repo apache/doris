@@ -41,22 +41,22 @@ Elf::Elf(const std::string& path) {
     std::error_code ec;
     elf_size = std::filesystem::file_size(_file, ec);
     if (ec) {
-        throw Exception(Status::IOError("failed to get file size {}: ({}), {}", _file.native(),
-                                        ec.value(), ec.message()));
+        throw Exception(Status::FatalError("failed to get file size {}: ({}), {}", _file.native(),
+                                           ec.value(), ec.message()));
     }
     /// Check if it's an elf.
     if (elf_size < sizeof(ElfEhdr)) {
-        throw Exception(Status::DataQualityError(
-                "The size of supposedly ELF file '{}' is too small", path));
+        throw Exception(
+                Status::FatalError("The size of supposedly ELF file '{}' is too small", path));
     }
     RETRY_ON_EINTR(_fd, open(_file.c_str(), O_RDONLY));
     if (_fd < 0) {
-        throw Exception(Status::IOError("failed to open {}", _file.native()));
+        throw Exception(Status::FatalError("failed to open {}", _file.native()));
     }
     mapped = static_cast<char*>(mmap(nullptr, elf_size, PROT_READ, MAP_SHARED, _fd, 0));
     if (MAP_FAILED == mapped) {
-        throw Exception(Status::MemoryAllocFailed(
-                "MMappedFileDescriptor: Cannot mmap {}, read from {}.", elf_size, path));
+        throw Exception(Status::FatalError("MMappedFileDescriptor: Cannot mmap {}, read from {}.",
+                                           elf_size, path));
     }
 
     header = reinterpret_cast<const ElfEhdr*>(mapped);
@@ -65,8 +65,7 @@ Elf::Elf(const std::string& path) {
                "\x7F"
                "ELF",
                4) != 0) {
-        throw Exception(
-                Status::DataQualityError("The file '{}' is not ELF according to magic", path));
+        throw Exception(Status::FatalError("The file '{}' is not ELF according to magic", path));
     }
 
     /// Get section header.
@@ -75,7 +74,7 @@ Elf::Elf(const std::string& path) {
 
     if (!section_header_offset || !section_header_num_entries ||
         section_header_offset + section_header_num_entries * sizeof(ElfShdr) > elf_size) {
-        throw Exception(Status::DataQualityError(
+        throw Exception(Status::FatalError(
                 "The ELF '{}' is truncated (section header points after end of file)", path));
     }
 
@@ -87,13 +86,13 @@ Elf::Elf(const std::string& path) {
     });
 
     if (!section_names_strtab) {
-        throw Exception(Status::DataQualityError(
+        throw Exception(Status::FatalError(
                 "The ELF '{}' doesn't have string table with section names", path));
     }
 
     ElfOff section_names_offset = section_names_strtab->header.sh_offset;
     if (section_names_offset >= elf_size) {
-        throw Exception(Status::DataQualityError(
+        throw Exception(Status::FatalError(
                 "The ELF '{}' is truncated (section names string table points after end of file)",
                 path));
     }
@@ -106,7 +105,7 @@ Elf::Elf(const std::string& path) {
 
     if (!program_header_offset || !program_header_num_entries ||
         program_header_offset + program_header_num_entries * sizeof(ElfPhdr) > elf_size) {
-        throw Exception(Status::DataQualityError(
+        throw Exception(Status::FatalError(
                 "The ELF '{}' is truncated (program header points after end of file)", path));
     }
     program_headers = reinterpret_cast<const ElfPhdr*>(mapped + program_header_offset);
@@ -222,7 +221,7 @@ std::string Elf::getStoredBinaryHash() const {
 
 const char* Elf::Section::name() const {
     if (!elf.section_names) {
-        throw Exception(Status::Uninitialized("Section names are not initialized"));
+        throw Exception(Status::FatalError("Section names are not initialized"));
     }
 
     /// TODO buffer overflow is possible, we may need to check strlen.

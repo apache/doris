@@ -177,8 +177,8 @@ public:
         _bit_reader.reset(new BitReader((const uint8_t*)slice->data, slice->size));
         Status st = _init_header();
         if (!st.ok()) {
-            throw Exception(Status::Uninitialized("Fail to init delta encoding header for {}",
-                                                  st.to_string()));
+            throw Exception(Status::FatalError("Fail to init delta encoding header for {}",
+                                               st.to_string()));
         }
         _data = slice;
         _offset = 0;
@@ -190,8 +190,8 @@ public:
         _bit_reader = std::move(bit_reader);
         Status st = _init_header();
         if (!st.ok()) {
-            throw Exception(Status::Uninitialized("Fail to init delta encoding header for {}",
-                                                  st.to_string()));
+            throw Exception(Status::FatalError("Fail to init delta encoding header for {}",
+                                               st.to_string()));
         }
     }
 
@@ -347,7 +347,7 @@ public:
         int ret;
         Status st = _prefix_len_decoder.decode(_buffered_prefix_length.data(), num_prefix, &ret);
         if (!st.ok()) {
-            throw Exception(Status::InternalError("Fail to decode delta prefix, status: {}", st));
+            throw Exception(Status::FatalError("Fail to decode delta prefix, status: {}", st));
         }
         DCHECK_EQ(ret, num_prefix);
         _prefix_len_offset = 0;
@@ -529,7 +529,7 @@ void DeltaLengthByteArrayDecoder::_decode_lengths() {
     int ret;
     Status st = _len_decoder.decode(_buffered_length.data(), num_length, &ret);
     if (!st.ok()) {
-        throw Exception(Status::InternalError("Fail to decode delta length, status: {}", st));
+        throw Exception(Status::FatalError("Fail to decode delta length, status: {}", st));
     }
     DCHECK_EQ(ret, num_length);
     _length_idx = 0;

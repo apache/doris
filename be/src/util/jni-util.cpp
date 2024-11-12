@@ -242,7 +242,7 @@ void JniUtil::parse_max_heap_memory_size_from_jvm(JNIEnv* env) {
         }
     }
     if (0 == max_jvm_heap_memory_size_) {
-        throw Exception(Status::InvalidArgument("the max_jvm_heap_memory_size_ is {}",
+        throw Exception(Status::FatalError("the max_jvm_heap_memory_size_ is {}",
                                                 max_jvm_heap_memory_size_));
     }
     LOG(INFO) << "the max_jvm_heap_memory_size_ is " << max_jvm_heap_memory_size_;

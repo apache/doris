@@ -185,7 +185,7 @@ Status JniConnector::close() {
         jthrowable exc = (env)->ExceptionOccurred();
         if (exc != nullptr) {
             // Ensure successful resource release
-            throw Exception(Status::Corruption("Failed to release jni resource: {}",
+            throw Exception(Status::FatalError("Failed to release jni resource: {}",
                                                JniUtil::GetJniExceptionMsg(env).to_string()));
         }
     }

@@ -118,9 +118,9 @@ public:
         case TStorageBackendType::HDFS:
             return TFileType::FILE_HDFS;
         default:
-            throw Exception(Status::InternalError("not match type to convert, from type:{}", type));
+            throw Exception(Status::FatalError("not match type to convert, from type:{}", type));
         }
-        throw Exception(Status::InternalError("__builtin_unreachable"));
+        throw Exception(Status::FatalError("__builtin_unreachable"));
         __builtin_unreachable();
     }
 };

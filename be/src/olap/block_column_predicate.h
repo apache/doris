@@ -74,24 +74,24 @@ public:
     }
 
     virtual bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const {
-        throw Exception(Status::InternalError("should not reach here"));
+        throw Exception(Status::FatalError("should not reach here"));
         return true;
     }
 
     virtual bool support_zonemap() const { return true; }
 
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
-        throw Exception(Status::InternalError("should not reach here"));
+        throw Exception(Status::FatalError("should not reach here"));
         return true;
     }
 
     virtual bool evaluate_and(const segment_v2::BloomFilter* bf) const {
-        throw Exception(Status::InternalError("should not reach here"));
+        throw Exception(Status::FatalError("should not reach here"));
         return true;
     }
 
     virtual bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const {
-        throw Exception(Status::InternalError("should not reach here"));
+        throw Exception(Status::FatalError("should not reach here"));
         return true;
     }
 

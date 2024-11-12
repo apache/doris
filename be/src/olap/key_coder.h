@@ -109,9 +109,8 @@ private:
             case 16:
                 return BigEndian::FromHost128(val);
             default:
-                throw Exception(
-                        Status::InvalidArgument("Invalid type to big endian, type={}, size={}",
-                                                int(field_type), sizeof(UnsignedCppType)));
+                throw Exception(Status::FatalError("Invalid type to big endian, type={}, size={}",
+                                                   int(field_type), sizeof(UnsignedCppType)));
             }
         }
     }
@@ -301,7 +300,7 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
-        throw Exception(Status::NotSupported("decode_ascending is not implemented"));
+        throw Exception(Status::FatalError("decode_ascending is not implemented"));
         return Status::OK();
     }
 };
@@ -321,7 +320,7 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
-        throw Exception(Status::NotSupported("decode_ascending is not implemented"));
+        throw Exception(Status::FatalError("decode_ascending is not implemented"));
         return Status::OK();
     }
 };
@@ -341,7 +340,7 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
-        throw Exception(Status::NotSupported("decode_ascending is not implemented"));
+        throw Exception(Status::FatalError("decode_ascending is not implemented"));
         return Status::OK();
     }
 };

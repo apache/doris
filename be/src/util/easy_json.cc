@@ -202,7 +202,7 @@ EasyJson EasyJson::PushBack(EasyJson::ComplexTypeInitializer val) {
     } else if (val == kArray) {
         push_val.SetArray();
     } else {
-        throw Exception(Status::InternalError("Unknown initializer type"));
+        throw Exception(Status::FatalError("Unknown initializer type"));
         __builtin_unreachable();
     }
     value_->PushBack(push_val, alloc_->allocator());
