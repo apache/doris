@@ -120,7 +120,7 @@ Status BaseCompaction::pick_rowsets_to_compact() {
     // If there are delete predicate rowsets in tablet, start_version > 0 implies some rowsets before
     // delete version cannot apply these delete predicates, which can cause incorrect query result.
     // So we must abort this base compaction.
-    // Typical scenario is that some rowsets before cumulative point are on remote storage.
+    // A typical scenario is that some rowsets before cumulative point are on remote storage.
     // For example, consider rowset[0,3] is on remote storage, now we pass [4,4],[5,5],[6,9]
     // to do base compaction and rowset[5,5] is delete predicate rowset, if we allow them to do
     // such procedure, then we'll get [4,9] while it will lose the delete predicate information in [5,5]
