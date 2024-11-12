@@ -1141,7 +1141,7 @@ public class NumericArithmetic {
     public static Expression truncate(DecimalV3Literal first, IntegerLiteral second) {
         if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
             return first;
-        } else if (first.getValue().compareTo(BigDecimal.ZERO) == -1) {
+        } else if (first.getValue().compareTo(BigDecimal.ZERO) < 0) {
             return castDecimalV3Literal(first.roundCeiling(second.getValue()), first.getValue().precision());
         } else {
             return castDecimalV3Literal(first.roundFloor(second.getValue()), first.getValue().precision());
