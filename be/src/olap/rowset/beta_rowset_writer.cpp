@@ -81,7 +81,7 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
                                        const RowsetMeta& spec_rowset_meta) {
     rowset_meta.set_num_rows(spec_rowset_meta.num_rows());
     rowset_meta.set_total_disk_size(spec_rowset_meta.total_disk_size());
-    rowset_meta.set_data_disk_size(spec_rowset_meta.total_disk_size());
+    rowset_meta.set_data_disk_size(spec_rowset_meta.data_disk_size());
     rowset_meta.set_index_disk_size(spec_rowset_meta.index_disk_size());
     // TODO write zonemap to meta
     rowset_meta.set_empty(spec_rowset_meta.num_rows() == 0);
@@ -879,7 +879,8 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
 
     rowset_meta->set_num_segments(segment_num);
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
-    rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
+    rowset_meta->set_total_disk_size(total_data_size + _total_data_size + total_index_size +
+                                     _total_index_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
     rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
@@ -1087,8 +1088,8 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
 
     SegmentStatistics segstat;
     segstat.row_num = row_num;
-    segstat.data_size = segment_size + inverted_index_file_size;
-    segstat.index_size = index_size + inverted_index_file_size;
+    segstat.data_size = segment_size;
+    segstat.index_size = inverted_index_file_size;
     segstat.key_bounds = key_bounds;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
