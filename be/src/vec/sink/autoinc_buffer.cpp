@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_rpc_helper.h"
 
@@ -45,9 +46,23 @@ void AutoIncIDBuffer::set_batch_size_at_least(size_t batch_size) {
 }
 
 Result<int64_t> AutoIncIDBuffer::_fetch_ids_from_fe(size_t length) {
+    LOG_INFO(
+            "[AutoIncIDBuffer::_fetch_ids_from_fe] begin to fetch auto-increment values from fe, "
+            "db_id={}, table_id={}, column_id={}, length={}",
+            _db_id, _table_id, _column_id, length);
     constexpr uint32_t FETCH_AUTOINC_MAX_RETRY_TIMES = 3;
     _rpc_status = Status::OK();
-    TNetworkAddress master_addr = ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
+
+    DBUG_EXECUTE_IF("AutoIncIDBuffer::_fetch_ids_from_fe.failed", {
+        _rpc_status = Status::InternalError<false>("injected error");
+        LOG_WARNING(
+                "AutoIncIDBuffer::_fetch_ids_from_fe.failed, "
+                "db_id={}, table_id={}, column_id={}, length={}",
+                _db_id, _table_id, _column_id, length);
+        return _rpc_status;
+    });
+
+    TNetworkAddress master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     for (uint32_t retry_times = 0; retry_times < FETCH_AUTOINC_MAX_RETRY_TIMES; retry_times++) {
         TAutoIncrementRangeRequest request;
         TAutoIncrementRangeResult result;
@@ -154,10 +169,19 @@ Status AutoIncIDBuffer::_launch_async_fetch_task(size_t length) {
     RETURN_IF_ERROR(_rpc_token->submit_func([=, this]() {
         auto&& res = _fetch_ids_from_fe(length);
         if (!res.has_value()) [[unlikely]] {
+            auto&& err = res.error();
+            LOG_WARNING(
+                    "[AutoIncIDBuffer::_launch_async_fetch_task] failed to fetch auto-increment "
+                    "values from fe, status={}",
+                    err);
             _is_fetching = false;
             return;
         }
         int64_t start = res.value();
+        LOG_INFO(
+                "[AutoIncIDBuffer::_launch_async_fetch_task] successfully fetch auto-increment "
+                "values from fe, start={}, length={}",
+                start, length);
         {
             std::lock_guard<std::mutex> lock {_latch};
             _buffers.emplace_back(start, length);
