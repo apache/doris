@@ -59,6 +59,7 @@ Status compact_column(int64_t index_id,
     for (size_t i = 0; i < tmp_src_index_dirs.size(); ++i) {
         tmp_src_index_dirs[i] = src_index_dirs[i].get();
     }
+    
     index_writer->indexCompaction(tmp_src_index_dirs, dest_index_dirs, trans_vec,
                                   dest_segment_num_rows);
     DBUG_EXECUTE_IF("compact_column_indexCompaction_error", {
