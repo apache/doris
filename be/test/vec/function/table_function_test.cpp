@@ -97,7 +97,7 @@ TEST_F(TableFunctionTest, vexplode_outer) {
     // explode_outer(Array<String>)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
-        Array vec = {std::string("abc"), std::string(""), std::string("def")};
+        Array vec = {Field(std::string("abc")), Field(std::string("")), Field(std::string("def"))};
         InputDataSet input_set = {{Null()}, {Array()}, {vec}};
 
         InputTypeSet output_types = {TypeIndex::String};
@@ -144,7 +144,7 @@ TEST_F(TableFunctionTest, vexplode) {
     // explode(Array<String>)
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String};
-        Array vec = {std::string("abc"), std::string(""), std::string("def")};
+        Array vec = {Field(std::string("abc")), Field(std::string("")), Field(std::string("def"))};
         InputDataSet input_set = {{Null()}, {Array()}, {vec}};
 
         InputTypeSet output_types = {TypeIndex::String};
