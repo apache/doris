@@ -1077,6 +1077,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int schedule_slot_num_per_ssd_path = 8;
 
+
     /**
      * the default batch size in tablet scheduler for a single schedule.
      */
