@@ -22,6 +22,7 @@
 #include <brpc/uri.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
+#include <glog/logging.h>
 #include <google/protobuf/message.h>
 #include <google/protobuf/service.h>
 #include <google/protobuf/util/json_util.h>
@@ -346,15 +347,7 @@ static HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Co
     auto rpc_name = std::string {http_query(uri, "rpc_name")};
     auto instance_id = std::string {http_query(uri, "instance_id")};
 
-    auto process_invalid_arguments = [&]() -> HttpResponse {
-        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
-                               fmt::format("invalid argument: qps_limit(required)={}, "
-                                           "rpc_name(optional)={}, instance_id(optional)={}",
-                                           qps_limit_str, rpc_name, instance_id));
-    };
-
-    static auto parse_qps_limit =
-            [](const std::string& qps_limit_str) -> std::variant<int64_t, HttpResponse> {
+    auto process_set_qps_limit = [&](std::function<bool(int64_t)> cb) -> HttpResponse {
         DCHECK(!qps_limit_str.empty());
         int64_t qps_limit = -1;
         try {
@@ -368,29 +361,14 @@ static HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Co
             return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
                                    "`qps_limit` should not be less than 0");
         }
-        return qps_limit;
-    };
-
-    auto process_set_qps_limit = [&](std::function<bool(int64_t)> cb) -> HttpResponse {
-        return std::visit(
-                [&](auto&& parse_result) {
-                    using T = std::decay_t<decltype(parse_result)>;
-                    if constexpr (std::is_same_v<T, HttpResponse>) {
-                        return parse_result;
-                    } else {
-                        if (cb(parse_result)) {
-                            return http_json_reply(MetaServiceCode::OK,
-                                                   "sucess to adjust rate limit");
-                        }
-                        return http_json_reply(
-                                MetaServiceCode::INVALID_ARGUMENT,
-                                fmt::format("failed to adjust rate limit for qps_limit={}, "
-                                            "rpc_name={}, instance_id={}, plz ensure correct "
-                                            "rpc/instance name",
-                                            qps_limit_str, rpc_name, instance_id));
-                    }
-                },
-                parse_qps_limit(qps_limit_str));
+        if (cb(qps_limit)) {
+            return http_json_reply(MetaServiceCode::OK, "sucess to adjust rate limit");
+        }
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("failed to adjust rate limit for qps_limit={}, "
+                                           "rpc_name={}, instance_id={}, plz ensure correct "
+                                           "rpc/instance name",
+                                           qps_limit_str, rpc_name, instance_id));
     };
 
     auto set_global_qps_limit = [process_set_qps_limit, service]() {
@@ -417,7 +395,15 @@ static HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Co
         });
     };
 
-    // for 8 element in true table of params, register processor cb
+    auto process_invalid_arguments = [&]() -> HttpResponse {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("invalid argument: qps_limit(required)={}, "
+                                           "rpc_name(optional)={}, instance_id(optional)={}",
+                                           qps_limit_str, rpc_name, instance_id));
+    };
+
+    // We have 3 optional params and 2^3 combination, and 4 of them are illegal.
+    // We register callbacks for them in porcessors accordings to the level, represented by 3 bits.
     std::array<std::function<HttpResponse()>, 8> processors;
     std::fill_n(processors.begin(), 8, std::move(process_invalid_arguments));
     processors[0b001] = std::move(set_global_qps_limit);

@@ -43,25 +43,47 @@ public:
 
     std::shared_ptr<RpcRateLimiter> get_rpc_rate_limiter(const std::string& rpc_name);
 
+    /**
+     * @brief for each rpc limiter, apply callback
+     *
+     * @param cb callback function with params rpc name and rate limiter
+     */
     void for_each_rpc_limiter(
             std::function<void(std::string_view, std::shared_ptr<RpcRateLimiter>)> cb);
 
-    // set global default rate limit, will not infulence rpc and instance specific qps limit setting
+    /** 
+     * @brief set global default rate limit, will not infulence rpc and instance specific qps limit setting
+     *
+     * @return true if set sucessfully
+     */
     bool set_rate_limit(int64_t qps_limit);
 
-    // set rpc level rate limit, will not infulence instance specific qps limit setting
+    /** 
+     * @brief set rpc level rate limit, will not infulence instance specific qps limit setting 
+     *
+     * @return true if set sucessfully
+     */
     bool set_rate_limit(int64_t qps_limit, const std::string& rpc_name);
 
-    // set instance level rate limit for specific rpc
+    /** 
+     * @brief set instance level rate limit for specific rpc
+     *
+     * @return true if set sucessfully
+     */
     bool set_rate_limit(int64_t qps_limit, const std::string& rpc_name,
                         const std::string& instance_id);
 
-    // set instance level rate limit globally, will influence settings for the same instance of specific rpc
+    /** 
+     * @brief set instance level rate limit globally, will influence settings for the same instance of specific rpc 
+     * 
+     * @return true if set sucessfully
+     */
     bool set_instance_rate_limit(int64_t qps_limit, const std::string& instance_id);
 
 private:
     // rpc_name -> RpcRateLimiter
     std::unordered_map<std::string, std::shared_ptr<RpcRateLimiter>> limiters_;
+    // rpc names which specific limit have been set
     std::unordered_set<std::string> rpc_with_specific_limit_;
     bthread::Mutex mutex_;
 };
@@ -85,8 +107,18 @@ public:
 
     int64_t max_qps_limit() const { return max_qps_limit_; }
 
+    /**
+     * @brief set max qps limit for this limiter
+     * 
+     * @return true if set sucessfully
+     */
     void set_max_qps_limit(int64_t max_qps_limit);
 
+    /**
+     * @brief set max qps limit for specific instance within this limiter
+     *
+     * @return true if set sucessfully
+     */
     bool set_max_qps_limit(int64_t max_qps_limit, const std::string& instance);
 
     class QpsToken {
@@ -115,6 +147,7 @@ private:
     bthread::Mutex mutex_;
     // instance_id -> QpsToken
     std::unordered_map<std::string, std::shared_ptr<QpsToken>> qps_limiter_;
+    // instance ids which specific limit have been set
     std::unordered_set<std::string> instance_with_specific_limit_;
     std::string rpc_name_;
     int64_t max_qps_limit_;
