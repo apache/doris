@@ -30,7 +30,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * +--aggregate(group by a,b output a,b,max(c))
@@ -41,7 +43,7 @@ import java.util.List;
 public class EliminateGroupByKeyByUniform extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalAggregate().when(agg -> !agg.getSourceRepeat().isPresent())
+        return logicalAggregate().whenNot(agg -> agg.getSourceRepeat().isPresent())
                 .whenNot(agg -> agg.getGroupByExpressions().isEmpty())
                 .then(EliminateGroupByKeyByUniform::eliminate)
                 .toRule(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM);
@@ -51,7 +53,7 @@ public class EliminateGroupByKeyByUniform extends OneRewriteRuleFactory {
     private static Plan eliminate(LogicalAggregate<Plan> agg) {
         DataTrait aggChildTrait = agg.child().getLogicalProperties().getTrait();
         // Get the Group by column of agg. If there is a uniform one, delete the group by key.
-        List<Expression> removedExpression = new ArrayList<>();
+        Set<Expression> removedExpression = new LinkedHashSet<>();
         List<Expression> newGroupBy = new ArrayList<>();
         for (Expression groupBy : agg.getGroupByExpressions()) {
             if (!(groupBy instanceof Slot)) {
@@ -64,13 +66,20 @@ public class EliminateGroupByKeyByUniform extends OneRewriteRuleFactory {
                 newGroupBy.add(groupBy);
             }
         }
-        // TODO Consider whether there are other opportunities for optimization when newGroupBy is empty
-        if (newGroupBy.isEmpty()) {
+        if (removedExpression.isEmpty()) {
             return null;
         }
-
+        // when newGroupBy is empty, need retain one expr in group by, otherwise the result may be wrong in empty table
+        if (newGroupBy.isEmpty()) {
+            Expression expr = removedExpression.iterator().next();
+            newGroupBy.add(expr);
+            removedExpression.remove(expr);
+        }
+        if (removedExpression.isEmpty()) {
+            return null;
+        }
         List<NamedExpression> newOutputs = new ArrayList<>();
-        // If this output appears in the removedExpression column, replace it with anyvalue
+        // If this output appears in the removedExpression column, replace it with any_value
         for (NamedExpression output : agg.getOutputExpressions()) {
             if (output instanceof Slot) {
                 if (removedExpression.contains(output)) {

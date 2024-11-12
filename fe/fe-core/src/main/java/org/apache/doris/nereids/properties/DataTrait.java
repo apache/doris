@@ -118,6 +118,14 @@ public class DataTrait {
         return true;
     }
 
+    public boolean isUniformAndHasConstValue(Slot slot) {
+        return uniformSet.isUniformAndHasConstValue(slot);
+    }
+
+    public Optional<Expression> getUniformValue(Slot slot) {
+        return uniformSet.slotUniformValue.get(slot);
+    }
+
     public boolean isNullSafeEqual(Slot l, Slot r) {
         return equalSet.isEqual(l, r);
     }
@@ -563,6 +571,10 @@ public class DataTrait {
             return slotUniformValue.containsKey(slot)
                     && (!slot.nullable() || slotUniformValue.get(slot).isPresent()
                     && !slotUniformValue.get(slot).get().nullable());
+        }
+
+        public boolean isUniformAndHasConstValue(Slot slot) {
+            return slotUniformValue.containsKey(slot) && slotUniformValue.get(slot).isPresent();
         }
 
         @Override

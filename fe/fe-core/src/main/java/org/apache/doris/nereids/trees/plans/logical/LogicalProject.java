@@ -238,15 +238,16 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public void computeUniform(DataTrait.Builder builder) {
         builder.addUniformSlot(child(0).getLogicalProperties().getTrait());
         for (NamedExpression proj : getProjects()) {
-            if (proj.children().isEmpty()) {
+            if (!(proj instanceof Alias)) {
                 continue;
             }
             if (proj.child(0).isConstant()) {
                 builder.addUniformSlotAndLiteral(proj.toSlot(), proj.child(0));
-            } else if (ExpressionUtils.isInjective(proj.child(0))) {
-                ImmutableSet<Slot> inputs = ImmutableSet.copyOf(proj.getInputSlots());
-                if (child(0).getLogicalProperties().getTrait().isUniform(inputs)) {
-                    builder.addUniformSlot(proj.toSlot());
+            } else if (proj.child(0) instanceof Slot) {
+                Slot slot = (Slot) proj.child(0);
+                if (child(0).getLogicalProperties().getTrait().isUniformAndHasConstValue(slot)) {
+                    builder.addUniformSlotAndLiteral(proj.toSlot(),
+                            child(0).getLogicalProperties().getTrait().getUniformValue(slot).get());
                 }
             }
         }
