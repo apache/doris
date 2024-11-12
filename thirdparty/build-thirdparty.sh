@@ -1127,6 +1127,7 @@ build_bitshuffle() {
     check_if_source_exist "${BITSHUFFLE_SOURCE}"
     local ld="${DORIS_BIN_UTILS}/ld"
     local ar="${DORIS_BIN_UTILS}/ar"
+    MACHINE_OS=$(uname -s)
 
     if [[ ! -f "${ld}" ]]; then ld="$(command -v ld)"; fi
     if [[ ! -f "${ar}" ]]; then ar="$(command -v ar)"; fi
@@ -1142,7 +1143,7 @@ build_bitshuffle() {
     MACHINE_TYPE="$(uname -m)"
     # Becuase aarch64 don't support avx2, disable it.
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
-        arches=('default')
+        arches=('default' 'neon')
     fi
 
     to_link=""
@@ -1154,6 +1155,9 @@ build_bitshuffle() {
         if [[ "${arch}" == "avx512" ]]; then
             arch_flag="-mavx512bw -mavx512f"
         fi
+        if [[ "${MACHINE_OS}" != "Darwin" ]] && [[ "${arch}" == "neon" ]]; then
+            arch_flag="-march=armv8-a+crc"
+        fi
         tmp_obj="bitshuffle_${arch}_tmp.o"
         dst_obj="bitshuffle_${arch}.o"
         "${CC}" ${EXTRA_CFLAGS:+${EXTRA_CFLAGS}} ${arch_flag:+${arch_flag}} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
@@ -1163,7 +1167,7 @@ build_bitshuffle() {
         # Merge the object files together to produce a combined .o file.
         "${ld}" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
         # For the AVX2 symbols, suffix them.
-        if [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]]; then
+        if [[ "${MACHINE_OS}" != "Darwin" ]] && { [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]] || [[ "${arch}" == "neon" ]]; }; then
             local nm="${DORIS_BIN_UTILS}/nm"
             local objcopy="${DORIS_BIN_UTILS}/objcopy"
 
