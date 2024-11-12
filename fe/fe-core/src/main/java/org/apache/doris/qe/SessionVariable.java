@@ -716,7 +716,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_JDBC_ORACLE_NULL_PREDICATE_PUSH_DOWN, needForward = true,
             description = {"是否允许将 NULL 谓词下推到 Oracle JDBC 外部表。",
-                    "Whether to allow NULL predicates to be pushed down to Oracle JDBC external tables."})
+                    "Whether to allow NULL predicates to be pushed down to Oracle JDBC external tables"})
     public boolean enableJdbcOracleNullPredicatePushDown = false;
 
     @VariableMgr.VarAttr(name = ENABLE_JDBC_CAST_PREDICATE_PUSH_DOWN, needForward = true,
