@@ -289,8 +289,8 @@ TEST_F(IndexCompactionTest, write_index_test) {
         auto columns = block.mutate_columns();
         for (const auto& row : data[i]) {
             vectorized::Field key = Int32(row.key);
-            vectorized::Field v1 = row.word;
-            vectorized::Field v2 = row.url;
+            vectorized::Field v1(row.word);
+            vectorized::Field v2(row.url);
             vectorized::Field v3 = Int32(row.num);
             columns[0]->insert(key);
             columns[1]->insert(v1);
