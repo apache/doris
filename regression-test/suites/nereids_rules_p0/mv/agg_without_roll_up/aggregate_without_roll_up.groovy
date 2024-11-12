@@ -121,6 +121,10 @@ suite("aggregate_without_roll_up") {
     (2, 3, 10, 11.01, 'supply2');
     """
 
+    sql """alter table lineitem modify column l_comment set stats ('row_count'='5');"""
+    sql """alter table orders modify column o_comment set stats ('row_count'='8');"""
+    sql """alter table partsupp modify column ps_comment set stats ('row_count'='2');"""
+
     // single table
     // with filter
     def mv1_0 = """
@@ -1073,7 +1077,7 @@ suite("aggregate_without_roll_up") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_2"""
 
 
-        def mv22_0 = """
+    def mv22_0 = """
             select
             o_orderdate,
             l_partkey,
@@ -1106,7 +1110,7 @@ suite("aggregate_without_roll_up") {
     order_qt_query22_0_after "${query22_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_0"""
 
-   // test combinator aggregate function rewrite
+    // test combinator aggregate function rewrite
     sql """set enable_agg_state=true"""
     // query has no combinator and mv has combinator
     // mv is union
