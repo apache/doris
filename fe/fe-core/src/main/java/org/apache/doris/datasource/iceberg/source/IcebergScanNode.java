@@ -91,6 +91,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private static final long COUNT_WITH_PARALLEL_SPLITS = 10000;
 
     /**
+     * ttttttttttt
      * External file scan node for Query iceberg table
      * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
      * eg: s3 tvf
