@@ -914,7 +914,6 @@ void FragmentMgr::cancel_worker() {
                     if (q_ctx->is_timeout(now)) {
                         LOG_WARNING("Query {} is timeout", print_id(it->first));
                         queries_timeout.push_back(it->first);
-                        ++it;
                     } else if (config::enable_brpc_connection_check) {
                         auto brpc_stubs = q_ctx->get_using_brpc_stubs();
                         for (auto& item : brpc_stubs) {
