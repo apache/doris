@@ -19,6 +19,7 @@ import org.junit.Assert;
 
 suite("test_account") {
     // test comment
+    
     def user = "test_account_comment_user";
     sql """drop user if exists ${user}"""
     // create user with comment
