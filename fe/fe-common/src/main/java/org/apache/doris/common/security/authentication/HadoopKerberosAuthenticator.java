@@ -51,6 +51,9 @@ public class HadoopKerberosAuthenticator implements HadoopAuthenticator {
         this.config = config;
     }
 
+    /**
+     * Initialize hadoop configuration for kerberos authentication
+     */
     public static void initializeAuthConfig(Configuration hadoopConf) {
         hadoopConf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHORIZATION, "true");
         synchronized (HadoopKerberosAuthenticator.class) {
