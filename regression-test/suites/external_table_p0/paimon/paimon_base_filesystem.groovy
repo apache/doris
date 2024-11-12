@@ -41,7 +41,7 @@ suite("paimon_base_filesystem", "p0,external,doris,external_docker,external_dock
                 "type" = "paimon",
                 "warehouse" = "cosn://doris-build-1308700295/regression/paimoncos",
                 "cos.access_key" = "${txYunAk}",
-                "cos.secret_key" = "${txYunSk}", 
+                "cos.secret_key" = "${txYunSk}",
                 "cos.endpoint" = "cos.ap-beijing.myqcloud.com"
             );
         """
