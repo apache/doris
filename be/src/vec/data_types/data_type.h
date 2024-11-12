@@ -159,8 +159,6 @@ public:
       */
     virtual bool is_value_represented_by_integer() const { return false; }
 
-    virtual bool is_object() const { return false; }
-
     /** Unsigned Integers, Date, DateTime. Not nullable.
       */
     virtual bool is_value_represented_by_unsigned_integer() const { return false; }
