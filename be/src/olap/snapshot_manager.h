@@ -55,7 +55,8 @@ public:
     static SnapshotManager* instance();
 
     Status convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id, int64_t replica_id,
-                              int64_t table_id, int64_t partition_id, const int32_t& schema_hash);
+                              int64_t table_id, int64_t partition_id, const int32_t& schema_hash,
+                              int64_t storage_policy_id);
 
 private:
     SnapshotManager() : _snapshot_base_id(0) {

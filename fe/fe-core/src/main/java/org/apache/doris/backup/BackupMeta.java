@@ -17,11 +17,13 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.policy.StoragePolicy;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -50,17 +52,35 @@ public class BackupMeta implements Writable {
     // resource name -> resource
     @SerializedName(value = "resourceNameMap")
     private Map<String, Resource> resourceNameMap = Maps.newHashMap();
+    // storagePolicy name -> resource
+    @SerializedName(value = "storagePolicyNameMap")
+    private Map<String, StoragePolicy> storagePolicyNameMap = Maps.newHashMap();
 
     private BackupMeta() {
     }
 
-    public BackupMeta(List<Table> tables, List<Resource> resources) {
+    public BackupMeta(List<Table> tables, List<Resource> resources, List<StoragePolicy> storagePolicys) {
         for (Table table : tables) {
             tblNameMap.put(table.getName(), table);
             tblIdMap.put(table.getId(), table);
         }
         for (Resource resource : resources) {
             resourceNameMap.put(resource.getName(), resource);
+        }
+
+        for (StoragePolicy policy : storagePolicys) {
+            storagePolicyNameMap.put(policy.getName(), policy);
+
+            if (resourceNameMap.get(policy.getStorageResource()) != null) {
+                continue;
+            }
+            Resource resource = Env.getCurrentEnv().getResourceMgr()
+                    .getResource(policy.getStorageResource());
+            Resource copiedResource = resource.clone();
+            if (copiedResource == null) {
+                continue;
+            }
+            resourceNameMap.put(policy.getStorageResource(), copiedResource);
         }
     }
 
@@ -72,12 +92,20 @@ public class BackupMeta implements Writable {
         return resourceNameMap;
     }
 
+    public Map<String, StoragePolicy> getStoragePolicyNameMap() {
+        return storagePolicyNameMap;
+    }
+
     public Table getTable(String tblName) {
         return tblNameMap.get(tblName);
     }
 
     public Resource getResource(String resourceName) {
         return resourceNameMap.get(resourceName);
+    }
+
+    public StoragePolicy getStoragePolicy(String policyName) {
+        return storagePolicyNameMap.get(policyName);
     }
 
     public Table getTable(Long tblId) {
@@ -130,6 +158,10 @@ public class BackupMeta implements Writable {
         for (Resource resource : resourceNameMap.values()) {
             resource.write(out);
         }
+        out.writeInt(storagePolicyNameMap.size());
+        for (StoragePolicy storagePolicy : storagePolicyNameMap.values()) {
+            storagePolicy.write(out);
+        }
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -143,6 +175,11 @@ public class BackupMeta implements Writable {
         for (int i = 0; i < size; i++) {
             Resource resource = Resource.read(in);
             resourceNameMap.put(resource.getName(), resource);
+        }
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            StoragePolicy policy = StoragePolicy.read(in);
+            storagePolicyNameMap.put(policy.getName(), policy);
         }
     }
 

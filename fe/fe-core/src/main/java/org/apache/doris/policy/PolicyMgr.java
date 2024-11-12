@@ -247,7 +247,7 @@ public class PolicyMgr implements Writable {
         }
     }
 
-    private List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
+    public List<Policy> getPoliciesByType(PolicyTypeEnum policyType) {
         if (typeToPolicyMap == null) {
             return new ArrayList<>();
         }

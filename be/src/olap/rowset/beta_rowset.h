@@ -76,6 +76,8 @@ public:
 
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
+    Status download(io::RemoteFileSystem* fs, const std::string& dir) override;
+
     Status upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) override;
 
     // only applicable to alpha rowset, no op here

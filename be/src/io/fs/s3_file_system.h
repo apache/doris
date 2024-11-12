@@ -103,7 +103,9 @@ protected:
             return path;
         } else {
             // path with no schema
-            return _root_path / path;
+            return std::filesystem::path(
+                           fmt::format("s3://{}/{}", _s3_conf.bucket, _s3_conf.prefix)) /
+                   path;
         }
     }
 

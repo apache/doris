@@ -390,6 +390,8 @@ public:
     // Cooldown to remote fs.
     Status cooldown();
 
+    Status download(RowsetSharedPtr rowset, const std::string& dir);
+
     RowsetSharedPtr pick_cooldown_rowset();
 
     bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
