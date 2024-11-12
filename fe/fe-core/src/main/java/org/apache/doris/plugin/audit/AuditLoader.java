@@ -187,7 +187,7 @@ public class AuditLoader extends Plugin implements AuditPlugin {
                 String token = "";
                 try {
                     // Acquire token from master
-                    token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+                    token = Env.getCurrentEnv().getTokenManager().acquireToken();
                 } catch (Exception e) {
                     LOG.warn("Failed to get auth token: {}", e);
                     discardLogNum += auditLogNum;

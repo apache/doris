@@ -1641,10 +1641,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                 properties.put(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE,
                         Long.toString(olapTable.rowStorePageSize()));
             }
-            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)) {
-                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE,
-                        Long.toString(olapTable.storagePageSize()));
-            }
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
                 properties.put(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD,
                         olapTable.skipWriteIndexOnLoad().toString());
@@ -2172,8 +2168,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             tbl.storeRowColumn(), binlogConfig,
                             tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool, tbl.rowStorePageSize(),
-                            tbl.variantEnableFlattenNested(),
-                            tbl.storagePageSize());
+                            tbl.variantEnableFlattenNested());
 
                     task.setStorageFormat(tbl.getStorageFormat());
                     task.setInvertedIndexFileStorageFormat(tbl.getInvertedIndexFileStorageFormat());
@@ -2660,15 +2655,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
-        olapTable.setRowStorePageSize(rowStorePageSize);
 
-        long storagePageSize = PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
-        try {
-            storagePageSize = PropertyAnalyzer.analyzeStoragePageSize(properties);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-        olapTable.setStoragePageSize(storagePageSize);
+        olapTable.setRowStorePageSize(rowStorePageSize);
 
         // check data sort properties
         int keyColumnSize = CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) ? keysDesc.keysColumnSize() :

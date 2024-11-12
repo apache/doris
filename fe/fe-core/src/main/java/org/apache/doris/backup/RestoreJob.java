@@ -1353,8 +1353,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool,
                             localTbl.rowStorePageSize(),
-                            localTbl.variantEnableFlattenNested(),
-                            localTbl.storagePageSize());
+                            localTbl.variantEnableFlattenNested());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {
@@ -1643,8 +1642,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
-        LOG.info("waiting {} replicas to make snapshot: [{}]. {}",
-                 unfinishedSignatureToId.size(), unfinishedSignatureToId, this);
+        LOG.info("waiting {} replicas to make snapshot. {}", unfinishedSignatureToId.size(), this);
         return;
     }
 

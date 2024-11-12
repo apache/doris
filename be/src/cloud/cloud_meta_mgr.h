@@ -57,7 +57,8 @@ public:
 
     Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
 
-    Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false);
+    Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false,
+                               bool sync_delete_bitmap = true);
 
     Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);

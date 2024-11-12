@@ -2257,10 +2257,10 @@ public class StmtExecutor {
                             ExecuteEnv.getInstance().getStartupTime()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
             txnConf.setToken(token);
         } else {
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
             request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
@@ -3197,7 +3197,8 @@ public class StmtExecutor {
             List<AlterClause> ops = new ArrayList<>();
             Map<String, String> properties = new HashMap<>();
             properties.put("swap", "false");
-            ops.add(new ReplaceTableClause(tmpTableName.getTbl(), properties));
+            // swap false. but this operation is internal. so we will consider it as force drop for original table.
+            ops.add(new ReplaceTableClause(tmpTableName.getTbl(), properties, true));
             parsedStmt = new AlterTableStmt(targetTableName, ops);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
@@ -3556,7 +3557,7 @@ public class StmtExecutor {
         try {
             try {
                 // disable shuffle for http stream (only 1 sink)
-                sessionVariable.disableStrictConsistencyDmlOnce();
+                sessionVariable.setVarOnce(SessionVariable.ENABLE_STRICT_CONSISTENCY_DML, "false");
                 httpStreamParams = generateHttpStreamNereidsPlan(queryId);
             } catch (NereidsException | ParseException e) {
                 if (context.getMinidump() != null && context.getMinidump().toString(4) != null) {

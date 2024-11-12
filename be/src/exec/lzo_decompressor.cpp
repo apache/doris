@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "common/logging.h"
 #include "exec/decompressor.h"
 #include "olap/utils.h"
 #include "orc/Exceptions.hh"
@@ -197,11 +198,11 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
     *decompressed_len = uncompressed_size;
     *input_bytes_read += ptr - block_start;
 
-    LOG(INFO) << "finished decompress lzo block."
-              << " compressed_size: " << compressed_size
-              << " decompressed_len: " << *decompressed_len
-              << " input_bytes_read: " << *input_bytes_read
-              << " next_uncompressed_size: " << next_uncompressed_size;
+    VLOG_DEBUG << "finished decompress lzo block."
+               << " compressed_size: " << compressed_size
+               << " decompressed_len: " << *decompressed_len
+               << " input_bytes_read: " << *input_bytes_read
+               << " next_uncompressed_size: " << next_uncompressed_size;
 
     return Status::OK();
 }
@@ -222,9 +223,9 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
 Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
                                            size_t* input_bytes_read, size_t* more_input_bytes) {
     if (input_len < MIN_HEADER_SIZE) {
-        LOG(INFO) << "highly recommanded that Lzo header size is larger than " << MIN_HEADER_SIZE
-                  << ", or parsing header info may failed."
-                  << " only given: " << input_len;
+        VLOG_NOTICE << "highly recommanded that Lzo header size is larger than " << MIN_HEADER_SIZE
+                    << ", or parsing header info may failed."
+                    << " only given: " << input_len;
         *more_input_bytes = MIN_HEADER_SIZE - input_len;
         return Status::OK();
     }
@@ -362,7 +363,7 @@ Status LzopDecompressor::parse_header_info(uint8_t* input, size_t input_len,
     *input_bytes_read = _header_info.header_size;
 
     _is_header_loaded = true;
-    LOG(INFO) << debug_info();
+    VLOG_DEBUG << debug_info();
 
     return Status::OK();
 }

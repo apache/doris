@@ -25,21 +25,32 @@
 
 namespace doris {
 
-template <class Key>
-using SetFixedKeyHashTableContext =
-        vectorized::MethodKeysFixed<HashMap<Key, pipeline::RowRefListWithFlags, HashCRC32<Key>>>;
+template <typename T>
+using SetData = PHHashMap<T, RowRefListWithFlags, HashCRC32<T>>;
 
-template <class T>
-using SetPrimaryTypeHashTableContext =
-        vectorized::MethodOneNumber<T, HashMap<T, pipeline::RowRefListWithFlags, HashCRC32<T>>>;
+template <typename T>
+using SetFixedKeyHashTableContext = vectorized::MethodKeysFixed<SetData<T>>;
+
+template <typename T>
+using SetPrimaryTypeHashTableContext = vectorized::MethodOneNumber<T, SetData<T>>;
+
+template <typename T>
+using SetPrimaryTypeHashTableContextNullable = vectorized::MethodSingleNullableColumn<
+        vectorized::MethodOneNumber<T, vectorized::DataWithNullKey<SetData<T>>>>;
 
 using SetSerializedHashTableContext =
-        vectorized::MethodSerialized<HashMap<StringRef, pipeline::RowRefListWithFlags>>;
+        vectorized::MethodSerialized<PHHashMap<StringRef, RowRefListWithFlags>>;
 using SetMethodOneString =
-        vectorized::MethodStringNoCache<HashMap<StringRef, pipeline::RowRefListWithFlags>>;
+        vectorized::MethodStringNoCache<PHHashMap<StringRef, RowRefListWithFlags>>;
 
 using SetHashTableVariants =
         std::variant<std::monostate, SetSerializedHashTableContext, SetMethodOneString,
+                     SetPrimaryTypeHashTableContextNullable<vectorized::UInt8>,
+                     SetPrimaryTypeHashTableContextNullable<vectorized::UInt16>,
+                     SetPrimaryTypeHashTableContextNullable<vectorized::UInt32>,
+                     SetPrimaryTypeHashTableContextNullable<vectorized::UInt64>,
+                     SetPrimaryTypeHashTableContextNullable<vectorized::UInt128>,
+                     SetPrimaryTypeHashTableContextNullable<vectorized::UInt256>,
                      SetPrimaryTypeHashTableContext<vectorized::UInt8>,
                      SetPrimaryTypeHashTableContext<vectorized::UInt16>,
                      SetPrimaryTypeHashTableContext<vectorized::UInt32>,
@@ -51,9 +62,9 @@ using SetHashTableVariants =
                      SetFixedKeyHashTableContext<vectorized::UInt256>,
                      SetFixedKeyHashTableContext<vectorized::UInt136>>;
 
-struct SetDataVariants {
-    SetHashTableVariants method_variant;
-
+struct SetDataVariants
+        : public DataVariants<SetHashTableVariants, vectorized::MethodSingleNullableColumn,
+                              vectorized::MethodOneNumber, vectorized::DataWithNullKey> {
     void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
         bool nullable = data_types.size() == 1 && data_types[0]->is_nullable();
         switch (type) {
@@ -61,51 +72,22 @@ struct SetDataVariants {
             method_variant.emplace<SetSerializedHashTableContext>();
             break;
         case HashKeyType::int8_key:
-            if (nullable) {
-                method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt64>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<SetPrimaryTypeHashTableContext<vectorized::UInt8>>();
-            }
+            emplace_single<vectorized::UInt8, SetData<vectorized::UInt8>>(nullable);
             break;
         case HashKeyType::int16_key:
-            if (nullable) {
-                method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt64>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<SetPrimaryTypeHashTableContext<vectorized::UInt16>>();
-            }
+            emplace_single<vectorized::UInt16, SetData<vectorized::UInt16>>(nullable);
             break;
         case HashKeyType::int32_key:
-            if (nullable) {
-                method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt64>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<SetPrimaryTypeHashTableContext<vectorized::UInt32>>();
-            }
+            emplace_single<vectorized::UInt32, SetData<vectorized::UInt32>>(nullable);
             break;
         case HashKeyType::int64_key:
-            if (nullable) {
-                method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt128>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<SetPrimaryTypeHashTableContext<vectorized::UInt64>>();
-            }
+            emplace_single<vectorized::UInt64, SetData<vectorized::UInt64>>(nullable);
             break;
         case HashKeyType::int128_key:
-            if (nullable) {
-                method_variant.emplace<SetFixedKeyHashTableContext<vectorized::UInt136>>(
-                        get_key_sizes(data_types));
-            } else {
-                method_variant.emplace<SetPrimaryTypeHashTableContext<vectorized::UInt128>>();
-            }
+            emplace_single<vectorized::UInt128, SetData<vectorized::UInt128>>(nullable);
             break;
         case HashKeyType::int256_key:
-            if (nullable) {
-                method_variant.emplace<SetSerializedHashTableContext>();
-            } else {
-                method_variant.emplace<SetPrimaryTypeHashTableContext<vectorized::UInt256>>();
-            }
+            emplace_single<vectorized::UInt256, SetData<vectorized::UInt256>>(nullable);
             break;
         case HashKeyType::string_key:
             method_variant.emplace<SetMethodOneString>();

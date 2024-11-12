@@ -366,8 +366,6 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
             // do nothing, will be analyzed when creating alter job
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE)) {
-            throw new AnalysisException("You can not modify storage_page_size");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

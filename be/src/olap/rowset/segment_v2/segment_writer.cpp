@@ -192,8 +192,19 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (tablet_index) {
         opts.need_bloom_filter = true;
         opts.is_ngram_bf_index = true;
-        opts.gram_size = tablet_index->get_gram_size();
-        opts.gram_bf_size = tablet_index->get_gram_bf_size();
+        //narrow convert from int32_t to uint8_t and uint16_t which is dangerous
+        auto gram_size = tablet_index->get_gram_size();
+        auto gram_bf_size = tablet_index->get_gram_bf_size();
+        if (gram_size > 256 || gram_size < 1) {
+            return Status::NotSupported("Do not support ngram bloom filter for ngram_size: ",
+                                        gram_size);
+        }
+        if (gram_bf_size > 65535 || gram_bf_size < 64) {
+            return Status::NotSupported("Do not support ngram bloom filter for bf_size: ",
+                                        gram_bf_size);
+        }
+        opts.gram_size = gram_size;
+        opts.gram_bf_size = gram_bf_size;
     }
 
     opts.need_bitmap_index = column.has_bitmap_index();
@@ -208,12 +219,6 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         skip_inverted_index = true;
     }
 
-    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
-        opts.need_zone_map = false;
-        opts.need_bloom_filter = false;
-        opts.need_bitmap_index = false;
-    }
-
     // indexes for this column
     if (const auto& index = schema->inverted_index(column);
         index != nullptr && !skip_inverted_index) {
@@ -223,57 +228,25 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
         opts.inverted_index_file_writer = _inverted_index_file_writer;
         // TODO support multiple inverted index
     }
-#define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
-        opts.need_zone_map = false;                                                            \
-        if (opts.need_bloom_filter) {                                                          \
-            return Status::NotSupported("Do not support bloom filter for " type_name " type"); \
-        }                                                                                      \
-        if (opts.need_bitmap_index) {                                                          \
-            return Status::NotSupported("Do not support bitmap index for " type_name " type"); \
-        }                                                                                      \
+#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
+        opts.need_zone_map = false;                           \
+        opts.need_bloom_filter = false;                       \
+        opts.need_bitmap_index = false;                       \
     }
 
-    CHECK_FIELD_TYPE(STRUCT, "struct")
-    CHECK_FIELD_TYPE(ARRAY, "array")
-    CHECK_FIELD_TYPE(JSONB, "jsonb")
-    CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
-    CHECK_FIELD_TYPE(MAP, "map")
-    CHECK_FIELD_TYPE(OBJECT, "object")
-    CHECK_FIELD_TYPE(HLL, "hll")
-    CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+    DISABLE_INDEX_IF_FIELD_TYPE(STRUCT, "struct")
+    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
+    DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
+    DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
+    DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
+    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+    DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
+    DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
 
-#undef CHECK_FIELD_TYPE
+#undef DISABLE_INDEX_IF_FIELD_TYPE
 
-    if (_opts.rowset_ctx != nullptr) {
-        int64_t storage_page_size = _opts.rowset_ctx->storage_page_size;
-        // storage_page_size must be between 4KB and 10MB.
-        if (storage_page_size >= 4096 && storage_page_size <= 10485760) {
-            opts.data_page_size = storage_page_size;
-        }
-    }
-    DBUG_EXECUTE_IF("VerticalSegmentWriter._create_column_writer.storage_page_size", {
-        auto table_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "VerticalSegmentWriter._create_column_writer.storage_page_size", "table_id",
-                INT_MIN);
-        auto target_data_page_size = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "VerticalSegmentWriter._create_column_writer.storage_page_size",
-                "storage_page_size", INT_MIN);
-        if (table_id == INT_MIN || target_data_page_size == INT_MIN) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "Debug point parameters missing: either 'table_id' or 'storage_page_size' not "
-                    "set.");
-        }
-        if (table_id == _tablet_schema->table_id() &&
-            opts.data_page_size != target_data_page_size) {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "Mismatch in 'storage_page_size': expected size does not match the current "
-                    "data page size. "
-                    "Expected: " +
-                    std::to_string(target_data_page_size) +
-                    ", Actual: " + std::to_string(opts.data_page_size) + ".");
-        }
-    })
     if (column.is_row_store_column()) {
         // smaller page size for row store column
         auto page_size = _tablet_schema->row_store_page_size();

@@ -910,13 +910,16 @@ void TabletSchema::append_index(TabletIndex&& index) {
     _indexes.push_back(std::move(index));
 }
 
-void TabletSchema::update_index(const TabletColumn& col, TabletIndex index) {
-    int32_t col_unique_id = col.unique_id();
+void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_type,
+                                TabletIndex&& index) {
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path = escape_for_path_name(col.suffix_path());
     for (size_t i = 0; i < _indexes.size(); i++) {
         for (int32_t id : _indexes[i].col_unique_ids()) {
-            if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
-                _indexes[i] = index;
+            if (_indexes[i].index_type() == index_type && id == col_unique_id &&
+                _indexes[i].get_index_suffix() == suffix_path) {
+                _indexes[i] = std::move(index);
+                break;
             }
         }
     }
@@ -1000,12 +1003,15 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
         if (column->is_variant_type()) {
             ++_num_variant_columns;
         }
+
         _cols.emplace_back(std::move(column));
-        _vl_field_mem_size +=
-                sizeof(StringRef) + sizeof(char) * _cols.back()->name().size() + sizeof(size_t);
-        _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
-        _vl_field_mem_size += sizeof(int32_t) * 2;
-        _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
+        if (!_cols.back()->is_extracted_column()) {
+            _vl_field_mem_size +=
+                    sizeof(StringRef) + sizeof(char) * _cols.back()->name().size() + sizeof(size_t);
+            _field_name_to_index.emplace(StringRef(_cols.back()->name()), _num_columns);
+            _vl_field_mem_size += sizeof(int32_t) * 2;
+            _field_id_to_index[_cols.back()->unique_id()] = _num_columns;
+        }
         _num_columns++;
     }
     for (auto& index_pb : schema.index()) {
@@ -1431,7 +1437,6 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
             }
         }
     }
-
     return nullptr;
 }
 
