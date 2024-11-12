@@ -656,7 +656,7 @@ public class ProfileManager extends MasterDaemon {
                         DebugUtil.printByteWithUnit(totalProfileSize));
         }
 
-        final int maxSpilledProfileNum = Config.max_spilled_profile_num;
+        final int maxSpilledProfileNum = 5000000;
         final long spilledProfileLimitBytes = Config.spilled_profile_storage_limit_bytes;
         List<ProfileElement> queryIdToBeRemoved = Lists.newArrayList();
 
