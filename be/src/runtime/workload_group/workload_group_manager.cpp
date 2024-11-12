@@ -243,6 +243,7 @@ void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
 
         SchemaScannerHelper::insert_int64_value(4, wg->get_local_scan_bytes_per_second(), block);
         SchemaScannerHelper::insert_int64_value(5, wg->get_remote_scan_bytes_per_second(), block);
+        SchemaScannerHelper::insert_int64_value(6, wg->write_buffer_size(), block);
     }
 }
 
