@@ -17,7 +17,7 @@
 # under the License.
 
 set -eo pipefail
-#zdtest
+#zdtest1
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
