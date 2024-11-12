@@ -19,7 +19,6 @@
 ##############################################################
 # This script is used to build for Apache Doris Release
 ##############################################################
-
 set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
