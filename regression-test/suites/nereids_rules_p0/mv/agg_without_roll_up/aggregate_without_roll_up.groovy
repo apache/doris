@@ -115,6 +115,7 @@ suite("aggregate_without_roll_up") {
     (5, 2, 'o', 1.2, '2023-12-12', 'c','d',2, 'mi');  
     """
 
+
     sql """
     insert into partsupp values
     (2, 3, 9, 10.01, 'supply1'),
