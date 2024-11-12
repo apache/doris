@@ -1908,7 +1908,6 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
     }
 
     response->set_tablet_id(tablet_id);
-    int64_t retry = 0;
     int64_t delete_bitmap_num = 0;
     int64_t delete_bitmap_byte = 0;
     bool test = false;
@@ -1947,8 +1946,8 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                 err = txn->get(start_key, end_key, &it);
             }
             TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_err", &round, &err);
-            while (err == TxnErrorCode::TXN_TOO_OLD &&
-                   retry < config::max_get_delete_bitmap_iterations) {
+            int64_t retry = 0;
+            while (err == TxnErrorCode::TXN_TOO_OLD && retry < 3) {
                 txn = nullptr;
                 err = txn_kv_->create_txn(&txn);
                 if (err != TxnErrorCode::TXN_OK) {
@@ -1970,8 +1969,8 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
             }
             if (err != TxnErrorCode::TXN_OK) {
                 code = cast_as<ErrCategory::READ>(err);
-                ss << "internal error, failed to get delete bitmap, retry=" << retry
-                   << ", internal round=" << round << ", ret=" << err;
+                ss << "internal error, failed to get delete bitmap, internal round=" << round
+                   << ", ret=" << err;
                 msg = ss.str();
                 return;
             }
@@ -2002,7 +2001,7 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_code", &code);
                     if (code != MetaServiceCode::OK) {
                         ss << "test get get_delete_bitmap fail, code=" << MetaServiceCode_Name(code)
-                           << ", retry=" << retry << ", internal round=" << round;
+                           << ", internal round=" << round;
                         msg = ss.str();
                         return;
                     }
@@ -2010,12 +2009,21 @@ void MetaServiceImpl::get_delete_bitmap(google::protobuf::RpcController* control
                     response->mutable_segment_delete_bitmaps()->rbegin()->append(v);
                 }
             }
+            if (delete_bitmap_byte > config::max_get_delete_bitmap_byte) {
+                code = MetaServiceCode::KV_TXN_GET_ERR;
+                ss << "tablet=" << tablet_id << ", get_delete_bitmap_byte=" << delete_bitmap_byte
+                   << ",exceed max byte";
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
             round++;
             start_key = it->next_begin_key(); // Update to next smallest key for iteration
         } while (it->more());
         LOG(INFO) << "get delete bitmap for tablet=" << tablet_id << ", rowset=" << rowset_ids[i]
                   << ", start version=" << begin_versions[i] << ", end version=" << end_versions[i]
-                  << ", retry=" << retry << ", internal round=" << round;
+                  << ", internal round=" << round << ", delete_bitmap_num=" << delete_bitmap_num
+                  << ", delete_bitmap_byte=" << delete_bitmap_byte;
     }
     LOG(INFO) << "finish get delete bitmap for tablet=" << tablet_id
               << ", delete_bitmap_num=" << delete_bitmap_num
