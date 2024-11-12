@@ -1070,7 +1070,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int schedule_slot_num_per_hdd_path = 4;
 
-
     /**
      * the default slot number per path for ssd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
