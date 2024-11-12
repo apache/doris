@@ -51,6 +51,7 @@ import org.apache.doris.nereids.parser.PartitionTableInfo;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TInvertedIndexFileStorageFormat;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -534,6 +535,14 @@ public class CreateTableInfo {
         if (!indexes.isEmpty()) {
             Set<String> distinct = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             Set<Pair<IndexDef.IndexType, List<String>>> distinctCol = new HashSet<>();
+            boolean disableInvertedIndexV1ForVariant = false;
+            try {
+                disableInvertedIndexV1ForVariant = PropertyAnalyzer.analyzeInvertedIndexFileStorageFormat(
+                            new HashMap<>(properties)) == TInvertedIndexFileStorageFormat.V1
+                                && ConnectContext.get().getSessionVariable().getDisableInvertedIndexV1ForVaraint();
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
+            }
 
             for (IndexDefinition indexDef : indexes) {
                 indexDef.validate();
@@ -545,7 +554,8 @@ public class CreateTableInfo {
                     boolean found = false;
                     for (ColumnDefinition column : columns) {
                         if (column.getName().equalsIgnoreCase(indexColName)) {
-                            indexDef.checkColumn(column, keysType, isEnableMergeOnWrite);
+                            indexDef.checkColumn(column, keysType, isEnableMergeOnWrite,
+                                                                disableInvertedIndexV1ForVariant);
                             found = true;
                             break;
                         }

@@ -213,8 +213,8 @@ public class IndexDef {
         return (this.indexType == IndexType.INVERTED);
     }
 
-    public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite)
-            throws AnalysisException {
+    public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
+                boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
                 || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -228,6 +228,14 @@ public class IndexDef {
                     || colType.isVariantType()) || colType.isIPType()) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
+            }
+
+            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
+            // when the subcolumn type changes, it may result in missing files, causing link file failure.
+            if (colType.isVariantType() && disableInvertedIndexV1ForVariant) {
+                throw new AnalysisException(colType + " is not supported in inverted index format V1,"
+                        + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
+                        + "or upgrade to a newer version");
             }
             if (!column.isKey()) {
                 if (keysType == KeysType.AGG_KEYS) {
