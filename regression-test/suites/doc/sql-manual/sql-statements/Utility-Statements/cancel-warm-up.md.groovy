@@ -19,7 +19,7 @@ import org.junit.jupiter.api.Assertions;
 
 suite("docs/sql-manual/sql-statements/Utility-Statements/cancel-warm-up.md") {
 
-    if (isCloudMode()) {
+    if (!isCloudMode()) {
         return
     }
 
