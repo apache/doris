@@ -138,7 +138,7 @@ static Status download_and_upload_one_file(io::RemoteFileSystem& dest_fs,
     std::string md5sum;
     RETURN_IF_ERROR(io::global_local_filesystem()->md5sum(local_seg_path, &md5sum));
 
-    RETURN_IF_ERROR(upload_with_checksum(dest_fs, local_seg_path, dest_seg_path, md5sum));
+    RETURN_IF_ERROR(dest_fs.upload_with_checksum(local_seg_path, dest_seg_path, md5sum));
 
     //delete local file
     RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(local_seg_path));

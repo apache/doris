@@ -107,7 +107,7 @@ public:
         _fs = std::move(fs);
     }
 
-    void clear_resource_id();
+    void clear_resource_id() { _rowset_meta_pb.clear_resource_id(); }
 
     const std::string& resource_id() const { return _rowset_meta_pb.resource_id(); }
 

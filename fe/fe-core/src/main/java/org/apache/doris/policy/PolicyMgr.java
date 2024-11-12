@@ -275,6 +275,11 @@ public class PolicyMgr implements Writable {
 
     }
 
+    public void replayDrop(StoragePolicy policy) {
+        DropPolicyLog log = new DropPolicyLog(policy.getType(), policy.getPolicyName());
+        replayDrop(log);
+    }
+
     public void replayDrop(DropPolicyLog log) {
         unprotectedDrop(log);
         LOG.info("replay drop policy log: {}", log);
