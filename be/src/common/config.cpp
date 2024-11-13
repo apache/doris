@@ -525,6 +525,9 @@ DEFINE_mBool(enable_bthread_transmit_block, "true");
 //https://brpc.apache.org/docs/server/basics/#disable-built-in-services-completely
 DEFINE_Bool(enable_brpc_builtin_services, "true");
 
+// Enable brpc connection check
+DEFINE_Bool(enable_brpc_connection_check, "false");
+
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "102400");
 // Some data formats, such as JSON, cannot be streamed.
@@ -941,6 +944,8 @@ DEFINE_mInt64(brpc_streaming_client_batch_bytes, "262144");
 // and the BE can automatically cancel the relevant fragment after the timeout,
 // so as to avoid occupying the execution thread for a long time.
 DEFINE_mInt32(max_fragment_start_wait_time_seconds, "30");
+
+DEFINE_mInt32(fragment_mgr_cancel_worker_interval_seconds, "1");
 
 // Node role tag for backend. Mix role is the default role, and computation role have no
 // any tablet.
