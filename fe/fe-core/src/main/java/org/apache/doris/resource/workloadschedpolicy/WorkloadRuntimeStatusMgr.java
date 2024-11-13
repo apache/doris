@@ -228,8 +228,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
         }
-        dst.spill_write_bytes_to_local_storage += src.spill_write_bytes_to_local_storage ;
-        dst.spill_read_bytes_from_local_storage  += src.spill_read_bytes_from_local_storage ;
+        dst.spill_write_bytes_to_local_storage += src.spill_write_bytes_to_local_storage;
+        dst.spill_read_bytes_from_local_storage += src.spill_read_bytes_from_local_storage;
     }
 
     private void queryAuditEventLogWriteLock() {
