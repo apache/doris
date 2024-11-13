@@ -100,7 +100,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       @logger.info("request headers: ", @request_headers)
 
       @group_commit = false
-      if http_headers.has_key?("group_commit") && http_headers["group_commit"] != "off_mode"
+      if @request_headers.has_key?("group_commit") && @request_headers["group_commit"] != "off_mode"
          @group_commit = true
       end
       @logger.info("group_commit: ", @group_commit)
