@@ -270,13 +270,11 @@ public class GroupCommitManager {
                 // Another thread gets the same tableId but can not find this tableId.
                 // So another thread needs to get the random backend.
                 Long backendId = tableToBeMap.get(tableId);
-                Backend backend;
-                if (backendId != null) {
-                    backend = Env.getCurrentSystemInfo().getBackend(backendId);
-                } else {
+                if (backendId == null) {
                     return null;
                 }
-                if (backend.isAlive() && !backend.isDecommissioned()) {
+                Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+                if (backend != null && backend.isAlive() && !backend.isDecommissioned()) {
                     return backend.getId();
                 } else {
                     tableToBeMap.remove(tableId);

@@ -14,13 +14,13 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 #include <fmt/format.h>
 #include <glog/logging.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <memory>
 #include <ostream>
-#include <string>
 #include <utility>
 
 #include "common/status.h"
@@ -74,7 +74,7 @@ public:
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
         // prepare dst array column
-        bool is_nullable = src.nested_nullmap_data ? true : false;
+        bool is_nullable = src.nested_nullmap_data != nullptr;
         ColumnArrayMutableData dst = create_mutable_data(src.nested_col, is_nullable);
         dst.offsets_ptr->reserve(input_rows_count);
         // start from 1

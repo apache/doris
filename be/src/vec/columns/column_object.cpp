@@ -1141,15 +1141,17 @@ rapidjson::Value* find_leaf_node_by_path(rapidjson::Value& json, const PathInDat
 
 Status find_and_set_leave_value(const IColumn* column, const PathInData& path,
                                 const DataTypeSerDeSPtr& type_serde, const DataTypePtr& type,
-                                rapidjson::Value& root,
+                                TypeIndex base_type_index, rapidjson::Value& root,
                                 rapidjson::Document::AllocatorType& allocator, Arena& mem_pool,
                                 int row) {
+#ifndef NDEBUG
     // sanitize type and column
     if (column->get_name() != type->create_column()->get_name()) {
         return Status::InternalError(
                 "failed to set value for path {}, expected type {}, but got {} at row {}",
                 path.get_path(), type->get_name(), column->get_name(), row);
     }
+#endif
     const auto* nullable = check_and_get_column<ColumnNullable>(column);
     if (nullable != nullptr &&
         (nullable->is_null_at(row) || (path.empty() && nullable->get_data_at(row).empty()))) {
@@ -1272,11 +1274,12 @@ Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::String
     VLOG_DEBUG << "dump structure " << JsonFunctions::print_json_value(*doc_structure);
 #endif
     for (const auto& subcolumn : subcolumns) {
-        RETURN_IF_ERROR(find_and_set_leave_value(subcolumn->data.get_finalized_column_ptr(),
-                                                 subcolumn->path,
-                                                 subcolumn->data.get_least_common_type_serde(),
-                                                 subcolumn->data.get_least_common_type(), root,
-                                                 doc_structure->GetAllocator(), mem_pool, row));
+        RETURN_IF_ERROR(find_and_set_leave_value(
+                subcolumn->data.get_finalized_column_ptr(), subcolumn->path,
+                subcolumn->data.get_least_common_type_serde(),
+                subcolumn->data.get_least_common_type(),
+                subcolumn->data.least_common_type.get_base_type_id(), root,
+                doc_structure->GetAllocator(), mem_pool, row));
         if (subcolumn->path.empty() && !root.IsObject()) {
             // root was modified, only handle root node
             break;
@@ -1344,10 +1347,11 @@ Status ColumnObject::merge_sparse_to_root_column() {
                 ++null_count;
                 continue;
             }
-            bool succ = find_and_set_leave_value(column, subcolumn->path,
-                                                 subcolumn->data.get_least_common_type_serde(),
-                                                 subcolumn->data.get_least_common_type(), root,
-                                                 doc_structure->GetAllocator(), mem_pool, i);
+            bool succ = find_and_set_leave_value(
+                    column, subcolumn->path, subcolumn->data.get_least_common_type_serde(),
+                    subcolumn->data.get_least_common_type(),
+                    subcolumn->data.least_common_type.get_base_type_id(), root,
+                    doc_structure->GetAllocator(), mem_pool, i);
             if (succ && subcolumn->path.empty() && !root.IsObject()) {
                 // root was modified, only handle root node
                 break;

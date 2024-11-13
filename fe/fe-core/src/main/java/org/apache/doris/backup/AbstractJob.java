@@ -40,7 +40,7 @@ import java.util.Map;
 public abstract class AbstractJob implements Writable {
 
     public enum JobType {
-        BACKUP, RESTORE
+        BACKUP, RESTORE, BACKUP_COMPRESSED, RESTORE_COMPRESSED
     }
 
     protected JobType type;
@@ -155,15 +155,17 @@ public abstract class AbstractJob implements Writable {
 
     public abstract boolean isCancelled();
 
+    public abstract boolean isFinished();
+
     public abstract Status updateRepo(Repository repo);
 
     public static AbstractJob read(DataInput in) throws IOException {
         AbstractJob job = null;
         JobType type = JobType.valueOf(Text.readString(in));
-        if (type == JobType.BACKUP) {
-            job = new BackupJob();
-        } else if (type == JobType.RESTORE) {
-            job = new RestoreJob();
+        if (type == JobType.BACKUP || type == JobType.BACKUP_COMPRESSED) {
+            job = new BackupJob(type);
+        } else if (type == JobType.RESTORE || type == JobType.RESTORE_COMPRESSED) {
+            job = new RestoreJob(type);
         } else {
             throw new IOException("Unknown job type: " + type.name());
         }

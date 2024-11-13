@@ -20,15 +20,12 @@
 
 #include "vec/columns/column_array.h"
 
-#include <assert.h>
-#include <string.h>
-
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <limits>
-#include <memory>
+#include <cstring>
 #include <vector>
 
+#include "common/status.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_string.h"
@@ -89,7 +86,7 @@ INSTANTIATE_INDEX_IMPL(ColumnArray)
 
 ColumnArray::ColumnArray(MutableColumnPtr&& nested_column, MutableColumnPtr&& offsets_column)
         : data(std::move(nested_column)), offsets(std::move(offsets_column)) {
-    const ColumnOffsets* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
+    const auto* offsets_concrete = typeid_cast<const ColumnOffsets*>(offsets.get());
 
     if (!offsets_concrete) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "offsets_column must be a ColumnUInt64");
@@ -176,7 +173,7 @@ Field ColumnArray::operator[](size_t n) const {
 
     if (size > max_array_size_as_field)
         throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
+                ErrorCode::INVALID_ARGUMENT,
                 "Array of size {}, is too large to be manipulated as single field, maximum size {}",
                 size, max_array_size_as_field);
 
@@ -193,7 +190,7 @@ void ColumnArray::get(size_t n, Field& res) const {
 
     if (size > max_array_size_as_field)
         throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
+                ErrorCode::INVALID_ARGUMENT,
                 "Array of size {}, is too large to be manipulated as single field, maximum size {}",
                 size, max_array_size_as_field);
 
@@ -434,7 +431,8 @@ void ColumnArray::insert_from(const IColumn& src_, size_t n) {
 
     if (!get_data().is_nullable() && src.get_data().is_nullable()) {
         // Note: we can't process the case of 'Array(Nullable(nest))'
-        DCHECK(false);
+        throw Exception(ErrorCode::INTERNAL_ERROR, "insert '{}' into '{}'", src.get_name(),
+                        get_name());
     } else if (get_data().is_nullable() && !src.get_data().is_nullable()) {
         // Note: here we should process the case of 'Array(NotNullable(nest))'
         reinterpret_cast<ColumnNullable*>(&get_data())

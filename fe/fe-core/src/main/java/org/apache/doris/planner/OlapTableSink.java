@@ -387,6 +387,7 @@ public class OlapTableSink extends DataSink {
             }
             for (Expr e : exprs) {
                 e.reset();
+                LOG.info("Debug16494: will analyze " + e.debugString());
                 e.analyze(funcAnalyzer);
             }
             partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));

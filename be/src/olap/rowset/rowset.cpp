@@ -102,6 +102,7 @@ void Rowset::merge_rowset_meta(const RowsetMetaSharedPtr& other) {
     _rowset_meta->set_num_segments(num_segments() + other->num_segments());
     _rowset_meta->set_num_rows(num_rows() + other->num_rows());
     _rowset_meta->set_data_disk_size(data_disk_size() + other->data_disk_size());
+    _rowset_meta->set_total_disk_size(total_disk_size() + other->total_disk_size());
     _rowset_meta->set_index_disk_size(index_disk_size() + other->index_disk_size());
     std::vector<KeyBoundsPB> key_bounds;
     other->get_segments_key_bounds(&key_bounds);

@@ -2012,6 +2012,7 @@ public class SchemaChangeHandler extends AlterHandler {
                             index.setIndexId(existedIdx.getIndexId());
                             index.setColumns(existedIdx.getColumns());
                             index.setProperties(existedIdx.getProperties());
+                            index.setColumnUniqueIds(existedIdx.getColumnUniqueIds());
                             if (indexDef.getPartitionNames().isEmpty()) {
                                 invertedIndexOnPartitions.put(index.getIndexId(), olapTable.getPartitionNames());
                             } else {
@@ -2588,6 +2589,7 @@ public class SchemaChangeHandler extends AlterHandler {
             if (column != null) {
                 indexDef.checkColumn(column, olapTable.getKeysType(),
                         olapTable.getTableProperty().getEnableUniqueKeyMergeOnWrite());
+                indexDef.getColumnUniqueIds().add(column.getUniqueId());
             } else {
                 throw new DdlException("index column does not exist in table. invalid column: " + col);
             }
@@ -2598,6 +2600,7 @@ public class SchemaChangeHandler extends AlterHandler {
         // so here update column name in CreateIndexClause after checkColumn for indexDef,
         // there will use the column name in olapTable insead of the column name in CreateIndexClause.
         alterIndex.setColumns(indexDef.getColumns());
+        alterIndex.setColumnUniqueIds(indexDef.getColumnUniqueIds());
         newIndexes.add(alterIndex);
         return false;
     }
@@ -2748,6 +2751,7 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException(e.getMessage());
         }
 
+        schemaChangeJob.stateWait("FE.LIGHT_SCHEMA_CHANGE");
         // set Job state then add job
         schemaChangeJob.setJobState(AlterJobV2.JobState.FINISHED);
         schemaChangeJob.setFinishedTimeMs(System.currentTimeMillis());
@@ -2760,7 +2764,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("logModifyTableAddOrDropInvertedIndices info:{}", info);
                 }
-                Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
+                if (!FeConstants.runningUnitTest) {
+                    Env.getCurrentEnv().getEditLog().logModifyTableAddOrDropInvertedIndices(info);
+                }
                 // Drop table column stats after light schema change finished.
                 Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
 
@@ -3017,7 +3023,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 addIndexChangeJob(indexChangeJob);
 
                 // write edit log
-                Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
+                if (!FeConstants.runningUnitTest) {
+                    Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
+                }
                 LOG.info("finish create table's inverted index job. table: {}, partition: {}, job: {}",
                         olapTable.getName(), partitionName, jobId);
             } // end for partition

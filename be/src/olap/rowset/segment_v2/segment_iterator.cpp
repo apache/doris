@@ -1804,23 +1804,21 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
 
     uint32_t sel_pos = 0;
     const uint32_t sel_end = sel_pos + selected_size;
-    static constexpr size_t SIMD_BYTES = 32;
+    static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
     const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
     while (sel_pos < sel_end_simd) {
-        auto mask = simd::bytes32_mask_to_bits32_mask(ret_flags + sel_pos);
+        auto mask = simd::bytes_mask_to_bits_mask((const uint8_t*)ret_flags + sel_pos);
         if (0 == mask) {
             //pass
-        } else if (0xffffffff == mask) {
+        } else if (simd::bits_mask_all() == mask) {
             for (uint32_t i = 0; i < SIMD_BYTES; i++) {
                 sel_rowid_idx[new_size++] = sel_pos + i;
             }
         } else {
-            while (mask) {
-                const size_t bit_pos = __builtin_ctzll(mask);
-                sel_rowid_idx[new_size++] = sel_pos + bit_pos;
-                mask = mask & (mask - 1);
-            }
+            simd::iterate_through_bits_mask(
+                    [&](const size_t bit_pos) { sel_rowid_idx[new_size++] = sel_pos + bit_pos; },
+                    mask);
         }
         sel_pos += SIMD_BYTES;
     }
@@ -2277,23 +2275,23 @@ uint16_t SegmentIterator::_evaluate_common_expr_filter(uint16_t* sel_rowid_idx,
         uint16_t new_size = 0;
         uint32_t sel_pos = 0;
         const uint32_t sel_end = selected_size;
-        static constexpr size_t SIMD_BYTES = 32;
+        static constexpr size_t SIMD_BYTES = simd::bits_mask_length();
         const uint32_t sel_end_simd = sel_pos + selected_size / SIMD_BYTES * SIMD_BYTES;
 
         while (sel_pos < sel_end_simd) {
-            auto mask = simd::bytes32_mask_to_bits32_mask(filt_pos + sel_pos);
+            auto mask = simd::bytes_mask_to_bits_mask(filt_pos + sel_pos);
             if (0 == mask) {
                 //pass
-            } else if (0xffffffff == mask) {
+            } else if (simd::bits_mask_all() == mask) {
                 for (uint32_t i = 0; i < SIMD_BYTES; i++) {
                     sel_rowid_idx[new_size++] = sel_rowid_idx[sel_pos + i];
                 }
             } else {
-                while (mask) {
-                    const size_t bit_pos = __builtin_ctzll(mask);
-                    sel_rowid_idx[new_size++] = sel_rowid_idx[sel_pos + bit_pos];
-                    mask = mask & (mask - 1);
-                }
+                simd::iterate_through_bits_mask(
+                        [&](const size_t bit_pos) {
+                            sel_rowid_idx[new_size++] = sel_rowid_idx[sel_pos + bit_pos];
+                        },
+                        mask);
             }
             sel_pos += SIMD_BYTES;
         }

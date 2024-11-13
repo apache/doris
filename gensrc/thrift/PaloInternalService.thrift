@@ -332,6 +332,8 @@ struct TQueryOptions {
   132: optional i32 parallel_prepare_threshold = 0;
   133: optional i32 partition_topn_max_partitions = 1024;
   134: optional i32 partition_topn_pre_partition_rows = 1000;
+
+  137: optional bool enable_auto_create_when_overwrite = false;
   // For cloud, to control if the content would be written into file cache
   1000: optional bool disable_file_cache = false
 }

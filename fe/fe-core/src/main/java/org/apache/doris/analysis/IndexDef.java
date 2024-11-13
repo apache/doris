@@ -43,6 +43,7 @@ public class IndexDef {
     private Map<String, String> properties;
     private boolean isBuildDeferred = false;
     private PartitionNames partitionNames;
+    private List<Integer> columnUniqueIds = Lists.newArrayList();
 
     public static final String NGRAM_SIZE_KEY = "gram_size";
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
@@ -197,6 +198,10 @@ public class IndexDef {
         return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
     }
 
+    public List<Integer> getColumnUniqueIds() {
+        return columnUniqueIds;
+    }
+
     public enum IndexType {
         BITMAP,
         INVERTED,
@@ -253,8 +258,8 @@ public class IndexDef {
                     if (ngramSize > 256 || ngramSize < 1) {
                         throw new AnalysisException("gram_size should be integer and less than 256");
                     }
-                    if (bfSize > 65536 || bfSize < 64) {
-                        throw new AnalysisException("bf_size should be integer and between 64 and 65536");
+                    if (bfSize > 65535 || bfSize < 64) {
+                        throw new AnalysisException("bf_size should be integer and between 64 and 65535");
                     }
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);

@@ -32,6 +32,8 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.TableInfo;
+import org.apache.doris.persist.TableRenameColumnInfo;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.thrift.TBinlog;
 import org.apache.doris.thrift.TBinlogType;
@@ -353,6 +355,24 @@ public class BinlogManager {
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    public void addTableRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        TBinlogType type = TBinlogType.RENAME_TABLE;
+        String data = info.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
+    }
+
+    public void addColumnRename(TableRenameColumnInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        long tableId = info.getTableId();
+        TBinlogType type = TBinlogType.RENAME_COLUMN;
+        String data = info.toJson();
+        BarrierLog log = new BarrierLog(dbId, tableId, type, data);
+        addBarrierLog(log, commitSeq);
     }
 
     // get the dropped partitions of the db.
