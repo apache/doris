@@ -40,7 +40,7 @@ public:
     ~OrcReaderTest() override = default;
 
 private:
-    constexpr static const string CANNOT_PUSH_DOWN_ERROR = "can't push down";
+    static constexpr const char* CANNOT_PUSH_DOWN_ERROR = "can't push down";
     std::string build_search_argument(const std::string& expr) {
         // build orc_reader for table orders
         std::vector<std::string> column_names = {
