@@ -945,10 +945,15 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
 Status CsvReader::_parse_col_nums(size_t* col_nums) {
     const uint8_t* ptr = nullptr;
     size_t size = 0;
-    RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+    while(true){
+        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
+        if(size != 0 || _line_reader_eof){
+            break;
+        }
+    }
     if (size == 0) {
         return Status::InternalError<false>(
-                "The first line is empty, can not parse column numbers");
+            "The line is all empty, can not parse column numbers");
     }
     if (!validate_utf8(const_cast<char*>(reinterpret_cast<const char*>(ptr)), size)) {
         return Status::InternalError<false>("Only support csv data in utf8 codec");
