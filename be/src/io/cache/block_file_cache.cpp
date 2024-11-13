@@ -88,40 +88,40 @@ BlockFileCache::BlockFileCache(const std::string& cache_base_path,
 
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::NORMAL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_disposable_to_normal");
+                                                  "file_cache_evict_by_time_disposable_to_normal");
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::INDEX] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_disposable_to_index");
+                                                  "file_cache_evict_by_time_disposable_to_index");
     _evict_by_time_metrics_matrix[FileCacheType::DISPOSABLE][FileCacheType::TTL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_disposable_to_ttl");
+                                                  "file_cache_evict_by_time_disposable_to_ttl");
     _evict_by_time_metrics_matrix[FileCacheType::NORMAL][FileCacheType::DISPOSABLE] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_normal_to_disposable");
+                                                  "file_cache_evict_by_time_normal_to_disposable");
     _evict_by_time_metrics_matrix[FileCacheType::NORMAL][FileCacheType::INDEX] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_normal_to_index");
+                                                  "file_cache_evict_by_time_normal_to_index");
     _evict_by_time_metrics_matrix[FileCacheType::NORMAL][FileCacheType::TTL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_normal_to_ttl");
+                                                  "file_cache_evict_by_time_normal_to_ttl");
     _evict_by_time_metrics_matrix[FileCacheType::INDEX][FileCacheType::DISPOSABLE] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_index_to_disposable");
+                                                  "file_cache_evict_by_time_index_to_disposable");
     _evict_by_time_metrics_matrix[FileCacheType::INDEX][FileCacheType::NORMAL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_index_to_normal");
+                                                  "file_cache_evict_by_time_index_to_normal");
     _evict_by_time_metrics_matrix[FileCacheType::INDEX][FileCacheType::TTL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_index_to_ttl");
+                                                  "file_cache_evict_by_time_index_to_ttl");
     _evict_by_time_metrics_matrix[FileCacheType::TTL][FileCacheType::DISPOSABLE] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_ttl_to_disposable");
+                                                  "file_cache_evict_by_time_ttl_to_disposable");
     _evict_by_time_metrics_matrix[FileCacheType::TTL][FileCacheType::NORMAL] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_ttl_to_normal");
+                                                  "file_cache_evict_by_time_ttl_to_normal");
     _evict_by_time_metrics_matrix[FileCacheType::TTL][FileCacheType::INDEX] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),
-                                                  "file_cache_evict_by_heat_ttl_to_index");
+                                                  "file_cache_evict_by_time_ttl_to_index");
 
     _evict_by_self_lru_metrics_matrix[FileCacheType::DISPOSABLE] =
             std::make_shared<bvar::Adder<size_t>>(_cache_base_path.c_str(),

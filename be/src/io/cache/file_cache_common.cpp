@@ -64,8 +64,8 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
     settings.ttl_queue_elements = std::max(settings.ttl_queue_size / settings.max_file_block_size,
                                            REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
 
-    settings.query_queue_size =
-            settings.capacity - settings.disposable_queue_size - settings.index_queue_size;
+    settings.query_queue_size = settings.capacity - settings.disposable_queue_size -
+                                settings.index_queue_size - settings.ttl_queue_size;
     settings.query_queue_elements =
             std::max(settings.query_queue_size / settings.max_file_block_size,
                      REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
