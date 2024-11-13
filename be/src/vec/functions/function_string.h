@@ -1387,7 +1387,7 @@ public:
                         fmt::format("unsupported nested array of type {} for function {}",
                                     is_column_nullable(array_column.get_data())
                                             ? array_column.get_data().get_name()
-                                            : array_column.get_data().get_family_name(),
+                                            : array_column.get_data().get_name(),
                                     get_name()));
             }
             // Concat string in array

@@ -105,7 +105,7 @@ public:
     bool is_variable_length() const override { return true; }
     // used in string ut testd
     void sanity_check() const;
-    const char* get_family_name() const override { return "String"; }
+    std::string get_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
 
