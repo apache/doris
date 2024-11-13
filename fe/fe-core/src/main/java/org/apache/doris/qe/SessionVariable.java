@@ -1163,6 +1163,10 @@ public class SessionVariable implements Serializable, Writable {
             "Force the sort algorithm of SortNode to be specified" })
     public String forceSortAlgorithm = "";
 
+    @VariableMgr.VarAttr(name = "ignore_runtime_filter_error", needForward = true, description = { "在rf遇到错误的时候忽略该rf",
+            "Ignore the rf when it encounters an error" })
+    public boolean ignoreRuntimeFilterError = false;
+
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
 
@@ -3947,6 +3951,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcTinyStripeThresholdBytes(orcTinyStripeThresholdBytes);
         tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
+        tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
 
         return tResult;
     }
