@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -88,15 +89,16 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                         })
                         .toRule(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN_ONE_SIDE),
                 logicalAggregate(logicalProject(innerLogicalJoin()))
-                        .when(agg -> agg.child().isAllSlots())
-                        .when(agg -> agg.child().child().getOtherJoinConjuncts().isEmpty())
-                        .whenNot(agg -> agg.child().children().stream().anyMatch(p -> p instanceof LogicalAggregate))
+                        // .when(agg -> agg.child().isAllSlots())
+                        // .when(agg -> agg.child().child().getOtherJoinConjuncts().isEmpty())
+                        .whenNot(agg -> agg.child()
+                                .child(0).children().stream().anyMatch(p -> p instanceof LogicalAggregate))
                         .when(agg -> {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
                                     .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
-                                            || (f instanceof Count && (!((Count) f).isCountStar()))) && !f.isDistinct()
-                                            && f.child(0) instanceof Slot);
+                                            || f instanceof Count) && !f.isDistinct()
+                                            && (f.children().isEmpty() || f.child(0) instanceof Slot));
                         })
                         .thenApply(ctx -> {
                             Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
@@ -111,6 +113,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
         );
     }
 
+
     /**
      * Push down Min/Max/Sum through join.
      */
@@ -119,21 +122,6 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
         List<Slot> leftOutput = join.left().getOutput();
         List<Slot> rightOutput = join.right().getOutput();
 
-        List<AggregateFunction> leftFuncs = new ArrayList<>();
-        List<AggregateFunction> rightFuncs = new ArrayList<>();
-        for (AggregateFunction func : agg.getAggregateFunctions()) {
-            Slot slot = (Slot) func.child(0);
-            if (leftOutput.contains(slot)) {
-                leftFuncs.add(func);
-            } else if (rightOutput.contains(slot)) {
-                rightFuncs.add(func);
-            } else {
-                throw new IllegalStateException("Slot " + slot + " not found in join output");
-            }
-        }
-        if (leftFuncs.isEmpty() && rightFuncs.isEmpty()) {
-            return null;
-        }
 
         Set<Slot> leftGroupBy = new HashSet<>();
         Set<Slot> rightGroupBy = new HashSet<>();
@@ -144,18 +132,76 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
             } else if (rightOutput.contains(slot)) {
                 rightGroupBy.add(slot);
             } else {
+                if (projects.isEmpty()) {
+                    // TODO: select ... from ... group by A , B, 1.2; 1.2 is constant
+                    return null;
+                } else {
+                    for (NamedExpression proj : projects) {
+                        if (proj instanceof Alias && proj.toSlot().equals(slot)) {
+                            Set<Slot> inputForAlias = proj.getInputSlots();
+                            if (leftOutput.containsAll(inputForAlias)) {
+                                leftGroupBy.addAll(inputForAlias);
+                            } else if (rightOutput.containsAll(inputForAlias)) {
+                                rightGroupBy.addAll(inputForAlias);
+                            } else {
+                                /*
+                                groupBy(X)
+                                  +---> project( a + b as X)
+                                      --> join(output: T1.a, T2.b)
+                                          --> T1(a)
+                                          --> T2(b)
+                                X can not be pushed
+                                 */
+                                return null;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        List<AggregateFunction> leftFuncs = new ArrayList<>();
+        List<AggregateFunction> rightFuncs = new ArrayList<>();
+        Count countStar = null;
+        for (AggregateFunction func : agg.getAggregateFunctions()) {
+            if (func instanceof Count && ((Count) func).isCountStar()) {
+                countStar = (Count) func;
+            } else {
+                Slot slot = (Slot) func.child(0);
+                if (leftOutput.contains(slot)) {
+                    leftFuncs.add(func);
+                } else if (rightOutput.contains(slot)) {
+                    rightFuncs.add(func);
+                } else {
+                    throw new IllegalStateException("Slot " + slot + " not found in join output");
+                }
+            }
+        }
+        // determine count(*)
+        if (countStar != null) {
+            if (!leftGroupBy.isEmpty()) {
+                countStar = (Count) countStar.withChildren(leftGroupBy.iterator().next());
+                leftFuncs.add(countStar);
+            } else if (!rightGroupBy.isEmpty()) {
+                countStar = (Count) countStar.withChildren(rightGroupBy.iterator().next());
+                rightFuncs.add(countStar);
+            } else {
                 return null;
             }
         }
-        join.getHashJoinConjuncts().forEach(e -> e.getInputSlots().forEach(slot -> {
-            if (leftOutput.contains(slot)) {
-                leftGroupBy.add(slot);
-            } else if (rightOutput.contains(slot)) {
-                rightGroupBy.add(slot);
-            } else {
-                throw new IllegalStateException("Slot " + slot + " not found in join output");
+        for (Expression condition : join.getHashJoinConjuncts()) {
+            for (Slot joinConditionSlot : condition.getInputSlots()) {
+                if (leftOutput.contains(joinConditionSlot)) {
+                    leftGroupBy.add(joinConditionSlot);
+                } else if (rightOutput.contains(joinConditionSlot)) {
+                    rightGroupBy.add(joinConditionSlot);
+                } else {
+                    // apply failed
+                    return null;
+                }
             }
-        }));
+        }
 
         Plan left = join.left();
         Plan right = join.right();
@@ -196,6 +242,10 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
         for (NamedExpression ne : agg.getOutputExpressions()) {
             if (ne instanceof Alias && ((Alias) ne).child() instanceof AggregateFunction) {
                 AggregateFunction func = (AggregateFunction) ((Alias) ne).child();
+                if (func instanceof Count && ((Count) func).isCountStar()) {
+                    // countStar is already rewritten as count(left_slot) or count(right_slot)
+                    func = countStar;
+                }
                 Slot slot = (Slot) func.child(0);
                 if (leftSlotToOutput.containsKey(slot)) {
                     Expression newFunc = replaceAggFunc(func, leftSlotToOutput.get(slot).toSlot());
@@ -210,9 +260,27 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 newOutputExprs.add(ne);
             }
         }
+        Plan newAggChild = newJoin;
+        if (agg.child() instanceof LogicalProject) {
+            LogicalProject project = (LogicalProject) agg.child();
+            List<NamedExpression> newProjections = Lists.newArrayList();
+            newProjections.addAll(project.getProjects());
+            Set<NamedExpression> leftDifference = new HashSet<NamedExpression>(left.getOutput());
+            leftDifference.removeAll(project.getProjects());
+            newProjections.addAll(leftDifference);
+            Set<NamedExpression> rightDifference = new HashSet<NamedExpression>(right.getOutput());
+            rightDifference.removeAll(project.getProjects());
+            newProjections.addAll(rightDifference);
 
+            newAggChild = ((LogicalProject) agg.child()).withProjectsAndChild(newProjections, newJoin);
+        }
         // TODO: column prune project
-        return agg.withAggOutputChild(newOutputExprs, newJoin);
+        LogicalAggregate<Plan> newAgg = agg.withAggOutputChild(newOutputExprs, newAggChild);
+        if (checkOutput(newAgg)) {
+            return newAgg;
+        } else {
+            return (LogicalAggregate<Plan>) agg;
+        }
     }
 
     private static Expression replaceAggFunc(AggregateFunction func, Slot inputSlot) {
@@ -220,6 +288,26 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
             return new Sum(inputSlot);
         } else {
             return func.withChildren(inputSlot);
+        }
+    }
+
+    private static boolean checkOutput(LogicalAggregate agg) {
+        if (agg.child() instanceof LogicalProject) {
+            Set<Slot> joinOutputs = ((Plan) agg.child().child(0)).getOutputSet();
+            if (!joinOutputs.containsAll(((LogicalProject<?>) agg.child()).getInputSlots())) {
+                return false;
+            }
+            Set<Slot> projectOutputs = ((LogicalProject<?>) agg.child()).getOutputSet();
+            if (!projectOutputs.containsAll(agg.getInputSlots())) {
+                return false;
+            }
+            return true;
+        } else {
+            Set<Slot> joinOutputs = ((Plan) agg.child()).getOutputSet();
+            if (!joinOutputs.containsAll(agg.getInputSlots())) {
+                return false;
+            }
+            return true;
         }
     }
 }
