@@ -40,7 +40,7 @@ public:
                                 const std::shared_ptr<BitmapFilterFuncBase>& filter, int)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(static_cast<SpecificFilter*>(_filter.get())) {}
+              _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
     ~BitmapFilterColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
@@ -87,8 +87,7 @@ private:
 
         uint16_t new_size = 0;
         new_size = _specific_filter->find_fixed_len_olap_engine(
-                (char*)assert_cast<
-                        const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(&column)
+                (char*)assert_cast<const vectorized::ColumnVector<CppType>*>(&column)
                         ->get_data()
                         .data(),
                 null_map, sel, size);
