@@ -1376,8 +1376,9 @@ suite("other_join_conjuncts_outer") {
               ps_partkey
             from
               orders
-              full outer join lineitem on l_orderkey = o_orderkey 
-              full outer join partsupp on ps_partkey = l_partkey;
+              full outer join lineitem on l_orderkey = o_orderkey and l_shipdate <= o_orderdate
+              full outer join partsupp on ps_partkey = l_partkey
+              where l_orderkey + o_orderkey != ps_availqty;
             """
     def query9_4 =
             """
@@ -1389,9 +1390,8 @@ suite("other_join_conjuncts_outer") {
               ps_partkey
             from
               orders
-              full outer join lineitem on l_orderkey = o_orderkey and l_shipdate < o_orderdate
-              full outer join partsupp on ps_partkey = l_partkey
-              where l_orderkey + o_orderkey != ps_availqty;
+              full outer join lineitem on l_orderkey = o_orderkey 
+              full outer join partsupp on ps_partkey = l_partkey;
             """
     order_qt_query9_4_before "${query9_4}"
     // mv has other conjuncts but query not

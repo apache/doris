@@ -843,6 +843,7 @@ suite("aggregate_with_roll_up") {
             bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
             bitmap_union_count(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)),
             bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
+            bitmap_union_count(to_bitmap(case when o_shippriority > 0 and o_orderkey IN (1, 2, 3) then o_custkey else null end)) + bitmap_union_count(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)),
             count(distinct case when o_shippriority > 1 and o_orderkey IN (3, 4, 5) then o_custkey else null end)
             from lineitem
             left join orders on l_orderkey = o_orderkey and l_shipdate = o_orderdate

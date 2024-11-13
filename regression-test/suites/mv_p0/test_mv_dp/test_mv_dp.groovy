@@ -57,7 +57,6 @@ suite ("test_mv_dp") {
     }
 */
 
-    sql """alter table dp modify column d set stats ('row_count'='4');"""
     mv_rewrite_success("""select d,
                         bitmap_union_count(bitmap_from_array(cast(uid_list as array<bigint>))),
                         bitmap_union_count(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))
@@ -70,6 +69,7 @@ suite ("test_mv_dp") {
                     from dp
                     group by d order by 1;"""
     sql """set enable_stats=true;"""
+    sql """alter table dp modify column d set stats ('row_count'='4');"""
     mv_rewrite_success("""select d,
                         bitmap_union_count(bitmap_from_array(cast(uid_list as array<bigint>))),
                         bitmap_union_count(bitmap_from_array(if(status='success', cast(uid_list as array<bigint>), array())))

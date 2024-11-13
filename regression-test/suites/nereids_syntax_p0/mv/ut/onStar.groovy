@@ -63,6 +63,4 @@ suite ("onStar") {
     sql """insert into onStar_tpch values(1,'a','a');"""
 
     order_qt_select_mv "select ref_1.`empid` as c0 from onStar_tpch as ref_0 left join onStar as ref_1 on (ref_0.`r_comment` = ref_1.`name` ) where true order by ref_0.`r_regionkey`,ref_0.`r_regionkey` desc ,ref_0.`r_regionkey`,ref_0.`r_regionkey`;"
-
-    sql """alter table onStar_tpch modify column r_regionkey set stats ('row_count'='1');"""
 }

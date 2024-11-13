@@ -44,7 +44,6 @@ suite ("test_dup_group_by_mv_abs") {
     sql """analyze table d_table with sync;"""
     sql """set enable_stats=false;"""
 
-    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     qt_select_star "select * from d_table order by k1;"
 
     mv_rewrite_success("select k1,sum(abs(k2)) from d_table group by k1;", "k12sa")
@@ -54,6 +53,7 @@ suite ("test_dup_group_by_mv_abs") {
     qt_select_mv_sub "select sum(abs(k2)) from d_table group by k1 order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,sum(abs(k2)) from d_table group by k1;", "k12sa")
     mv_rewrite_success("select sum(abs(k2)) from d_table group by k1;", "k12sa")
 }
