@@ -196,6 +196,7 @@ import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
+import org.apache.doris.nereids.DorisParser.ShowProcContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
 import org.apache.doris.nereids.DorisParser.ShowRolesContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
@@ -429,6 +430,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
@@ -4065,5 +4067,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowRoles(ShowRolesContext ctx) {
         return new ShowRolesCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowProc(ShowProcContext ctx) {
+        String path = stripQuotes(ctx.path.getText());
+        return new ShowProcCommand(path);
     }
 }
