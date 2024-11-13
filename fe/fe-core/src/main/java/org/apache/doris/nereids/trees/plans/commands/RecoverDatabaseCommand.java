@@ -53,18 +53,6 @@ public class RecoverDatabaseCommand extends RecoverCommand {
         this.newDbName = newDbName;
     }
 
-    public String getDbName() {
-        return dbName;
-    }
-
-    public long getDbId() {
-        return dbId;
-    }
-
-    public String getNewDbName() {
-        return newDbName;
-    }
-
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws UserException {
         if (Strings.isNullOrEmpty(dbName)) {
