@@ -126,7 +126,8 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     protected List<HivePartition> getPartitions() throws AnalysisException {
-        try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.GET_PARTITIONS_TIME)) {
+        try (ProfileSpan ignored = ProfileSpan.create(
+                ConnectContext.getSummaryProfileSafety(), id.toString(), SummaryProfile.GET_PARTITIONS_TIME)) {
             List<HivePartition> resPartitions = Lists.newArrayList();
             HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
@@ -175,7 +176,8 @@ public class HiveScanNode extends FileQueryScanNode {
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
-            try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.GET_PARTITION_FILES_TIME)) {
+            try (ProfileSpan ignored = ProfileSpan.create(
+                    ConnectContext.getSummaryProfileSafety(), id.toString(), SummaryProfile.GET_PARTITION_FILES_TIME)) {
                 getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName);
             }
             if (LOG.isDebugEnabled()) {
@@ -213,8 +215,8 @@ public class HiveScanNode extends FileQueryScanNode {
                     CompletableFuture.runAsync(() -> {
                         try {
                             List<Split> allFiles = Lists.newArrayList();
-                            try (ProfileSpan ignored = ProfileSpan.create(id.toString(),
-                                    SummaryProfile.GET_PARTITION_FILES_TIME)) {
+                            try (ProfileSpan ignored = ProfileSpan.create(splitAssignment.getSummaryProfile(),
+                                    id.toString(), SummaryProfile.GET_PARTITION_FILES_TIME)) {
                                 getFileSplitByPartitions(
                                         cache, Collections.singletonList(partition), allFiles, bindBrokerName);
                             }

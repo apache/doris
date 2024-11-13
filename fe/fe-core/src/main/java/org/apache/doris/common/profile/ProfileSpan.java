@@ -48,11 +48,10 @@ public class ProfileSpan implements AutoCloseable {
         finishOperation.execute(id, step);
     }
 
-    public static ProfileSpan create(String id, String step) {
-        if (ConnectContext.get().getExecutor() != null) {
-            SummaryProfile summaryProfile = ConnectContext.get().getExecutor().getSummaryProfile();
-            return new ProfileSpan(id, step, (id1, step1) -> summaryProfile.getNodeTimer(id1).startStep(step1),
-                    (id2, step2) -> summaryProfile.getNodeTimer(id2).stopStep(step2));
+    public static ProfileSpan create(SummaryProfile sp, String id, String step) {
+        if (sp != null) {
+            return new ProfileSpan(id, step, (id1, step1) -> sp.getNodeTimer(id1).startStep(step1),
+                    (id2, step2) -> sp.getNodeTimer(id2).stopStep(step2));
         } else {
             return EMPTY_PROFILE_SPAN;
         }

@@ -54,6 +54,7 @@ public class SplitAssignment {
     private Split sampleSplit = null;
     private final AtomicBoolean isStop = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
+    private SummaryProfile summaryProfile;
 
     private UserException exception = null;
 
@@ -62,12 +63,14 @@ public class SplitAssignment {
             SplitGenerator splitGenerator,
             SplitToScanRange splitToScanRange,
             Map<String, String> locationProperties,
-            List<String> pathPartitionKeys) {
+            List<String> pathPartitionKeys,
+            SummaryProfile summaryProfile) {
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
+        this.summaryProfile = summaryProfile;
     }
 
     public void init() throws UserException {
@@ -125,7 +128,8 @@ public class SplitAssignment {
                 sampleSplit = splits.get(0);
                 assignLock.notify();
             }
-            try (ProfileSpan ignored = ProfileSpan.create(scanNodeId, SummaryProfile.CREATE_SCAN_RANGE_TIME)) {
+            try (ProfileSpan ignored = ProfileSpan.create(
+                    summaryProfile, scanNodeId, SummaryProfile.CREATE_SCAN_RANGE_TIME)) {
                 try {
                     batch = backendPolicy.computeScanRangeAssignment(splits);
                 } catch (UserException e) {
@@ -177,5 +181,9 @@ public class SplitAssignment {
 
     public boolean isStop() {
         return isStop.get();
+    }
+
+    public SummaryProfile getSummaryProfile() {
+        return summaryProfile;
     }
 }

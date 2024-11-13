@@ -41,6 +41,7 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -112,7 +113,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     @Override
     public void init(Analyzer analyzer) throws UserException {
-        try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.INIT_SCAN_NODE_TIME)) {
+        try (ProfileSpan ignored = ProfileSpan.create(
+                ConnectContext.getSummaryProfileSafety(), id.toString(), SummaryProfile.INIT_SCAN_NODE_TIME)) {
             super.init(analyzer);
             initFileSplitSize();
             doInitialize();
@@ -124,7 +126,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
      */
     @Override
     public void init() throws UserException {
-        try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.INIT_SCAN_NODE_TIME)) {
+        try (ProfileSpan ignored = ProfileSpan.create(
+                ConnectContext.getSummaryProfileSafety(), id.toString(), SummaryProfile.INIT_SCAN_NODE_TIME)) {
             super.init();
             doInitialize();
         }
@@ -206,7 +209,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     // Create scan range locations and the statistics.
     protected void doFinalize() throws UserException {
-        try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.FINALIZE_SCAN_NODE_TIME)) {
+        try (ProfileSpan ignored = ProfileSpan.create(
+                ConnectContext.getSummaryProfileSafety(), id.toString(), SummaryProfile.FINALIZE_SCAN_NODE_TIME)) {
             convertPredicate();
             createScanRangeLocations();
             updateRequiredSlots();
@@ -302,12 +306,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
             splitAssignment = new SplitAssignment(
-                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
+                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys,
+                    ConnectContext.getSummaryProfileSafety());
             splitAssignment.init();
             if (splitAssignment.getSampleSplit() == null && !isFileStreamType()) {
                 return;
             }
-            try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.CREATE_SCAN_RANGE_TIME)) {
+            try (ProfileSpan ignored = ProfileSpan.create(
+                    ConnectContext.getSummaryProfileSafety(), id.toString(), SummaryProfile.CREATE_SCAN_RANGE_TIME)) {
                 selectedSplitNum = numApproximateSplits();
                 FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
                 TFileType locationType = fileSplit.getLocationType();
@@ -337,14 +343,16 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
         } else {
             List<Split> inputSplits;
-            try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.GET_SPLITS_TIME)) {
+            try (ProfileSpan ignored = ProfileSpan.create(
+                    ConnectContext.getSummaryProfileSafety(), id.toString(), SummaryProfile.GET_SPLITS_TIME)) {
                 inputSplits = getSplits();
             }
             selectedSplitNum = inputSplits.size();
             if (inputSplits.isEmpty() && !isFileStreamType()) {
                 return;
             }
-            try (ProfileSpan ignored = ProfileSpan.create(id.toString(), SummaryProfile.CREATE_SCAN_RANGE_TIME)) {
+            try (ProfileSpan ignored = ProfileSpan.create(
+                    ConnectContext.getSummaryProfileSafety(), id.toString(), SummaryProfile.CREATE_SCAN_RANGE_TIME)) {
                 Multimap<Backend, Split> assignment =  backendPolicy.computeScanRangeAssignment(inputSplits);
                 for (Backend backend : assignment.keySet()) {
                     Collection<Split> splits = assignment.get(backend);

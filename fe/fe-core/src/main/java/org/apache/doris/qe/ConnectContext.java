@@ -41,6 +41,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
@@ -1395,5 +1396,12 @@ public class ConnectContext {
 
     public byte[] getAuthPluginData() {
         return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
+    }
+
+    public static SummaryProfile getSummaryProfileSafety() {
+        if (ConnectContext.get() != null && ConnectContext.get().getExecutor() != null) {
+            return ConnectContext.get().getExecutor().getSummaryProfile();
+        }
+        return null;
     }
 }
