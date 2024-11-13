@@ -71,6 +71,20 @@ Status RuntimeFilterMgr::get_consume_filters(
     return Status::OK();
 }
 
+std::vector<std::shared_ptr<IRuntimeFilter>> RuntimeFilterMgr::get_consume_filters(
+        const int filter_id) {
+    std::lock_guard<std::mutex> l(_lock);
+    auto iter = _consumer_map.find(filter_id);
+    if (iter == _consumer_map.end()) {
+        return {};
+    }
+    std::vector<std::shared_ptr<IRuntimeFilter>> consumer_filters;
+    for (auto& holder : iter->second) {
+        consumer_filters.emplace_back(holder.filter);
+    }
+    return consumer_filters;
+}
+
 Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc,
                                                   const TQueryOptions& options, int node_id,
                                                   std::shared_ptr<IRuntimeFilter>* consumer_filter,
@@ -525,6 +539,10 @@ RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* sta
     params->be_exec_version = state->be_exec_version();
     params->query_ctx = state->get_query_ctx();
     return params;
+}
+
+RuntimeFilterMgr* RuntimeFilterParamsContext::global_runtime_filter_mgr() {
+    return query_ctx->runtime_filter_mgr();
 }
 
 RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(QueryContext* query_ctx) {

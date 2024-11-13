@@ -997,14 +997,12 @@ Status IRuntimeFilter::publish(bool publish_local) {
     auto send_to_remote = [&](IRuntimeFilter* filter) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
+        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
         return filter->push_to_remote(&addr);
     };
     auto send_to_local = [&](std::shared_ptr<RuntimePredicateWrapper> wrapper) {
-        std::vector<std::shared_ptr<IRuntimeFilter>> filters;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
-        DCHECK(!filters.empty());
-        // push down
+        std::vector<std::shared_ptr<IRuntimeFilter>> filters =
+                _state->runtime_filter_mgr->get_consume_filters(_filter_id);
         for (auto filter : filters) {
             filter->_wrapper = wrapper;
             filter->update_runtime_filter_type_to_profile();
@@ -1013,25 +1011,26 @@ Status IRuntimeFilter::publish(bool publish_local) {
         return Status::OK();
     };
     auto do_local_merge = [&]() {
-        LocalMergeFilters* local_merge_filters = nullptr;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
-                _filter_id, &local_merge_filters));
-        std::lock_guard l(*local_merge_filters->lock);
-        RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper.get()));
-        local_merge_filters->merge_time--;
-        if (local_merge_filters->merge_time == 0) {
-            if (_has_local_target) {
-                RETURN_IF_ERROR(send_to_local(local_merge_filters->filters[0]->_wrapper));
-            } else {
-                RETURN_IF_ERROR(send_to_remote(local_merge_filters->filters[0].get()));
+        if (!_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
+            LocalMergeFilters* local_merge_filters = nullptr;
+            RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
+                    _filter_id, &local_merge_filters));
+            std::lock_guard l(*local_merge_filters->lock);
+            RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper.get()));
+            local_merge_filters->merge_time--;
+            if (local_merge_filters->merge_time == 0) {
+                if (_has_local_target) {
+                    RETURN_IF_ERROR(send_to_local(local_merge_filters->filters[0]->_wrapper));
+                } else {
+                    RETURN_IF_ERROR(send_to_remote(local_merge_filters->filters[0].get()));
+                }
             }
         }
         return Status::OK();
     };
 
-    if (_need_local_merge && _has_local_target) {
+    if (_has_local_target) {
         RETURN_IF_ERROR(do_local_merge());
-    } else if (_has_local_target) {
         RETURN_IF_ERROR(send_to_local(_wrapper));
     } else if (!publish_local) {
         if (_is_broadcast_join || _state->be_exec_version < USE_NEW_SERDE) {
@@ -1096,13 +1095,16 @@ public:
 Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
     DCHECK(is_producer());
 
-    if (_need_local_merge) {
+    if (!_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
         LocalMergeFilters* local_merge_filters = nullptr;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
+        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                 _filter_id, &local_merge_filters));
         std::lock_guard l(*local_merge_filters->lock);
         local_merge_filters->merge_size_times--;
         local_merge_filters->local_merged_size += local_filter_size;
+        if (_has_local_target) {
+            set_synced_size(local_filter_size);
+        }
         if (local_merge_filters->merge_size_times) {
             return Status::OK();
         } else {
@@ -1122,7 +1124,7 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
 
     TNetworkAddress addr;
     DCHECK(_state != nullptr);
-    RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
+    RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
     std::shared_ptr<PBackendService_Stub> stub(
             _state->exec_env->brpc_internal_client_cache()->get_client(addr));
     if (!stub) {

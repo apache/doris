@@ -83,6 +83,7 @@ public:
 
     Status get_consume_filters(const int filter_id,
                                std::vector<std::shared_ptr<IRuntimeFilter>>& consumer_filters);
+    std::vector<std::shared_ptr<IRuntimeFilter>> get_consume_filters(const int filter_id);
 
     std::shared_ptr<IRuntimeFilter> try_get_product_filter(const int filter_id) {
         std::lock_guard<std::mutex> l(_lock);
@@ -286,5 +287,6 @@ struct RuntimeFilterParamsContext {
     int be_exec_version;
     QueryContext* query_ctx;
     QueryContext* get_query_ctx() const { return query_ctx; }
+    RuntimeFilterMgr* global_runtime_filter_mgr();
 };
 } // namespace doris
