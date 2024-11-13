@@ -97,6 +97,10 @@ public:
     void fetch_data(google::protobuf::RpcController* controller, const PFetchDataRequest* request,
                     PFetchDataResult* result, google::protobuf::Closure* done) override;
 
+    void fetch_arrow_data(google::protobuf::RpcController* controller,
+                          const PFetchArrowDataRequest* request, PFetchArrowDataResult* result,
+                          google::protobuf::Closure* done) override;
+
     void outfile_write_success(google::protobuf::RpcController* controller,
                                const POutfileWriteSuccessRequest* request,
                                POutfileWriteSuccessResult* result,
@@ -271,6 +275,7 @@ protected:
     // otherwise as light interface
     FifoThreadPool _heavy_work_pool;
     FifoThreadPool _light_work_pool;
+    FifoThreadPool _arrow_flight_work_pool;
 };
 
 // `StorageEngine` mixin for `PInternalService`

@@ -104,7 +104,7 @@ Status MemoryScratchSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     {
         SCOPED_TIMER(local_state._get_arrow_schema_timer);
         // After expr executed, use recaculated schema as final schema
-        RETURN_IF_ERROR(get_arrow_schema(block, &block_arrow_schema, state->timezone()));
+        RETURN_IF_ERROR(get_arrow_schema_from_block(block, &block_arrow_schema, state->timezone()));
     }
     {
         SCOPED_TIMER(local_state._convert_block_to_arrow_batch_timer);

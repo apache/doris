@@ -104,6 +104,7 @@ DECLARE_Int32(arrow_flight_sql_port);
 // For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
 // If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
 DECLARE_mString(public_access_ip);
+DECLARE_Int32(public_access_port);
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -584,6 +585,8 @@ DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
+DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
+DECLARE_Int32(brpc_arrow_flight_work_pool_max_queue_size);
 
 // The maximum amount of data that can be processed by a stream load
 DECLARE_mInt64(streaming_load_max_mb);
@@ -693,6 +696,9 @@ DECLARE_mInt32(result_buffer_cancelled_interval_time);
 
 // arrow flight result sink buffer rows size, default 4096 * 8
 DECLARE_mInt32(arrow_flight_result_sink_buffer_size_rows);
+// The timeout for ADBC Client to wait for data using arrow flight reader.
+// If the query is very complex and no result is generated after this time, consider increasing this timeout.
+DECLARE_mInt32(arrow_flight_reader_brpc_controller_timeout_ms);
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
