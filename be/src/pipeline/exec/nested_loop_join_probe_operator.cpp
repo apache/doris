@@ -529,7 +529,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                     local_state._build_output_block(&local_state._join_block, block, false));
             local_state._reset_tuple_is_null_column();
         }
-        vectorized::Block::erase_useless_column(&local_state._join_block, join_block_column_size);
+        local_state._join_block.clear_column_data(join_block_column_size);
         if (!(*eos) and !local_state._need_more_input_data) {
             auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
                             auto set_probe_side_flag) {
