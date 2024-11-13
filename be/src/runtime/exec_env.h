@@ -349,6 +349,7 @@ private:
     void _destroy();
 
     Status _init_mem_env();
+    Status _check_deploy_mode();
 
     void _register_metrics();
     void _deregister_metrics();
