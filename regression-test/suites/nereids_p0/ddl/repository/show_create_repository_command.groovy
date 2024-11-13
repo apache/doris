@@ -18,7 +18,6 @@
 import org.junit.Assert;
 
 suite("show_create_repository") {
-
     String ak = getS3AK()
     String sk = getS3SK()
     String endpoint = getS3Endpoint()
