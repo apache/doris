@@ -277,7 +277,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getEnableMowLightDelete(),
                                             tbl.getInvertedIndexFileStorageFormat(),
                                             tbl.rowStorePageSize(),
-                                            tbl.variantEnableFlattenNested(), clusterKeyIndexes);
+                                            tbl.variantEnableFlattenNested(), clusterKeyIndexes,
+                                            tbl.storagePageSize());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 requestBuilder.setDbId(dbId);
