@@ -166,6 +166,6 @@ public class StatisticsAutoCollectorTest {
                 return 100;
             }
         };
-        Assertions.assertThrows(NullPointerException.class, () -> collector.createAnalyzeJobForTbl(table, null, null));
+        Assertions.assertNull(collector.createAnalyzeJobForTbl(table, null, null));
     }
 }
