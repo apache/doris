@@ -23,6 +23,7 @@ suite("oracle.md", "p0,external,oracle,external_docker,external_docker_oracle") 
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String SID = "XE";
         String s3_endpoint = getS3Endpoint()
+        String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/ojdbc8.jar"
 
         sql """drop catalog if exists ${catalog_name} """
