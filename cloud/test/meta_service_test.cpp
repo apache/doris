@@ -56,6 +56,7 @@ int main(int argc, char** argv) {
     config::enable_txn_store_retry = true;
     config::txn_store_retry_base_intervals_ms = 1;
     config::txn_store_retry_times = 20;
+    config::enable_check_instance_id = false;
 
     if (!doris::cloud::init_glog("meta_service_test")) {
         std::cerr << "failed to init glog" << std::endl;
@@ -263,6 +264,21 @@ TEST(MetaServiceTest, GetInstanceIdTest) {
     instance_id = get_instance_id(meta_service->resource_mgr(),
                                   "12345678901:ALBJLH4Q:m-n3qdpyal27rh8iprxx");
     ASSERT_EQ(instance_id, "");
+
+    config::enable_check_instance_id = true;
+    auto ms = get_meta_service(false);
+    instance_id =
+            get_instance_id(ms->resource_mgr(), "1:ALBJLH4Q-check-invalid:m-n3qdpyal27rh8iprxx");
+    ASSERT_EQ(instance_id, "");
+
+    sp->set_call_back("is_instance_id_registered", [&](auto&& args) {
+        TxnErrorCode* c0 = try_any_cast<TxnErrorCode*>(args[0]);
+        *c0 = TxnErrorCode::TXN_OK;
+    });
+    instance_id =
+            get_instance_id(ms->resource_mgr(), "1:ALBJLH4Q-check-invalid:m-n3qdpyal27rh8iprxx");
+    ASSERT_EQ(instance_id, "ALBJLH4Q-check-invalid");
+    config::enable_check_instance_id = false;
 
     sp->clear_all_call_backs();
     sp->clear_trace();

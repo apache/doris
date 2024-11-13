@@ -93,6 +93,7 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 #include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"

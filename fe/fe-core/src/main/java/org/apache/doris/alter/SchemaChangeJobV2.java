@@ -330,8 +330,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     objectPool,
                                     tbl.rowStorePageSize(),
-                                    tbl.variantEnableFlattenNested(),
-                                    tbl.storagePageSize());
+                                    tbl.variantEnableFlattenNested());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);

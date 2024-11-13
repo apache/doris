@@ -152,7 +152,7 @@ TEST(function_array_index_test, array_contains) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::String};
 
-        Array vec = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        Array vec = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
         DataSet data_set = {{{vec, std::string("abc")}, UInt8(1)},
                             {{vec, std::string("aaa")}, UInt8(0)},
                             {{vec, std::string("")}, UInt8(1)},
@@ -252,7 +252,7 @@ TEST(function_array_index_test, array_position) {
     {
         InputTypeSet input_types = {TypeIndex::Array, TypeIndex::String, TypeIndex::String};
 
-        Array vec = {Field("abc", 3), Field("", 0), Field("def", 3)};
+        Array vec = {Field(String("abc", 3)), Field(String("", 0)), Field(String("def", 3))};
         DataSet data_set = {{{vec, std::string("abc")}, Int64(1)},
                             {{vec, std::string("aaa")}, Int64(0)},
                             {{vec, std::string("")}, Int64(2)},

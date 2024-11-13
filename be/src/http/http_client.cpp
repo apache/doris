@@ -26,6 +26,7 @@
 #include "common/config.h"
 #include "http/http_headers.h"
 #include "http/http_status.h"
+#include "runtime/exec_env.h"
 #include "util/stack_util.h"
 
 namespace doris {
@@ -141,6 +142,9 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         return Status::InternalError("fail to set CURLOPT_URL");
     }
 
+#ifndef BE_TEST
+    set_auth_token(ExecEnv::GetInstance()->cluster_info()->curr_auth_token);
+#endif
     return Status::OK();
 }
 
