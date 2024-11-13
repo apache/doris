@@ -526,8 +526,8 @@ void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* blo
         qs_ctx_ptr->collect_query_statistics(&tqs);
         SchemaScannerHelper::insert_int64_value(0, be_id, block);
         SchemaScannerHelper::insert_string_value(1, qs_ctx_ptr->_fe_addr.hostname, block);
-        SchemaScannerHelper::insert_string_value(2, query_id, block);
-        SchemaScannerHelper::insert_int64_value(3, qs_ctx_ptr->_wg_id, block);
+        SchemaScannerHelper::insert_int64_value(2, qs_ctx_ptr->_wg_id, block);
+        SchemaScannerHelper::insert_string_value(3, query_id, block);
 
         int64_t task_time = qs_ctx_ptr->_is_query_finished
                                     ? qs_ctx_ptr->_query_finish_time - qs_ctx_ptr->_query_start_time

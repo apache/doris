@@ -29,8 +29,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaBackendActiveTasksScanner::_s_tbls_
         //   name,       type,          size
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), false},
         {"FE_HOST", TYPE_VARCHAR, sizeof(StringRef), false},
-        {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
         {"WORKLOAD_GROUP_ID", TYPE_BIGINT, sizeof(int64_t), false},
+        {"QUERY_ID", TYPE_VARCHAR, sizeof(StringRef), false},
         {"TASK_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
         {"TASK_CPU_TIME_MS", TYPE_BIGINT, sizeof(int64_t), false},
         {"SCAN_ROWS", TYPE_BIGINT, sizeof(int64_t), false},
