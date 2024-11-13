@@ -782,7 +782,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
     }
 
     switch (expr->op()) {
-    case TExprOpcode::COMPOUND_AND:
+    case TExprOpcode::COMPOUND_AND: {
         bool at_least_one_can_push_down = false;
         builder->startAnd();
         for (const auto& child : expr->children()) {
@@ -796,6 +796,7 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
         }
         builder->end();
         break;
+    }
     case TExprOpcode::COMPOUND_OR:
         builder->startOr();
         for (const auto& child : expr->children()) {
