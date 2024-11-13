@@ -82,10 +82,12 @@ public:
         current_used_memory_bytes = current_used_memory;
     }
 
-    void add_spill_bytes(int64_t spill_write_bytes_to_local_storage,
-                         int64_t spill_read_bytes_from_local_storage) {
-        _spill_write_bytes_to_local_storage += spill_write_bytes_to_local_storage;
-        _spill_read_bytes_from_local_storage += spill_read_bytes_from_local_storage;
+    void add_spill_write_bytes_to_local_storage(int64_t bytes) {
+        _spill_write_bytes_to_local_storage += bytes;
+    }
+
+    void add_spill_read_bytes_from_local_storage(int64_t bytes) {
+        _spill_read_bytes_from_local_storage += bytes;
     }
 
     void to_pb(PQueryStatistics* statistics);

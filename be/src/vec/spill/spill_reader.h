@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
 
 namespace doris::vectorized {
@@ -32,8 +33,11 @@ namespace doris::vectorized {
 class Block;
 class SpillReader {
 public:
-    SpillReader(int64_t stream_id, std::string file_path)
-            : stream_id_(stream_id), file_path_(std::move(file_path)) {}
+    SpillReader(std::shared_ptr<doris::QueryStatistics> query_statistics, int64_t stream_id,
+                std::string file_path)
+            : stream_id_(stream_id),
+              file_path_(std::move(file_path)),
+              _query_statistics(std::move(query_statistics)) {}
 
     ~SpillReader() { (void)close(); }
 
@@ -81,6 +85,8 @@ private:
     RuntimeProfile::Counter* _read_file_size = nullptr;
     RuntimeProfile::Counter* _read_rows_count = nullptr;
     RuntimeProfile::Counter* _read_file_count = nullptr;
+
+    std::shared_ptr<doris::QueryStatistics> _query_statistics = nullptr;
 };
 
 using SpillReaderUPtr = std::unique_ptr<SpillReader>;

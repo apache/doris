@@ -301,17 +301,6 @@ public:
         return Status::OK();
     }
 
-    Status close(RuntimeState* state) override {
-        if (Base::_query_statistics) {
-            auto* write_file_bytes = Base::profile()->get_counter("SpillWriteFileBytes");
-            auto* read_file_bytes = Base::profile()->get_counter("SpillReadFileBytes");
-            Base::_query_statistics->add_spill_bytes(
-                    write_file_bytes ? write_file_bytes->value() : 0,
-                    read_file_bytes ? read_file_bytes->value() : 0);
-        }
-        return Base::close(state);
-    }
-
     void init_spill_write_counters() {
         _spill_write_timer = ADD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteTime", 1);
 
@@ -739,17 +728,6 @@ public:
         _spill_min_rows_of_partition =
                 ADD_COUNTER_WITH_LEVEL(Base::profile(), "SpillMinRowsOfPartition", TUnit::UNIT, 1);
         return Status::OK();
-    }
-
-    Status close(RuntimeState* state, Status exec_status) override {
-        if (Base::_query_statistics) {
-            auto* write_file_bytes = Base::profile()->get_counter("SpillWriteFileBytes");
-            auto* read_file_bytes = Base::profile()->get_counter("SpillReadFileBytes");
-            Base::_query_statistics->add_spill_bytes(
-                    write_file_bytes ? write_file_bytes->value() : 0,
-                    read_file_bytes ? read_file_bytes->value() : 0);
-        }
-        return Base::close(state, exec_status);
     }
 
     std::vector<Dependency*> dependencies() const override {

@@ -22,6 +22,7 @@
 #include <string>
 
 #include "io/fs/file_writer.h"
+#include "runtime/query_statistics.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 namespace doris {
@@ -32,9 +33,12 @@ namespace vectorized {
 class SpillDataDir;
 class SpillWriter {
 public:
-    SpillWriter(RuntimeProfile* profile, int64_t id, size_t batch_size, SpillDataDir* data_dir,
-                const std::string& dir)
-            : data_dir_(data_dir), stream_id_(id), batch_size_(batch_size) {
+    SpillWriter(std::shared_ptr<doris::QueryStatistics> query_statistics, RuntimeProfile* profile,
+                int64_t id, size_t batch_size, SpillDataDir* data_dir, const std::string& dir)
+            : data_dir_(data_dir),
+              stream_id_(id),
+              batch_size_(batch_size),
+              _query_statistics(std::move(query_statistics)) {
         // Directory path format specified in SpillStreamManager::register_spill_stream:
         // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id/0
         file_path_ = dir + "/0";
@@ -92,6 +96,8 @@ private:
     RuntimeProfile::Counter* _write_rows_counter = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::HighWaterMarkCounter* _peak_memory_usage_counter = nullptr;
+
+    std::shared_ptr<doris::QueryStatistics> _query_statistics = nullptr;
 };
 using SpillWriterUPtr = std::unique_ptr<SpillWriter>;
 } // namespace vectorized

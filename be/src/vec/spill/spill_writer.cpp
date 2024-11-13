@@ -52,6 +52,9 @@ Status SpillWriter::close() {
 
     total_written_bytes_ += meta_.size();
     COUNTER_UPDATE(_write_file_total_size, meta_.size());
+    if (_query_statistics) {
+        _query_statistics->add_spill_write_bytes_to_local_storage(meta_.size());
+    }
     if (_write_file_current_size) {
         COUNTER_UPDATE(_write_file_current_size, meta_.size());
     }
@@ -149,6 +152,9 @@ Status SpillWriter::_write_internal(const Block& block, size_t& written_bytes) {
 
                     meta_.append((const char*)&total_written_bytes_, sizeof(size_t));
                     COUNTER_UPDATE(_write_file_total_size, buff_size);
+                    if (_query_statistics) {
+                        _query_statistics->add_spill_write_bytes_to_local_storage(buff_size);
+                    }
                     if (_write_file_current_size) {
                         COUNTER_UPDATE(_write_file_current_size, buff_size);
                     }

@@ -25,6 +25,7 @@
 
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
@@ -95,11 +96,14 @@ void SpillStream::gc() {
 }
 
 Status SpillStream::prepare() {
-    writer_ =
-            std::make_unique<SpillWriter>(profile_, stream_id_, batch_rows_, data_dir_, spill_dir_);
+    writer_ = std::make_unique<SpillWriter>(
+            state_->get_query_ctx()->get_mem_tracker()->get_query_statistics(), profile_,
+            stream_id_, batch_rows_, data_dir_, spill_dir_);
     _set_write_counters(profile_);
 
-    reader_ = std::make_unique<SpillReader>(stream_id_, writer_->get_file_path());
+    reader_ = std::make_unique<SpillReader>(
+            state_->get_query_ctx()->get_mem_tracker()->get_query_statistics(), stream_id_,
+            writer_->get_file_path());
 
     DBUG_EXECUTE_IF("fault_inject::spill_stream::prepare_spill", {
         return Status::Error<INTERNAL_ERROR>("fault_inject spill_stream prepare_spill failed");

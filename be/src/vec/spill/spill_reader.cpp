@@ -55,6 +55,9 @@ Status SpillReader::open() {
     RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t), result, &bytes_read));
     DCHECK(bytes_read == 8); // max_sub_block_size, block count
     COUNTER_UPDATE(_read_file_size, bytes_read);
+    if (_query_statistics) {
+        _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
+    }
 
     // read max sub block size
     bytes_read = 0;
@@ -62,6 +65,9 @@ Status SpillReader::open() {
     RETURN_IF_ERROR(file_reader_->read_at(file_size - sizeof(size_t) * 2, result, &bytes_read));
     DCHECK(bytes_read == 8); // max_sub_block_size, block count
     COUNTER_UPDATE(_read_file_size, bytes_read);
+    if (_query_statistics) {
+        _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
+    }
 
     size_t buff_size = std::max(block_count_ * sizeof(size_t), max_sub_block_size_);
     try {
@@ -80,6 +86,9 @@ Status SpillReader::open() {
     RETURN_IF_ERROR(file_reader_->read_at(read_offset, result, &bytes_read));
     DCHECK(bytes_read == block_count_ * sizeof(size_t));
     COUNTER_UPDATE(_read_file_size, bytes_read);
+    if (_query_statistics) {
+        _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
+    }
 
     block_start_offsets_.resize(block_count_ + 1);
     for (size_t i = 0; i < block_count_; ++i) {
@@ -118,6 +127,9 @@ Status SpillReader::read(Block* block, bool* eos) {
 
     if (bytes_read > 0) {
         COUNTER_UPDATE(_read_file_size, bytes_read);
+        if (_query_statistics) {
+            _query_statistics->add_spill_read_bytes_from_local_storage(bytes_read);
+        }
         COUNTER_UPDATE(_read_block_count, 1);
         {
             SCOPED_TIMER(_deserialize_timer);
