@@ -17,8 +17,8 @@
 
 #pragma once
 
-#include <string>
 #include <regex>
+#include <string>
 
 namespace doris {
 
