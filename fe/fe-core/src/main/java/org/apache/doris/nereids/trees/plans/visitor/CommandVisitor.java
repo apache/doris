@@ -84,6 +84,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
@@ -340,6 +341,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitRefreshCatalogCommand(RefreshCatalogCommand refreshCatalogCommand, C context) {
         return visitCommand(refreshCatalogCommand, context);
+    }
+
+    default R visitShowCreateRepositoryCommand(ShowCreateRepositoryCommand showCreateRepositoryCommand, C context) {
+        return visitCommand(showCreateRepositoryCommand, context);
     }
 
     default R visitShowLastInsertCommand(ShowLastInsertCommand showLastInsertCommand, C context) {
