@@ -49,7 +49,7 @@ log_stderr()
     echo "[`date`] $@" >&2
 }
 
-function add_cluster_info_to_conf()
+function add_default_conf()
 {
     if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
           echo "doris_cgroup_cpu_path=$WORKLOAD_GROUP_PATH" >> ${DORIS_HOME}/conf/be.conf
@@ -58,7 +58,6 @@ function add_cluster_info_to_conf()
 
 update_conf_from_configmap()
 {
-    add_cluster_info_to_conf
     if [[ "x$CONFIGMAP_MOUNT_PATH" == "x" ]] ; then
         log_stderr '[info] Empty $CONFIGMAP_MOUNT_PATH env var, skip it!'
         return 0
@@ -78,7 +77,6 @@ update_conf_from_configmap()
         fi
         if [[ "$conffile" == "be.conf" ]]; then
              cp $CONFIGMAP_MOUNT_PATH/$conffile $DORIS_HOME/conf/$file
-             add_cluster_info_to_conf
              continue
         fi
         ln -sfT $CONFIGMAP_MOUNT_PATH/$conffile $tgt
@@ -271,6 +269,7 @@ if [[ "x$ENABLE_WORKLOAD_GROUP" == "xtrue" ]]; then
 fi
 
 update_conf_from_configmap
+add_default_conf
 # resolve password for root to manage nodes in doris.
 resolve_password_from_secret
 collect_env_info
