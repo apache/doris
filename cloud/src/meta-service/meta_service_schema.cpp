@@ -326,13 +326,14 @@ void read_schema_dict(MetaServiceCode& code, std::string& msg, const std::string
     std::string column_dict_key = meta_schema_pb_dictionary_key({instance_id, index_id});
     ValueBuf dict_val;
     auto err = cloud::get(txn, column_dict_key, &dict_val);
-    if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to get dict, err=" << err << ", key = " << hex(column_dict_key);
         code = cast_as<ErrCategory::READ>(err);
         ss << "internal error, failed to get dict, err=" << err;
         msg = ss.str();
         return;
     }
-    if (err == TxnErrorCode::TXN_OK && !dict_val.to_pb(&dict)) [[unlikely]] {
+    if (!dict_val.to_pb(&dict)) [[unlikely]] {
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
         msg = "failed to parse SchemaCloudDictionary";
         return;
