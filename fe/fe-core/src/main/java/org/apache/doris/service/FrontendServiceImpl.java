@@ -45,6 +45,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -624,6 +625,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                                 .checkTblPriv(currentUser, catalogName, dbName,
                                         table.getName(), PrivPredicate.SHOW)) {
                             continue;
+                        }
+                        // For the follower node in cloud mode,
+                        // when querying the information_schema table,
+                        // the version needs to be updated.
+                        // Otherwise, the version will always be the old value
+                        // unless there is a query for the table in the follower node.
+                        if (!Env.getCurrentEnv().isMaster() && Config.isCloudMode()
+                                && table instanceof OlapTable) {
+                            OlapTable olapTable = (OlapTable) table;
+                            List<CloudPartition> partitions = olapTable.getAllPartitions().stream()
+                                    .filter(p -> p instanceof CloudPartition)
+                                    .map(cloudPartition -> (CloudPartition) cloudPartition)
+                                    .collect(Collectors.toList());
+                            CloudPartition.getSnapshotVisibleVersion(partitions);
                         }
                         table.readLock();
                         try {
