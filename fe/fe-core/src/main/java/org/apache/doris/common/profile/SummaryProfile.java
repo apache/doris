@@ -41,6 +41,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * SummaryProfile is part of a query profile.
@@ -379,7 +380,7 @@ public class SummaryProfile {
 
     // Step Name -> TimeStats
     @SerializedName(value = "scanNodesStats")
-    private final Map<String, TimeStats> scanNodesStats = new HashMap<>();
+    private final Map<String, TimeStats> scanNodesStats = new ConcurrentHashMap<>();
 
     public static class NestedStepTimer {
 
@@ -393,6 +394,7 @@ public class SummaryProfile {
             private final String name;
             private final long startTime;
             private final StepInfo parent;
+
             private final List<StepInfo> children = new ArrayList<>();
 
             StepInfo(String name, long startTime, StepInfo parent) {
@@ -426,12 +428,12 @@ public class SummaryProfile {
 
         @VisibleForTesting
         public Map<String, TimeStats> getScanNodesStats() {
-            return scanNodesStats;
+            return ImmutableMap.copyOf(scanNodesStats);
         }
     }
 
     // ScanNodeId -> NestedStepTimer
-    private final Map<String, NestedStepTimer> scanNodeTimers = new HashMap<>();
+    private final Map<String, NestedStepTimer> scanNodeTimers = new ConcurrentHashMap<>();
 
     public NestedStepTimer createNodeTimer(String nodeId) {
         NestedStepTimer timer = new NestedStepTimer(scanNodesStats);
