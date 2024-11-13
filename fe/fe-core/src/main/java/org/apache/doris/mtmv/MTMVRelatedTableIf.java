@@ -47,7 +47,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      *
      * @return
      */
-    PartitionType getPartitionType();
+    PartitionType getPartitionType() throws AnalysisException;
 
     /**
      * getPartitionColumnNames
@@ -55,14 +55,14 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return
      * @throws DdlException
      */
-    Set<String> getPartitionColumnNames() throws DdlException;
+    Set<String> getPartitionColumnNames() throws DdlException, AnalysisException;
 
     /**
      * getPartitionColumns
      *
      * @return
      */
-    List<Column> getPartitionColumns();
+    List<Column> getPartitionColumns() throws AnalysisException;
 
     /**
      * getPartitionSnapshot
