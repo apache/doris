@@ -106,8 +106,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                              StatisticalType statisticalType, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
-        if (ConnectContext.get().getExecutor() != null) {
-            ConnectContext.get().getExecutor().getSummaryProfile().createNodeTimer(id.toString());
+        SummaryProfile sp = ConnectContext.getSummaryProfileSafety();
+        if (sp != null) {
+            sp.createNodeTimer(id.toString());
         }
     }
 

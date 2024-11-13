@@ -26,6 +26,7 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUnit;
 import org.apache.doris.transaction.TransactionType;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -421,6 +422,11 @@ public class SummaryProfile {
             long duration = System.currentTimeMillis() - currentStep.startTime;
             scanNodesStats.computeIfAbsent(currentStep.name, k -> new TimeStats()).accept(duration);
             currentStep = currentStep.parent;
+        }
+
+        @VisibleForTesting
+        public Map<String, TimeStats> getScanNodesStats() {
+            return scanNodesStats;
         }
     }
 
