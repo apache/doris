@@ -623,6 +623,8 @@ int InstanceChecker::do_inverted_check() {
     using namespace std::chrono;
     auto start_time = steady_clock::now();
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+        g_bvar_inverted_checker_num_scanned.put(instance_id_, num_scanned);
+        g_bvar_inverted_checker_num_check_failed.put(instance_id_, num_file_leak);
         auto cost = duration<float>(steady_clock::now() - start_time).count();
         LOG(INFO) << "inverted check instance objects finished, cost=" << cost
                   << "s. instance_id=" << instance_id_ << " num_scanned=" << num_scanned
