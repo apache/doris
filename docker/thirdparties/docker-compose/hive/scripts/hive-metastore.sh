@@ -93,14 +93,38 @@ rm -f "$lockfile2"
 
 # put data file
 ## put tpch1
+if [ -z "$(ls /mnt/scripts/tpch1.db)" ]; then
+    echo "tpch1.db does not exist"
+    exit 1
+fi
 hadoop fs -mkdir -p /user/doris/
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
+if [ -z "$(hadoop fs -ls /user/doris/tpch1.db)" ]; then
+    echo "tpch1.db put failed"
+    exit 1
+fi
 
 ## put paimon1
+if [ -z "$(ls /mnt/scripts/paimon1)" ]; then
+    echo "paimon1 does not exist"
+    exit 1
+fi
 hadoop fs -put /mnt/scripts/paimon1 /user/doris/
+if [ -z "$(hadoop fs -ls /user/doris/paimon1)" ]; then
+    echo "paimon1 put failed"
+    exit 1
+fi
 
 ## put tvf_data
+if [ -z "$(ls /mnt/scripts/tvf_data)" ]; then
+    echo "tvf_data does not exist"
+    exit 1
+fi
 hadoop fs -put /mnt/scripts/tvf_data /user/doris/
+if [ -z "$(hadoop fs -ls /user/doris/tvf_data)" ]; then
+    echo "tvf_data put failed"
+    exit 1
+fi
 
 ## put other preinstalled data
 hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/
