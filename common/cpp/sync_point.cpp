@@ -248,8 +248,7 @@ void SyncPoint::Data::disable_processing() {
 
 bool SyncPoint::Data::has_point(const std::string& point) {
   std::unique_lock lock(mutex_);
-  auto marked_point_iter = marked_thread_id_.find(point);
-  return marked_point_iter != marked_thread_id_.end();
+  return callbacks_.find(point) != callbacks_.end();
 }
 
 bool SyncPoint::Data::get_enable() {

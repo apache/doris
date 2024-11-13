@@ -203,6 +203,8 @@ void MetaServiceImpl::get_obj_store_info(google::protobuf::RpcController* contro
                                          GetObjStoreInfoResponse* response,
                                          ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_obj_store_info);
+    TEST_SYNC_POINT_CALLBACK("obj-store-info_sk_response", &response);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("obj-store-info_sk_response_return");
     // Prepare data
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
@@ -2600,6 +2602,8 @@ void MetaServiceImpl::get_stage(google::protobuf::RpcController* controller,
                                 const GetStageRequest* request, GetStageResponse* response,
                                 ::google::protobuf::Closure* done) {
     RPC_PREPROCESS(get_stage);
+    TEST_SYNC_POINT_CALLBACK("stage_sk_response", &response);
+    TEST_SYNC_POINT_RETURN_WITH_VOID("stage_sk_response_return");
     std::string cloud_unique_id = request->has_cloud_unique_id() ? request->cloud_unique_id() : "";
     if (cloud_unique_id.empty()) {
         code = MetaServiceCode::INVALID_ARGUMENT;
