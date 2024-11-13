@@ -887,7 +887,7 @@ public class BackupJob extends AbstractJob {
                  localMetaInfoFilePath, localJobInfoFilePath, this);
     }
 
-    private void releaseSnapshots() {
+    private synchronized void releaseSnapshots() {
         if (snapshotInfos.isEmpty()) {
             return;
         }
