@@ -202,15 +202,11 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
     }
 
     if (have_null_column(block, args)) {
-        bool need_to_default = need_replace_null_data_to_default();
-        if (context) {
-            need_to_default &= context->check_overflow_for_decimal();
-        }
         // extract nested column from nulls
         ColumnNumbers new_args;
         for (auto arg : args) {
             new_args.push_back(block.columns());
-            block.insert(block.get_by_position(arg).get_nested(need_to_default));
+            block.insert(block.get_by_position(arg).get_nested());
             DCHECK(!block.get_by_position(new_args.back()).column->is_nullable());
         }
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,

@@ -2209,14 +2209,10 @@ private:
                 auto from_type_not_nullable = remove_nullable(from_type);
                 auto to_type_not_nullable = remove_nullable(to_type);
 
-                bool replace_null_data_to_default = need_replace_null_data_to_default(
-                        context, from_type_not_nullable, to_type_not_nullable);
-
                 auto nested_result_index = block.columns();
                 block.insert(block.get_by_position(result).get_nested());
                 auto nested_source_index = block.columns();
-                block.insert(block.get_by_position(arguments[0])
-                                     .get_nested(replace_null_data_to_default));
+                block.insert(block.get_by_position(arguments[0]).get_nested());
 
                 RETURN_IF_ERROR(prepare_impl(context, from_type_not_nullable, to_type_not_nullable,
                                              true)(context, block, {nested_source_index},
