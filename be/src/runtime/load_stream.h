@@ -71,7 +71,7 @@ private:
     int64_t _num_segments = 0;
     bool _check_num_segments = true;
     bthread::Mutex _lock;
-    Status _status;
+    AtomicStatus _status;
     PUniqueId _load_id;
     int64_t _txn_id;
     RuntimeProfile* _profile = nullptr;
