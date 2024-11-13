@@ -103,12 +103,15 @@ public:
         _item_count = 0;
     }
 
-    [[noreturn]] Field operator[](size_t n) const override {
-        LOG(FATAL) << "operator[] not supported";
-        __builtin_unreachable();
+    Field operator[](size_t n) const override {
+        return Field(
+                String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
-    void get(size_t n, Field& res) const override { LOG(FATAL) << "get not supported"; }
+    void get(size_t n, Field& res) const override {
+        res = Field(
+                String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
+    }
 
     StringRef get_data_at(size_t n) const override {
         return {reinterpret_cast<const char*>(&_data[n * _item_size]), _item_size};
