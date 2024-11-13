@@ -304,7 +304,12 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       elsif mapping.is_a?(Array)
         mapping.map { |elem| convert_mapping(elem, event) }
       else
-        event.sprintf(mapping)
+        s = event.sprintf(mapping)
+        if s == mapping
+         return nil
+        else
+         return s
+        end
       end
    end
 
