@@ -20,6 +20,7 @@ package org.apache.doris.nereids.parser;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.analysis.ColumnNullableType;
+import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.StorageBackend;
@@ -120,6 +121,12 @@ import org.apache.doris.nereids.DorisParser.HintStatementContext;
 import org.apache.doris.nereids.DorisParser.IdentifierContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
+import org.apache.doris.nereids.DorisParser.ImportColumnsContext;
+import org.apache.doris.nereids.DorisParser.ImportDeleteOnContext;
+import org.apache.doris.nereids.DorisParser.ImportPartitionsContext;
+import org.apache.doris.nereids.DorisParser.ImportPrecedingFilterContext;
+import org.apache.doris.nereids.DorisParser.ImportSequenceContext;
+import org.apache.doris.nereids.DorisParser.ImportWhereContext;
 import org.apache.doris.nereids.DorisParser.InPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefContext;
 import org.apache.doris.nereids.DorisParser.IndexDefsContext;
@@ -187,6 +194,7 @@ import org.apache.doris.nereids.DorisParser.SampleContext;
 import org.apache.doris.nereids.DorisParser.SelectClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectColumnClauseContext;
 import org.apache.doris.nereids.DorisParser.SelectHintContext;
+import org.apache.doris.nereids.DorisParser.SeparatorContext;
 import org.apache.doris.nereids.DorisParser.SetCharsetContext;
 import org.apache.doris.nereids.DorisParser.SetCollateContext;
 import org.apache.doris.nereids.DorisParser.SetDefaultStorageVaultContext;
@@ -517,6 +525,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateJobInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableLikeInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateViewInfo;
@@ -553,6 +562,15 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.CreateRoutineLoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnClause;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadColumnDesc;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadDeleteOnClause;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadPartitionNames;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadSequenceClause;
+import org.apache.doris.nereids.trees.plans.commands.load.LoadWhereClause;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -1434,6 +1452,99 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             );
             return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan);
         });
+    }
+
+    /**
+     * process LoadProperty in routine load
+     */
+    public LoadProperty visitLoadProperty(DorisParser.LoadPropertyContext ctx) {
+        LoadProperty loadProperty = null;
+        if (ctx instanceof SeparatorContext) {
+            loadProperty = new LoadSeparator(((SeparatorContext) ctx).STRING_LITERAL().getText());
+        } else if (ctx instanceof ImportColumnsContext) {
+            List<LoadColumnDesc> descList = new ArrayList<>();
+            for (DorisParser.ImportColumnDescContext loadColumnDescCtx : ((ImportColumnsContext) ctx)
+                    .importColumnsStatement().importColumnDesc()) {
+                LoadColumnDesc desc = new LoadColumnDesc(loadColumnDescCtx.name.getText(),
+                        getExpression(loadColumnDescCtx.booleanExpression()));
+                descList.add(desc);
+            }
+            loadProperty = new LoadColumnClause(descList);
+        } else if (ctx instanceof ImportDeleteOnContext) {
+            loadProperty = new LoadDeleteOnClause(getExpression(((ImportDeleteOnContext) ctx)
+                    .importDeleteOnStatement().booleanExpression()));
+        } else if (ctx instanceof ImportPartitionsContext) {
+            Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(
+                    ((ImportPartitionsContext) ctx).partitionSpec());
+            loadProperty = new LoadPartitionNames(partitionSpec.first, partitionSpec.second);
+        } else if (ctx instanceof ImportPrecedingFilterContext) {
+            loadProperty = new LoadWhereClause(getExpression(((ImportPrecedingFilterContext) ctx)
+                    .importPrecedingFilterStatement().booleanExpression()), true);
+        } else if (ctx instanceof ImportSequenceContext) {
+            loadProperty = new LoadSequenceClause(((ImportSequenceContext) ctx)
+                    .importSequenceStatement().identifier().getText());
+        } else if (ctx instanceof ImportWhereContext) {
+            loadProperty = new LoadWhereClause(getExpression(((ImportWhereContext) ctx)
+                    .importWhereStatement().booleanExpression()), false);
+        }
+        return loadProperty;
+    }
+
+    @Override
+    public Command visitCreateRoutineLoad(DorisParser.CreateRoutineLoadAliasContext ctx) {
+        List<String> labelParts = visitMultipartIdentifier(ctx.label);
+        String labelName = null;
+        String labelDbName = null;
+        if (ConnectContext.get().getDatabase().isEmpty() && labelParts.size() == 1) {
+            throw new AnalysisException("Current database is not set.");
+        } else if (labelParts.size() == 1) {
+            labelName = labelParts.get(0);
+        } else if (labelParts.size() == 2) {
+            labelDbName = labelParts.get(0);
+            labelName = labelParts.get(1);
+        } else if (labelParts.size() == 3) {
+            labelDbName = labelParts.get(1);
+            labelName = labelParts.get(2);
+        } else {
+            throw new AnalysisException("labelParts in load should be [ctl.][db.]label");
+        }
+        LabelName jobLabel = new LabelName(labelDbName, labelName);
+        String tableName = ctx.table.getText();
+        Map<String, String> properties = ctx.propertyClause() != null
+                // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
+                ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause()))
+                : Maps.newHashMap();
+        String type = ctx.type.getText();
+        Map<String, String> customProperties = ctx.customProperties != null
+                // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
+                ? Maps.newHashMap(visitPropertyItemList(ctx.customProperties))
+                : Maps.newHashMap();
+        LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND;
+        if (ctx.WITH() != null) {
+            if (ctx.DELETE() != null) {
+                mergeType = LoadTask.MergeType.DELETE;
+            } else if (ctx.MERGE() != null) {
+                mergeType = LoadTask.MergeType.MERGE;
+            }
+        }
+        String comment = visitCommentSpec(ctx.commentSpec());
+        Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
+        for (DorisParser.LoadPropertyContext oneLoadPropertyCOntext : ctx.loadProperty()) {
+            LoadProperty loadProperty = visitLoadProperty(oneLoadPropertyCOntext);
+            if (loadProperty == null) {
+                throw new AnalysisException("invalid clause of routine load");
+            }
+            if (loadPropertyMap.get(loadProperty.getClass().getName()) != null) {
+                throw new AnalysisException("repeat setting of clause load property: "
+                    + loadProperty.getClass().getName());
+            } else {
+                loadPropertyMap.put(loadProperty.getClass().getName(), loadProperty);
+            }
+        }
+        CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(jobLabel, tableName, loadPropertyMap,
+                properties, type, customProperties, mergeType, comment);
+        return new CreateRoutineLoadCommand(createRoutineLoadInfo);
+
     }
 
     @Override
