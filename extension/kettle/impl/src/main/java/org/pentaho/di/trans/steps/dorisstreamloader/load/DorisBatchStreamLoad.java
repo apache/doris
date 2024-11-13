@@ -18,6 +18,7 @@
 package org.pentaho.di.trans.steps.dorisstreamloader.load;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.apache.commons.lang.StringUtils;
 import org.apache.http.client.entity.GzipCompressingEntity;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.impl.client.CloseableHttpClient;
@@ -203,6 +204,7 @@ public class DorisBatchStreamLoad implements Serializable {
             lock.lock();
             try {
                 while (currentCacheBytes.get() >= maxBlockedBytes) {
+                    checkFlushException();
                     log.logDetailed(
                             "Cache full, waiting for flush, currentBytes: " + currentCacheBytes.get()
                                     + ", maxBlockedBytes: " + maxBlockedBytes);
@@ -448,6 +450,7 @@ public class DorisBatchStreamLoad implements Serializable {
                     .setLabel(label)
                     .addCommonHeader()
                     .setEntity(entity)
+                    .addHiddenColumns(options.isDeletable())
                     .addProperties(options.getStreamLoadProp());
 
             if (enableGzCompress) {
@@ -488,11 +491,22 @@ public class DorisBatchStreamLoad implements Serializable {
                                 putBuilder.setLabel(label + "_" + retry);
                                 reason = respContent.getMessage();
                             } else {
-                                String errMsg =
+                                String errMsg = null;
+                                if (StringUtils.isBlank(respContent.getMessage())
+                                    && StringUtils.isBlank(respContent.getErrorURL())) {
+                                    // sometimes stream load will not return message
+                                    errMsg =
                                         String.format(
-                                                "stream load error: %s, see more in %s",
-                                                respContent.getMessage(),
-                                                respContent.getErrorURL());
+                                            "stream load error, response is %s",
+                                            loadResult);
+                                    throw new DorisRuntimeException(errMsg);
+                                } else {
+                                    errMsg =
+                                        String.format(
+                                            "stream load error: %s, see more in %s",
+                                            respContent.getMessage(),
+                                            respContent.getErrorURL());
+                                }
                                 throw new DorisRuntimeException(errMsg);
                             }
                         }
