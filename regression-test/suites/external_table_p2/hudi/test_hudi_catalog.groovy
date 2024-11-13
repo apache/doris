@@ -35,4 +35,5 @@ suite("test_hudi_catalog", "p2,external,hudi,external_remote,external_remote_hud
     sql """ set enable_fallback_to_original_planner=false """
     def tables = sql """ show tables; """
     assertTrue(tables.size() > 0)
+    sql """drop catalog if exists ${catalog_name};"""
 }
