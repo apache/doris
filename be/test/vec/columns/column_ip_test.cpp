@@ -15,13 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/columns/column_array.h"
-
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
 #include "vec/columns/column.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/columns_number.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/core/types.h"
@@ -54,9 +53,9 @@ protected:
         MutableColumns ip_cols;
         ip_cols.push_back(column_ipv4->get_ptr());
         ip_cols.push_back(column_ipv6->get_ptr());
-//        check_data(ip_cols, serde, ';', {1, 2},
-//                   "regression-test/data/nereids_function_p0/fn_test_ip_invalid.csv", "./res.csv",
-//                   assert_insert_from_callback);
+        //        check_data(ip_cols, serde, ';', {1, 2},
+        //                   "regression-test/data/nereids_function_p0/fn_test_ip_invalid.csv",
+        //                   assert_insert_from_callback);
     }
 
     DataTypePtr dt_ipv4 =
@@ -81,8 +80,7 @@ TEST_F(ColumnIPTest, InsertRangeFromTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "./res.csv",
-               assert_insert_range_from_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_range_from_callback);
 }
 
 TEST_F(ColumnIPTest, InsertManyFromTest) {
@@ -90,8 +88,7 @@ TEST_F(ColumnIPTest, InsertManyFromTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "./res.csv",
-               assert_insert_many_from_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_many_from_callback);
 }
 
 TEST_F(ColumnIPTest, InsertIndicesFromTest) {
@@ -99,8 +96,7 @@ TEST_F(ColumnIPTest, InsertIndicesFromTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "./res.csv",
-               assert_insert_indices_from_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_indices_from_callback);
 }
 
 TEST_F(ColumnIPTest, InsertDefaultTest) {
@@ -108,8 +104,7 @@ TEST_F(ColumnIPTest, InsertDefaultTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "./res.csv",
-               assert_insert_default_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_default_callback);
 }
 
 TEST_F(ColumnIPTest, InsertManyDefaultsTest) {
@@ -117,8 +112,7 @@ TEST_F(ColumnIPTest, InsertManyDefaultsTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "./res.csv",
-               assert_insert_many_defaults_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_insert_many_defaults_callback);
 }
 
 TEST_F(ColumnIPTest, GetDataAtTest) {
@@ -126,7 +120,7 @@ TEST_F(ColumnIPTest, GetDataAtTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_get_data_at_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_get_data_at_callback);
 }
 
 TEST_F(ColumnIPTest, FieldTest) {
@@ -134,7 +128,7 @@ TEST_F(ColumnIPTest, FieldTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_field_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_field_callback);
 }
 
 TEST_F(ColumnIPTest, GetRawDataTest) {
@@ -142,8 +136,7 @@ TEST_F(ColumnIPTest, GetRawDataTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv",
-               assert_get_raw_data_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_get_raw_data_callback);
 }
 
 TEST_F(ColumnIPTest, GetBoolTest) {
@@ -151,7 +144,7 @@ TEST_F(ColumnIPTest, GetBoolTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_get_bool_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_get_bool_callback);
 }
 
 TEST_F(ColumnIPTest, GetIntTest) {
@@ -159,7 +152,7 @@ TEST_F(ColumnIPTest, GetIntTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_get_int_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_get_int_callback);
 }
 
 TEST_F(ColumnIPTest, SerDeVecTest) {
@@ -186,7 +179,7 @@ TEST_F(ColumnIPTest, SizeTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_size_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_size_callback);
 }
 
 TEST_F(ColumnIPTest, SizeOfValueIfFixedTest) {
@@ -194,8 +187,7 @@ TEST_F(ColumnIPTest, SizeOfValueIfFixedTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv",
-               assert_size_of_value_if_fixed_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_size_of_value_if_fixed_callback);
 }
 
 TEST_F(ColumnIPTest, ByteSizeTest) {
@@ -204,7 +196,7 @@ TEST_F(ColumnIPTest, ByteSizeTest) {
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
 
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_byte_size_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_byte_size_callback);
 }
 
 TEST_F(ColumnIPTest, AllocateBytesTest) {
@@ -213,8 +205,7 @@ TEST_F(ColumnIPTest, AllocateBytesTest) {
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
 
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv",
-               assert_allocated_bytes_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_allocated_bytes_callback);
 }
 //TEST_F(ColumnIPTest, PopbackTest) {
 //    // insert from data csv and assert insert result
@@ -233,14 +224,14 @@ TEST_F(ColumnIPTest, CloneTest) {
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     cloneEmptyAssert(column_ipv4->assume_mutable_ref());
     cloneEmptyAssert(column_ipv6->assume_mutable_ref());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_clone_resized_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_clone_resized_callback);
 }
 //TEST_F(ColumnIPTest, ResizeTest) {
 //    // insert from data csv and assert insert result
 //    MutableColumns ip_cols;
 //    ip_cols.push_back(column_ipv4->get_ptr());
 //    ip_cols.push_back(column_ipv6->get_ptr());
-//    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_resize_callback);
+//    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_resize_callback);
 //}
 //
 //TEST_F(ColumnIPTest, ReserveTest) {
@@ -248,7 +239,7 @@ TEST_F(ColumnIPTest, CloneTest) {
 //    MutableColumns ip_cols;
 //    ip_cols.push_back(column_ipv4->get_ptr());
 //    ip_cols.push_back(column_ipv6->get_ptr());
-//    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_reserve_callback);
+//    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], assert_reserve_callback);
 //}
 //
 //TEST_F(ColumnIPTest, AppendDataBySelectorTest) {
@@ -256,7 +247,7 @@ TEST_F(ColumnIPTest, CloneTest) {
 //    MutableColumns ip_cols;
 //    ip_cols.push_back(column_ipv4->get_ptr());
 //    ip_cols.push_back(column_ipv6->get_ptr());
-//    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv",
+//    check_data(ip_cols, serde, ';', {1, 2}, data_files[0],
 //               assert_append_data_by_selector_callback);
 //}
 
