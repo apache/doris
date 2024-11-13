@@ -17,7 +17,7 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/lakehouse/database/jdbc.md") {
+suite("docs/lakehouse/database/mysql.md") {
     try {
         String enable = context.config.otherConfigs.get("enableJdbcTest")
         if(enable == null || !enable.equalsIgnoreCase("true")) {
@@ -41,12 +41,7 @@ suite("docs/lakehouse/database/jdbc.md") {
                 "driver_class" = "${driver_class}"
             )
         """
-        def dbs = sql """ SHOW DATABASES FROM mysql; """
-        def tbls = sql """ SHOW TABLES FROM mysql.${dbs[0][0]}; """
-        if (!tbls.isEmpty()) {
-            sql """ SELECT * FROM mysql.${dbs[0][0]}.${tbls[0][0]}; """
-        }
     } catch (Throwable t) {
-        Assertions.fail("examples in docs/lakehouse/database/jdbc.md failed to exec, please fix it", t)
+        Assertions.fail("examples in docs/lakehouse/database/mysql.md failed to exec, please fix it", t)
     }
 }

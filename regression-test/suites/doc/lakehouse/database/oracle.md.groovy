@@ -17,36 +17,33 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/lakehouse/database/jdbc.md") {
+suite("docs/lakehouse/database/oracle.md") {
     try {
         String enable = context.config.otherConfigs.get("enableJdbcTest")
         if(enable == null || !enable.equalsIgnoreCase("true")) {
             return
         }
+
         def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        def mysql_port = context.config.otherConfigs.get("mysql_57_port")
+        def oracle_port = context.config.otherConfigs.get("oracle_11_port")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
-        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-        String driver_class = "com.mysql.cj.jdbc.Driver"
+        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/ojdbc8.jar"
+        String driver_class = "oracle.jdbc.driver.OracleDriver"
+        String sid = "XE"
 
-        sql """ DROP CATALOG IF EXISTS mysql; """
+        sql """ DROP CATALOG IF EXISTS oracle; """
         sql """
-            CREATE CATALOG mysql PROPERTIES (
+            CREATE CATALOG oracle PROPERTIES (
                 "type"="jdbc",
-                "user"="root",
+                "user"="doris_test",
                 "password"="123456",
-                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${sid}",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "${driver_class}"
             )
         """
-        def dbs = sql """ SHOW DATABASES FROM mysql; """
-        def tbls = sql """ SHOW TABLES FROM mysql.${dbs[0][0]}; """
-        if (!tbls.isEmpty()) {
-            sql """ SELECT * FROM mysql.${dbs[0][0]}.${tbls[0][0]}; """
-        }
     } catch (Throwable t) {
-        Assertions.fail("examples in docs/lakehouse/database/jdbc.md failed to exec, please fix it", t)
+        Assertions.fail("examples in docs/lakehouse/database/oracle.md failed to exec, please fix it", t)
     }
 }

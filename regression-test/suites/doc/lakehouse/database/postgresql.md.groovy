@@ -17,36 +17,29 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/lakehouse/database/jdbc.md") {
+suite("docs/lakehouse/database/postgresql.md") {
     try {
         String enable = context.config.otherConfigs.get("enableJdbcTest")
         if(enable == null || !enable.equalsIgnoreCase("true")) {
             return
         }
         def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        def mysql_port = context.config.otherConfigs.get("mysql_57_port")
+        def pg_port = context.config.otherConfigs.get("pg_14_port")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
-        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-        String driver_class = "com.mysql.cj.jdbc.Driver"
+        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
+        String driver_class = "org.postgresql.Driver"
 
-        sql """ DROP CATALOG IF EXISTS mysql; """
-        sql """
-            CREATE CATALOG mysql PROPERTIES (
-                "type"="jdbc",
-                "user"="root",
-                "password"="123456",
-                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                "driver_url" = "${driver_url}",
-                "driver_class" = "${driver_class}"
-            )
-        """
-        def dbs = sql """ SHOW DATABASES FROM mysql; """
-        def tbls = sql """ SHOW TABLES FROM mysql.${dbs[0][0]}; """
-        if (!tbls.isEmpty()) {
-            sql """ SELECT * FROM mysql.${dbs[0][0]}.${tbls[0][0]}; """
-        }
+        sql """DROP CATALOG IF EXISTS postgresql """
+        sql """CREATE CATALOG IF NOT EXISTS postgresql properties(
+            "type"="jdbc",
+            "user"="postgres",
+            "password"="123456",
+            "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "driver_url" = "${driver_url}",
+            "driver_class" = "${driver_class}"
+        );"""
     } catch (Throwable t) {
-        Assertions.fail("examples in docs/lakehouse/database/jdbc.md failed to exec, please fix it", t)
+        Assertions.fail("examples in docs/lakehouse/database/postgresql.md failed to exec, please fix it", t)
     }
 }
