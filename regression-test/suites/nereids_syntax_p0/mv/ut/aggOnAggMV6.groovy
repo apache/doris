@@ -33,8 +33,6 @@ suite ("aggOnAggMV6") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
-    sql """alter table aggOnAggMV6 modify column time_col set stats ('row_count'='4');"""
-
     sql """insert into aggOnAggMV6 values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into aggOnAggMV6 values("2020-01-02",2,"b",2,2,2);"""
     sql """insert into aggOnAggMV6 values("2020-01-03",3,"c",3,3,3);"""
@@ -56,6 +54,7 @@ suite ("aggOnAggMV6") {
     order_qt_select_mv "select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10 order by 1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table aggOnAggMV6 modify column time_col set stats ('row_count'='4');"""
     mv_rewrite_fail("select * from aggOnAggMV6 order by empid;", "aggOnAggMV6_mv")
 
     mv_rewrite_success("select * from (select deptno, sum(salary) as sum_salary from aggOnAggMV6 where deptno>=20 group by deptno) a where sum_salary>10;",

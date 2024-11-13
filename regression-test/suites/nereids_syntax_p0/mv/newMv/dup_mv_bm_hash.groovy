@@ -29,8 +29,6 @@ suite ("dup_mv_bm_hash") {
             properties("replication_num" = "1");
         """
 
-    sql """alter table dup_mv_bm_hash modify column k1 set stats ('row_count'='5');"""
-
     sql "insert into dup_mv_bm_hash select 1,1,'a';"
     sql "insert into dup_mv_bm_hash select 2,2,'b';"
     sql "insert into dup_mv_bm_hash select 3,3,'c';"
@@ -47,6 +45,7 @@ suite ("dup_mv_bm_hash") {
     order_qt_select_mv "select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table dup_mv_bm_hash modify column k1 set stats ('row_count'='5');"""
     mv_rewrite_success("select bitmap_union_count(to_bitmap(k2)) from dup_mv_bm_hash group by k1 order by k1;", "dup_mv_bm_hash_mv1")
 
     createMV("create materialized view dup_mv_bm_hash_mv2 as select k1,bitmap_union(bitmap_hash(k3)) from dup_mv_bm_hash group by k1;")

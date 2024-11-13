@@ -38,8 +38,6 @@ suite ("count_star") {
     sql "insert into d_table select 3,-3,null,'c';"
     sql "insert into d_table values(1,1,1,'a'),(1,1,1,'a');"
 
-    sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
-
     createMV ("create materialized view kstar as select k1,k4,count(*) from d_table group by k1,k4;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
@@ -66,6 +64,8 @@ suite ("count_star") {
     qt_select_mv "select count(*) from d_table where k3=1;"
 
     sql """set enable_stats=true;"""
+
+    sql """alter table d_table modify column k4 set stats ('row_count'='8');"""
     mv_rewrite_success("select k1,k4,count(*) from d_table group by k1,k4;", "kstar")
     mv_rewrite_success("select k1,k4,count(*) from d_table where k1=1 group by k1,k4;", "kstar")
     mv_rewrite_fail("select k1,k4,count(*) from d_table where k3=1 group by k1,k4;", "kstar")

@@ -29,8 +29,6 @@ suite ("testAggTableCountDistinctInBitmapType") {
     sql """insert into test_tb values(3,to_bitmap(3));"""
 
 
-sql """alter table test_tb modify column k1 set stats ('row_count'='3');"""
-
     sql "analyze table test_tb with sync;"
     sql """set enable_stats=false;"""
 
@@ -44,6 +42,7 @@ sql """alter table test_tb modify column k1 set stats ('row_count'='3');"""
     qt_select_mv "select k1, count(distinct v1) from test_tb group by k1 order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table test_tb modify column k1 set stats ('row_count'='3');"""
     explain {
         sql("select k1, count(distinct v1) from test_tb group by k1;")
         contains "bitmap_union_count"

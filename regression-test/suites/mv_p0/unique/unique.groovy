@@ -52,8 +52,6 @@ suite ("unique") {
         exception "The materialized view not support value column before key column"
     }
 
-    sql """alter table u_table modify column k1 set stats ('row_count'='3');"""
-
     createMV("create materialized view kadj as select k3,k2,k1,k4 from u_table;")
 
     createMV("create materialized view kadj2 as select k1,k3,k2,length(k4) from u_table;")
@@ -75,6 +73,7 @@ suite ("unique") {
     qt_select_star "select * from u_table order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table u_table modify column k1 set stats ('row_count'='3');"""
     mv_rewrite_success("select k3,length(k1),k2 from u_table order by 1,2,3;", "k31l42")
 
     // todo: support match query

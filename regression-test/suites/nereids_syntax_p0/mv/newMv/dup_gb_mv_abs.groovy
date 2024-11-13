@@ -39,8 +39,6 @@ suite ("dup_gb_mv_abs") {
     createMV ("create materialized view k12sa as select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;")
     sleep(3000)
 
-    sql """alter table dup_gb_mv_abs modify column k1 set stats ('row_count'='4');"""
-
     sql "insert into dup_gb_mv_abs select -4,-4,-4,'d';"
 
     sql "SET experimental_enable_nereids_planner=true"
@@ -59,6 +57,7 @@ suite ("dup_gb_mv_abs") {
     order_qt_select_mv_sub "select sum(abs(k2)) from dup_gb_mv_abs group by k1 order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table dup_gb_mv_abs modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,sum(abs(k2)) from dup_gb_mv_abs group by k1;", "k12sa")
 
     mv_rewrite_success("select sum(abs(k2)) from dup_gb_mv_abs group by k1;", "k12sa")

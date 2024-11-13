@@ -29,8 +29,6 @@ suite ("dup_mv_year") {
             properties("replication_num" = "1");
         """
 
-    sql """alter table dup_mv_year modify column k1 set stats ('row_count'='4');"""
-
     sql "insert into dup_mv_year select 1,'2003-12-31','2003-12-31 01:02:03';"
     sql "insert into dup_mv_year select 2,'2013-12-31','2013-12-31 01:02:03';"
     sql "insert into dup_mv_year select 3,'2023-12-31','2023-12-31 01:02:03';"
@@ -47,6 +45,7 @@ suite ("dup_mv_year") {
     order_qt_select_mv "select k1,year(k2) from dup_mv_year order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table dup_mv_year modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,year(k2) from dup_mv_year order by k1;", "k12y")
 
     createMV "create materialized view k13y as select k1,year(k3) from dup_mv_year;"

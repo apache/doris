@@ -43,7 +43,6 @@ suite ("k1s2m3_auto_inc") {
         exception "The materialized view can not involved auto increment column"
     }
 
-    sql """alter table d_table modify column k1 set stats ('row_count'='2');"""
     createMV("create materialized view k3ap2spa as select k3,sum(abs(k2+1)) from d_table group by k3;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
@@ -58,5 +57,6 @@ suite ("k1s2m3_auto_inc") {
     qt_select_mv "select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='2');"""
     mv_rewrite_success("select k3,sum(abs(k2+1)) from d_table group by k3 order by 1;", "k3ap2spa")
 }

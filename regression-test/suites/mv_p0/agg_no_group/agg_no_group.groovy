@@ -55,8 +55,6 @@ suite ("agg_no_group") {
                 (3, 1, 1, 2, '2023-10-19', 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx'),
                 (1, 3, 2, 2, '2023-10-17', 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');"""
 
-    sql """alter table lineitem_2_agg modify column l_comment set stats ('row_count'='7');"""
-
     test {
         sql """CREATE MATERIALIZED VIEW mv_name_2_3_5  AS  
         select l_shipdate, l_partkey, l_orderkey from lineitem_2_agg"""

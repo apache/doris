@@ -37,8 +37,6 @@ suite ("multi_slot_k123p") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
-
     createMV ("create materialized view k123p as select k1,k2+k3 from d_table;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
@@ -65,5 +63,6 @@ suite ("multi_slot_k123p") {
     qt_select_mv "select k1,version() from d_table order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
     mv_rewrite_success("select k1,k2+k3 from d_table order by k1;", "k123p")
 }

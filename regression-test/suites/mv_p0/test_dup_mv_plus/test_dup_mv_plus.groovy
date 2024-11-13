@@ -37,7 +37,6 @@ suite ("test_dup_mv_plus") {
     sql "insert into d_table select 3,-3,null,'c';"
 
     createMV ("create materialized view k12p as select k1,k2+1 from d_table;")
-    sql """alter table table_ngrambf modify column siteid set stats ('row_count'='2');"""
 
     sql "insert into d_table select -4,-4,-4,'d';"
 
@@ -71,7 +70,7 @@ suite ("test_dup_mv_plus") {
     qt_select_mv "select k1,k2+1 from d_table order by k2;"
 
     sql """set enable_stats=true;"""
-
+    sql """alter table table_ngrambf modify column siteid set stats ('row_count'='2');"""
     mv_rewrite_success("select k1,k2+1 from d_table order by k1;", "k12p")
 
     mv_rewrite_success("select k2+1 from d_table order by k1;", "k12p")

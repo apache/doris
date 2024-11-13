@@ -33,7 +33,6 @@ suite ("onlyGroupBy") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
-    sql """alter table onlyGroupBy modify column time_col set stats ('row_count'='4');"""
 
     sql """insert into onlyGroupBy values("2020-01-01",1,"a",1,1,1);"""
     sql """insert into onlyGroupBy values("2020-01-02",2,"b",2,2,2);"""
@@ -49,5 +48,7 @@ suite ("onlyGroupBy") {
     mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 
     sql """set enable_stats=true;"""
+    sql """alter table onlyGroupBy modify column time_col set stats ('row_count'='4');"""
+
     mv_rewrite_success("select deptno from onlyGroupBy group by deptno;", "onlyGroupBy_mv")
 }

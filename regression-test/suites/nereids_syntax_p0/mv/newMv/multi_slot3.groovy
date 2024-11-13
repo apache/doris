@@ -40,8 +40,6 @@ suite ("multi_slot3") {
 
     sleep(3000)
 
-    sql """alter table multi_slot3 modify column k1 set stats ('row_count'='4');"""
-
     sql "insert into multi_slot3 select -4,-4,-4,'d';"
     sql "SET experimental_enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
@@ -55,5 +53,6 @@ suite ("multi_slot3") {
     order_qt_select_mv "select k1+1,abs(k2+2)+k3+3 from multi_slot3 order by k1+1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table multi_slot3 modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1+1,abs(k2+2)+k3+3 from multi_slot3 order by k1+1;", "k1p2ap3p")
 }

@@ -51,7 +51,6 @@ suite ("joinOnCalcToJoin") {
     sql """insert into joinOnCalcToJoin_1 values("2020-01-03",3,"c",3);"""
     sql """insert into joinOnCalcToJoin_1 values("2020-01-02",2,"b",1);"""
 
-    sql """alter table joinOnCalcToJoin_1 modify column time_col set stats ('row_count'='3');"""
 
     createMV("create materialized view joinOnLeftPToJoin_mv as select empid, deptno from joinOnCalcToJoin;")
     sleep(3000)
@@ -66,6 +65,8 @@ suite ("joinOnCalcToJoin") {
             ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
 
     sql """set enable_stats=true;"""
+    sql """alter table joinOnCalcToJoin_1 modify column time_col set stats ('row_count'='3');"""
+
     mv_rewrite_all_success("select * from (select empid, deptno from joinOnCalcToJoin where empid = 0) A join (select deptno, cost from joinOnCalcToJoin_1 where deptno > 0) B on A.deptno = B.deptno;",
             ["joinOnLeftPToJoin_mv", "joinOnLeftPToJoin_1_mv"])
 }

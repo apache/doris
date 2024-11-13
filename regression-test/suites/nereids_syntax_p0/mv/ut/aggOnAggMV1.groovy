@@ -38,8 +38,6 @@ suite ("aggOnAggMV1") {
     sql """insert into aggOnAggMV1 values("2020-01-03",3,"c",3,3,3);"""
 
 
-    sql """alter table aggOnAggMV1 modify column time_col set stats ('row_count'='4');"""
-
     createMV("create materialized view aggOnAggMV1_mv as select deptno, sum(salary), max(commission) from aggOnAggMV1 group by deptno ;")
 
     sleep(3000)
@@ -56,6 +54,7 @@ suite ("aggOnAggMV1") {
     order_qt_select_mv "select sum(salary), deptno from aggOnAggMV1 group by deptno order by deptno;"
 
     sql """set enable_stats=true;"""
+    sql """alter table aggOnAggMV1 modify column time_col set stats ('row_count'='4');"""
     mv_rewrite_fail("select * from aggOnAggMV1 order by empid;", "aggOnAggMV1_mv")
 
     mv_rewrite_success("select sum(salary), deptno from aggOnAggMV1 group by deptno order by deptno;", "aggOnAggMV1_mv")

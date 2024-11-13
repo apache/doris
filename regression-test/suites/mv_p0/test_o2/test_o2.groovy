@@ -55,13 +55,12 @@ suite ("test_o2") {
     sql """analyze table o2_order_events with sync;"""
     sql """set enable_stats=false;"""
 
-    sql """alter table o2_order_events modify column ts set stats ('row_count'='2');"""
-
     mv_rewrite_success("select ts,metric_name,platform,sum(count_value) from o2_order_events group by ts,metric_name,platform;",
             "o2_order_events_mv")
     qt_select_mv "select ts,metric_name,platform,sum(count_value) from o2_order_events group by ts,metric_name,platform;"
 
     sql """set enable_stats=true;"""
+    sql """alter table o2_order_events modify column ts set stats ('row_count'='2');"""
     mv_rewrite_success("select ts,metric_name,platform,sum(count_value) from o2_order_events group by ts,metric_name,platform;",
             "o2_order_events_mv")
 }

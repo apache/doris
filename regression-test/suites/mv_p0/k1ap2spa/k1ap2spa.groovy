@@ -37,8 +37,6 @@ suite ("k1ap2spa") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
-    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
-
     createMV("create materialized view k1ap2spa as select abs(k1)+1,sum(abs(k2+1)) from d_table group by abs(k1)+1;")
 
     sql "insert into d_table select -4,-4,-4,'d';"
@@ -53,6 +51,8 @@ suite ("k1ap2spa") {
     qt_select_mv "select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;"
 
     sql """set enable_stats=true;"""
+
+    sql """alter table d_table modify column k1 set stats ('row_count'='5');"""
 
     mv_rewrite_success("select abs(k1)+1 t,sum(abs(k2+1)) from d_table group by t order by t;", "k1ap2spa")
 

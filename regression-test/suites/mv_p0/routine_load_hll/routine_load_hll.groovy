@@ -36,8 +36,6 @@ suite ("routine_load_hll") {
 
     sql """insert into test(event_id,time_stamp,device_id) values('ad_sdk_request','2024-03-04 00:00:00',hll_hash('a'));"""
 
-    sql """alter table test modify column event_id set stats ('row_count'='2');"""
-
     createMV("""create materialized view m_view as select time_stamp, hll_union(device_id) from test group by time_stamp;""")
 
         sql """insert into test(event_id,time_stamp,device_id) values('ad_sdk_request','2024-03-04 00:00:00',hll_hash('b'));"""
@@ -60,5 +58,6 @@ suite ("routine_load_hll") {
     qt_select_mv "select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table test modify column event_id set stats ('row_count'='2');"""
     mv_rewrite_success("select time_stamp, hll_union_agg(device_id) from test group by time_stamp order by 1;", "m_view")
 }

@@ -31,7 +31,6 @@ suite ("dup_mv_bin") {
             distributed BY hash(k1) buckets 3
             properties("replication_num" = "1");
         """
-    sql """alter table dup_mv_bin modify column k1 set stats ('row_count'='4');"""
 
     sql "insert into dup_mv_bin select 1,1,1,'a';"
     sql "insert into dup_mv_bin select 2,2,2,'b';"
@@ -70,6 +69,7 @@ suite ("dup_mv_bin") {
     order_qt_select_group_mv_not "select group_concat(bin(k2)) from dup_mv_bin group by k3 order by k3;"
 
     sql """set enable_stats=true;"""
+    sql """alter table dup_mv_bin modify column k1 set stats ('row_count'='4');"""
     mv_rewrite_success("select k1,bin(k2) from dup_mv_bin order by k1;", "k12b")
 
     mv_rewrite_success("select bin(k2) from dup_mv_bin order by k1;", "k12b")

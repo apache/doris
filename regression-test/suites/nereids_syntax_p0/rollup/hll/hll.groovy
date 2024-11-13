@@ -26,7 +26,6 @@ suite("hll", "rollup") {
             ) 
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
-    sql """alter table test_materialized_view_hll1 modify column record_id set stats ('row_count'='2');"""
 
     createMV "CREATE materialized VIEW amt_count AS SELECT store_id, hll_union(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;"
 
@@ -47,6 +46,7 @@ suite("hll", "rollup") {
             "amt_count")
 
     sql """set enable_stats=true;"""
+    sql """alter table test_materialized_view_hll1 modify column record_id set stats ('row_count'='2');"""
     mv_rewrite_success("SELECT store_id, hll_union_agg(hll_hash(sale_amt)) FROM test_materialized_view_hll1 GROUP BY store_id;",
             "amt_count")
 }

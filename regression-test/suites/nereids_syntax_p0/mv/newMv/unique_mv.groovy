@@ -38,8 +38,6 @@ suite ("unique_mv") {
             );
         """
 
-    sql """alter table c5816_t modify column org_id set stats ('row_count'='1');"""
-
     createMV("""create materialized view mv_1 as select call_uuid,org_id,call_time,id,campaign_id,aa from c5816_t""")
     sql """insert into c5816_t values (1,2,"2023-11-20 00:00:00",4,"adc",12);"""
 
@@ -49,6 +47,7 @@ suite ("unique_mv") {
     mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
 
     sql """set enable_stats=true;"""
+    sql """alter table c5816_t modify column org_id set stats ('row_count'='1');"""
     mv_rewrite_success("SELECT * FROM c5816_t WHERE call_uuid='adc';", "mv_1")
 
 }

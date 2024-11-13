@@ -32,8 +32,6 @@ suite ("multi_slot5") {
             properties("replication_num" = "1");
         """
 
-    sql """alter table multi_slot5 modify column k1 set stats ('row_count'='5');"""
-
     sql "insert into multi_slot5 select 1,1,1,'a';"
     sql "insert into multi_slot5 select 2,2,2,'b';"
     sql "insert into multi_slot5 select 3,-3,null,'c';"
@@ -60,5 +58,6 @@ suite ("multi_slot5") {
     order_qt_select_mv "select k1,version() from multi_slot5 order by k1;"
 
     sql """set enable_stats=true;"""
+    sql """alter table multi_slot5 modify column k1 set stats ('row_count'='5');"""
     mv_rewrite_success("select k1,k2+k3 from multi_slot5 order by k1;", "k123p")
 }

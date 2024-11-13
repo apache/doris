@@ -42,8 +42,6 @@ suite ("testOrderByQueryOnProjectView") {
     sql "analyze table emps with sync;"
     sql """set enable_stats=false;"""
 
-    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
-
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
     qt_select_star "select * from emps order by empid;"
 
@@ -51,6 +49,7 @@ suite ("testOrderByQueryOnProjectView") {
     qt_select_mv "select empid from emps order by deptno;"
 
     sql """set enable_stats=true;"""
+    sql """alter table emps modify column time_col set stats ('row_count'='4');"""
     mv_rewrite_fail("select * from emps order by empid;", "emps_mv")
 
     mv_rewrite_success("select empid from emps where deptno > 0 order by deptno;", "emps_mv")

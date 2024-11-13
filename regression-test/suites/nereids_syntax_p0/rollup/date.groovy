@@ -39,8 +39,6 @@ suite("date", "rollup") {
             DISTRIBUTED BY HASH(record_id) properties("replication_num" = "1");
         """
 
-    sql """alter table test_materialized_view_date1 modify column record_id set stats ('row_count'='2');"""
-
     createMV("CREATE materialized VIEW amt_max1 AS SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id;")
     createMV("CREATE materialized VIEW amt_max2 AS SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id;")
     createMV("CREATE materialized VIEW amt_max3 AS SELECT store_id, max(sale_datetime2) FROM ${tbName1} GROUP BY store_id;")
@@ -63,6 +61,7 @@ suite("date", "rollup") {
 
     mv_rewrite_success("SELECT store_id, max(sale_datetime3) FROM ${tbName1} GROUP BY store_id", "amt_max4")
     sql """set enable_stats=true;"""
+    sql """alter table test_materialized_view_date1 modify column record_id set stats ('row_count'='2');"""
     mv_rewrite_success("SELECT store_id, max(sale_date1) FROM ${tbName1} GROUP BY store_id", "amt_max1")
 
     mv_rewrite_success("SELECT store_id, max(sale_datetime1) FROM ${tbName1} GROUP BY store_id", "amt_max2")

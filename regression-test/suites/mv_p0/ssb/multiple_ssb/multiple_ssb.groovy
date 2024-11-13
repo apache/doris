@@ -87,8 +87,6 @@ suite ("multiple_ssb") {
         exception "not in select list"
     }
 
-
-sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     createMV ("""create materialized view lineorder_q_1_1 as 
                 SELECT LO_ORDERKEY, SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
@@ -242,6 +240,7 @@ sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_cou
     qt_select_count_3 "select LO_ORDERPRIORITY, count(1) from lineorder_flat where LO_ORDERPRIORITY in ('1','2','3') group by LO_ORDERPRIORITY order by 1,2;"
 
     sql """set enable_stats=true;"""
+    sql """alter table lineorder_flat modify column LO_ORDERDATE set stats ('row_count'='8');"""
     mv_rewrite_success("""SELECT SUM(LO_EXTENDEDPRICE * LO_DISCOUNT) AS revenue
                 FROM lineorder_flat
                 WHERE

@@ -30,8 +30,6 @@ suite ("testNDVToHll") {
             partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
         """
 
-    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
-
     sql """insert into user_tags values("2020-01-01",1,"a",1);"""
     sql """insert into user_tags values("2020-01-02",2,"b",2);"""
 
@@ -52,6 +50,7 @@ suite ("testNDVToHll") {
     qt_select_mv "select user_id, approx_count_distinct(tag_id) a from user_tags group by user_id order by user_id;"
 
     sql """set enable_stats=true;"""
+    sql """alter table user_tags modify column time_col set stats ('row_count'='3');"""
     mv_rewrite_fail("select * from user_tags order by time_col;", "user_tags_mv")
 
     mv_rewrite_success("select user_id, ndv(tag_id) a from user_tags group by user_id order by user_id;", "user_tags_mv")
