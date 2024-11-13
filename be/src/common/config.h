@@ -1014,12 +1014,16 @@ DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 
 DECLARE_Bool(enable_brpc_builtin_services);
 
+DECLARE_Bool(enable_brpc_connection_check);
+
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
 // This parameter is usually only used when the FE loses connection,
 // and the BE can automatically cancel the relevant fragment after the timeout,
 // so as to avoid occupying the execution thread for a long time.
 DECLARE_mInt32(max_fragment_start_wait_time_seconds);
+
+DECLARE_Int32(fragment_mgr_cancel_worker_interval_seconds);
 
 // Node role tag for backend. Mix role is the default role, and computation role have no
 // any tablet.
