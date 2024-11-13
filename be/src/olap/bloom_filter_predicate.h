@@ -30,8 +30,6 @@
 
 namespace doris {
 
-// only use in runtime filter and segment v2
-
 template <PrimitiveType T>
 class BloomFilterColumnPredicate : public ColumnPredicate {
 public:
@@ -41,7 +39,7 @@ public:
                                const std::shared_ptr<BloomFilterFuncBase>& filter)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(reinterpret_cast<SpecificFilter*>(_filter.get())) {}
+              _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
     ~BloomFilterColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::BF; }
@@ -105,7 +103,7 @@ template <PrimitiveType T>
 uint16_t BloomFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColumn& column,
                                                         uint16_t* sel, uint16_t size) const {
     if (column.is_nullable()) {
-        const auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
+        const auto* nullable_col = assert_cast<const vectorized::ColumnNullable*>(&column);
         const auto& null_map_data = nullable_col->get_null_map_column().get_data();
         return evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
     } else {
