@@ -15,12 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/columns/column_array.h"
+
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
 #include "vec/columns/column.h"
-#include "vec/columns/column_array.h"
 #include "vec/columns/columns_number.h"
 #include "vec/columns/common_column_test.h"
 #include "vec/core/types.h"
@@ -53,9 +54,9 @@ protected:
         MutableColumns ip_cols;
         ip_cols.push_back(column_ipv4->get_ptr());
         ip_cols.push_back(column_ipv6->get_ptr());
-        //        check_data(ip_cols, serde, ';', {1, 2},
-        //                   "regression-test/data/nereids_function_p0/fn_test_ip_invalid.csv", "./res.csv",
-        //                   assert_insert_from_callback);
+//        check_data(ip_cols, serde, ';', {1, 2},
+//                   "regression-test/data/nereids_function_p0/fn_test_ip_invalid.csv", "./res.csv",
+//                   assert_insert_from_callback);
     }
 
     DataTypePtr dt_ipv4 =
@@ -89,7 +90,7 @@ TEST_F(ColumnIPTest, InsertManyFromTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv",
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "./res.csv",
                assert_insert_many_from_callback);
 }
 
@@ -98,7 +99,7 @@ TEST_F(ColumnIPTest, InsertIndicesFromTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv",
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "./res.csv",
                assert_insert_indices_from_callback);
 }
 
@@ -107,7 +108,7 @@ TEST_F(ColumnIPTest, InsertDefaultTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv",
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "./res.csv",
                assert_insert_default_callback);
 }
 
@@ -116,7 +117,7 @@ TEST_F(ColumnIPTest, InsertManyDefaultsTest) {
     MutableColumns ip_cols;
     ip_cols.push_back(column_ipv4->get_ptr());
     ip_cols.push_back(column_ipv6->get_ptr());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv",
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "./res.csv",
                assert_insert_many_defaults_callback);
 }
 
@@ -232,8 +233,7 @@ TEST_F(ColumnIPTest, CloneTest) {
     load_data_from_csv(serde, ip_cols, data_files[0], ';', {1, 2});
     cloneEmptyAssert(column_ipv4->assume_mutable_ref());
     cloneEmptyAssert(column_ipv6->assume_mutable_ref());
-    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv",
-               assert_clone_resized_callback);
+    check_data(ip_cols, serde, ';', {1, 2}, data_files[0], "/res.csv", assert_clone_resized_callback);
 }
 //TEST_F(ColumnIPTest, ResizeTest) {
 //    // insert from data csv and assert insert result

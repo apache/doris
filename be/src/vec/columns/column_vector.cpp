@@ -266,6 +266,10 @@ void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direct
 
 template <typename T>
 const char* ColumnVector<T>::get_family_name() const {
+    // however we have a conflict type of number and other can store in number type such as ipv4 and uint32
+    if (std::is_same_v<T, IPv4>) {
+        return "IPv4";
+    }
     return TypeName<T>::get();
 }
 
@@ -294,6 +298,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
+    //  size_t(start)  start > src_vec.data.size() || length > src_vec.data.size() should not be negative which cause overflow
     if (start + length > src_vec.data.size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Parameters start = {}, length = {}, are out of bound in "
@@ -508,7 +513,7 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
 /// Explicit template instantiations - to avoid code bloat in headers.
 template class ColumnVector<UInt8>;
 template class ColumnVector<UInt16>;
-template class ColumnVector<UInt32>; // IPv4
+template class ColumnVector<UInt32>;
 template class ColumnVector<UInt64>;
 template class ColumnVector<UInt128>;
 template class ColumnVector<Int8>;
