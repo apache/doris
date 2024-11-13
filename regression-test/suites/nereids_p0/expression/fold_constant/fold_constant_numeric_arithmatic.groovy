@@ -409,4 +409,29 @@ test {
 
 //Additional cases for Xor, Conv, and other mathematical functions
     testFoldConst("SELECT CONV(-10, 10, 2) AS conv_invalid_base") //Conv with negative input (may be undefined)
+
+    // fix floor/ceil/round function return type with DecimalV3 input
+    testFoldConst("with cte as (select floor(300.343) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select round(300.343) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select ceil(300.343) order by 1 limit 1) select * from cte")
+
+    testFoldConst("with cte as (select floor(300.343, 2) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select round(300.343, 2) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select ceil(300.343, 2) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select truncate(300.343, 2) order by 1 limit 1) select * from cte")
+
+    testFoldConst("with cte as (select floor(300.343, 0) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select round(300.343, 0) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select ceil(300.343, 0) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select truncate(300.343, 0) order by 1 limit 1) select * from cte")
+
+    testFoldConst("with cte as (select floor(300.343, -1) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select round(300.343, -1) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select ceil(300.343, -1) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select truncate(300.343, -1) order by 1 limit 1) select * from cte")
+
+    testFoldConst("with cte as (select floor(300.343, -4) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select round(300.343, -4) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select ceil(300.343, -4) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select truncate(300.343, -4) order by 1 limit 1) select * from cte")
 }
