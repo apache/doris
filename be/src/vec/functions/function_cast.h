@@ -93,7 +93,9 @@
 #include "vec/functions/function.h"
 #include "vec/functions/function_convert_tz.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
+#include "vec/runtime/time_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/utils/util.hpp"
 
@@ -145,7 +147,7 @@ struct TimeCast {
         } else {
             if (VecDateTimeValue dv {}; dv.from_date_str(s, len, local_time_zone)) {
                 // can be parse as a datetime
-                x = dv.hour() * 3600 + dv.minute() * 60 + dv.second();
+                x = TimeValue::make_time(dv.hour(), dv.minute(), dv.second());
                 return true;
             }
             return false;
@@ -210,7 +212,7 @@ struct TimeCast {
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = hour * 3600 + minute * 60 + second;
+        x = TimeValue::make_time(hour, minute, second);
         return true;
     }
     // Cast from number
@@ -227,7 +229,7 @@ struct TimeCast {
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = hour * 3600 + minute * 60 + second;
+        x = TimeValue::make_time(hour, minute, second);
         return true;
     }
     template <typename S>
@@ -243,7 +245,7 @@ struct TimeCast {
         if (minute >= 60 || second >= 60) {
             return false;
         }
-        x = hour * 3600 + minute * 60 + second;
+        x = TimeValue::make_time(hour, minute, second);
         return true;
     }
 };
@@ -428,7 +430,6 @@ struct ConvertImpl {
                     for (size_t i = 0; i < size; ++i) {
                         (*vec_null_map_to)[i] = !TimeCast::try_parse_time(
                                 vec_from[i], vec_to[i], context->state()->timezone_obj());
-                        vec_to[i] *= (1000 * 1000);
                     }
                     block.get_by_position(result).column =
                             ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
@@ -1061,7 +1062,6 @@ bool try_parse_impl(typename DataType::FieldType& x, ReadBuffer& rb, FunctionCon
         auto s = rb.position();
         rb.position() = rb.end(); // make is_all_read = true
         auto ret = TimeCast::try_parse_time(s, len, x, context->state()->timezone_obj());
-        x *= (1000 * 1000);
         return ret;
     }
     if constexpr (std::is_floating_point_v<typename DataType::FieldType>) {

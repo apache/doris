@@ -724,13 +724,13 @@ void StorageEngine::_update_replica_infos_callback() {
                    !t->tablet_meta()->tablet_schema()->disable_auto_compaction() &&
                    t->tablet_meta()->tablet_schema()->enable_single_replica_compaction();
         });
-        TMasterInfo* master_info = ExecEnv::GetInstance()->master_info();
-        if (master_info == nullptr) {
+        ClusterInfo* cluster_info = ExecEnv::GetInstance()->cluster_info();
+        if (cluster_info == nullptr) {
             LOG(WARNING) << "Have not get FE Master heartbeat yet";
             std::this_thread::sleep_for(std::chrono::seconds(2));
             continue;
         }
-        TNetworkAddress master_addr = master_info->network_address;
+        TNetworkAddress master_addr = cluster_info->master_fe_addr;
         if (master_addr.hostname == "" || master_addr.port == 0) {
             LOG(WARNING) << "Have not get FE Master heartbeat yet";
             std::this_thread::sleep_for(std::chrono::seconds(2));

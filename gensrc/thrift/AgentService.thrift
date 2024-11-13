@@ -49,6 +49,7 @@ struct TTabletSchema {
     20: optional list<i32> row_store_col_cids
     21: optional i64 row_store_page_size = 16384
     22: optional bool variant_enable_flatten_nested = false 
+    23: optional i64 storage_page_size = 65536
 }
 
 // this enum stands for different storage format in src_backends
@@ -184,7 +185,6 @@ struct TCreateTabletReq {
     27: optional i64 time_series_compaction_level_threshold = 1
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
-    30: optional i64 storage_page_size = 65536
 
     // For cloud
     1000: optional bool is_in_memory = false

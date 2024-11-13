@@ -585,6 +585,13 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         pre_size = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, bf_row_ranges, condition_row_ranges);
         _opts.stats->rows_bf_filtered += (pre_size - condition_row_ranges->count());
+
+        DBUG_EXECUTE_IF("bloom_filter_must_filter_data", {
+            if (pre_size - condition_row_ranges->count() == 0) {
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "Bloom filter did not filter the data.");
+            }
+        })
     }
 
     {

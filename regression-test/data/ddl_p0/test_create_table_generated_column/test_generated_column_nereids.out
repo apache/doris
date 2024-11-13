@@ -108,7 +108,7 @@
 1
 
 -- !gencol_array_function_select --
-1	[1, 2]	[3, 2]	[3, 2, 1]
+1	[1, 2]	[2, 3]	[1, 2, 3]
 
 -- !gencol_array_function_element_at_create --
 0
@@ -117,7 +117,7 @@
 1
 
 -- !gencol_array_function_element_at_select --
-1	[1, 2]	[3, 2]	1
+1	[1, 2]	[2, 3]	1
 
 -- !create_table_like --
 0

@@ -20,6 +20,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 
 #include <atomic>
 #include <memory>
@@ -240,6 +241,25 @@ public:
         }
     }
 
+    void add_using_brpc_stub(const TNetworkAddress& network_address,
+                             std::shared_ptr<PBackendService_Stub> brpc_stub) {
+        if (network_address.port == 0) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
+        if (!_using_brpc_stubs.contains(network_address)) {
+            _using_brpc_stubs.emplace(network_address, brpc_stub);
+        }
+
+        DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
+    }
+
+    std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
+    get_using_brpc_stubs() {
+        std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
+        return _using_brpc_stubs;
+    }
+
 private:
     int _timeout_second;
     TUniqueId _query_id;
@@ -290,6 +310,9 @@ private:
     // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
     // help us manage the query.
     QuerySource _query_source;
+
+    std::mutex _brpc_stubs_mutex;
+    std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>> _using_brpc_stubs;
 
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:

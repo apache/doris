@@ -35,7 +35,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/string_ref.h"
@@ -62,7 +61,7 @@ struct AggregateFunctionCollectSetData {
     using ColVecType = ColumnVectorOrDecimal<ElementType>;
     using ElementNativeType = typename NativeType<T>::Type;
     using SelfType = AggregateFunctionCollectSetData;
-    using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
+    using Set = phmap::flat_hash_set<ElementNativeType>;
     Set data_set;
     Int64 max_size = -1;
 
@@ -83,20 +82,29 @@ struct AggregateFunctionCollectSetData {
                 if (size() >= max_size) {
                     return;
                 }
-                data_set.insert(rhs_elem.get_value());
+                data_set.insert(rhs_elem);
             }
         } else {
-            data_set.merge(rhs.data_set);
+            data_set.merge(Set(rhs.data_set));
         }
     }
 
     void write(BufferWritable& buf) const {
-        data_set.write(buf);
+        write_var_uint(data_set.size(), buf);
+        for (const auto& value : data_set) {
+            write_binary(value, buf);
+        }
         write_var_int(max_size, buf);
     }
 
     void read(BufferReadable& buf) {
-        data_set.read(buf);
+        size_t new_size = 0;
+        read_var_uint(new_size, buf);
+        ElementNativeType x;
+        for (size_t i = 0; i < new_size; ++i) {
+            read_binary(x, buf);
+            data_set.insert(x);
+        }
         read_var_int(max_size, buf);
     }
 
@@ -104,7 +112,7 @@ struct AggregateFunctionCollectSetData {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
         vec.reserve(size());
         for (const auto& item : data_set) {
-            vec.push_back(item.key);
+            vec.push_back(item);
         }
     }
 
@@ -116,23 +124,19 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     using SelfType = AggregateFunctionCollectSetData<ElementType, HasLimit>;
-    using Set = HashSetWithStackMemory<ElementType, DefaultHash<ElementType>, 4>;
+    using Set = phmap::flat_hash_set<ElementType>;
     Set data_set;
     Int64 max_size = -1;
 
     size_t size() const { return data_set.size(); }
 
     void add(const IColumn& column, size_t row_num, Arena* arena) {
-        Set::LookupResult it;
-        bool inserted;
         auto key = column.get_data_at(row_num);
         key.data = arena->insert(key.data, key.size);
-        data_set.emplace(key, it, inserted);
+        data_set.insert(key);
     }
 
     void merge(const SelfType& rhs, Arena* arena) {
-        bool inserted;
-        Set::LookupResult it;
         if (max_size == -1) {
             max_size = rhs.max_size;
         }
@@ -145,16 +149,16 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
                 }
             }
             assert(arena != nullptr);
-            StringRef key = rhs_elem.get_value();
+            StringRef key = rhs_elem;
             key.data = arena->insert(key.data, key.size);
-            data_set.emplace(key, it, inserted);
+            data_set.insert(key);
         }
     }
 
     void write(BufferWritable& buf) const {
         write_var_uint(size(), buf);
         for (const auto& elem : data_set) {
-            write_string_binary(elem.get_value(), buf);
+            write_string_binary(elem, buf);
         }
         write_var_int(max_size, buf);
     }
@@ -174,7 +178,7 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
         auto& vec = assert_cast<ColVecType&>(to);
         vec.reserve(size());
         for (const auto& item : data_set) {
-            vec.insert_data(item.key.data, item.key.size);
+            vec.insert_data(item.data, item.size);
         }
     }
 

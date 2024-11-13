@@ -47,11 +47,14 @@ import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultComma
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
@@ -215,6 +218,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createTableLikeCommand, context);
     }
 
+    default R visitShowAuthorsCommand(ShowAuthorsCommand showAuthorsCommand, C context) {
+        return visitCommand(showAuthorsCommand, context);
+    }
+
     default R visitShowConfigCommand(ShowConfigCommand showConfigCommand, C context) {
         return visitCommand(showConfigCommand, context);
     }
@@ -241,5 +248,13 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowViewCommand(ShowViewCommand showViewCommand, C context) {
         return visitCommand(showViewCommand, context);
+    }
+
+    default R visitShowRolesCommand(ShowRolesCommand showRolesCommand, C context) {
+        return visitCommand(showRolesCommand, context);
+    }
+
+    default R visitShowProcCommand(ShowProcCommand showProcCommand, C context) {
+        return visitCommand(showProcCommand, context);
     }
 }
