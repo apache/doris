@@ -783,11 +783,16 @@ bool OrcReader::_build_search_argument(const VExprSPtr& expr,
 
     switch (expr->op()) {
     case TExprOpcode::COMPOUND_AND:
+        bool at_least_one_can_push_down = false;
         builder->startAnd();
         for (const auto& child : expr->children()) {
-            if (!_build_search_argument(child, builder)) {
-                return false;
+            if (_build_search_argument(child, builder)) {
+                at_least_one_can_push_down = true;
             }
+        }
+        if (!at_least_one_can_push_down) {
+            // if all exprs can not be pushed down, builder->end() will throw exception
+            return false;
         }
         builder->end();
         break;
