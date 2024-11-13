@@ -128,7 +128,9 @@ public class S3Resource extends Resource {
         Map<String, String> propertiesPing = new HashMap<>();
         propertiesPing.put(S3Properties.Env.ACCESS_KEY, credential.getAccessKey());
         propertiesPing.put(S3Properties.Env.SECRET_KEY, credential.getSecretKey());
-        propertiesPing.put(S3Properties.Env.TOKEN, credential.getSessionToken());
+        if (credential.getSessionToken() != null) {
+            propertiesPing.put(S3Properties.Env.TOKEN, credential.getSessionToken());
+        }
         propertiesPing.put(S3Properties.Env.ENDPOINT, credential.getEndpoint());
         propertiesPing.put(S3Properties.Env.REGION, credential.getRegion());
         propertiesPing.put(PropertyConverter.USE_PATH_STYLE,

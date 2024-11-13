@@ -1474,8 +1474,7 @@ public class RestoreJob extends AbstractJob {
                     if (baseTabletRef != null) {
                         // ensure this replica is bound to the same backend disk as the origin table's replica.
                         task.setBaseTablet(baseTabletRef.tabletId, baseTabletRef.schemaHash);
-                        LOG.info("set base tablet {} for replica {} in restore job {}, tablet id={}," +
-                                " storage_policy={}",
+                        LOG.info("set base tablet {} for replica {} in restore job {}, tablet id={},",
                                 baseTabletRef.tabletId, restoreReplica.getId(), jobId, restoreTablet.getId());
                     }
                     batchTask.addTask(task);
