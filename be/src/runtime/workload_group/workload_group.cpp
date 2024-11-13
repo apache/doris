@@ -96,7 +96,7 @@ std::string WorkloadGroup::debug_string() const {
             "WorkloadGroup[id = {}, name = {}, version = {}, cpu_share = {}, "
             "total_query_slot_count = {}, "
             "memory_limit = {}, slot_memory_policy = {}, write_buffer_ratio= {}%, "
-            "enable_memory_overcommit = {}, total_mem_used = {},"
+            "enable_memory_overcommit = {}, total_mem_used = {} (write_buffer_size={}),"
             "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, spill_low_watermark = "
             "{}, spill_high_watermark = {},cpu_hard_limit = {}, scan_thread_num = "
             "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
@@ -106,6 +106,7 @@ std::string WorkloadGroup::debug_string() const {
             PrettyPrinter::print(_memory_limit, TUnit::BYTES), to_string(_slot_mem_policy),
             _load_buffer_ratio, _enable_memory_overcommit ? "true" : "false",
             PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
+            PrettyPrinter::print(_write_buffer_size.load(), TUnit::BYTES),
             PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
             mem_used_ratio, _spill_low_watermark, _spill_high_watermark, cpu_hard_limit(),
             _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,

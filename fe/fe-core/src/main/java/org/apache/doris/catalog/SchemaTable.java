@@ -464,7 +464,7 @@ public class SchemaTable extends Table {
                                     .column("QUERY_TYPE",  ScalarType.createVarchar(256))
                                     .column("SPILL_WRITE_BYTES_TO_LOCAL_STORAGE",
                                             ScalarType.createType(PrimitiveType.BIGINT))
-                                    .column("SPILL_READ_BYTES_FROM_LOCAL_STORAGE", 
+                                    .column("SPILL_READ_BYTES_FROM_LOCAL_STORAGE",
                                             ScalarType.createType(PrimitiveType.BIGINT))
                                     .build()))
             .put("active_queries", new SchemaTable(SystemIdGenerator.getNextId(), "active_queries", TableType.SCHEMA,
