@@ -28,7 +28,9 @@
 
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 class TabletIndex;
@@ -36,7 +38,7 @@ class TabletIndex;
 namespace segment_v2 {
 class DorisFSDirectory;
 using InvertedIndexDirectoryMap =
-        std::map<std::pair<int64_t, std::string>, std::unique_ptr<lucene::store::Directory>>;
+        std::map<std::pair<int64_t, std::string>, std::shared_ptr<lucene::store::Directory>>;
 
 class InvertedIndexFileWriter;
 using InvertedIndexFileWriterPtr = std::unique_ptr<InvertedIndexFileWriter>;
@@ -58,9 +60,13 @@ public:
               _rowset_id(std::move(rowset_id)),
               _seg_id(seg_id),
               _storage_format(storage_format),
-              _idx_v2_writer(std::move(file_writer)) {}
+              _local_fs(io::global_local_filesystem()),
+              _idx_v2_writer(std::move(file_writer)) {
+        auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
+        _tmp_dir = tmp_file_dir.native();
+    }
 
-    Result<DorisFSDirectory*> open(const TabletIndex* index_meta);
+    Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     ~InvertedIndexFileWriter() = default;
@@ -134,12 +140,12 @@ private:
                   directory(dir) {}
     };
     std::vector<FileMetadata> prepare_file_metadata_v2(int64_t& current_offset);
-    std::vector<std::string> get_sorted_files_v2(lucene::store::Directory* dir);
     void write_index_headers_and_metadata(lucene::store::IndexOutput* output,
                                           const std::vector<FileMetadata>& file_metadata);
     void copy_files_data_v2(lucene::store::IndexOutput* output,
                             const std::vector<FileMetadata>& file_metadata);
-
+    Status _insert_directory_into_map(int64_t index_id, const std::string& index_suffix,
+                                      std::shared_ptr<DorisFSDirectory> dir);
     // Member variables...
     InvertedIndexDirectoryMap _indices_dirs;
     const io::FileSystemSPtr _fs;
@@ -147,6 +153,8 @@ private:
     std::string _rowset_id;
     int64_t _seg_id;
     InvertedIndexStorageFormatPB _storage_format;
+    std::string _tmp_dir;
+    const std::shared_ptr<io::LocalFileSystem>& _local_fs;
 
     // write to disk or stream
     io::FileWriterPtr _idx_v2_writer = nullptr;

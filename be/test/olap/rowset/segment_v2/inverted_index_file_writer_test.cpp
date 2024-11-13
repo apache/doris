@@ -33,6 +33,20 @@ using namespace doris::vectorized;
 
 class InvertedIndexFileWriterTest : public ::testing::Test {
 protected:
+    class MockDorisFSDirectoryFileLength : public DorisFSDirectory {
+    public:
+        //MOCK_METHOD(lucene::store::IndexOutput*, createOutput, (const char* name), (override));
+        MOCK_METHOD(int64_t, fileLength, (const char* name), (const, override));
+        //MOCK_METHOD(void, close, (), (override));
+        //MOCK_METHOD(const char*, getObjectName, (), (const, override));
+    };
+    class MockDorisFSDirectoryOpenInput : public DorisFSDirectory {
+    public:
+        MOCK_METHOD(bool, openInput,
+                    (const char* name, lucene::store::IndexInput*& ret, CLuceneError& err,
+                     int32_t bufferSize),
+                    (override));
+    };
     void SetUp() override {
         char buffer[MAX_PATH_LEN];
         ASSERT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
@@ -68,9 +82,6 @@ protected:
         _index_path_prefix = _absolute_dir + "/index_test";
         _rowset_id = "test_rowset";
         _seg_id = 1;
-        _storage_format = InvertedIndexStorageFormatPB::V2;
-
-        _indices_dirs = InvertedIndexDirectoryMap();
     }
 
     void TearDown() override {
@@ -95,8 +106,6 @@ protected:
     std::string _index_path_prefix;
     std::string _rowset_id;
     int64_t _seg_id;
-    InvertedIndexStorageFormatPB _storage_format;
-    InvertedIndexDirectoryMap _indices_dirs;
     StorageEngine* _engine_ref = nullptr;
     std::unique_ptr<DataDir> _data_dir = nullptr;
     std::unique_ptr<InvertedIndexSearcherCache> _inverted_index_searcher_cache;
@@ -107,7 +116,8 @@ protected:
 };
 
 TEST_F(InvertedIndexFileWriterTest, InitializeTest) {
-    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id, _storage_format);
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2);
 
     InvertedIndexDirectoryMap indices_dirs;
     indices_dirs.emplace(std::make_pair(1, "suffix1"), std::make_unique<DorisFSDirectory>());
@@ -116,11 +126,12 @@ TEST_F(InvertedIndexFileWriterTest, InitializeTest) {
     Status status = writer.initialize(indices_dirs);
     ASSERT_TRUE(status.ok());
 
-    ASSERT_EQ(writer.get_storage_format(), _storage_format);
+    ASSERT_EQ(writer.get_storage_format(), InvertedIndexStorageFormatPB::V2);
 }
 
 TEST_F(InvertedIndexFileWriterTest, OpenTest) {
-    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id, _storage_format);
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2);
 
     int64_t index_id = 1;
     std::string index_suffix = "suffix1";
@@ -129,24 +140,29 @@ TEST_F(InvertedIndexFileWriterTest, OpenTest) {
 
     auto open_result = writer.open(index_meta.get());
     ASSERT_TRUE(open_result.has_value());
-    DorisFSDirectory* dir = open_result.value();
+    auto dir = open_result.value();
     ASSERT_NE(dir, nullptr);
 
     auto key = std::make_pair(index_id, index_suffix);
     ASSERT_TRUE(writer._indices_dirs.find(key) != writer._indices_dirs.end());
-    ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir);
+    ASSERT_TRUE(writer._indices_dirs.find(key)->second.get() == dir.get());
 }
 
 TEST_F(InvertedIndexFileWriterTest, DeleteIndexTest) {
-    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id, _storage_format);
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2);
 
     InvertedIndexDirectoryMap indices_dirs;
     int64_t index_id = 1;
     std::string index_suffix = "suffix1";
-    indices_dirs.emplace(std::make_pair(index_id, index_suffix),
-                         std::make_unique<DorisFSDirectory>());
-    Status init_status = writer.initialize(indices_dirs);
-    ASSERT_TRUE(init_status.ok());
+    auto st = writer._insert_directory_into_map(index_id, index_suffix,
+                                                std::make_shared<DorisFSDirectory>());
+    if (!st.ok()) {
+        std::cerr << "_insert_directory_into_map error in DeleteIndexTest: " << st.msg()
+                  << std::endl;
+        ASSERT_TRUE(false);
+        return;
+    }
     auto key = std::make_pair(index_id, index_suffix);
     ASSERT_TRUE(writer._indices_dirs.find(key) != writer._indices_dirs.end());
 
@@ -171,13 +187,14 @@ TEST_F(InvertedIndexFileWriterTest, WriteV1Test) {
 
     auto open_result = writer.open(index_meta.get());
     ASSERT_TRUE(open_result.has_value());
-    DorisFSDirectory* dir = open_result.value();
+    auto dir = open_result.value();
     auto out_file = std::unique_ptr<lucene::store::IndexOutput>(dir->createOutput("write_v1_test"));
     out_file->writeString("test1");
     out_file->close();
     dir->close();
 
     Status close_status = writer.close();
+    if (!close_status.ok()) std::cout << "close error:" << close_status.msg() << std::endl;
     ASSERT_TRUE(close_status.ok());
 
     const InvertedIndexFileInfo* file_info = writer.get_index_file_info();
@@ -206,7 +223,7 @@ TEST_F(InvertedIndexFileWriterTest, WriteV2Test) {
     ASSERT_NE(index_meta_1, nullptr);
     auto open_result_1 = writer.open(index_meta_1.get());
     ASSERT_TRUE(open_result_1.has_value());
-    DorisFSDirectory* dir_1 = open_result_1.value();
+    auto dir_1 = open_result_1.value();
     auto out_file_1 = std::unique_ptr<lucene::store::IndexOutput>(
             dir_1->createOutput("write_v2_test_index_1"));
     out_file_1->writeString("test1");
@@ -218,7 +235,7 @@ TEST_F(InvertedIndexFileWriterTest, WriteV2Test) {
     ASSERT_NE(index_meta_2, nullptr);
     auto open_result_2 = writer.open(index_meta_2.get());
     ASSERT_TRUE(open_result_2.has_value());
-    DorisFSDirectory* dir_2 = open_result_2.value();
+    auto dir_2 = open_result_2.value();
     auto out_file_2 = std::unique_ptr<lucene::store::IndexOutput>(
             dir_2->createOutput("write_v2_test_index_2"));
     out_file_2->writeString("test2");
@@ -236,28 +253,11 @@ TEST_F(InvertedIndexFileWriterTest, WriteV2Test) {
     ASSERT_EQ(total_size, file_info->index_size());
     std::cout << "total_size:" << total_size << std::endl;
 }
-/*TEST_F(InvertedIndexFileWriterTest, OpenTest_CreateOutputFailure) {
-            InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id, InvertedIndexStorageFormatPB::V1);
-            std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
-                    ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(),
-                    _rowset_id, _seg_id, 1, "suffix1");
-            _mock_dir->init(_fs, local_fs_index_path.c_str());
-            EXPECT_CALL(*_mock_dir, createOutput(::testing::_))
-                    .WillOnce(::testing::Return(nullptr));
 
-            InvertedIndexDirectoryMap indices_dirs;
-            indices_dirs.emplace(std::make_pair(1, "suffix1"), std::move(_mock_dir));
-
-            Status status = writer.initialize(indices_dirs);
-            ASSERT_TRUE(status.ok());
-            Status close_status = writer.close();
-            ASSERT_TRUE(close_status.ok());
-        }*/
 TEST_F(InvertedIndexFileWriterTest, HeaderLengthTest) {
-    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id, _storage_format);
     InvertedIndexDirectoryMap indices_dirs;
-    auto mock_dir1 = std::make_unique<DorisFSDirectory>();
-    auto mock_dir2 = std::make_unique<DorisFSDirectory>();
+    auto mock_dir1 = std::make_shared<DorisFSDirectory>();
+    auto mock_dir2 = std::make_shared<DorisFSDirectory>();
     std::string local_fs_index_path_1 = InvertedIndexDescriptor::get_temporary_index_path(
             ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(), _rowset_id,
             _seg_id, 1, "suffix1");
@@ -284,11 +284,22 @@ TEST_F(InvertedIndexFileWriterTest, HeaderLengthTest) {
         out_file_2->writeString("test2");
         out_file_2->close();
     }
-    indices_dirs.emplace(std::make_pair(1, "suffix1"), std::move(mock_dir1));
-    indices_dirs.emplace(std::make_pair(2, "suffix2"), std::move(mock_dir2));
+    auto insertDirectory = [&](InvertedIndexFileWriter& writer, int64_t index_id,
+                               const std::string& suffix,
+                               std::shared_ptr<DorisFSDirectory>& mock_dir) {
+        Status st = writer._insert_directory_into_map(index_id, suffix, mock_dir);
+        if (!st.ok()) {
+            std::cerr << "_insert_directory_into_map error in HeaderLengthTest: " << st.msg()
+                      << std::endl;
+            assert(false);
+            return;
+        }
+    };
 
-    Status init_status = writer.initialize(indices_dirs);
-    ASSERT_TRUE(init_status.ok());
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2);
+    insertDirectory(writer, 1, "suffix1", mock_dir1);
+    insertDirectory(writer, 2, "suffix2", mock_dir2);
 
     int64_t header_length = writer.headerLength();
 
@@ -315,15 +326,9 @@ TEST_F(InvertedIndexFileWriterTest, HeaderLengthTest) {
 
     ASSERT_EQ(header_length, expected_header_length);
 }
-class MockDorisFSDirectoryFileLength : public DorisFSDirectory {
-public:
-    //MOCK_METHOD(lucene::store::IndexOutput*, createOutput, (const char* name), (override));
-    MOCK_METHOD(int64_t, fileLength, (const char* name), (const, override));
-    //MOCK_METHOD(void, close, (), (override));
-    //MOCK_METHOD(const char*, getObjectName, (), (const, override));
-};
+
 TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
-    auto mock_dir = std::make_unique<MockDorisFSDirectoryFileLength>();
+    auto mock_dir = std::make_shared<MockDorisFSDirectoryFileLength>();
     std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(), _rowset_id,
             _seg_id, 1, "suffix1");
@@ -344,20 +349,23 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
     EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("0.tii"))).WillOnce(testing::Return(1500));
     EXPECT_CALL(*mock_dir, fileLength(testing::StrEq("nullbitmap"))).WillOnce(testing::Return(500));
 
-    _indices_dirs.emplace(std::make_pair(1, "suffix1"), std::move(mock_dir));
-
-    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id, _storage_format);
-
-    Status init_status = writer.initialize(_indices_dirs);
-    ASSERT_TRUE(init_status.ok());
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2);
+    auto st = writer._insert_directory_into_map(1, "suffix1", mock_dir);
+    if (!st.ok()) {
+        std::cerr << "_insert_directory_into_map error in PrepareSortedFilesTest: " << st.msg()
+                  << std::endl;
+        ASSERT_TRUE(false);
+        return;
+    }
 
     std::vector<FileInfo> sorted_files =
             writer.prepare_sorted_files(writer._indices_dirs[std::make_pair(1, "suffix1")].get());
 
-    // 1. segments1.dat (priority 1, size 1000)
-    // 2. fnm1.dat (priority 2, size 2000)
-    // 3. tii1.dat (priority 3, size 1500)
-    // 4. other1.dat (priority 4, size 500)
+    // 1. 0.segments (priority 1, size 1000)
+    // 2. 0.fnm (priority 2, size 2000)
+    // 3. 0.tii (priority 3, size 1500)
+    // 4. nullbitmap (priority 4, size 500)
 
     std::vector<std::string> expected_order = {"0.segments", "0.fnm", "0.tii", "nullbitmap"};
     ASSERT_EQ(sorted_files.size(), expected_order.size());
@@ -375,5 +383,44 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
         }
     }
 }
+TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
+    auto mock_dir = std::make_shared<MockDorisFSDirectoryOpenInput>();
+    std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
+            ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(), _rowset_id,
+            _seg_id, 1, "suffix1");
+    EXPECT_TRUE(io::global_local_filesystem()->delete_directory(local_fs_index_path).ok());
+    EXPECT_TRUE(io::global_local_filesystem()->create_directory(local_fs_index_path).ok());
+    mock_dir->init(_fs, local_fs_index_path.c_str());
+    std::vector<std::string> files = {"0.segments", "0.fnm", "0.tii", "nullbitmap", "write.lock"};
+    for (auto& file : files) {
+        auto out_file_1 =
+                std::unique_ptr<lucene::store::IndexOutput>(mock_dir->createOutput(file.c_str()));
+        out_file_1->writeString("test1");
+        out_file_1->close();
+    }
+    InvertedIndexFileWriter writer(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                   InvertedIndexStorageFormatPB::V2);
+    auto st = writer._insert_directory_into_map(1, "suffix1", mock_dir);
+    if (!st.ok()) {
+        std::cerr << "_insert_directory_into_map error in CopyFileTest_OpenInputFailure: "
+                  << st.msg() << std::endl;
+        ASSERT_TRUE(false);
+        return;
+    }
+
+    EXPECT_CALL(*mock_dir,
+                openInput(::testing::StrEq("0.segments"), ::testing::_, ::testing::_, ::testing::_))
+            .WillOnce(::testing::Invoke([&](const char* name, lucene::store::IndexInput*& ret,
+                                            CLuceneError& err_ref, int bufferSize) {
+                err_ref.set(CL_ERR_IO, fmt::format("Could not open file, file is {}", name).data());
+                return false;
+            }));
+
+    uint8_t buffer[16384];
+    ASSERT_THROW(
+            { writer.copyFile("0.segments", mock_dir.get(), nullptr, buffer, sizeof(buffer)); },
+            CLuceneError);
+}
+
 } // namespace segment_v2
 } // namespace doris

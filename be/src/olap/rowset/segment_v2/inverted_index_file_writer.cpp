@@ -19,17 +19,14 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <filesystem>
 
 #include "common/status.h"
-#include "io/fs/file_writer.h"
-#include "io/fs/local_file_system.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/tablet_schema.h"
-#include "runtime/exec_env.h"
 
 namespace doris::segment_v2 {
 
@@ -38,32 +35,11 @@ Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_di
     return Status::OK();
 }
 
-Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index_meta) {
-    auto tmp_file_dir = ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir();
-    const auto& local_fs = io::global_local_filesystem();
-    auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
-            tmp_file_dir.native(), _rowset_id, _seg_id, index_meta->index_id(),
-            index_meta->get_index_suffix());
-    bool exists = false;
-    auto st = local_fs->exists(local_fs_index_path, &exists);
-    DBUG_EXECUTE_IF("InvertedIndexFileWriter::open_local_fs_exists_error",
-                    { st = Status::Error<ErrorCode::IO_ERROR>("debug point: no such file error"); })
-    if (!st.ok()) {
-        LOG(ERROR) << "index_path:" << local_fs_index_path << " exists error:" << st;
-        return ResultError(st);
-    }
-    DBUG_EXECUTE_IF("InvertedIndexFileWriter::open_local_fs_exists_true", { exists = true; })
-    if (exists) {
-        LOG(ERROR) << "try to init a directory:" << local_fs_index_path << " already exists";
-        return ResultError(
-                Status::InternalError("InvertedIndexFileWriter::open directory already exists"));
-    }
-
-    bool can_use_ram_dir = true;
-    auto* dir = DorisFSDirectoryFactory::getDirectory(local_fs, local_fs_index_path.c_str(),
-                                                      can_use_ram_dir);
-    auto key = std::make_pair(index_meta->index_id(), index_meta->get_index_suffix());
-    auto [it, inserted] = _indices_dirs.emplace(key, std::unique_ptr<DorisFSDirectory>(dir));
+Status InvertedIndexFileWriter::_insert_directory_into_map(int64_t index_id,
+                                                           const std::string& index_suffix,
+                                                           std::shared_ptr<DorisFSDirectory> dir) {
+    auto key = std::make_pair(index_id, index_suffix);
+    auto [it, inserted] = _indices_dirs.emplace(key, std::move(dir));
     if (!inserted) {
         LOG(ERROR) << "InvertedIndexFileWriter::open attempted to insert a duplicate key: ("
                    << key.first << ", " << key.second << ")";
@@ -71,8 +47,23 @@ Result<DorisFSDirectory*> InvertedIndexFileWriter::open(const TabletIndex* index
         for (const auto& entry : _indices_dirs) {
             LOG(ERROR) << "Key: (" << entry.first.first << ", " << entry.first.second << ")";
         }
-        return ResultError(Status::InternalError(
-                "InvertedIndexFileWriter::open attempted to insert a duplicate dir"));
+        return Status::InternalError(
+                "InvertedIndexFileWriter::open attempted to insert a duplicate dir");
+    }
+    return Status::OK();
+}
+
+Result<std::shared_ptr<DorisFSDirectory>> InvertedIndexFileWriter::open(
+        const TabletIndex* index_meta) {
+    auto local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
+            _tmp_dir, _rowset_id, _seg_id, index_meta->index_id(), index_meta->get_index_suffix());
+    bool can_use_ram_dir = true;
+    auto dir = std::shared_ptr<DorisFSDirectory>(DorisFSDirectoryFactory::getDirectory(
+            _local_fs, local_fs_index_path.c_str(), can_use_ram_dir));
+    auto st =
+            _insert_directory_into_map(index_meta->index_id(), index_meta->get_index_suffix(), dir);
+    if (!st.ok()) {
+        return ResultError(st);
     }
 
     return dir;
@@ -222,7 +213,7 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
     int64_t chunk = bufferLength;
 
     while (remainder > 0) {
-        int64_t len = std::min(std::min(chunk, length), remainder);
+        int64_t len = std::min({chunk, length, remainder});
         input->readBytes(buffer, len);
         output->writeBytes(buffer, len);
         remainder -= len;
@@ -509,38 +500,18 @@ InvertedIndexFileWriter::prepare_file_metadata_v2(int64_t& current_offset) {
     for (const auto& entry : _indices_dirs) {
         const int64_t index_id = entry.first.first;
         const auto& index_suffix = entry.first.second;
-        const auto& dir = entry.second.get();
+        auto* dir = entry.second.get();
 
         // Get sorted files
-        auto sorted_files = get_sorted_files_v2(dir);
+        auto sorted_files = prepare_sorted_files(dir);
 
         for (const auto& file : sorted_files) {
-            int64_t file_length = dir->fileLength(file.c_str());
-            file_metadata.emplace_back(index_id, index_suffix, file, current_offset, file_length,
-                                       dir);
-            current_offset += file_length; // Update the data offset
+            file_metadata.emplace_back(index_id, index_suffix, file.filename, current_offset,
+                                       file.filesize, dir);
+            current_offset += file.filesize; // Update the data offset
         }
     }
     return file_metadata;
-}
-
-std::vector<std::string> InvertedIndexFileWriter::get_sorted_files_v2(
-        lucene::store::Directory* dir) {
-    std::vector<std::string> files;
-    dir->list(&files);
-
-    // Remove write.lock file
-    files.erase(std::remove(files.begin(), files.end(), DorisFSDirectory::WRITE_LOCK_FILE),
-                files.end());
-
-    // Sort files by file length
-    std::sort(files.begin(), files.end(), [dir](const std::string& a, const std::string& b) {
-        int64_t size_a = dir->fileLength(a.c_str());
-        int64_t size_b = dir->fileLength(b.c_str());
-        return size_a < size_b;
-    });
-
-    return files;
 }
 
 void InvertedIndexFileWriter::write_index_headers_and_metadata(
