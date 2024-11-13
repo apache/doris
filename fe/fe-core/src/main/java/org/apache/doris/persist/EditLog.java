@@ -1739,7 +1739,9 @@ public class EditLog {
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {
-        logEdit(OperationType.OP_MODIFY_COMMENT, op);
+        long logId = logEdit(OperationType.OP_MODIFY_COMMENT, op);
+        LOG.info("log modify comment, logId : {}, infos: {}", logId, op);
+        Env.getCurrentEnv().getBinlogManager().addModifyComment(op, logId);
     }
 
     public void logCreateSqlBlockRule(SqlBlockRule rule) {
