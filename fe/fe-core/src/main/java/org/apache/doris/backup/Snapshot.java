@@ -31,15 +31,18 @@ public class Snapshot {
     @SerializedName(value = "jobInfo")
     private byte[] jobInfo = null;
 
+    @SerializedName(value = "expired_at")
+    private long expiredAt = 0;
+
     public Snapshot() {
     }
 
-    public Snapshot(String label, byte[] meta, byte[] jobInfo) {
+    public Snapshot(String label, byte[] meta, byte[] jobInfo, long expiredAt) {
         this.label = label;
         this.meta = meta;
         this.jobInfo = jobInfo;
+        this.expiredAt = expiredAt;
     }
-
 
     public byte[] getMeta() {
         return meta;
@@ -49,17 +52,25 @@ public class Snapshot {
         return jobInfo;
     }
 
+    public long getExpiredAt() {
+        return expiredAt;
+    }
+
+    public boolean isExpired() {
+        return System.currentTimeMillis() > expiredAt;
+    }
+
     public String toJson() {
         return GsonUtils.GSON.toJson(this);
     }
 
     @Override
     public String toString() {
-        // return toJson();
         return "Snapshot{"
                 + "label='" + label + '\''
                 + ", meta=" + meta
                 + ", jobInfo=" + jobInfo
+                + ", expiredAt=" + expiredAt
                 + '}';
     }
 }
