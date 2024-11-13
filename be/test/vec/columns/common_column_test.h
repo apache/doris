@@ -19,7 +19,9 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <filesystem>
 #include <fstream>
+#include <iostream>
 
 #include "olap/schema.h"
 #include "vec/columns/column.h"
@@ -206,7 +208,21 @@ public:
         // Step 1: Insert data from `column_data_file` into the column and check result with `check_data_file`
         // Load column data and expected data from CSV files
         std::vector<std::vector<std::string>> res;
-        load_data_from_csv(serders, columns, column_data_file, col_spliter, idxes);
+        struct stat buff;
+        if (stat(column_data_file.c_str(), &buff) == 0) {
+            if (S_ISREG(buff.st_mode)) {
+                // file
+                load_data_from_csv(serders, columns, column_data_file, col_spliter, idxes);
+            } else if (S_ISDIR(buff.st_mode)) {
+                // dir
+                std::filesystem::path fs_path(column_data_file);
+                for (const auto& entry : std::filesystem::directory_iterator(fs_path)) {
+                    std::string file_path = entry.path().string();
+                    std::cout << "load data from file: " << file_path << std::endl;
+                    load_data_from_csv(serders, columns, file_path, col_spliter, idxes);
+                }
+            }
+        }
 
         // Step 2: Validate the data in `column` matches `expected_data`
         assert_callback(columns, serders);
@@ -672,17 +688,15 @@ public:
                                                        (source_column->size() + 1) >> 1};
                 for (auto pos = check_start_pos.begin(); pos < check_start_pos.end(); ++pos) {
                     if (*pos > source_column->size() || *cl > source_column->size()) {
-                        // insert_range_from now we has no any exception error data to handle, so here will meet crash
+                        // insert_range_from now we have no any exception error data to handle, so here will meet crash
                         continue;
                     } else if (*pos + *cl > source_column->size()) {
+                        // insert_range_from now we have no any exception error data to handle and also no crash
                         std::cout << "we expect exception insert_many_from from " << *pos
                                   << " with length " << *cl
                                   << "with source size: " << source_column->size() << std::endl;
                         target_column->insert_many_from(*source_column, *pos, *cl);
                     }
-
-                    //                    std::cout << "we expect insert_many_from from " << *pos << " with length " << *cl << std::endl;
-                    //                    target_column->insert_many_from(*source_column, *pos, *cl);
 
                     // Verify the inserted data matches the expected results in `assert_res`
                     auto ser_col = ColumnString::create();
