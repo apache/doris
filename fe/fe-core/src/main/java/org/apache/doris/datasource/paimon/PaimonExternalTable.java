@@ -94,20 +94,20 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable()).orElse(null);
     }
 
-    public PaimonPartitionInfo getPartitionInfoFromCache() throws AnalysisException {
+    public PaimonPartitionInfo getPartitionInfoFromCache() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         if (!schemaCacheValue.isPresent()) {
-            throw new AnalysisException("not present");
+            return new PaimonPartitionInfo();
         }
         return ((PaimonSchemaCacheValue) schemaCacheValue.get()).getPartitionInfo();
     }
 
-    public List<Column> getPartitionColumnsFromCache() throws AnalysisException {
+    public List<Column> getPartitionColumnsFromCache() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         if (!schemaCacheValue.isPresent()) {
-            throw new AnalysisException("not present");
+            return Lists.newArrayList();
         }
         return ((PaimonSchemaCacheValue) schemaCacheValue.get()).getPartitionColumns();
     }
@@ -308,23 +308,23 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException {
+    public Map<String, PartitionItem> getAndCopyPartitionItems() {
         return Maps.newHashMap(getPartitionInfoFromCache().getNameToPartitionItem());
     }
 
     @Override
-    public PartitionType getPartitionType() throws AnalysisException {
+    public PartitionType getPartitionType() {
         return getPartitionColumnsFromCache().size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
     }
 
     @Override
-    public Set<String> getPartitionColumnNames() throws DdlException, AnalysisException {
+    public Set<String> getPartitionColumnNames() {
         return getPartitionColumnsFromCache().stream()
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
     }
 
     @Override
-    public List<Column> getPartitionColumns() throws AnalysisException {
+    public List<Column> getPartitionColumns() {
         return getPartitionColumnsFromCache();
     }
 

@@ -19,11 +19,18 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.PartitionItem;
 
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 
 public class PaimonPartitionInfo {
     private Map<String, PartitionItem> nameToPartitionItem;
     private Map<String, PaimonPartition> nameToPartition;
+
+    public PaimonPartitionInfo() {
+        this.nameToPartitionItem = Maps.newHashMap();
+        this.nameToPartition = Maps.newHashMap();
+    }
 
     public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
             Map<String, PaimonPartition> nameToPartition) {
