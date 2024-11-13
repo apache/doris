@@ -252,11 +252,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
         auto* fragment_context = this;
 
-        LOG_INFO("PipelineFragmentContext::prepare")
-                .tag("query_id", print_id(_query_id))
-                .tag("fragment_id", _fragment_id)
-                .tag("pthread_id", (uintptr_t)pthread_self());
-
         if (request.query_options.__isset.is_report_success) {
             fragment_context->set_is_report_success(request.query_options.is_report_success);
         }
