@@ -17,7 +17,7 @@
 
 import org.junit.Assert;
 
-suite("show_create_repository") {
+suite("show_create_repository_command") {
     String ak = getS3AK()
     String sk = getS3SK()
     String endpoint = getS3Endpoint()
@@ -26,44 +26,43 @@ suite("show_create_repository") {
     String repoName = "test_show_create_repository"
     String readOnlyRepoName = "test_show_create_read_only_repository"
 
+    //cloud-mode
+    if (isCloudMode()) {
+        return
+    }
+
     try_sql "DROP REPOSITORY `${repoName}`"
     try_sql "DROP REPOSITORY `${readOnlyRepoName}`"
 
     // create S3 repo
-    sql """
-    CREATE REPOSITORY `${repoName}`
-    WITH S3
-    ON LOCATION "s3://${bucket}/${repoName}"
-    PROPERTIES
-    (
-        "s3.endpoint" = "http://${endpoint}",
-        "s3.region" = "${region}",
-        "s3.access_key" = "${ak}",
-        "s3.secret_key" = "${sk}",
-        "provider" = "${getS3Provider()}"
-    )
-        """
+    sql """CREATE REPOSITORY `${repoName}`
+            WITH S3
+            ON LOCATION "s3://${bucket}/${repoName}"
+            PROPERTIES
+            (
+                "s3.endpoint" = "http://${endpoint}",
+                "s3.region" = "${region}",
+                "s3.access_key" = "${ak}",
+                "s3.secret_key" = "${sk}"
+            )"""
 
     // create S3 read only repo
-    sql """
-    CREATE READ ONLY REPOSITORY `${readOnlyRepoName}`
-    WITH S3
-    ON LOCATION "s3://${bucket}/${repoName}"
-    PROPERTIES
-    (
-        "s3.endpoint" = "http://${endpoint}",
-        "s3.region" = "${region}",
-        "s3.access_key" = "${ak}",
-        "s3.secret_key" = "${sk}",
-        "provider" = "${getS3Provider()}"
-    )
-        """
+    sql """CREATE READ ONLY REPOSITORY `${readOnlyRepoName}`
+            WITH S3
+            ON LOCATION "s3://${bucket}/${readOnlyRepoName}"
+            PROPERTIES
+            (
+                "s3.endpoint" = "http://${endpoint}",
+                "s3.region" = "${region}",
+                "s3.access_key" = "${ak}",
+                "s3.secret_key" = "${sk}"
+            )"""
 
     def create_repo = checkNereidsExecuteWithResult("""SHOW CREATE REPOSITORY for `${repoName}`;""").toString();
     assertTrue(create_repo.contains("${repoName}"))
     assertTrue(create_repo.contains("s3://${bucket}/${repoName}"))
 
-    def create_read_only_repo = checkNereidsExecute("""SHOW CREATE REPOSITORY for `${readOnlyRepoName}`;""").toString();
+    def create_read_only_repo = checkNereidsExecuteWithResult("""SHOW CREATE REPOSITORY for `${readOnlyRepoName}`;""").toString();
     assertTrue(create_read_only_repo.contains("${readOnlyRepoName}"))
     assertTrue(create_read_only_repo.contains("READ ONLY"))
 
