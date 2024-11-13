@@ -312,6 +312,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_VIEW_DEF: {
                     AlterViewInfo info = (AlterViewInfo) journal.getData();
                     env.getAlterInstance().replayModifyViewDef(info);
+                    env.getBinlogManager().addModifyViewDef(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_PARTITION: {
@@ -1577,7 +1578,9 @@ public class EditLog {
 
     public void logModifyViewDef(AlterViewInfo alterViewInfo) {
         long logId = logEdit(OperationType.OP_MODIFY_VIEW_DEF, alterViewInfo);
-        LOG.info("log modify view, logId : {}, infos: {}", logId, alterViewInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("log modify view, logId : {}, infos: {}", logId, alterViewInfo);
+        }
         Env.getCurrentEnv().getBinlogManager().addModifyViewDef(alterViewInfo, logId);
     }
 
