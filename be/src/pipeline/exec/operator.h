@@ -303,14 +303,10 @@ public:
 
     Status close(RuntimeState* state) override {
         if (Base::_query_statistics) {
-            auto* write_block_bytes = Base::profile()->get_counter("SpillWriteBlockBytes");
             auto* write_file_bytes = Base::profile()->get_counter("SpillWriteFileBytes");
-            auto* read_block_bytes = Base::profile()->get_counter("SpillReadBlockBytes");
             auto* read_file_bytes = Base::profile()->get_counter("SpillReadFileBytes");
             Base::_query_statistics->add_spill_bytes(
-                    write_block_bytes ? write_block_bytes->value() : 0,
                     write_file_bytes ? write_file_bytes->value() : 0,
-                    read_block_bytes ? read_block_bytes->value() : 0,
                     read_file_bytes ? read_file_bytes->value() : 0);
         }
         return Base::close(state);
@@ -747,14 +743,10 @@ public:
 
     Status close(RuntimeState* state, Status exec_status) override {
         if (Base::_query_statistics) {
-            auto* write_block_bytes = Base::profile()->get_counter("SpillWriteBlockBytes");
             auto* write_file_bytes = Base::profile()->get_counter("SpillWriteFileBytes");
-            auto* read_block_bytes = Base::profile()->get_counter("SpillReadBlockBytes");
             auto* read_file_bytes = Base::profile()->get_counter("SpillReadFileBytes");
             Base::_query_statistics->add_spill_bytes(
-                    write_block_bytes ? write_block_bytes->value() : 0,
                     write_file_bytes ? write_file_bytes->value() : 0,
-                    read_block_bytes ? read_block_bytes->value() : 0,
                     read_file_bytes ? read_file_bytes->value() : 0);
         }
         return Base::close(state, exec_status);

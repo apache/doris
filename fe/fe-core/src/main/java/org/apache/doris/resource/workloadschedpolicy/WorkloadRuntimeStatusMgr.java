@@ -86,10 +86,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
                     auditEvent.cpuTimeMs = queryStats.cpu_ms;
                     auditEvent.shuffleSendBytes = queryStats.shuffle_send_bytes;
                     auditEvent.shuffleSendRows = queryStats.shuffle_send_rows;
-                    auditEvent.spillWriteBlockBytes = queryStats.spill_write_block_bytes;
-                    auditEvent.spillWriteFileBytes = queryStats.spill_write_file_bytes;
-                    auditEvent.spillReadBlockBytes = queryStats.spill_read_block_bytes;
-                    auditEvent.spillReadFileBytes = queryStats.spill_read_file_bytes;
+                    auditEvent.spillWriteBytesToLocalStorage = queryStats.spill_write_bytes_to_local_storage;
+                    auditEvent.spillReadBytesFromLocalStorage = queryStats.spill_read_bytes_from_local_storage;
                 }
                 boolean ret = Env.getCurrentAuditEventProcessor().handleAuditEvent(auditEvent, true);
                 if (!ret) {
@@ -230,10 +228,8 @@ public class WorkloadRuntimeStatusMgr extends MasterDaemon {
         if (dst.max_peak_memory_bytes < src.max_peak_memory_bytes) {
             dst.max_peak_memory_bytes = src.max_peak_memory_bytes;
         }
-        dst.spill_write_block_bytes += src.spill_write_block_bytes;
-        dst.spill_write_file_bytes += src.spill_write_file_bytes;
-        dst.spill_read_block_bytes += src.spill_read_block_bytes;
-        dst.spill_read_file_bytes += src.spill_read_file_bytes;
+        dst.spill_write_bytes_to_local_storage += src.spill_write_bytes_to_local_storage ;
+        dst.spill_read_bytes_from_local_storage  += src.spill_read_bytes_from_local_storage ;
     }
 
     private void queryAuditEventLogWriteLock() {
