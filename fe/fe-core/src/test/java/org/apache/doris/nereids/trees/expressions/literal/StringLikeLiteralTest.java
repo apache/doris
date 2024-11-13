@@ -19,12 +19,15 @@ package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
 public class StringLikeLiteralTest {
     @Test
     public void testStrToDouble() {
+        // fix bug: maxStr.length = 4, maxStr.getBytes().length=12
+        // when converting str to double, bytes length is used instead of string length
         String minStr = "商家+店长+场地+设备类型维度";
         String maxStr = "商家维度";
-        double d1= StringLikeLiteral.getDouble(minStr);
+        double d1 = StringLikeLiteral.getDouble(minStr);
         double d2 = StringLikeLiteral.getDouble(maxStr);
         Assertions.assertTrue(d1 < d2);
     }
