@@ -743,7 +743,6 @@ public class DorisStreamLoaderDialog extends BaseStepDialog implements StepDialo
 
     protected void setComboBoxes() {
         // Something was changed in the row.
-        //
         final Map<String, Integer> fields = new HashMap<String, Integer>();
 
         // Add the currentMeta fields...
