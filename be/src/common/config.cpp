@@ -552,6 +552,8 @@ DEFINE_Int32(stream_load_record_expire_time_secs, "28800");
 DEFINE_mInt64(clean_stream_load_record_interval_secs, "1800");
 // enable stream load commit txn on BE directly, bypassing FE. Only for cloud.
 DEFINE_mBool(enable_stream_load_commit_txn_on_be, "false");
+// Whether to enable use httpstream to perform streamload , the default is true.
+DEFINE_mBool(enable_streamload_by_httpstream, "true");
 // The buffer size to store stream table function schema info
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 

@@ -599,6 +599,8 @@ DECLARE_Int32(stream_load_record_expire_time_secs);
 DECLARE_mInt64(clean_stream_load_record_interval_secs);
 // enable stream load commit txn on BE directly, bypassing FE. Only for cloud.
 DECLARE_mBool(enable_stream_load_commit_txn_on_be);
+// Whether to enable use httpstream to perform streamload , the default is true.
+DECLARE_mBool(enable_streamload_by_httpstream);
 // The buffer size to store stream table function schema info
 DECLARE_Int64(stream_tvf_buffer_size);
 
