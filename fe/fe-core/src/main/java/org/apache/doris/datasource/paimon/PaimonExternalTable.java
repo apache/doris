@@ -153,8 +153,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     private long loadLatestSnapshotId() throws IOException {
         Table table = ((PaimonExternalCatalog) catalog).getPaimonTable(dbName,
                 name + Catalog.SYSTEM_TABLE_SPLITTER + SnapshotsTable.SNAPSHOTS);
-        List<InternalRow> rows = PaimonUtil.read(table, new int[][] {{0}});// snapshotId
-        List<PaimonPartition> res = Lists.newArrayListWithCapacity(rows.size());
+        // snapshotId
+        List<InternalRow> rows = PaimonUtil.read(table, new int[][] {{0}});
         long latestSnapshotId = 0L;
         for (InternalRow row : rows) {
             long snapshotId = row.getLong(0);

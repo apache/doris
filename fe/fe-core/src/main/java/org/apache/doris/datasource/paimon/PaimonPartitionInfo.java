@@ -23,7 +23,7 @@ import java.util.Map;
 
 public class PaimonPartitionInfo {
     private Map<String, PartitionItem> nameToPartitionItem;
-    private Map<String,PaimonPartition> nameToPartition;
+    private Map<String, PaimonPartition> nameToPartition;
 
     public PaimonPartitionInfo(Map<String, PartitionItem> nameToPartitionItem,
             Map<String, PaimonPartition> nameToPartition) {
