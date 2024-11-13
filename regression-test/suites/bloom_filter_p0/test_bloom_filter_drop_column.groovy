@@ -74,12 +74,14 @@ suite("test_bloom_filter_drop_column") {
     }
 
     sql """INSERT INTO ${table_name} values ('1', '1')"""
+    sql "sync"
 
     qt_select """select * from ${table_name} order by a"""
 
     // drop column c1
     sql """ALTER TABLE ${table_name} DROP COLUMN c1"""
     wait_for_latest_op_on_table_finish(table_name, timeout)
+    sql "sync"
 
     // show create table with retry logic
     assertShowCreateTableWithRetry(table_name, "\"bloom_filter_columns\" = \"\"", 3, 30)
@@ -87,9 +89,11 @@ suite("test_bloom_filter_drop_column") {
     // add new column c1
     sql """ALTER TABLE ${table_name} ADD COLUMN c1 ARRAY<STRING>"""
     wait_for_latest_op_on_table_finish(table_name, timeout)
+    sql "sync"
 
     // insert data
     sql """INSERT INTO ${table_name} values ('2', null)"""
+    sql "sync"
     // select data
     qt_select """select * from ${table_name} order by a"""
 }
