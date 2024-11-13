@@ -17,8 +17,6 @@
 
 package org.apache.doris.common.profile;
 
-import org.apache.doris.qe.ConnectContext;
-
 public class ProfileSpan implements AutoCloseable {
 
     public interface TimingOperation {
