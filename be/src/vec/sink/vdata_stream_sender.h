@@ -168,7 +168,9 @@ public:
 
     void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
         _buffer = buffer;
-        _buffer->register_sink(_fragment_instance_id);
+        if (!_is_local) {
+            _buffer->register_sink(_fragment_instance_id.lo);
+        }
     }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
