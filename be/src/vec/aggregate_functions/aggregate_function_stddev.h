@@ -178,12 +178,12 @@ struct StddevSampName {
     static const char* name() { return "stddev_samp"; }
 };
 
-template <bool is_pop, typename Data>
+template <typename Data>
 class AggregateFunctionSampVariance
-        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<is_pop, Data>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>> {
 public:
     AggregateFunctionSampVariance(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<is_pop, Data>>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>>(
                       argument_types_) {}
 
     String get_name() const override { return Data::name(); }
@@ -215,12 +215,5 @@ public:
         this->data(place).insert_result_into(to);
     }
 };
-
-template <typename Data>
-using AggregateFunctionSamp = AggregateFunctionSampVariance<false, Data>;
-
-//pop function have use AggregateFunctionNullBase function, so needn't processing null values
-template <typename Data>
-using AggregateFunctionPop = AggregateFunctionSampVariance<true, Data>;
 
 } // namespace doris::vectorized
