@@ -392,6 +392,7 @@ message TabletSchemaPB {
     optional int64 row_store_page_size = 27 [default=16384];
 
     optional bool variant_enable_flatten_nested = 28 [default=false];
+    optional int64 storage_page_size = 30 [default=65536];
 }
 
 message TabletSchemaCloudPB {
@@ -424,6 +425,8 @@ message TabletSchemaCloudPB {
 
     optional bool enable_mow_light_delete = 28 [default=false];
     optional bool enable_variant_flatten_nested = 29 [default=false];
+    optional int64 storage_page_size = 31 [default=65536];
+
     optional bool is_dynamic_schema = 100 [default=false];
 }
 
