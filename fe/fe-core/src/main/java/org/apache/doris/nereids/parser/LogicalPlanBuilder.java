@@ -1491,7 +1491,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Command visitCreateRoutineLoad(DorisParser.CreateRoutineLoadAliasContext ctx) {
+    public Command visitCreateRoutineLoadCommand(DorisParser.CreateRoutineLoadAliasContext ctx) {
         List<String> labelParts = visitMultipartIdentifier(ctx.label);
         String labelName = null;
         String labelDbName = null;
