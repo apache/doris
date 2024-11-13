@@ -25,6 +25,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
+import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
@@ -352,6 +353,18 @@ public class BinlogManager {
         String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    // add Modify view
+    public void addModifyViewDef(AlterViewInfo alterViewInfo, long commitSeq) {
+        long dbId = alterViewInfo.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(alterViewInfo.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_VIEW_DEF;
+        String data = alterViewInfo.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterViewInfo);
     }
 
     // get binlog by dbId, return first binlog.version > version
