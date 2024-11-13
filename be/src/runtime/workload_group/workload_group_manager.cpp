@@ -288,9 +288,9 @@ void WorkloadGroupMgr::handle_paused_queries() {
         auto& queries_list = it->second;
         const auto& wg = it->first;
 
-        bool is_low_wartermark = false;
-        bool is_high_wartermark = false;
-        wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+        bool is_low_watermark = false;
+        bool is_high_watermark = false;
+        wg->check_mem_used(&is_low_watermark, &is_high_watermark);
 
         bool has_changed_hard_limit = false;
         int64_t flushed_memtable_bytes = 0;
@@ -471,7 +471,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
             }
         }
         // Not need waiting flush memtable and below low watermark disable load buffer limit
-        if (flushed_memtable_bytes <= 0 && !is_low_wartermark) {
+        if (flushed_memtable_bytes <= 0 && !is_low_watermark) {
             wg->enable_write_buffer_limit(false);
         }
 
@@ -689,9 +689,9 @@ bool WorkloadGroupMgr::handle_single_query_(std::shared_ptr<QueryContext> query_
 void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_hard_limit) {
     auto wg_mem_limit = wg->memory_limit();
     auto all_query_ctxs = wg->queries();
-    bool is_low_wartermark = false;
-    bool is_high_wartermark = false;
-    wg->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+    bool is_low_watermark = false;
+    bool is_high_watermark = false;
+    wg->check_mem_used(&is_low_watermark, &is_high_watermark);
     int64_t wg_high_water_mark_limit =
             (int64_t)(wg_mem_limit * wg->spill_threshold_high_water_mark() * 1.0 / 100);
     int64_t memtable_usage = wg->write_buffer_size();
@@ -703,7 +703,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
                 wg_high_water_mark_limit - memtable_usage - 10 * 1024 * 1024;
     }
     std::string debug_msg;
-    if (is_high_wartermark || is_low_wartermark) {
+    if (is_high_watermark || is_low_watermark) {
         debug_msg = fmt::format(
                 "\nWorkload Group {}: mem limit: {}, mem used: {}, "
                 "high water mark mem limit: {}, load memtable usage: {}, used ratio: {}",
@@ -715,7 +715,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
     }
 
     // If reached low watermark and wg is not enable memory overcommit, then enable load buffer limit
-    if (is_low_wartermark && !wg->enable_memory_overcommit()) {
+    if (is_low_watermark && !wg->enable_memory_overcommit()) {
         wg->enable_write_buffer_limit(true);
     }
     // Both enable overcommit and not enable overcommit, if user set slot memory policy
@@ -767,7 +767,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
                             ? (int64_t)((wg_high_water_mark_except_load + total_used_slot_count) *
                                         query_ctx->get_slot_count() * 1.0 / total_used_slot_count)
                             : wg_high_water_mark_except_load;
-            if (!is_low_wartermark && !enable_hard_limit) {
+            if (!is_low_watermark && !enable_hard_limit) {
                 query_weighted_mem_limit = wg_high_water_mark_except_load;
             } else {
                 query_weighted_mem_limit = expected_query_weighted_mem_limit;

@@ -300,11 +300,11 @@ public:
         }
 
         if (_workload_group) {
-            bool is_low_wartermark = false;
-            bool is_high_wartermark = false;
-            _workload_group->check_mem_used(&is_low_wartermark, &is_high_wartermark);
+            bool is_low_watermark = false;
+            bool is_high_watermark = false;
+            _workload_group->check_mem_used(&is_low_watermark, &is_high_watermark);
             // If the wg is not enable hard limit, this will also take effect to lower down the memory usage.
-            if (is_high_wartermark) {
+            if (is_high_watermark) {
                 LOG(INFO)
                         << "Query " << print_id(_query_id)
                         << " goes to low memory mode due to workload group high water mark reached";
@@ -312,7 +312,7 @@ public:
                 return;
             }
 
-            if (is_low_wartermark &&
+            if (is_low_watermark &&
                 ((_query_options.__isset.enable_join_spill && _query_options.enable_join_spill) ||
                  (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill) ||
                  (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill))) {
