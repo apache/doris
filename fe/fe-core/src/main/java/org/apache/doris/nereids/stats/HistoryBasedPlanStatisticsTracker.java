@@ -45,6 +45,7 @@ import com.google.common.collect.ImmutableMap;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.graph.Traverser.forTree;
 import static com.google.common.hash.Hashing.sha256;
+import static java.lang.Double.isNaN;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import java.util.ArrayList;
@@ -161,11 +162,11 @@ public class HistoryBasedPlanStatisticsTracker {
                 .collect(toImmutableMap(
                         Map.Entry::getKey,
                         entry -> {
-                            HistoricalPlanStatistics historicalPlanStatistics = Optional.ofNullable(historicalPlanStatisticsMap.get(entry.getKey()))
+                            HistoricalPlanStatistics oldPlanStatistics = Optional.ofNullable(historicalPlanStatisticsMap.get(entry.getKey()))
                                     .orElseGet(HistoricalPlanStatistics::empty);
                             HistoryBasedSourceInfo historyBasedSourceInfo = entry.getValue().getSourceInfo();
                             return updatePlanStatistics(
-                                    historicalPlanStatistics,
+                                    oldPlanStatistics,
                                     historyBasedSourceInfo.getInputTableStatistics().get(),
                                     entry.getValue().getPlanStatistics());
                         }));
@@ -185,11 +186,11 @@ public class HistoryBasedPlanStatisticsTracker {
 
         List<HistoricalPlanStatisticsEntry> newLastRunsStatistics = new ArrayList<>(lastRunsStatistics);
 
-        //Optional<Integer> similarStatsIndex = getSimilarStatsIndex(historicalPlanStatistics,
-        //        inputTableStatistics, config.getHistoryMatchingThreshold());
-        //if (similarStatsIndex.isPresent()) {
-        //    newLastRunsStatistics.remove(similarStatsIndex.get().intValue());
-        //}
+        Optional<Integer> similarStatsIndex = getSimilarStatsIndex(historicalPlanStatistics,
+                inputTableStatistics, 0.1);
+        if (similarStatsIndex.isPresent()) {
+            newLastRunsStatistics.remove(similarStatsIndex.get().intValue());
+        }
 
         newLastRunsStatistics.add(new HistoricalPlanStatisticsEntry(current, inputTableStatistics));
         int maxLastRuns = inputTableStatistics.isEmpty() ? 1 : 10;//config.getMaxLastRunsHistory();
@@ -198,6 +199,49 @@ public class HistoryBasedPlanStatisticsTracker {
         }
 
         return new HistoricalPlanStatistics(newLastRunsStatistics);
+    }
+
+    public static Optional<Integer> getSimilarStatsIndex(
+            HistoricalPlanStatistics historicalPlanStatistics,
+            List<PlanStatistics> inputTableStatistics,
+            double threshold)
+    {
+        List<HistoricalPlanStatisticsEntry> lastRunsStatistics = historicalPlanStatistics.getLastRunsStatistics();
+
+        if (lastRunsStatistics.isEmpty()) {
+            return Optional.empty();
+        }
+
+        for (int lastRunsIndex = 0; lastRunsIndex < lastRunsStatistics.size(); ++lastRunsIndex) {
+            if (inputTableStatistics.size() != lastRunsStatistics.get(lastRunsIndex).getInputTableStatistics().size()) {
+                // This is not expected, but may happen when changing thrift definitions.
+                continue;
+            }
+            boolean rowSimilarity = true;
+            //boolean outputSizeSimilarity = true;
+
+            // Match to historical stats only when size of input tables are similar to those of historical runs.
+            for (int inputTablesIndex = 0; inputTablesIndex < inputTableStatistics.size(); ++inputTablesIndex) {
+                PlanStatistics currentInputStatistics = inputTableStatistics.get(inputTablesIndex);
+                PlanStatistics historicalInputStatistics = lastRunsStatistics.get(lastRunsIndex).getInputTableStatistics().get(inputTablesIndex);
+
+                rowSimilarity = rowSimilarity && similarStats(currentInputStatistics.getPushRows(), historicalInputStatistics.getPushRows(), threshold);
+                //outputSizeSimilarity = outputSizeSimilarity && similarStats(currentInputStatistics.getOutputSize().getValue(), historicalInputStatistics.getOutputSize().getValue(), threshold);
+            }
+            // Write information if both rows and output size are similar.
+            if (rowSimilarity/* && outputSizeSimilarity*/) {
+                return Optional.of(lastRunsIndex);
+            }
+        }
+        return Optional.empty();
+    }
+
+    public static boolean similarStats(double stats1, double stats2, double threshold)
+    {
+        if (isNaN(stats1) && isNaN(stats2)) {
+            return true;
+        }
+        return stats1 >= (1 - threshold) * stats2 && stats1 <= (1 + threshold) * stats2;
     }
 
 }

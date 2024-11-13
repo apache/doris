@@ -43,6 +43,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import com.google.common.collect.ImmutableMap;
 import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
+import static org.apache.doris.nereids.stats.HistoryBasedPlanStatisticsTracker.getSimilarStatsIndex;
 
 import java.util.List;
 import java.util.Map;
@@ -112,7 +113,10 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
         //catch (ExecutionException e) {
         //    throw new RuntimeException(format("Unable to get plan statistics for %s", planNode), e.getCause());
         //}
-        Optional<HistoricalPlanStatisticsEntry> historicalPlanStatisticsEntry = getSelectedHistoricalPlanStatisticsEntry(planStatistics, 1000);
+        Optional<List<PlanStatistics>> inputTableStatistics = getPlanNodeInputTableStatistics(planNode, true);
+        // TODO: get current inputTableStatistics
+        Optional<HistoricalPlanStatisticsEntry> historicalPlanStatisticsEntry = getSelectedHistoricalPlanStatisticsEntry
+                (planStatistics, inputTableStatistics.get(), 0.1);
         if (historicalPlanStatisticsEntry.isPresent()) {
             PlanStatistics predictedPlanStatistics = historicalPlanStatisticsEntry.get().getPlanStatistics();
             // todo: choose which one is the output rows count
@@ -142,9 +146,15 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
         return delegateStats;
     }
 
+    private Optional<List<PlanStatistics>> getPlanNodeInputTableStatistics(PlanNode plan, boolean cacheOnly)
+    {
+        //return getInputTableStatistics(plan, cacheOnly);
+        return null;
+    }
+
     public static Optional<HistoricalPlanStatisticsEntry> getSelectedHistoricalPlanStatisticsEntry(
             HistoricalPlanStatistics historicalPlanStatistics,
-            //List<PlanStatistics> inputTableStatistics,
+            List<PlanStatistics> inputTableStatistics,
             double historyMatchingThreshold)
     {
         List<HistoricalPlanStatisticsEntry> lastRunsStatistics = historicalPlanStatistics.getLastRunsStatistics();
@@ -152,8 +162,8 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
             return Optional.empty();
         }
 
-        //Optional<Integer> similarStatsIndex = getSimilarStatsIndex(historicalPlanStatistics, inputTableStatistics, historyMatchingThreshold);
-        Optional<Integer> similarStatsIndex = Optional.of(0);;
+        Optional<Integer> similarStatsIndex = getSimilarStatsIndex(historicalPlanStatistics, inputTableStatistics, historyMatchingThreshold);
+
 
         if (similarStatsIndex.isPresent()) {
             return Optional.of(lastRunsStatistics.get(similarStatsIndex.get()));
