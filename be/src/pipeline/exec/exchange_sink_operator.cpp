@@ -324,7 +324,7 @@ Status ExchangeSinkLocalState::_send_new_partition_batch() {
         vectorized::Block tmp_block =
                 _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
         auto& p = _parent->cast<ExchangeSinkOperatorX>();
-        // these order is only.
+        // these order is unique.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.

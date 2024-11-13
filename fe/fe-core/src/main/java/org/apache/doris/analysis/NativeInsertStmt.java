@@ -165,7 +165,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     boolean hasEmptyTargetColumns = false;
     private boolean allowAutoPartition = true;
-    private boolean withAutoDetectOverwrite = false;
 
     enum InsertType {
         NATIVE_INSERT("insert_"),
@@ -329,11 +328,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     public boolean isTransactionBegin() {
         return isTransactionBegin;
-    }
-
-    public NativeInsertStmt withAutoDetectOverwrite() {
-        this.withAutoDetectOverwrite = true;
-        return this;
     }
 
     protected void preCheckAnalyze(Analyzer analyzer) throws UserException {
