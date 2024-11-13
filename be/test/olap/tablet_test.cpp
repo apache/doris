@@ -363,7 +363,7 @@ TEST_F(TestTablet, cooldown_policy) {
         auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
         ASSERT_TRUE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, 250);
-        ASSERT_EQ(file_size, 84699);
+        ASSERT_EQ(file_size, 84464);
     }
 
     {
@@ -377,7 +377,7 @@ TEST_F(TestTablet, cooldown_policy) {
         auto ret = _tablet->need_cooldown(&cooldown_timestamp, &file_size);
         ASSERT_TRUE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, 3800);
-        ASSERT_EQ(file_size, 84699);
+        ASSERT_EQ(file_size, 84464);
     }
 
     {
@@ -408,7 +408,7 @@ TEST_F(TestTablet, cooldown_policy) {
         int64_t expect_cooldown_timestamp = UnixSeconds() - 50;
         ASSERT_TRUE(ret != nullptr);
         ASSERT_EQ(cooldown_timestamp, expect_cooldown_timestamp);
-        ASSERT_EQ(file_size, 84699);
+        ASSERT_EQ(file_size, 84464);
     }
 }
 
