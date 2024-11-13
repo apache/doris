@@ -152,8 +152,8 @@ suite("test_outfile_with_different_s3", "p0") {
 
     // 3. test obs
     try {
-        String ak = context.config.otherConfigs.get("aliYunAk")
-        String sk = context.config.otherConfigs.get("aliYunSk")
+        String ak = context.config.otherConfigs.get("hwYunAk")
+        String sk = context.config.otherConfigs.get("hwYunSk")
         String s3_endpoint = "obs.cn-north-4.myhuaweicloud.com"
         String region = "cn-north-4"
         String bucket = "doris-build";
