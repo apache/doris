@@ -145,7 +145,7 @@ private:
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
     // simdjson, replace none simdjson function if it is ready
-    Status _simdjson_init_reader(bool is_load);
+    Status _simdjson_init_reader();
     Status _simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
                                 simdjson::error_code* error);
     Status _get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
@@ -298,6 +298,10 @@ private:
     int32_t skip_bitmap_col_idx {-1};
 
     bool _is_load = true;
+    //Used to indicate whether it is a stream load. When loading, only data will be inserted into columnString.
+    //If an illegal value is encountered during the load process, `_append_error_msg` should be called
+    //instead of directly returning `Status::DataQualityError`
+
     bool _is_hive_table = false;
     // In hive : create table xxx ROW FORMAT SERDE 'org.apache.hive.hcatalog.data.JsonSerDe';
     // Hive will not allow you to create columns with the same name but different case, including field names inside

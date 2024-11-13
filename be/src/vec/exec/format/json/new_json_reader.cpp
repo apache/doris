@@ -1178,8 +1178,7 @@ Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, si
 }
 // ---------SIMDJSON----------
 // simdjson, replace none simdjson function if it is ready
-Status NewJsonReader::_simdjson_init_reader(bool is_load) {
-    _is_load = is_load;
+Status NewJsonReader::_simdjson_init_reader() {
     RETURN_IF_ERROR(_get_range_params());
 
     RETURN_IF_ERROR(_open_file_reader(false));
