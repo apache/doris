@@ -1116,8 +1116,9 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                                  const signed char* delete_sign_column_data) {
         if (skipped) {
             bool use_default = false;
-            bool old_row_delete_sign = (delete_sign_column_data != nullptr &&
-                                        delete_sign_column_data[read_index_old[cast_set<uint32_t>(idx)]] != 0);
+            bool old_row_delete_sign =
+                    (delete_sign_column_data != nullptr &&
+                     delete_sign_column_data[read_index_old[cast_set<uint32_t>(idx)]] != 0);
             if (old_row_delete_sign) {
                 if (!rowset_schema->has_sequence_col()) {
                     use_default = true;
@@ -1137,7 +1138,14 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                 } else if (tablet_column.is_nullable()) {
                     assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                             new_col.get())
-                            ->insert_default();
+                            ->insert_null_elements(1);
+                } else if (tablet_column.is_auto_increment()) {
+                    // For auto-increment column, its default value(generated value) is filled in current block in flush phase
+                    // when the load doesn't specify the auto-increment column
+                    //     - if the previous conflicting row is deleted, we should use the value in current block as its final value
+                    //     - if the previous conflicting row is an insert, we should use the value in old block as its final value to
+                    //       keep consistency between replicas
+                    new_col->insert_from(cur_col, read_index_update[idx]);
                 } else {
                     new_col->insert_default();
                 }
