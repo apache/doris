@@ -1362,6 +1362,7 @@ struct TGetSnapshotResult {
     3: optional binary job_info
     4: optional Types.TNetworkAddress master_address
     5: optional bool compressed;
+    6: optional i64 expiredAt;  // in millis
 }
 
 struct TTableRef {
