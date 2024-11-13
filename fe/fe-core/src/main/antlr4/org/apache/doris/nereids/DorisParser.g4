@@ -197,6 +197,7 @@ supportedShowStatement
     | SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
+    | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ROLES                                                                    #showRoles        
     | SHOW PROC path=STRING_LITERAL                                                 #showProc        
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
@@ -300,7 +301,6 @@ unsupportedShowStatement
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
-    | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
