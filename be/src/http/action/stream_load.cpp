@@ -85,14 +85,12 @@ static const string CHUNK = "chunked";
 TStreamLoadPutResult k_stream_load_put_result;
 #endif
 
-
-
-bool _check_headers(HttpRequest* req, std::shared_ptr<StreamLoadContext>& ctx){
-#define __RETURN_FALSE_IF_SET(PROPERTIY_KEY) \
-        if(!req->header(PROPERTIY_KEY).empty()){\
-            LOG(INFO) << "PROPERTIY_KEY" << PROPERTIY_KEY ; \
-            return false; \
-        }
+bool _check_headers(HttpRequest* req, std::shared_ptr<StreamLoadContext>& ctx) {
+#define __RETURN_FALSE_IF_SET(PROPERTIY_KEY)           \
+    if (!req->header(PROPERTIY_KEY).empty()) {         \
+        LOG(INFO) << "PROPERTIY_KEY" << PROPERTIY_KEY; \
+        return false;                                  \
+    }
     __RETURN_FALSE_IF_SET(HTTP_COLUMNS)
     //__RETURN_FALSE_IF_SET(HTTP_LABEL_KEY)
     __RETURN_FALSE_IF_SET(HTTP_WHERE)
@@ -100,21 +98,24 @@ bool _check_headers(HttpRequest* req, std::shared_ptr<StreamLoadContext>& ctx){
     __RETURN_FALSE_IF_SET(HTTP_ESCAPE)
     __RETURN_FALSE_IF_SET(HTTP_MAX_FILTER_RATIO)
     __RETURN_FALSE_IF_SET(HTTP_READ_JSON_BY_LINE)
-    
+
 #undef __RETURN_FALSE_IF_SET
-    LoadUtil::parse_format(req->header(HTTP_FORMAT_KEY), req->header(HTTP_COMPRESS_TYPE), &ctx->format,
-                           &ctx->compress_type);
-    if(ctx->compress_type == TFileCompressType::LZ4FRAME || ctx->compress_type == TFileCompressType::LZ4BLOCK){
+    LoadUtil::parse_format(req->header(HTTP_FORMAT_KEY), req->header(HTTP_COMPRESS_TYPE),
+                           &ctx->format, &ctx->compress_type);
+    if (ctx->compress_type == TFileCompressType::LZ4FRAME ||
+        ctx->compress_type == TFileCompressType::LZ4BLOCK) {
         return false;
     }
-    if(ctx->format == TFileFormatType::FORMAT_PARQUET|| ctx->format == TFileFormatType::FORMAT_ORC){
+    if (ctx->format == TFileFormatType::FORMAT_PARQUET ||
+        ctx->format == TFileFormatType::FORMAT_ORC) {
         return false;
     }
-    if(!req->header(HTTP_STRICT_MODE).empty() || to_lower(req->header(HTTP_STRICT_MODE)) == "true"){
+    if (!req->header(HTTP_STRICT_MODE).empty() ||
+        to_lower(req->header(HTTP_STRICT_MODE)) == "true") {
         return false;
     }
 
-    LOG(INFO) << "check true"; 
+    LOG(INFO) << "check true";
     return true;
 }
 
@@ -136,7 +137,7 @@ void StreamLoadAction::handle(HttpRequest* req) {
     if (ctx == nullptr) {
         return;
     }
-    if (config::enable_streamload_by_httpstream && _check_headers(req,ctx)) {
+    if (config::enable_streamload_by_httpstream && _check_headers(req, ctx)) {
         if (ctx->sql_str.empty()) {
             auto st = _parse_header(req, ctx);
             if (!st.ok()) {
@@ -237,7 +238,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
 
-    if (config::enable_streamload_by_httpstream && _check_headers(req,ctx)) {
+    if (config::enable_streamload_by_httpstream && _check_headers(req, ctx)) {
         if (ctx->sql_str.empty()) {
             auto st = _parse_header(req, ctx);
             if (!st.ok()) {
@@ -411,7 +412,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
         return;
     }
 
-    if (config::enable_streamload_by_httpstream && _check_headers(req,ctx)) {
+    if (config::enable_streamload_by_httpstream && _check_headers(req, ctx)) {
         if (ctx->sql_str.empty()) {
             auto st = _parse_header(req, ctx);
             if (!st.ok()) {
@@ -1267,7 +1268,7 @@ Status StreamLoadAction::_parse_header(HttpRequest* req, std::shared_ptr<StreamL
     url_decode(req->param(HTTP_DB_KEY), &db_name);
     url_decode(req->param(HTTP_TABLE_KEY), &table_name);
 
-    if(!req->header(HTTP_LABEL_KEY).empty()){
+    if (!req->header(HTTP_LABEL_KEY).empty()) {
         ctx->label = req->header(HTTP_LABEL_KEY);
     }
 
@@ -1443,14 +1444,14 @@ Status StreamLoadAction::_parse_header(HttpRequest* req, std::shared_ptr<StreamL
     __ADD_IF_EXIST(HTTP_UNIQUE_KEY_UPDATE_MODE)
     __ADD_IF_EXIST(HTTP_MEMTABLE_ON_SINKNODE)
     __ADD_IF_EXIST(HTTP_LOAD_STREAM_PER_NODE)
-//    __ADD_IF_EXIST(HTTP_GROUP_COMMIT)
+    //    __ADD_IF_EXIST(HTTP_GROUP_COMMIT)
     __ADD_IF_EXIST(HTTP_CLOUD_CLUSTER)
     __ADD_IF_EXIST(HTTP_UNIQUE_KEY_UPDATE_MODE)
     __ADD_IF_EXIST(HTTP_ESCAPE)
     __ADD_IF_EXIST(HTTP_ENCLOSE)
 #undef __ADD_IF_EXIST
 
-// #define __ADD_IF_EXIST(PROPERTIY_KEY)                                                              \
+    // #define __ADD_IF_EXIST(PROPERTIY_KEY)                                                              \
 //     if (!req->header(PROPERTIY_KEY).empty()) {                                                     \
 //         if (pri) {                                                                                 \
 //             sql += ",";                                                                            \
@@ -1459,11 +1460,7 @@ Status StreamLoadAction::_parse_header(HttpRequest* req, std::shared_ptr<StreamL
 //         sql += "\"" + PROPERTIY_KEY + "\" = \"" + req->header(PROPERTIY_KEY) + "\""; \
 //     }
 
-
-
-
-// #undef __ADD_IF_EXIST
-
+    // #undef __ADD_IF_EXIST
 
     sql += ") ";
 
