@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_runtime_filter_decimal256", "query_p0") {
+    sql "set enable_runtime_filter_prune=false;"
     sql "set enable_nereids_planner = true;"
     sql "set enable_decimal256 = true;"
     sql "set parallel_fragment_exec_instance_num = 4;"
