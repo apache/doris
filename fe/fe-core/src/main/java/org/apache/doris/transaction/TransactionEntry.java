@@ -54,7 +54,6 @@ import org.apache.doris.thrift.TTxnParams;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
 import org.apache.doris.thrift.TWaitingTxnStatusResult;
-import org.apache.doris.transaction.SubTransactionState.SubTransactionType;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -408,13 +407,12 @@ public class TransactionEntry {
         }
     }
 
-    public void addTabletCommitInfos(long subTxnId, Table table, List<TTabletCommitInfo> commitInfos,
-            SubTransactionType subTransactionType) {
+    public void addTabletCommitInfos(long subTxnId, Table table, List<TTabletCommitInfo> commitInfos) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("label={}, txn_id={}, sub_txn_id={}, table={}, commit_infos={}",
                     label, transactionId, subTxnId, table, commitInfos);
         }
-        subTransactionStates.add(new SubTransactionState(subTxnId, table, commitInfos, subTransactionType));
+        subTransactionStates.add(new SubTransactionState(subTxnId, table, commitInfos));
     }
 
     public boolean isTransactionBegan() {
@@ -520,10 +518,8 @@ public class TransactionEntry {
         if (txnLoadInfo.isSetSubTxnInfos()) {
             for (TSubTxnInfo subTxnInfo : txnLoadInfo.getSubTxnInfos()) {
                 TableIf table = database.getTableOrDdlException(subTxnInfo.getTableId());
-                subTransactionStates.add(
-                        new SubTransactionState(subTxnInfo.getSubTxnId(), (Table) table,
-                                subTxnInfo.getTabletCommitInfos(),
-                                SubTransactionState.getSubTransactionType(subTxnInfo.getSubTxnType())));
+                subTransactionStates.add(new SubTransactionState(subTxnInfo.getSubTxnId(), (Table) table,
+                        subTxnInfo.getTabletCommitInfos()));
             }
         }
     }
@@ -540,8 +536,7 @@ public class TransactionEntry {
                 txnLoadInfo.addToSubTxnInfos(new TSubTxnInfo()
                         .setSubTxnId(subTxnState.getSubTransactionId())
                         .setTableId(subTxnState.getTable().getId())
-                        .setTabletCommitInfos(subTxnState.getTabletCommitInfos())
-                        .setSubTxnType(SubTransactionState.getSubTransactionType(subTxnState.getSubTransactionType())));
+                        .setTabletCommitInfos(subTxnState.getTabletCommitInfos()));
             }
         }
         return txnLoadInfo;

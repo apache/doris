@@ -52,7 +52,6 @@ import org.apache.doris.thrift.TLoadSourceType;
 import org.apache.doris.thrift.TRLTaskTxnCommitAttachment;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.transaction.SubTransactionState.SubTransactionType;
 import org.apache.doris.transaction.TransactionState.LoadJobSourceType;
 import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
@@ -1163,8 +1162,7 @@ public class GlobalTransactionMgrTest {
         if (addTableId) {
             transactionState.addTableId(table.getId());
         }
-        return new SubTransactionState(subTransactionId, table, generateTTabletCommitInfos(tabletId, backendIds),
-                SubTransactionType.INSERT);
+        return new SubTransactionState(subTransactionId, table, generateTTabletCommitInfos(tabletId, backendIds));
     }
 
     private void checkTableVersion(OlapTable olapTable, long visibleVersion, long nextVersion) {
