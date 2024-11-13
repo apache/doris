@@ -535,10 +535,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             // TODO disable function dependence calculation for mark join, but need re-think this in future.
             return;
         }
-        if (!joinType.isLeftSemiOrAntiJoin()) {
+        // outer join cant have nullable side uniform properties
+        // (e.g. left join may produce null in right side, the uniform value is present and not null
+        // cannot deduce the slot is uniform and not null)
+        if (!joinType.isLeftJoin()) {
             builder.addUniformSlot(right().getLogicalProperties().getTrait());
         }
-        if (!joinType.isRightSemiOrAntiJoin()) {
+        if (!joinType.isRightJoin()) {
             builder.addUniformSlot(left().getLogicalProperties().getTrait());
         }
     }

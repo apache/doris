@@ -567,6 +567,10 @@ public class DataTrait {
             slotUniformValue = newSlotUniformValue;
         }
 
+        // The current implementation logic is: if a slot key exists in map slotUniformValue,
+        // its value is present and is not nullable,
+        // or if a slot key exists in map slotUniformValue and the slot is not nullable
+        // it indicates that this slot is uniform and not null.
         public boolean isUniformAndNotNull(Slot slot) {
             return slotUniformValue.containsKey(slot)
                     && (!slot.nullable() || slotUniformValue.get(slot).isPresent()
