@@ -107,7 +107,7 @@ bool _check_headers(HttpRequest* req, std::shared_ptr<StreamLoadContext>& ctx){
     if(ctx->compress_type == TFileCompressType::LZ4FRAME || ctx->compress_type == TFileCompressType::LZ4BLOCK){
         return false;
     }
-    if(ctx->format == TFileFormatType::FORMAT_PARQUET|| ctx->format == TFileFormatType::FORMAT_ORC || ctx->format == TFileFormatType::FORMAT_ORC){
+    if(ctx->format == TFileFormatType::FORMAT_PARQUET|| ctx->format == TFileFormatType::FORMAT_ORC){
         return false;
     }
     if(!req->header(HTTP_STRICT_MODE).empty() || to_lower(req->header(HTTP_STRICT_MODE)) == "true"){
