@@ -228,8 +228,6 @@ private:
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineTask>>> _tasks;
 
-    bool _need_local_merge = false;
-
     // TODO: remove the _sink and _multi_cast_stream_sink_senders to set both
     // of it in pipeline task not the fragment_context
 #ifdef __clang__

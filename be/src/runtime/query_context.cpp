@@ -86,7 +86,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
+            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker, true);
 
     _timeout_second = query_options.execution_timeout;
 
