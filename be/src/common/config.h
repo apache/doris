@@ -1474,6 +1474,7 @@ DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
 // MB
 DECLARE_Int32(query_cache_size);
+DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 
