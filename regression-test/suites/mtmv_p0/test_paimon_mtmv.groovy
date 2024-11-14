@@ -24,6 +24,7 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     String suiteName = "test_paimon_mtmv"
     String catalogName = "${suiteName}_catalog"
     String mvName = "${suiteName}_mv"
+    String dbName = context.config.getDbNameByFile(context.file)
 
     String minio_port = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
