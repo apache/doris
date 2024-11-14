@@ -52,7 +52,7 @@ suite("paimon_tb_mix_format", "p0,external,doris,external_docker,external_docker
 
         explain {
             sql("verbose select * from test_tb_mix_format")
-            contains("... other 16 files ...")
+            contains("... other 16 paimon split stats ...")
         }
     } finally {
         sql """set force_jni_scanner=false"""
