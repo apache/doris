@@ -95,6 +95,7 @@ public class BackendServiceClient {
 
     public Future<InternalService.PTabletKeyLookupResponse> fetchTabletDataAsync(
             InternalService.PTabletKeyLookupRequest request) {
+        // return stub.withDeadlineAfter(2000, TimeUnit.MILLISECONDS).tabletFetchData(request);
         return stub.tabletFetchData(request);
     }
 

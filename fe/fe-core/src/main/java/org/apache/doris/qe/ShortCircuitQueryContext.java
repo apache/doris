@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.thrift.TExpr;
@@ -27,14 +28,12 @@ import org.apache.doris.thrift.TExprList;
 import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -57,8 +56,28 @@ public class ShortCircuitQueryContext {
     public final Queriable analzyedQuery;
     // Serialized mysql Field, this could avoid serialize mysql field each time sendFields.
     // Since, serialize fields is too heavy when table is wide
-    public Map<String, byte[]> serializedFields =  Maps.newHashMap();
+    List<byte[]> serializedFields = new ArrayList();
 
+    List<Type> returnTypes = null;
+
+    public byte[] getSerializedField(int idx) {
+        if (idx < serializedFields.size()) {
+            return serializedFields.get(idx);
+        }
+        return null;
+    }
+
+    public void addSerializedField(byte[] serializedField) {
+        serializedFields.add(serializedField);
+    }
+
+    List<Type> getReturnTypes() {
+        if (returnTypes == null) {
+            returnTypes = analzyedQuery.getResultExprs()
+                    .stream().map(e -> e.getType()).collect(Collectors.toList());
+        }
+        return returnTypes;
+    }
 
     public ShortCircuitQueryContext(Planner planner, Queriable analzyedQuery) throws TException {
         this.serializedDescTable = ByteString.copyFrom(
