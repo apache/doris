@@ -156,7 +156,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                       << ", need flush: " << PrettyPrinter::print_bytes(need_flush);
             _flush_active_memtables(need_flush);
         }
-    } while (_hard_limit_reached());
+    } while (_hard_limit_reached() && !_load_usage_low());
     g_memtable_memory_limit_waiting_threads << -1;
     timer.stop();
     int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
