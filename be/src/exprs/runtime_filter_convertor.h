@@ -36,7 +36,8 @@ auto get_convertor() {
         return [](PColumnValue* value, const T& data) { value->set_longval(data); };
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         return [](PColumnValue* value, const T& data) { value->set_doubleval(data); };
-    } else if constexpr (std::is_same_v<T, int128_t> || std::is_same_v<T, uint128_t>) {
+    } else if constexpr (std::is_same_v<T, int128_t> || std::is_same_v<T, uint128_t> ||
+                         std::is_same_v<T, vectorized::Decimal128V3>) {
         return [](PColumnValue* value, const T& data) {
             value->set_stringval(LargeIntValue::to_string(data));
         };
