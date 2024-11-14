@@ -82,6 +82,7 @@ TEST_F(BitmapFilterPredicateTest, contains_any) {
     std::unique_ptr<BitmapFilterFuncBase> func(create_bitmap_filter(PrimitiveType::TYPE_INT));
 
     BitmapValue bitmap_value = create_bitmap_value();
+    func->insert_many({&bitmaps});
 
     auto* filter = assert_cast<BitmapFilterFunc<PrimitiveType::TYPE_INT>*>(func.get());
 
@@ -98,6 +99,7 @@ TEST_F(BitmapFilterPredicateTest, find_fixed_len_olap_engine) {
     std::unique_ptr<BitmapFilterFuncBase> func(create_bitmap_filter(PrimitiveType::TYPE_INT));
 
     BitmapValue bitmap_value = create_bitmap_value();
+    func->insert_many({&bitmaps});
 
     auto* filter = assert_cast<BitmapFilterFunc<PrimitiveType::TYPE_INT>*>(func.get());
 
