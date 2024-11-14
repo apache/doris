@@ -421,6 +421,26 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         });
     }
 
+    // if select * used in partition table side, should get related table
+    @Test
+    public void getRelatedTableInfoLeftJoinSelectStarTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("        select l1.*, O_CUSTKEY \n"
+                                + "        from lineitem_list_partition l1\n"
+                                + "        left outer join orders_list_partition\n"
+                                + "        on l1.l_shipdate = o_orderdate\n",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            RelatedTableInfo relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_orderkey", null,
+                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem_list_partition",
+                                    "l_orderkey",
+                                    true);
+                        });
+    }
+
     @Test
     public void getRelatedTableInfoSelfJoinTest() {
         PlanChecker.from(connectContext)
