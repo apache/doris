@@ -195,9 +195,9 @@ for i in ${query_array[@]}; do
     hot2=0
     echo -ne "q${i}\t" | tee -a result.csv
     start=$(date +%s%3N)
-    if ! mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log; then
-        printf "Error: Failed to execute query q%s (cold run). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
-        cat "${RESULT_DIR}"/result"${i}".log >&2
+    if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${TPCH_QUERIES_DIR}/q${i}.sql" 2>&1); then
+        printf "Error: Failed to execute query q%s (cold run). Output:\n%s\n" "${i}" "${output}" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -205,8 +205,9 @@ for i in ${query_array[@]}; do
     echo -ne "${cold}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    if ! mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log; then
-        printf "Error: Failed to execute query q%s (hot run 1). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
+    if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${TPCH_QUERIES_DIR}/q${i}.sql" 2>&1); then
+        printf "Error: Failed to execute query q%s (hot run 1). Output:\n%s\n" "${i}" "${output}" >&2
         continue
     fi
     end=$(date +%s%3N)
@@ -214,8 +215,9 @@ for i in ${query_array[@]}; do
     echo -ne "${hot1}\t" | tee -a result.csv
 
     start=$(date +%s%3N)
-    if ! mysql -h"${FE_HOST}" -u "${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments <"${TPCH_QUERIES_DIR}"/q"${i}".sql >"${RESULT_DIR}"/result"${i}".out 2>"${RESULT_DIR}"/result"${i}".log; then
-        printf "Error: Failed to execute query q%s (hot run 2). Check the log: %s/result%s.log\n" "${i}" "${RESULT_DIR}" "${i}" >&2
+    if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" --comments \
+        <"${TPCH_QUERIES_DIR}/q${i}.sql" 2>&1); then
+        printf "Error: Failed to execute query q%s (hot run 2). Output:\n%s\n" "${i}" "${output}" >&2
         continue
     fi
     end=$(date +%s%3N)
