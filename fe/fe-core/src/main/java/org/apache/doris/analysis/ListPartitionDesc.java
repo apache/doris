@@ -70,6 +70,9 @@ public class ListPartitionDesc extends PartitionDesc {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
+        if (isAutoCreatePartitions()) {
+            sb.append("AUTO ");
+        }
         sb.append("PARTITION BY LIST(");
         int idx = 0;
         for (Expr e : partitionExprs) {

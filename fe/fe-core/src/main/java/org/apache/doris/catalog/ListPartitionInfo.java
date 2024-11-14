@@ -181,31 +181,19 @@ public class ListPartitionInfo extends PartitionInfo {
     @Override
     public String toSql(OlapTable table, List<Long> partitionId) {
         StringBuilder sb = new StringBuilder();
-        int idx = 0;
         if (enableAutomaticPartition()) {
-            sb.append("AUTO PARTITION BY LIST ");
-            for (Expr e : partitionExprs) {
-                boolean isSlotRef = (e instanceof SlotRef);
-                if (isSlotRef) {
-                    sb.append("(");
-                }
-                sb.append(e.toSql());
-                if (isSlotRef) {
-                    sb.append(")");
-                }
-            }
-            sb.append("\n(");
-        } else {
-            sb.append("PARTITION BY LIST(");
-            for (Column column : partitionColumns) {
-                if (idx != 0) {
-                    sb.append(", ");
-                }
-                sb.append("`").append(column.getName()).append("`");
-                idx++;
-            }
-            sb.append(")\n(");
+            sb.append("AUTO ");
         }
+        sb.append("PARTITION BY LIST (");
+        int idx = 0;
+        for (Column column : partitionColumns) {
+            if (idx != 0) {
+                sb.append(", ");
+            }
+            sb.append("`").append(column.getName()).append("`");
+            idx++;
+        }
+        sb.append(")\n(");
 
         // sort list
         List<Map.Entry<Long, PartitionItem>> entries = new ArrayList<>(this.idToItem.entrySet());
