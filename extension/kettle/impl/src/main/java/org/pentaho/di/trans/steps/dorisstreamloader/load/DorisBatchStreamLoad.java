@@ -185,7 +185,7 @@ public class DorisBatchStreamLoad implements Serializable {
      * @param record
      * @throws IOException
      */
-    public synchronized void writeRecord(String database, String table, byte[] record) {
+    public void writeRecord(String database, String table, byte[] record) {
         checkFlushException();
         String bufferKey = getTableIdentifier(database, table);
         BatchRecordBuffer buffer =
@@ -233,19 +233,15 @@ public class DorisBatchStreamLoad implements Serializable {
         }
     }
 
-    public synchronized boolean bufferFullFlush(String bufferKey) {
+    public boolean bufferFullFlush(String bufferKey) {
         return doFlush(bufferKey, false, true);
-    }
-
-    public synchronized boolean intervalFlush() {
-        return doFlush(null, false, false);
     }
 
     /**
      * Force flush and wait for success.
      * @return
      */
-    public synchronized boolean forceFlush() {
+    public  boolean forceFlush() {
         return doFlush(null, true, false);
     }
 
@@ -417,11 +413,6 @@ public class DorisBatchStreamLoad implements Serializable {
                             }
                             load(bf.getLabelName(), bf);
                         }
-                    }
-
-                    if (flushQueue.size() < flushQueueSize) {
-                        // Avoid waiting for 2 rounds of intervalMs
-                        doFlush(null, false, false);
                     }
                 } catch (Exception e) {
                     log.logError("worker running error", e);
