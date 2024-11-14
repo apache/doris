@@ -235,6 +235,7 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
     }
     return compound_reader;
 }
+
 Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::open(
         const TabletIndex* index_meta) const {
     auto index_id = index_meta->index_id();

@@ -71,6 +71,7 @@ public:
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     virtual ~InvertedIndexFileWriter() = default;
+    Status add_into_searcher_cache();
     Status write();
     Status write_v1();
     Status close();
