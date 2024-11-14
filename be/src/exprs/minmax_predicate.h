@@ -45,6 +45,8 @@ public:
 
     void set_contain_null() { _contain_null = true; }
 
+    virtual void to_pb(PMinMaxFilter* filter) = 0;
+
 protected:
     bool _contain_null = false;
 };
@@ -164,6 +166,17 @@ public:
         _max = *(T*)max_data;
         return Status::OK();
     }
+
+    void set_pb(PMinMaxFilter* filter, auto f) {
+        if constexpr (NeedMin) {
+            f(filter->mutable_min_val(), _min);
+        }
+        if constexpr (NeedMax) {
+            f(filter->mutable_max_val(), _max);
+        }
+    }
+
+    void to_pb(PMinMaxFilter* filter) override { set_pb(filter, get_convertor<T>()); }
 
 protected:
     T _max = type_limit<T>::min();

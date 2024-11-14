@@ -904,11 +904,6 @@ public:
         _context->bloom_filter_func->get_data(data, filter_length);
     }
 
-    void get_minmax_filter_desc(void** min_data, void** max_data) {
-        *min_data = _context->minmax_func->get_min();
-        *max_data = _context->minmax_func->get_max();
-    }
-
     PrimitiveType column_type() { return _column_return_type; }
 
     bool is_bloomfilter() const { return get_real_type() == RuntimeFilterType::BLOOM_FILTER; }
@@ -1718,132 +1713,8 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
 }
 
 void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
-    void* min_data = nullptr;
-    void* max_data = nullptr;
-    _wrapper->get_minmax_filter_desc(&min_data, &max_data);
-    DCHECK(min_data != nullptr && max_data != nullptr);
     filter->set_column_type(to_proto(_wrapper->column_type()));
-
-    switch (_wrapper->column_type()) {
-    case TYPE_BOOLEAN: {
-        filter->mutable_min_val()->set_boolval(*reinterpret_cast<const bool*>(min_data));
-        filter->mutable_max_val()->set_boolval(*reinterpret_cast<const bool*>(max_data));
-        return;
-    }
-    case TYPE_TINYINT: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int8_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int8_t*>(max_data));
-        return;
-    }
-    case TYPE_SMALLINT: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int16_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int16_t*>(max_data));
-        return;
-    }
-    case TYPE_INT: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
-        return;
-    }
-    case TYPE_BIGINT: {
-        filter->mutable_min_val()->set_longval(*reinterpret_cast<const int64_t*>(min_data));
-        filter->mutable_max_val()->set_longval(*reinterpret_cast<const int64_t*>(max_data));
-        return;
-    }
-    case TYPE_LARGEINT: {
-        filter->mutable_min_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(min_data)));
-        filter->mutable_max_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(max_data)));
-        return;
-    }
-    case TYPE_FLOAT: {
-        filter->mutable_min_val()->set_doubleval(*reinterpret_cast<const float*>(min_data));
-        filter->mutable_max_val()->set_doubleval(*reinterpret_cast<const float*>(max_data));
-        return;
-    }
-    case TYPE_DOUBLE: {
-        filter->mutable_min_val()->set_doubleval(*reinterpret_cast<const double*>(min_data));
-        filter->mutable_max_val()->set_doubleval(*reinterpret_cast<const double*>(max_data));
-        return;
-    }
-    case TYPE_DATEV2: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
-        return;
-    }
-    case TYPE_DATETIMEV2: {
-        filter->mutable_min_val()->set_longval(*reinterpret_cast<const int64_t*>(min_data));
-        filter->mutable_max_val()->set_longval(*reinterpret_cast<const int64_t*>(max_data));
-        return;
-    }
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
-        char convert_buffer[30];
-        reinterpret_cast<const VecDateTimeValue*>(min_data)->to_string(convert_buffer);
-        filter->mutable_min_val()->set_stringval(convert_buffer);
-        reinterpret_cast<const VecDateTimeValue*>(max_data)->to_string(convert_buffer);
-        filter->mutable_max_val()->set_stringval(convert_buffer);
-        return;
-    }
-    case TYPE_DECIMALV2: {
-        filter->mutable_min_val()->set_stringval(
-                reinterpret_cast<const DecimalV2Value*>(min_data)->to_string());
-        filter->mutable_max_val()->set_stringval(
-                reinterpret_cast<const DecimalV2Value*>(max_data)->to_string());
-        return;
-    }
-    case TYPE_DECIMAL32: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
-        return;
-    }
-    case TYPE_DECIMAL64: {
-        filter->mutable_min_val()->set_longval(*reinterpret_cast<const int64_t*>(min_data));
-        filter->mutable_max_val()->set_longval(*reinterpret_cast<const int64_t*>(max_data));
-        return;
-    }
-    case TYPE_DECIMAL128I: {
-        filter->mutable_min_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(min_data)));
-        filter->mutable_max_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const int128_t*>(max_data)));
-        return;
-    }
-    case TYPE_DECIMAL256: {
-        filter->mutable_min_val()->set_stringval(
-                wide::to_string(*reinterpret_cast<const wide::Int256*>(min_data)));
-        filter->mutable_max_val()->set_stringval(
-                wide::to_string(*reinterpret_cast<const wide::Int256*>(max_data)));
-        return;
-    }
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        const auto* min_string_value = reinterpret_cast<const std::string*>(min_data);
-        filter->mutable_min_val()->set_stringval(*min_string_value);
-        const auto* max_string_value = reinterpret_cast<const std::string*>(max_data);
-        filter->mutable_max_val()->set_stringval(*max_string_value);
-        break;
-    }
-    case TYPE_IPV4: {
-        filter->mutable_min_val()->set_intval(*reinterpret_cast<const int32_t*>(min_data));
-        filter->mutable_max_val()->set_intval(*reinterpret_cast<const int32_t*>(max_data));
-        return;
-    }
-    case TYPE_IPV6: {
-        filter->mutable_min_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const uint128_t*>(min_data)));
-        filter->mutable_max_val()->set_stringval(
-                LargeIntValue::to_string(*reinterpret_cast<const uint128_t*>(max_data)));
-        return;
-    }
-    default: {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "runtime filter meet invalid PrimitiveType type {}",
-                        int(_wrapper->column_type()));
-    }
-    }
+    _wrapper->_context->minmax_func->to_pb(filter);
 }
 
 RuntimeFilterType IRuntimeFilter::get_real_type() {
