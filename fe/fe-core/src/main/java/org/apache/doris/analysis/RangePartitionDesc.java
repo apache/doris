@@ -69,9 +69,6 @@ public class RangePartitionDesc extends PartitionDesc {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        if (isAutoCreatePartitions()) {
-            sb.append("AUTO ");
-        }
         sb.append("PARTITION BY RANGE(");
         int idx = 0;
         for (String column : partitionColNames) {
