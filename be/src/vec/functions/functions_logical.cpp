@@ -206,7 +206,7 @@ DataTypePtr FunctionAnyArityLogical<Impl, Name>::get_return_type_impl(
 template <typename Impl, typename Name>
 Status FunctionAnyArityLogical<Impl, Name>::execute_impl(FunctionContext* context, Block& block,
                                                          const ColumnNumbers& arguments,
-                                                         size_t result_index,
+                                                         uint32_t result_index,
                                                          size_t input_rows_count) const {
     ColumnRawPtrs args_in;
     for (const auto arg_index : arguments)
@@ -268,7 +268,8 @@ bool functionUnaryExecuteType(Block& block, const ColumnNumbers& arguments, size
 
 template <template <typename> class Impl, typename Name>
 Status FunctionUnaryLogical<Impl, Name>::execute_impl(FunctionContext* context, Block& block,
-                                                      const ColumnNumbers& arguments, size_t result,
+                                                      const ColumnNumbers& arguments,
+                                                      uint32_t result,
                                                       size_t /*input_rows_count*/) const {
     if (!functionUnaryExecuteType<Impl, UInt8>(block, arguments, result)) {
         throw doris::Exception(ErrorCode::INVALID_ARGUMENT,

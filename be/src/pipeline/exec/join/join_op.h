@@ -20,7 +20,7 @@
 #include "vec/common/columns_hashing.h"
 #include "vec/core/block.h"
 
-namespace doris::pipeline {
+namespace doris {
 /**
  * Now we have different kinds of RowRef for join operation. Overall, RowRef is the base class and
  * the class inheritance is below:
@@ -129,12 +129,10 @@ struct RowRefList : RowRef {
     RowRefList() = default;
     RowRefList(size_t row_num_) : RowRef(row_num_) {}
 
-    ForwardIterator<RowRefList> begin() { return ForwardIterator<RowRefList>(this); }
+    ForwardIterator<RowRefList> begin() { return {this}; }
 
     /// insert element after current one
-    void insert(RowRefType&& row_ref, vectorized::Arena& pool) {
-        next.emplace_back(std::move(row_ref));
-    }
+    void insert(RowRefType&& row_ref, vectorized::Arena& pool) { next.emplace_back(row_ref); }
 
     void clear() { next.clear(); }
 
@@ -149,9 +147,7 @@ struct RowRefListWithFlag : RowRef {
     RowRefListWithFlag() = default;
     RowRefListWithFlag(size_t row_num_) : RowRef(row_num_) {}
 
-    ForwardIterator<RowRefListWithFlag> const begin() {
-        return ForwardIterator<RowRefListWithFlag>(this);
-    }
+    ForwardIterator<RowRefListWithFlag> begin() { return {this}; }
 
     /// insert element after current one
     void insert(RowRefType&& row_ref, vectorized::Arena& pool) { next.emplace_back(row_ref); }
@@ -171,9 +167,7 @@ struct RowRefListWithFlags : RowRefWithFlag {
     RowRefListWithFlags() = default;
     RowRefListWithFlags(size_t row_num_) : RowRefWithFlag(row_num_) {}
 
-    ForwardIterator<RowRefListWithFlags> const begin() {
-        return ForwardIterator<RowRefListWithFlags>(this);
-    }
+    ForwardIterator<RowRefListWithFlags> begin() { return {this}; }
 
     /// insert element after current one
     void insert(RowRefType&& row_ref, vectorized::Arena& pool) { next.emplace_back(row_ref); }
@@ -185,4 +179,4 @@ private:
     std::vector<RowRefType> next;
 };
 
-} // namespace doris::pipeline
+} // namespace doris

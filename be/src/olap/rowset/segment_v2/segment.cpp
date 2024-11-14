@@ -482,7 +482,8 @@ Status Segment::_load_pk_bloom_filter() {
     });
 }
 
-Status Segment::load_pk_index_and_bf() {
+Status Segment::load_pk_index_and_bf(OlapReaderStatistics* index_load_stats) {
+    _pk_index_load_stats = index_load_stats;
     RETURN_IF_ERROR(load_index());
     RETURN_IF_ERROR(_load_pk_bloom_filter());
     return Status::OK();
@@ -491,7 +492,7 @@ Status Segment::load_pk_index_and_bf() {
 Status Segment::load_index() {
     return _load_index_once.call([this] {
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr) {
-            _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>();
+            _pk_index_reader = std::make_unique<PrimaryKeyIndexReader>(_pk_index_load_stats);
             RETURN_IF_ERROR(_pk_index_reader->parse_index(_file_reader, *_pk_index_meta));
             // _meta_mem_usage += _pk_index_reader->get_memory_size();
             return Status::OK();
@@ -951,7 +952,7 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_schema,
                                bool with_seq_col, bool with_rowid, RowLocation* row_location,
-                               std::string* encoded_seq_value) {
+                               std::string* encoded_seq_value, OlapReaderStatistics* stats) {
     RETURN_IF_ERROR(load_pk_index_and_bf());
     bool has_seq_col = latest_schema->has_sequence_col();
     bool has_rowid = !latest_schema->cluster_key_idxes().empty();
@@ -971,7 +972,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     }
     bool exact_match = false;
     std::unique_ptr<segment_v2::IndexedColumnIterator> index_iterator;
-    RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator));
+    RETURN_IF_ERROR(_pk_index_reader->new_iterator(&index_iterator, stats));
     auto st = index_iterator->seek_at_or_after(&key_without_seq, &exact_match);
     if (!st.ok() && !st.is<ErrorCode::ENTRY_NOT_FOUND>()) {
         return st;

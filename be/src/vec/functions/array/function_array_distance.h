@@ -95,7 +95,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& arg1 = block.get_by_position(arguments[0]);
         const auto& arg2 = block.get_by_position(arguments[1]);
         if (!_check_input_type(arg1.type) || !_check_input_type(arg2.type)) {
@@ -123,7 +123,7 @@ public:
         // prepare return data
         auto dst = ColumnFloat64::create(input_rows_count);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(input_rows_count);
+        auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         const auto& offsets1 = *arr1.offsets_ptr;

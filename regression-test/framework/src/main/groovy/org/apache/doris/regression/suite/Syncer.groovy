@@ -486,6 +486,8 @@ class Syncer {
                             logger.error("TGetSnapshotResult meta is unset.")
                         } else if (!result.isSetJobInfo()) {
                             logger.error("TGetSnapshotResult job info is unset.")
+                        } else if (!result.isSetExpiredAt()) {
+                            logger.error("TGetSnapshotResult expiredAt is unset.")
                         } else {
                             isCheckedOK = true
                         }

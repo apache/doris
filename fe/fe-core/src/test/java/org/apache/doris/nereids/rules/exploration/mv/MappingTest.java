@@ -33,7 +33,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * MappingTest
@@ -343,6 +345,259 @@ public class MappingTest extends TestWithFeService {
         assertRelationMapping(generateRelationMapping.get(0), expectedRelationMapping, expectedSlotMapping);
     }
 
+    // Test more than two tables, and the same table num in source plan is equals to target plan
+    @Test
+    public void testGenerateMapping6() {
+        Plan sourcePlan = PlanChecker.from(connectContext)
+                .analyze("SELECT orders.*, l1.l_orderkey, l2.l_orderkey, l3.l_orderkey "
+                        + "FROM\n"
+                        + "  orders,\n"
+                        + "  lineitem l1,\n"
+                        + "  lineitem l2,\n"
+                        + "  lineitem l3\n"
+                        + "WHERE\n"
+                        + "  l1.l_orderkey = l2.l_orderkey and l1.l_orderkey = l3.l_orderkey\n"
+                        + "  AND l1.l_orderkey = o_orderkey")
+                .getPlan();
+
+        Plan targetPlan = PlanChecker.from(connectContext)
+                .analyze("SELECT orders.*, l1.l_orderkey, l2.l_orderkey, l3.l_orderkey "
+                        + "FROM\n"
+                        + "  lineitem l1,\n"
+                        + "  orders,\n"
+                        + "  lineitem l2,\n"
+                        + "  lineitem l3\n"
+                        + "WHERE\n"
+                        + "  l1.l_orderkey = l2.l_orderkey and l1.l_orderkey = l3.l_orderkey\n"
+                        + " AND l2.l_orderkey = o_orderkey")
+                .getPlan();
+        List<CatalogRelation> sourceRelations = new ArrayList<>();
+        sourcePlan.accept(RelationCollector.INSTANCE, sourceRelations);
+
+        List<CatalogRelation> targetRelations = new ArrayList<>();
+        targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
+
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        Assertions.assertNotNull(generateRelationMapping);
+        Assertions.assertEquals(6, generateRelationMapping.size());
+
+        // expected table relation mapping is as following
+        // (1, 3), (2, 2), (3, 0), (0, 1)
+        // (1, 0), (2, 3), (3, 2), (0, 1)
+        // (1, 2), (2, 3), (3, 0), (0, 1)
+        // (1, 0), (2, 2), (3, 3), (0, 1)
+        // (1, 2), (2, 0), (3, 3), (0, 1)
+        // (1, 3), (2, 0), (3, 2), (0, 1)
+        Set<BiMap<RelationId, RelationId>> expectedRelationMappingSet = new HashSet<>();
+        BiMap<RelationId, RelationId> expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(3), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(3), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(3), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(3), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(3), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(3), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        assertRelationMapping(new HashSet<>(generateRelationMapping), expectedRelationMappingSet);
+    }
+
+    // Test more than two tables, and the same table num in source plan is less then the num of target plan
+    @Test
+    public void testGenerateMapping7() {
+        Plan sourcePlan = PlanChecker.from(connectContext)
+                .analyze("SELECT orders.*, l1.l_orderkey, l3.l_orderkey "
+                        + "FROM\n"
+                        + "  orders,\n"
+                        + "  lineitem l1,\n"
+                        + "  lineitem l3\n"
+                        + "WHERE\n"
+                        + "  l1.l_orderkey = l3.l_orderkey\n"
+                        + "  AND l1.l_orderkey = o_orderkey")
+                .getPlan();
+
+        Plan targetPlan = PlanChecker.from(connectContext)
+                .analyze("SELECT orders.*, l1.l_orderkey, l2.l_orderkey, l3.l_orderkey "
+                        + "FROM\n"
+                        + "  lineitem l1,\n"
+                        + "  orders,\n"
+                        + "  lineitem l2,\n"
+                        + "  lineitem l3\n"
+                        + "WHERE\n"
+                        + "  l1.l_orderkey = l2.l_orderkey and l1.l_orderkey = l3.l_orderkey\n"
+                        + " AND l2.l_orderkey = o_orderkey")
+                .getPlan();
+        List<CatalogRelation> sourceRelations = new ArrayList<>();
+        sourcePlan.accept(RelationCollector.INSTANCE, sourceRelations);
+
+        List<CatalogRelation> targetRelations = new ArrayList<>();
+        targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
+
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        Assertions.assertNotNull(generateRelationMapping);
+        Assertions.assertEquals(6, generateRelationMapping.size());
+
+        // expected table relation mapping is as following
+        // (1, 2), (2, 0), (0, 1)
+        // (1, 2), (2, 3), (0, 1)
+        // (1, 0), (2, 2), (0, 1)
+        // (1, 0), (2, 3), (0, 1)
+        // (1, 3), (2, 0), (0, 1)
+        // (1, 3), (2, 2), (0, 1)
+        Set<BiMap<RelationId, RelationId>> expectedRelationMappingSet = new HashSet<>();
+        BiMap<RelationId, RelationId> expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(3));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        assertRelationMapping(new HashSet<>(generateRelationMapping), expectedRelationMappingSet);
+    }
+
+    // Test more than two tables, and the same table num in source plan is more then the num of target plan
+    @Test
+    public void testGenerateMapping8() {
+        Plan sourcePlan = PlanChecker.from(connectContext)
+                .analyze("SELECT orders.*, l1.l_orderkey, l2.l_orderkey, l3.l_orderkey "
+                        + "FROM\n"
+                        + "  orders,\n"
+                        + "  lineitem l1,\n"
+                        + "  lineitem l2,\n"
+                        + "  lineitem l3\n"
+                        + "WHERE\n"
+                        + "  l1.l_orderkey = l2.l_orderkey and l1.l_orderkey = l3.l_orderkey\n"
+                        + "  AND l1.l_orderkey = o_orderkey")
+                .getPlan();
+
+        Plan targetPlan = PlanChecker.from(connectContext)
+                .analyze("SELECT orders.*, l1.l_orderkey, l3.l_orderkey "
+                        + "FROM\n"
+                        + "  lineitem l1,\n"
+                        + "  orders,\n"
+                        + "  lineitem l3\n"
+                        + "WHERE\n"
+                        + " l1.l_orderkey = l3.l_orderkey\n"
+                        + " AND l3.l_orderkey = o_orderkey")
+                .getPlan();
+        List<CatalogRelation> sourceRelations = new ArrayList<>();
+        sourcePlan.accept(RelationCollector.INSTANCE, sourceRelations);
+
+        List<CatalogRelation> targetRelations = new ArrayList<>();
+        targetPlan.accept(RelationCollector.INSTANCE, targetRelations);
+
+        List<RelationMapping> generateRelationMapping = RelationMapping.generate(sourceRelations, targetRelations);
+        Assertions.assertNotNull(generateRelationMapping);
+        Assertions.assertEquals(6, generateRelationMapping.size());
+
+        // expected table relation mapping is as following
+        // (1, 0), (2, 2), (0, 1)
+        // (1, 0), (3, 2), (0, 1)
+        // (2, 0), (1, 2), (0, 1)
+        // (3, 0), (2, 2), (0, 1)
+        // (2, 0), (3, 2), (0, 1)
+        // (3, 0), (1, 2), (0, 1)
+        Set<BiMap<RelationId, RelationId>> expectedRelationMappingSet = new HashSet<>();
+        BiMap<RelationId, RelationId> expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(1), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(3), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(1), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(3), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(2), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(2), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(3), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        expectedRelationMapping = HashBiMap.create();
+        expectedRelationMapping.put(new RelationId(3), new RelationId(0));
+        expectedRelationMapping.put(new RelationId(1), new RelationId(2));
+        expectedRelationMapping.put(new RelationId(0), new RelationId(1));
+        expectedRelationMappingSet.add(expectedRelationMapping);
+
+        assertRelationMapping(new HashSet<>(generateRelationMapping), expectedRelationMappingSet);
+    }
+
     private void assertRelationMapping(RelationMapping relationMapping,
             BiMap<RelationId, RelationId> expectRelationMapping,
             BiMap<ExprId, ExprId> expectSlotMapping) {
@@ -360,6 +615,20 @@ public class MappingTest extends TestWithFeService {
                 generatedSlotMapping.put(key.getExprId(), value.getExprId())
         );
         Assertions.assertEquals(generatedSlotMapping, expectSlotMapping);
+    }
+
+    private void assertRelationMapping(Set<RelationMapping> relationMapping,
+            Set<BiMap<RelationId, RelationId>> expectRelationMapping) {
+        // check relation mapping if equals or not
+        Set<BiMap<RelationId, RelationId>> relationMappingSet = new HashSet<>();
+        relationMapping.forEach(mapping -> {
+                    BiMap<RelationId, RelationId> generatedRelationMapping = HashBiMap.create();
+                    mapping.getMappedRelationMap().forEach((key, value) ->
+                            generatedRelationMapping.put(key.getRelationId(), value.getRelationId()));
+                    relationMappingSet.add(generatedRelationMapping);
+                }
+        );
+        Assertions.assertEquals(relationMappingSet, expectRelationMapping);
     }
 
     protected static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {

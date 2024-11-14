@@ -33,7 +33,6 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/hash_table/hash.h"
-#include "vec/common/hash_table/hash_set.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_numbers.h"
@@ -62,7 +61,7 @@ using ColumnString = ColumnStr<UInt32>;
 template <typename T>
 struct OverlapSetImpl {
     using ElementNativeType = typename NativeType<typename T::value_type>::Type;
-    using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
+    using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
     Set set;
     void insert_array(const IColumn* column, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
@@ -73,7 +72,7 @@ struct OverlapSetImpl {
     bool find_any(const IColumn* column, size_t start, size_t size) {
         const auto& vec = assert_cast<const T&>(*column).get_data();
         for (size_t i = start; i < start + size; ++i) {
-            if (set.find(vec[i])) {
+            if (set.contains(vec[i])) {
                 return true;
             }
         }
@@ -83,7 +82,7 @@ struct OverlapSetImpl {
 
 template <>
 struct OverlapSetImpl<ColumnString> {
-    using Set = HashSetWithStackMemory<StringRef, DefaultHash<StringRef>, 4>;
+    using Set = phmap::flat_hash_set<StringRef, DefaultHash<StringRef>>;
     Set set;
     void insert_array(const IColumn* column, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
@@ -92,7 +91,7 @@ struct OverlapSetImpl<ColumnString> {
     }
     bool find_any(const IColumn* column, size_t start, size_t size) {
         for (size_t i = start; i < start + size; ++i) {
-            if (set.find(column->get_data_at(i))) {
+            if (set.contains(column->get_data_at(i))) {
                 return true;
             }
         }
@@ -207,7 +206,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DBUG_EXECUTE_IF("array_func.arrays_overlap", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                     "array_func.arrays_overlap", "req_id", 0);

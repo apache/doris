@@ -547,8 +547,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     }
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (_context.tablet_schema->has_inverted_index(*column)) {
-            const auto* index_info = _context.tablet_schema->get_inverted_index(*column);
+        if (const auto& index_info = _context.tablet_schema->inverted_index(*column);
+            index_info != nullptr) {
             auto index_id = index_info->index_id();
             if (_context.tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
@@ -956,7 +956,7 @@ Status BaseBetaRowsetWriter::create_inverted_index_file_writer(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
+Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end) {
     DCHECK(begin >= 0 && end >= 0);
     std::string path = BetaRowset::local_segment_path_segcompacted(_context.tablet_path,
@@ -996,6 +996,11 @@ Status BetaRowsetWriter::_create_segment_writer_for_segcompaction(
         RETURN_IF_ERROR(_segcompaction_worker->get_file_writer()->close());
     }
     _segcompaction_worker->get_file_writer().reset(file_writer.release());
+    if (auto& idx_file_writer = _segcompaction_worker->get_inverted_index_file_writer();
+        idx_file_writer != nullptr) {
+        RETURN_IF_ERROR(idx_file_writer->close());
+    }
+    _segcompaction_worker->get_inverted_index_file_writer().reset(index_file_writer.release());
     return Status::OK();
 }
 

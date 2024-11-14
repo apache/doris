@@ -17,6 +17,7 @@
 
 #include "runtime/fragment_mgr.h"
 
+#include <brpc/controller.h>
 #include <bvar/latency_recorder.h>
 #include <exprs/runtime_filter.h>
 #include <fmt/format.h>
@@ -84,6 +85,7 @@
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -487,8 +489,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());
 
-    if (_exec_env->master_info()->__isset.backend_id) {
-        params.__set_backend_id(_exec_env->master_info()->backend_id);
+    if (_exec_env->cluster_info()->backend_id != 0) {
+        params.__set_backend_id(_exec_env->cluster_info()->backend_id);
     }
 
     TReportExecStatusResult res;
@@ -576,17 +578,19 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     }
 }
 
+// Stage 2. prepare finished. then get FE instruction to execute
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
+    TUniqueId query_id;
+    query_id.__set_hi(request->query_id().hi());
+    query_id.__set_lo(request->query_id().lo());
     std::shared_ptr<QueryContext> q_ctx = nullptr;
     {
         std::lock_guard<std::mutex> lock(_lock);
-        TUniqueId query_id;
-        query_id.__set_hi(request->query_id().hi());
-        query_id.__set_lo(request->query_id().lo());
         q_ctx = _get_or_erase_query_ctx(query_id);
     }
     if (q_ctx) {
         q_ctx->set_ready_to_execute(Status::OK());
+        LOG_INFO("Query {} start execution", print_id(query_id));
     } else {
         return Status::InternalError(
                 "Failed to get query fragments context. Query may be "
@@ -659,6 +663,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             return Status::OK();
         }
 
+        // First time a fragment of a query arrived. print logs.
         LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
                   << ", total fragment num on current host: " << params.fragment_num_on_host
                   << ", fe process uuid: " << params.query_options.fe_process_uuid
@@ -687,7 +692,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         _set_scan_concurrency(params, query_ctx.get());
-        const bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
@@ -698,21 +702,14 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                 RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
-
-                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << ", use workload group: " << workload_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline);
             } else {
-                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << " carried group info but can not find group in be";
+                LOG(WARNING) << "Query/load id: " << print_id(query_ctx->query_id())
+                             << "can't find its workload group " << tg_id;
             }
         }
         // There is some logic in query ctx's dctor, we could not check if exists and delete the
         // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
         _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
-        LOG(INFO) << "Register query/load memory tracker, query/load id: "
-                  << print_id(query_ctx->query_id())
-                  << " limit: " << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
     }
     return Status::OK();
 }
@@ -909,6 +906,7 @@ void FragmentMgr::cancel_worker() {
             c->clear_finished_tasks();
         }
 
+        std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto it = _query_ctx_map.begin(); it != _query_ctx_map.end();) {
@@ -916,10 +914,18 @@ void FragmentMgr::cancel_worker() {
                     if (q_ctx->is_timeout(now)) {
                         LOG_WARNING("Query {} is timeout", print_id(it->first));
                         queries_timeout.push_back(it->first);
-                        ++it;
-                    } else {
-                        ++it;
+                    } else if (config::enable_brpc_connection_check) {
+                        auto brpc_stubs = q_ctx->get_using_brpc_stubs();
+                        for (auto& item : brpc_stubs) {
+                            if (!brpc_stub_with_queries.contains(item.second)) {
+                                brpc_stub_with_queries.emplace(item.second,
+                                                               BrpcItem {item.first, {q_ctx}});
+                            } else {
+                                brpc_stub_with_queries[item.second].queries.emplace_back(q_ctx);
+                            }
+                        }
                     }
+                    ++it;
                 } else {
                     it = _query_ctx_map.erase(it);
                 }
@@ -1011,6 +1017,10 @@ void FragmentMgr::cancel_worker() {
             }
         }
 
+        for (auto it : brpc_stub_with_queries) {
+            _check_brpc_available(it.first, it.second);
+        }
+
         if (!queries_lost_coordinator.empty()) {
             LOG(INFO) << "There are " << queries_lost_coordinator.size()
                       << " queries need to be cancelled, coordinator dead or restarted.";
@@ -1034,8 +1044,55 @@ void FragmentMgr::cancel_worker() {
                                       "Source frontend is not running or restarted"));
         }
 
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
+    } while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::fragment_mgr_cancel_worker_interval_seconds)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
+}
+
+void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
+                                        const BrpcItem& brpc_item) {
+    const std::string message = "hello doris!";
+    std::string error_message;
+    int32_t failed_count = 0;
+    while (true) {
+        PHandShakeRequest request;
+        request.set_hello(message);
+        PHandShakeResponse response;
+        brpc::Controller cntl;
+        cntl.set_timeout_ms(500 * (failed_count + 1));
+        cntl.set_max_retry(10);
+        brpc_stub->hand_shake(&cntl, &request, &response, nullptr);
+
+        if (cntl.Failed()) {
+            error_message = cntl.ErrorText();
+            LOG(WARNING) << "brpc stub: " << brpc_item.network_address.hostname << ":"
+                         << brpc_item.network_address.port << " check failed: " << error_message;
+        } else if (response.has_status() && response.status().status_code() == 0) {
+            break;
+        } else {
+            error_message = response.DebugString();
+            LOG(WARNING) << "brpc stub: " << brpc_item.network_address.hostname << ":"
+                         << brpc_item.network_address.port << " check failed: " << error_message;
+        }
+        failed_count++;
+        if (failed_count == 2) {
+            for (const auto& query_wptr : brpc_item.queries) {
+                auto query = query_wptr.lock();
+                if (query && !query->is_cancelled()) {
+                    query->cancel(Status::InternalError("brpc(dest: {}:{}) check failed: {}",
+                                                        brpc_item.network_address.hostname,
+                                                        brpc_item.network_address.port,
+                                                        error_message));
+                }
+            }
+
+            LOG(WARNING) << "remove brpc stub from cache: " << brpc_item.network_address.hostname
+                         << ":" << brpc_item.network_address.port << ", error: " << error_message;
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    brpc_item.network_address.hostname, brpc_item.network_address.port);
+            break;
+        }
+    }
 }
 
 void FragmentMgr::debug(std::stringstream& ss) {}

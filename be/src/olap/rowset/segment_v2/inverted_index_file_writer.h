@@ -64,8 +64,8 @@ public:
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     ~InvertedIndexFileWriter() = default;
-    int64_t write_v2();
-    int64_t write_v1();
+    Status write_v2();
+    Status write_v1();
     Status close();
     int64_t headerLength();
     const InvertedIndexFileInfo* get_index_file_info() const {

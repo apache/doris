@@ -281,7 +281,7 @@ public class CloudEnv extends Env {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("current instance does not have a cluster name :{}", clusterName);
             }
-            throw new DdlException(String.format("Cluster %s not exist", clusterName),
+            throw new DdlException(String.format("Compute Group %s not exist", clusterName),
                 ErrorCode.ERR_CLOUD_CLUSTER_ERROR);
         }
     }

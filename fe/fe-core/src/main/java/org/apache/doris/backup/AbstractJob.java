@@ -170,6 +170,8 @@ public abstract class AbstractJob implements Writable {
 
     public abstract boolean isCancelled();
 
+    public abstract boolean isFinished();
+
     public abstract Status updateRepo(Repository repo);
 
     public static AbstractJob read(DataInput in) throws IOException {
@@ -210,8 +212,11 @@ public abstract class AbstractJob implements Writable {
             count++;
         }
 
-        if ((type == JobType.BACKUP && Config.backup_job_compressed_serialization)
-                || (type == JobType.RESTORE && Config.restore_job_compressed_serialization)) {
+        // For a completed job, there's no need to save it with compressed serialization as it has
+        // no snapshot or backup meta info, making it small in size. This helps maintain compatibility
+        // more easily.
+        if (!isDone() && ((type == JobType.BACKUP && Config.backup_job_compressed_serialization)
+                || (type == JobType.RESTORE && Config.restore_job_compressed_serialization))) {
             Text.writeString(out, COMPRESSED_JOB_ID);
             GsonUtils.toJsonCompressed(out, this);
         } else {

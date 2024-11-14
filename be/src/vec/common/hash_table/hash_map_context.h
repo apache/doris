@@ -27,16 +27,11 @@
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/columns_hashing.h"
-#include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/string_hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/core/types.h"
 #include "vec/utils/util.hpp"
-
-namespace doris::pipeline {
-struct RowRefListWithFlags;
-}
 
 namespace doris::vectorized {
 
@@ -588,8 +583,7 @@ struct DataWithNullKey : public Base {
 
 private:
     bool has_null_key = false;
-    // null_key_data store AggregateDataPtr on agg node, store PartitionBlocks on partition sort node.
-    void* null_key_data = nullptr;
+    Base::Value null_key_data;
 };
 
 /// Single low cardinality column.

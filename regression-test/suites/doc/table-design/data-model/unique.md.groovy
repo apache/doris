@@ -32,14 +32,15 @@ suite("docs/table-design/data-model/unique.md") {
             `register_time` DATETIME COMMENT "用户注册时间"
         )
         UNIQUE KEY(`user_id`, `username`)
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 10
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 3"
         );
         """
 
         multi_sql """
-        CREATE TABLE IF NOT EXISTS example_tbl_unique_merge_on_write
+        DROP TABLE example_tbl_unique;
+        CREATE TABLE IF NOT EXISTS example_tbl_unique
         (
             `user_id` LARGEINT NOT NULL COMMENT "用户id",
             `username` VARCHAR(50) NOT NULL COMMENT "用户昵称",
@@ -51,10 +52,10 @@ suite("docs/table-design/data-model/unique.md") {
             `register_time` DATETIME COMMENT "用户注册时间"
         )
         UNIQUE KEY(`user_id`, `username`)
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 10
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1",
-        "enable_unique_key_merge_on_write" = "true"
+        "replication_allocation" = "tag.location.default: 3",
+        "enable_unique_key_merge_on_write" = "false"
         );
         """
     } catch (Throwable t) {

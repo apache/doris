@@ -235,7 +235,7 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentStartAsync(TNetworkAddress address,
-            PExecPlanFragmentStartRequest request) throws TException, RpcException {
+            PExecPlanFragmentStartRequest request) throws RpcException {
         try {
             final BackendServiceClient client = getProxy(address);
             return client.execPlanFragmentStartAsync(request);

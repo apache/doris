@@ -429,7 +429,7 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
 
 template <typename FromType, typename ToType, typename Transform>
 struct DateTimeTransformImpl {
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           size_t input_rows_count) {
         using Op = Transformer<FromType, ToType, Transform>;
 

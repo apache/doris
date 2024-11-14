@@ -140,6 +140,7 @@ public class SummaryProfile {
             NEREIDS_REWRITE_TIME,
             NEREIDS_OPTIMIZE_TIME,
             NEREIDS_TRANSLATE_TIME,
+            NEREIDS_DISTRIBUTE_TIME,
             WORKLOAD_GROUP,
             ANALYSIS_TIME,
             PLAN_TIME,

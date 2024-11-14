@@ -119,7 +119,7 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(
 }
 
 std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(
-        const Block& block, const ColumnNumbers& args, size_t result,
+        const Block& block, const ColumnNumbers& args, uint32_t result,
         bool need_replace_null_data_to_default) {
     auto [res, res_args] =
             create_block_with_nested_columns(block, args, true, need_replace_null_data_to_default);

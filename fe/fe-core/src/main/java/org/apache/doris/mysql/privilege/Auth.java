@@ -681,7 +681,9 @@ public class Auth implements Writable {
             throws DdlException {
         writeLock();
         try {
-            checkTablePatternExist(tblPattern);
+            if (!isReplay) {
+                checkTablePatternExist(tblPattern);
+            }
             if (role == null) {
                 if (!doesUserExist(userIdent)) {
                     throw new DdlException("user " + userIdent + " does not exist");
@@ -1015,6 +1017,10 @@ public class Auth implements Writable {
 
     public void alterRole(AlterRoleStmt stmt) throws DdlException {
         alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
+    }
+
+    public void alterRole(String role, String comment) throws DdlException {
+        alterRoleInternal(role, comment, false);
     }
 
     public void replayCreateRole(PrivInfo info) {

@@ -197,6 +197,7 @@ message ObjectStoreInfoPB {
     optional string user_id = 13;
     optional EncryptionInfoPB encryption_info = 14;
     optional bool sse_enabled = 15;
+    optional bool use_path_style = 16;
 }
 
 // The legacy ObjectStoreInfoPB is stored in InstanceInfoPB
@@ -1420,6 +1421,7 @@ message GetDeleteBitmapResponse {
     repeated int64 versions = 4;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
+    optional int64 tablet_id = 6;
 }
 
 message RemoveDeleteBitmapRequest {

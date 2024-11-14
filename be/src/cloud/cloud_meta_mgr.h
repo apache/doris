@@ -57,7 +57,8 @@ public:
 
     Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
 
-    Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false);
+    Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false,
+                               bool sync_delete_bitmap = true);
 
     Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
@@ -95,8 +96,8 @@ public:
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
                                 DeleteBitmap* delete_bitmap);
 
-    Status update_delete_bitmap_without_lock(const CloudTablet& tablet,
-                                             DeleteBitmap* delete_bitmap);
+    Status cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                   DeleteBitmap* delete_bitmap);
 
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);

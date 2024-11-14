@@ -250,9 +250,11 @@ public class HeartbeatMgr extends MasterDaemon {
                 copiedMasterInfo.setHeartbeatFlags(flags);
                 copiedMasterInfo.setBackendId(backendId);
                 copiedMasterInfo.setFrontendInfos(feInfos);
+                copiedMasterInfo.setAuthToken(Env.getCurrentEnv().getTokenManager().acquireToken());
                 if (Config.isCloudMode()) {
                     String cloudUniqueId = backend.getTagMap().get(Tag.CLOUD_UNIQUE_ID);
                     copiedMasterInfo.setCloudUniqueId(cloudUniqueId);
+                    copiedMasterInfo.setTabletReportInactiveDurationMs(Config.rehash_tablet_after_be_dead_seconds);
                 }
                 THeartbeatResult result;
                 if (!FeConstants.runningUnitTest) {
@@ -374,6 +376,7 @@ public class HeartbeatMgr extends MasterDaemon {
             try {
                 client = ClientPool.frontendHeartbeatPool.borrowObject(addr);
                 TFrontendPingFrontendRequest request = new TFrontendPingFrontendRequest(clusterId, token);
+                request.setDeployMode(Env.getCurrentEnv().getDeployMode());
                 TFrontendPingFrontendResult result = client.ping(request);
                 ok = true;
                 if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
