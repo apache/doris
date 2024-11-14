@@ -164,7 +164,6 @@ public class ExprIdRewriter extends ExpressionRewrite {
         }
     }
 
-
     private LogicalSink<Plan> applyRewrite(MatchingContext<? extends LogicalSink<Plan>> ctx) {
         LogicalSink<Plan> sink = ctx.root;
         ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
