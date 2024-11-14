@@ -90,7 +90,7 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} complete
         """
-    waitingMTMVTaskFinished(jobName)
+    waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_complete_rebuild "SELECT * FROM ${mvName} order by par,id"
 
     sql """drop materialized view if exists ${mvName};"""
