@@ -45,7 +45,7 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
     auto end_key = stats_tablet_key({instance_id, idx.table_id(), idx.index_id(), idx.partition_id(), idx.tablet_id() + 1});
     // clang-format on
     std::vector<std::pair<std::string, std::string>> stats_kvs;
-    stats_kvs.reserve(5); // aggregate + data_size + num_rows + num_rowsets + num_segments
+    stats_kvs.reserve(7); // aggregate + data_size + num_rows + num_rowsets + num_segments + index_size + segment_size
 
     std::unique_ptr<RangeGetIterator> it;
     do {
@@ -93,7 +93,7 @@ int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::stri
                               TabletStats& detached_stats) {
     bool unexpected_size = false;
     // clang-format off
-    if (stats_kvs.size() != 5    // aggregated stats and 4 splitted stats: num_rowsets num_segs data_size num_rows
+    if (stats_kvs.size() != 7    // aggregated stats and 4 splitted stats: num_rowsets num_segs data_size num_rows index_size segment_size
         && stats_kvs.size() != 2 // aggregated stats and 1 splitted stats: num_rowsets
         && stats_kvs.size() != 1 // aggregated stats only (nothing has been imported since created)
         ) {
@@ -137,6 +137,10 @@ int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::stri
             detached_stats.num_rowsets = val;
         } else if (*suffix == STATS_KEY_SUFFIX_NUM_SEGS) {
             detached_stats.num_segs = val;
+        } else if (*suffix == STATS_KEY_SUFFIX_INDEX_SIZE) {
+            detached_stats.index_size = val;
+        } else if (*suffix == STATS_KEY_SUFFIX_SEGMENT_SIZE) {
+            detached_stats.segment_size = val;
         } else {
             LOG(WARNING) << "unknown tablet stats suffix=" << *suffix << " key=" << hex(k);
         }
@@ -155,6 +159,8 @@ void merge_tablet_stats(TabletStatsPB& stats, const TabletStats& detached_stats)
     stats.set_num_rows(stats.num_rows() + detached_stats.num_rows);
     stats.set_num_rowsets(stats.num_rowsets() + detached_stats.num_rowsets);
     stats.set_num_segments(stats.num_segments() + detached_stats.num_segs);
+    stats.set_index_size(stats.index_size() + detached_stats.index_size);
+    stats.set_segment_size(stats.segment_size() + detached_stats.segment_size);
 }
 
 void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transaction* txn,
@@ -312,6 +318,30 @@ MetaServiceResponseStatus fix_tablet_stats_internal(
             memcpy(tablet_stat_data_size_value.data(), &tablet_stat_data_size,
                    sizeof(tablet_stat_data_size));
             txn->put(tablet_stat_data_size_key, tablet_stat_data_size_value);
+            // set tablet stats index size = 0
+            // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "index_size" -> int64
+            std::string tablet_stat_index_size_key;
+            stats_tablet_index_size_key(
+                    {instance_id, tablet_stat.idx().table_id(), tablet_stat.idx().index_id(),
+                     tablet_stat.idx().partition_id(), tablet_stat.idx().tablet_id()},
+                    &tablet_stat_index_size_key);
+            int64_t tablet_stat_index_size = 0;
+            std::string tablet_stat_index_size_value(sizeof(tablet_stat_index_size), '\0');
+            memcpy(tablet_stat_index_size_value.data(), &tablet_stat_index_size,
+                   sizeof(tablet_stat_index_size));
+            txn->put(tablet_stat_index_size_key, tablet_stat_index_size_value);
+            // set tablet stats segment size = 0
+            // 0x01 "stats" ${instance_id} "tablet" ${table_id} ${index_id} ${partition_id} ${tablet_id} "segment_size" -> int64
+            std::string tablet_stat_segment_size_key;
+            stats_tablet_segment_size_key(
+                    {instance_id, tablet_stat.idx().table_id(), tablet_stat.idx().index_id(),
+                     tablet_stat.idx().partition_id(), tablet_stat.idx().tablet_id()},
+                    &tablet_stat_segment_size_key);
+            int64_t tablet_stat_segment_size = 0;
+            std::string tablet_stat_segment_size_value(sizeof(tablet_stat_segment_size), '\0');
+            memcpy(tablet_stat_segment_size_value.data(), &tablet_stat_segment_size,
+                   sizeof(tablet_stat_segment_size));
+            txn->put(tablet_stat_segment_size_key, tablet_stat_segment_size_value);
         }
     }
 
@@ -395,6 +425,76 @@ MetaServiceResponseStatus check_new_tablet_stats(
             LOG_WARNING("[fix tablet stats]:data size check failed")
                     .tag("data size", tablet_stat_data_size)
                     .tag("check data size", tablet_stat_data_size_check);
+        }
+
+        // check index size
+        std::string tablet_stat_index_size_key;
+        stats_tablet_index_size_key(
+                {instance_id, tablet_stat_ptr->idx().table_id(), tablet_stat_ptr->idx().index_id(),
+                 tablet_stat_ptr->idx().partition_id(), tablet_stat_ptr->idx().tablet_id()},
+                &tablet_stat_index_size_key);
+        int64_t tablet_stat_index_size = 0;
+        std::string tablet_stat_index_size_value(sizeof(tablet_stat_index_size), '\0');
+        err = txn->get(tablet_stat_index_size_key, &tablet_stat_index_size_value);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            st.set_code(cast_as<ErrCategory::READ>(err));
+            return st;
+        }
+        int64_t tablet_stat_index_size_check;
+
+        if (tablet_stat_index_size_value.size() != sizeof(tablet_stat_index_size_check))
+                [[unlikely]] {
+            LOG(WARNING) << " malformed tablet stats value v.index_size="
+                         << tablet_stat_index_size_value.size()
+                         << " value=" << hex(tablet_stat_index_size_value);
+        }
+        std::memcpy(&tablet_stat_index_size_check, tablet_stat_index_size_value.data(),
+                    sizeof(tablet_stat_index_size_check));
+        if constexpr (std::endian::native == std::endian::big) {
+            tablet_stat_index_size_check = bswap_64(tablet_stat_index_size_check);
+        }
+        if (tablet_stat_index_size_check != tablet_stat_index_size &&
+            // ditto
+            (tablet_stat_index_size_check > 2 * tablet_stat_index_size ||
+             tablet_stat_index_size > 2 * tablet_stat_index_size_check)) {
+            LOG_WARNING("[fix tablet stats]:index size check failed")
+                    .tag("index size", tablet_stat_index_size)
+                    .tag("check index size", tablet_stat_index_size_check);
+        }
+
+        // check data size
+        std::string tablet_stat_segment_size_key;
+        stats_tablet_segment_size_key(
+                {instance_id, tablet_stat_ptr->idx().table_id(), tablet_stat_ptr->idx().index_id(),
+                 tablet_stat_ptr->idx().partition_id(), tablet_stat_ptr->idx().tablet_id()},
+                &tablet_stat_segment_size_key);
+        int64_t tablet_stat_segment_size = 0;
+        std::string tablet_stat_segment_size_value(sizeof(tablet_stat_segment_size), '\0');
+        err = txn->get(tablet_stat_segment_size_key, &tablet_stat_segment_size_value);
+        if (err != TxnErrorCode::TXN_OK && err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            st.set_code(cast_as<ErrCategory::READ>(err));
+            return st;
+        }
+        int64_t tablet_stat_segment_size_check;
+
+        if (tablet_stat_segment_size_value.size() != sizeof(tablet_stat_segment_size_check))
+                [[unlikely]] {
+            LOG(WARNING) << " malformed tablet stats value v.segment_size="
+                         << tablet_stat_segment_size_value.size()
+                         << " value=" << hex(tablet_stat_segment_size_value);
+        }
+        std::memcpy(&tablet_stat_segment_size_check, tablet_stat_segment_size_value.data(),
+                    sizeof(tablet_stat_segment_size_check));
+        if constexpr (std::endian::native == std::endian::big) {
+            tablet_stat_segment_size_check = bswap_64(tablet_stat_segment_size_check);
+        }
+        if (tablet_stat_segment_size_check != tablet_stat_segment_size &&
+            // ditto
+            (tablet_stat_segment_size_check > 2 * tablet_stat_segment_size ||
+             tablet_stat_segment_size > 2 * tablet_stat_segment_size_check)) {
+            LOG_WARNING("[fix tablet stats]:segment size check failed")
+                    .tag("segment size", tablet_stat_segment_size)
+                    .tag("check segment size", tablet_stat_segment_size_check);
         }
     }
 

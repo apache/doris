@@ -356,6 +356,7 @@ terminal String
     KW_DEMAND,
     KW_DESC,
     KW_DESCRIBE,
+    KW_DETAIL,
     KW_DIAGNOSE,
     KW_DIAGNOSIS,
     KW_DISK,
@@ -1013,6 +1014,8 @@ nonterminal List<Expr> copy_select_expr_list;
 
 //genearted column
 nonterminal Boolean opt_generated_always;
+
+nonterminal Boolean opt_detailed;
 
 precedence nonassoc COMMA;
 precedence nonassoc STRING_LITERAL;
@@ -4493,13 +4496,13 @@ show_param ::=
         RESULT = new ShowDataSkewStmt(table_ref);
     :}
     /* Show data statement: used to show data size of specified range */
-     | KW_DATA order_by_clause:orderByClause opt_properties:prop
+     | KW_DATA opt_detailed:detailed order_by_clause:orderByClause opt_properties:prop
     {:
-        RESULT = new ShowDataStmt(null, orderByClause, prop);
+        RESULT = new ShowDataStmt(null, orderByClause, prop, detailed);
     :}
-    | KW_DATA KW_FROM table_name:dbTblName order_by_clause:orderByClause
+    | KW_DATA opt_detailed:detailed KW_FROM table_name:dbTblName order_by_clause:orderByClause
     {:
-        RESULT = new ShowDataStmt(dbTblName, orderByClause, null);
+        RESULT = new ShowDataStmt(dbTblName, orderByClause, null, detailed);
     :}
     | opt_tmp:tmp KW_PARTITIONS KW_FROM table_name:tblName opt_wild_where order_by_clause:orderByClause limit_clause: limitClause
     {:
@@ -5060,6 +5063,17 @@ cancel_param ::=
     | KW_WARM KW_UP KW_JOB opt_wild_where
     {:
         RESULT = new CancelCloudWarmUpStmt(parser.where);
+    :}
+    ;
+
+opt_detailed ::=
+     /* empty */
+    {:
+        RESULT = false;
+    :}
+    | KW_WITH KW_DETAIL
+    {:
+        RESULT = true;
     :}
     ;
 
@@ -8198,6 +8212,8 @@ keyword ::=
     | KW_DECIMALV2:id
     {: RESULT = id; :}
     | KW_DECIMALV3:id
+    {: RESULT = id; :}
+    | KW_DETAIL:id
     {: RESULT = id; :}
     | KW_DIAGNOSE:id
     {: RESULT = id; :}

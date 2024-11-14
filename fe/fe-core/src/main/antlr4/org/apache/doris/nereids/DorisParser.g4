@@ -318,7 +318,8 @@ unsupportedShowStatement
         ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showAlterTable
     | SHOW DATA SKEW FROM baseTableRef                                              #showDataSkew
-    | SHOW DATA (FROM tableName=multipartIdentifier)? sortClause? propertyClause?   #showData
+    | SHOW DATA (WITH DETAIL)? (FROM tableName=multipartIdentifier)? 
+        sortClause? propertyClause?                                                 #showData
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
