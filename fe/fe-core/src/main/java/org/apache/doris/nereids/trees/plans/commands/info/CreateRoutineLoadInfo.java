@@ -189,7 +189,7 @@ public class CreateRoutineLoadInfo {
     /**
      * constructor for create table
      */
-    public CreateRoutineLoadInfo(LabelName labelName, String tableName, Map<String, LoadProperty> loadPropertyList,
+    public CreateRoutineLoadInfo(LabelName labelName, String tableName, Map<String, LoadProperty> loadPropertyMap,
                                  Map<String, String> jobProperties, String typeName,
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
                                  String comment) {
@@ -198,7 +198,7 @@ public class CreateRoutineLoadInfo {
             this.isMultiTable = true;
         }
         this.tableName = tableName;
-        this.loadPropertyMap = loadPropertyList;
+        this.loadPropertyMap = loadPropertyMap;
         this.jobProperties = jobProperties == null ? Maps.newHashMap() : jobProperties;
         this.typeName = typeName.toUpperCase();
         this.dataSourceProperties = RoutineLoadDataSourcePropertyFactory
@@ -437,11 +437,16 @@ public class CreateRoutineLoadInfo {
         this.dataSourceProperties.analyze();
     }
 
+    /**
+     * make legacy create routine load statement after validate by nereids
+     * @return legacy create routine load statement
+     */
     public CreateRoutineLoadStmt translateToLegacyStmt() {
         return new CreateRoutineLoadStmt(labelName, null, jobProperties, typeName, routineLoadDesc,
             desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
             execMemLimit, sendBatchParallelism, timezone, format, jsonPaths, jsonRoot, enclose, escape, workloadGroupId,
-            loadToSingleTablet, strictMode, isPartialUpdate, stripOuterArray, numAsString, fuzzyParse
+            loadToSingleTablet, strictMode, isPartialUpdate, stripOuterArray, numAsString, fuzzyParse,
+            dataSourceProperties
         );
     }
 }

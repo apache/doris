@@ -85,6 +85,7 @@ import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
+import org.apache.doris.nereids.DorisParser.CreateRoutineLoadContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateTableContext;
 import org.apache.doris.nereids.DorisParser.CreateTableLikeContext;
@@ -142,6 +143,7 @@ import org.apache.doris.nereids.DorisParser.LambdaExpressionContext;
 import org.apache.doris.nereids.DorisParser.LateralViewContext;
 import org.apache.doris.nereids.DorisParser.LessThanPartitionDefContext;
 import org.apache.doris.nereids.DorisParser.LimitClauseContext;
+import org.apache.doris.nereids.DorisParser.LoadPropertyContext;
 import org.apache.doris.nereids.DorisParser.LogicalBinaryContext;
 import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MapLiteralContext;
@@ -1457,7 +1459,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * process LoadProperty in routine load
      */
-    public LoadProperty visitLoadProperty(DorisParser.LoadPropertyContext ctx) {
+    public LoadProperty visitLoadProperty(LoadPropertyContext ctx) {
         LoadProperty loadProperty = null;
         if (ctx instanceof SeparatorContext) {
             loadProperty = new LoadSeparator(((SeparatorContext) ctx).STRING_LITERAL().getText());
@@ -1491,7 +1493,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public Command visitCreateRoutineLoadCommand(DorisParser.CreateRoutineLoadAliasContext ctx) {
+    public LogicalPlan visitCreateRoutineLoad(CreateRoutineLoadContext ctx) {
         List<String> labelParts = visitMultipartIdentifier(ctx.label);
         String labelName = null;
         String labelDbName = null;

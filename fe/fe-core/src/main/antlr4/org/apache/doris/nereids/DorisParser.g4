@@ -360,7 +360,7 @@ createRoutineLoad
               (WITH (APPEND | DELETE | MERGE))?
               (loadProperty (COMMA loadProperty)*)? propertyClause? FROM type=identifier
               LEFT_PAREN customProperties=propertyItemList RIGHT_PAREN
-              commentSpec?                                                          #createRoutineLoadAlias
+              commentSpec?
     ;
 
 unsupportedLoadStatement

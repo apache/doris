@@ -236,9 +236,9 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
             String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc, int desireTaskConcurrentNum,
             long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS, long maxBatchRows, long maxBatchSizeBytes,
             long execMemLimit, int sendBatchParallelism, String timezone, String format, String jsonPaths,
-            String jsonRoot, byte enclose, byte escape, long workloadGroupId,
-            boolean loadToSingleTablet, boolean strictMode, boolean isPartialUpdate,
-            boolean stripOuterArray, boolean numAsString, boolean fuzzyParse) {
+            String jsonRoot, byte enclose, byte escape, long workloadGroupId, boolean loadToSingleTablet,
+            boolean strictMode, boolean isPartialUpdate, boolean stripOuterArray, boolean numAsString,
+            boolean fuzzyParse, AbstractDataSourceProperties dataSourceProperties) {
         this.labelName = labelName;
         this.loadPropertyList = loadPropertyList;
         this.jobProperties = jobProperties;
@@ -265,6 +265,7 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
         this.stripOuterArray = stripOuterArray;
         this.numAsString = numAsString;
         this.fuzzyParse = fuzzyParse;
+        this.dataSourceProperties = dataSourceProperties;
     }
 
     public String getName() {
