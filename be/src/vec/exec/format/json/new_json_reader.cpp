@@ -185,7 +185,7 @@ Status NewJsonReader::init_reader(
 
 #ifdef __AVX2__
     if (config::enable_simdjson_reader) {
-        RETURN_IF_ERROR(_simdjson_init_reader(is_load));
+        RETURN_IF_ERROR(_simdjson_init_reader());
         return Status::OK();
     }
 #endif
