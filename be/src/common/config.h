@@ -1239,6 +1239,7 @@ DECLARE_Int32(partition_disk_index_lru_size);
 DECLARE_mBool(ignore_schema_change_check);
 
 DECLARE_mInt64(tablet_meta_serialize_size_limit);
+DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 #ifdef BE_TEST
 // test s3
