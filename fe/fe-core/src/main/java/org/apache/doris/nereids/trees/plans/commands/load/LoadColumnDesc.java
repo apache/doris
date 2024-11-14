@@ -24,11 +24,15 @@ import org.apache.doris.nereids.trees.expressions.Expression;
  */
 public class LoadColumnDesc {
     private final String columnName;
-    private final Expression expression;
+    private Expression expression;
 
     public LoadColumnDesc(String column, Expression expression) {
         this.columnName = column;
         this.expression = expression;
+    }
+
+    public LoadColumnDesc(String column) {
+        this.columnName = column;
     }
 
     public String getColumnName() {

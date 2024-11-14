@@ -62,6 +62,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.doris.qe.OriginStatement;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -304,8 +305,12 @@ public class CreateRoutineLoadInfo {
                     }
                     List<ImportColumnDesc> importColumnDescList = new ArrayList<>();
                     for (LoadColumnDesc columnDesc : ((LoadColumnClause) loadProperty).getColumns()) {
-                        Expr expr = ExpressionTranslator.translate(columnDesc.getExpression(), context);
-                        importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), expr));
+                        if (columnDesc.getExpression() != null) {
+                            Expr expr = ExpressionTranslator.translate(columnDesc.getExpression(), context);
+                            importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), expr));
+                        } else {
+                            importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), null));
+                        }
                     }
                     importColumnsStmt = new ImportColumnsStmt(importColumnDescList);
                 } else if (loadProperty instanceof LoadWhereClause) {
@@ -441,8 +446,10 @@ public class CreateRoutineLoadInfo {
      * make legacy create routine load statement after validate by nereids
      * @return legacy create routine load statement
      */
-    public CreateRoutineLoadStmt translateToLegacyStmt() {
-        return new CreateRoutineLoadStmt(labelName, null, jobProperties, typeName, routineLoadDesc,
+    public CreateRoutineLoadStmt translateToLegacyStmt(ConnectContext ctx) {
+        return new CreateRoutineLoadStmt(null, dbName, name, tableName, null,
+            ctx.getStatementContext().getOriginStatement(), ctx.getUserIdentity(),
+            jobProperties, typeName, routineLoadDesc,
             desiredConcurrentNum, maxErrorNum, maxFilterRatio, maxBatchIntervalS, maxBatchRows, maxBatchSizeBytes,
             execMemLimit, sendBatchParallelism, timezone, format, jsonPaths, jsonRoot, enclose, escape, workloadGroupId,
             loadToSingleTablet, strictMode, isPartialUpdate, stripOuterArray, numAsString, fuzzyParse,

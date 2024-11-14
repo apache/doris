@@ -1462,13 +1462,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LoadProperty visitLoadProperty(LoadPropertyContext ctx) {
         LoadProperty loadProperty = null;
         if (ctx instanceof SeparatorContext) {
-            loadProperty = new LoadSeparator(((SeparatorContext) ctx).STRING_LITERAL().getText());
+            String separator = ((SeparatorContext) ctx).STRING_LITERAL().getText()
+                .substring(1, ((SeparatorContext) ctx).STRING_LITERAL().getText().length() - 1);
+            loadProperty = new LoadSeparator(separator);
         } else if (ctx instanceof ImportColumnsContext) {
             List<LoadColumnDesc> descList = new ArrayList<>();
             for (DorisParser.ImportColumnDescContext loadColumnDescCtx : ((ImportColumnsContext) ctx)
                     .importColumnsStatement().importColumnDesc()) {
-                LoadColumnDesc desc = new LoadColumnDesc(loadColumnDescCtx.name.getText(),
+                LoadColumnDesc desc;
+                if (loadColumnDescCtx.booleanExpression() != null) {
+                    desc = new LoadColumnDesc(loadColumnDescCtx.name.getText(),
                         getExpression(loadColumnDescCtx.booleanExpression()));
+                } else {
+                    desc = new LoadColumnDesc(loadColumnDescCtx.name.getText());
+                }
+
                 descList.add(desc);
             }
             loadProperty = new LoadColumnClause(descList);
