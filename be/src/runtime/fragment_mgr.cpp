@@ -17,6 +17,7 @@
 
 #include "runtime/fragment_mgr.h"
 
+#include <brpc/controller.h>
 #include <bvar/latency_recorder.h>
 #include <exprs/runtime_filter.h>
 #include <fmt/format.h>
@@ -84,6 +85,7 @@
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
+#include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -1284,6 +1286,7 @@ void FragmentMgr::cancel_worker() {
         }
 
         VecDateTimeValue now = VecDateTimeValue::local_time();
+        std::unordered_map<std::shared_ptr<PBackendService_Stub>, BrpcItem> brpc_stub_with_queries;
         {
             std::lock_guard<std::mutex> lock(_lock);
             for (auto& fragment_instance_itr : _fragment_instance_map) {
@@ -1291,6 +1294,7 @@ void FragmentMgr::cancel_worker() {
                     queries_timeout.push_back(fragment_instance_itr.second->fragment_instance_id());
                 }
             }
+
             for (auto& pipeline_itr : _pipeline_map) {
                 if (pipeline_itr.second->is_timeout(now)) {
                     std::vector<TUniqueId> ins_ids;
@@ -1308,6 +1312,18 @@ void FragmentMgr::cancel_worker() {
                     LOG_WARNING("Query {} is timeout", print_id(it->first));
                     it = _query_ctx_map.erase(it);
                 } else {
+                    if (config::enable_brpc_connection_check) {
+                        auto brpc_stubs = it->second->get_using_brpc_stubs();
+                        for (auto& item : brpc_stubs) {
+                            if (!brpc_stub_with_queries.contains(item.second)) {
+                                brpc_stub_with_queries.emplace(item.second,
+                                                               BrpcItem {item.first, {it->second}});
+                            } else {
+                                brpc_stub_with_queries[item.second].queries.emplace_back(
+                                        it->second);
+                            }
+                        }
+                    }
                     ++it;
                 }
             }
@@ -1431,7 +1447,11 @@ void FragmentMgr::cancel_worker() {
                          std::string("Coordinator dead."));
         }
 
-    } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
+        for (auto it : brpc_stub_with_queries) {
+            _check_brpc_available(it.first, it.second);
+        }
+    } while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::fragment_mgr_cancel_worker_interval_seconds)));
     LOG(INFO) << "FragmentMgr cancel worker is going to exit.";
 }
 
@@ -1445,6 +1465,52 @@ void FragmentMgr::debug(std::stringstream& ss) {
     for (auto& it : _fragment_instance_map) {
         ss << it.first << "\t" << it.second->start_time().debug_string() << "\t"
            << now.second_diff(it.second->start_time()) << "\n";
+    }
+}
+
+void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_Stub>& brpc_stub,
+                                        const BrpcItem& brpc_item) {
+    const std::string message = "hello doris!";
+    std::string error_message;
+    int32_t failed_count = 0;
+    while (true) {
+        PHandShakeRequest request;
+        request.set_hello(message);
+        PHandShakeResponse response;
+        brpc::Controller cntl;
+        cntl.set_timeout_ms(500 * (failed_count + 1));
+        cntl.set_max_retry(10);
+        brpc_stub->hand_shake(&cntl, &request, &response, nullptr);
+
+        if (cntl.Failed()) {
+            error_message = cntl.ErrorText();
+            LOG(WARNING) << "brpc stub: " << brpc_item.network_address.hostname << ":"
+                         << brpc_item.network_address.port << " check failed: " << error_message;
+        } else if (response.has_status() && response.status().status_code() == 0) {
+            break;
+        } else {
+            error_message = response.DebugString();
+            LOG(WARNING) << "brpc stub: " << brpc_item.network_address.hostname << ":"
+                         << brpc_item.network_address.port << " check failed: " << error_message;
+        }
+        failed_count++;
+        if (failed_count == 2) {
+            for (const auto& query_wptr : brpc_item.queries) {
+                auto query = query_wptr.lock();
+                if (query && !query->is_cancelled()) {
+                    cancel_query(query->query_id(), PPlanFragmentCancelReason::INTERNAL_ERROR,
+                                 fmt::format("brpc(dest: {}:{}) check failed: {}",
+                                             brpc_item.network_address.hostname,
+                                             brpc_item.network_address.port, error_message));
+                }
+            }
+
+            LOG(WARNING) << "remove brpc stub from cache: " << brpc_item.network_address.hostname
+                         << ":" << brpc_item.network_address.port << ", error: " << error_message;
+            ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                    brpc_item.network_address.hostname, brpc_item.network_address.port);
+            break;
+        }
     }
 }
 
