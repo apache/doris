@@ -30,9 +30,11 @@ auto get_convertor() {
     if constexpr (std::is_same_v<T, bool>) {
         return [](PColumnValue* value, const T& data) { value->set_boolval(data); };
     } else if constexpr (std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> ||
-                         std::is_same_v<T, int32_t>) {
+                         std::is_same_v<T, int32_t> || std::is_same_v<T, vectorized::Decimal32> ||
+                         std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
         return [](PColumnValue* value, const T& data) { value->set_intval(data); };
-    } else if constexpr (std::is_same_v<T, int64_t>) {
+    } else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, vectorized::Decimal64> ||
+                         std::is_same_v<T, DateV2Value<DateTimeV2ValueType>>) {
         return [](PColumnValue* value, const T& data) { value->set_longval(data); };
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         return [](PColumnValue* value, const T& data) { value->set_doubleval(data); };
@@ -47,7 +49,8 @@ auto get_convertor() {
         };
     } else if constexpr (std::is_same_v<T, std::string>) {
         return [](PColumnValue* value, const T& data) { value->set_stringval(data); };
-    } else if constexpr (std::is_same_v<T, StringRef>) {
+    } else if constexpr (std::is_same_v<T, StringRef> ||
+                         std::is_same_v<T, vectorized::Decimal128V2>) {
         return [](PColumnValue* value, const T& data) { value->set_stringval(data.to_string()); };
     } else if constexpr (std::is_same_v<T, VecDateTimeValue>) {
         return [](PColumnValue* value, const T& data) {
