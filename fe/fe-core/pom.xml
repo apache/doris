@@ -236,6 +236,13 @@ under the License.
             <groupId>dk.brics.automaton</groupId>
             <artifactId>automaton</artifactId>
         </dependency>
+        <!-- https://mvnrepository.com/artifact/com.github.seancfoley/ipaddress -->
+        <dependency>
+            <groupId>com.github.seancfoley</groupId>
+            <artifactId>ipaddress</artifactId>
+            <version>5.5.1</version>
+        </dependency>
+
         <!-- https://mvnrepository.com/artifact/com.github.mifmif/generex -->
         <dependency>
             <groupId>com.github.mifmif</groupId>

@@ -43,18 +43,24 @@ public class FrontendsProcNodeTest {
 
     @Test
     public void testFormatIp() throws Exception {
-        // Test input and expected output
-        String input = "fe80:0:0:0:20c:29ff:fef9:3a18";
-        String expected = "fe80::20c:29ff:fef9:3a18";
+        // Test input and expected output for IPv6
+        String inputIPv6 = "fe80:0:0:0:20c:29ff:fef9:3a18";
+        String expectedIPv6 = "fe80::20c:29ff:fef9:3a18";
+
+        // Test input and expected output for IPv4
+        String inputIPv4 = "192.168.1.1";
+        String expectedIPv4 = "192.168.1.1";  // No change for IPv4
 
         // Use reflection to get the formatIp method
         Method formatIpMethod = FrontendsProcNode.class.getDeclaredMethod("formatIp", String.class);
         formatIpMethod.setAccessible(true); // Make the method accessible
 
-        // Invoke the formatIp method to format the IP
-        String actual = (String) formatIpMethod.invoke(null, input);
+        // Test IPv6
+        String actualIPv6 = (String) formatIpMethod.invoke(null, inputIPv6);
+        Assert.assertEquals(expectedIPv6, actualIPv6);
 
-        // Assert the result
-        Assert.assertEquals(expected, actual);
+        // Test IPv4
+        String actualIPv4 = (String) formatIpMethod.invoke(null, inputIPv4);
+        Assert.assertEquals(expectedIPv4, actualIPv4);
     }
 }

@@ -33,6 +33,7 @@ import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import inet.ipaddr.IPAddressString;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -217,24 +218,15 @@ public class FrontendsProcNode implements ProcNodeInterface {
             // Format the IP address
             String formattedIp = formatIp(address.getHostAddress());
 
-            if (fe.getHost().equals(formattedIp)) {
+            if (formatIp(fe.getHost()).equals(formattedIp)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static String formatIp(String context) {
-        // Formatting rule 1: Replace ":0:" with "::"
-        while (context.contains(":0:")) {
-            context = context.replaceAll(":0:", "::");
-        }
-
-        // Formatting rule 2: Replace ":::" with "::"
-        while (context.contains(":::")) {
-            context = context.replaceAll(":::", "::");
-        }
-
-        return context;
+    private static String formatIp(String str) {
+        // Use IPAddressString to format the IP address
+        return new IPAddressString(str).getAddress().toCanonicalString();
     }
 }
