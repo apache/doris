@@ -80,7 +80,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
@@ -127,7 +127,7 @@ struct RangeImplUtil {
 
     static constexpr auto name = get_function_name();
 
-    static Status range_execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status range_execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                                 size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 3);
         auto return_nested_type = make_nullable(std::make_shared<DataType>());
@@ -248,7 +248,7 @@ struct RangeOneImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         using ColumnType = std::conditional_t<std::is_same_v<SourceDataType, Int32>, ColumnInt32,
                                               ColumnDateTimeV2>;
@@ -272,7 +272,7 @@ struct RangeTwoImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto step_column = ColumnInt32::create(input_rows_count, 1);
         block.insert({std::move(step_column), std::make_shared<DataTypeInt32>(), "step_column"});
@@ -291,7 +291,7 @@ struct RangeThreeImpl : public RangeImplUtil<SourceDataType, TimeUnitOrVoid> {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         return (RangeImplUtil<SourceDataType, TimeUnitOrVoid>::range_execute)(
                 block, arguments, result, input_rows_count);

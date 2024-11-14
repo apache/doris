@@ -145,7 +145,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto* convert_tz_state = reinterpret_cast<ConvertTzState*>(
                 context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
         if (!convert_tz_state) {

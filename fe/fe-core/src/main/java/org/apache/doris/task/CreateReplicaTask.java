@@ -368,6 +368,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
         tSchema.setRowStorePageSize(rowStorePageSize);
+        tSchema.setStoragePageSize(storagePageSize);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);
@@ -415,7 +416,6 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         createTabletReq.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
         createTabletReq.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
-        createTabletReq.setStoragePageSize(storagePageSize);
 
         if (binlogConfig != null) {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());

@@ -246,9 +246,11 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.CreateInternalWorkloadGroupThread;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
@@ -571,6 +573,8 @@ public class Env {
 
     private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
 
+    private TokenManager tokenManager;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -817,6 +821,7 @@ public class Env {
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.splitSourceManager = new SplitSourceManager();
         this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
+        this.tokenManager = new TokenManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1077,6 +1082,7 @@ public class Env {
 
         // 2. get cluster id and role (Observer or Follower)
         if (!Config.enable_check_compatibility_mode) {
+            checkDeployMode();
             getClusterIdAndRole();
         } else {
             isElectable = true;
@@ -1113,6 +1119,8 @@ public class Env {
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
         queryCancelWorker.start();
+
+        StmtExecutor.initBlockSqlAstNames();
     }
 
     // wait until FE is ready.
@@ -1362,6 +1370,31 @@ public class Env {
         Preconditions.checkState(helperNodes.size() == 1);
         LOG.info("finished to get cluster id: {}, isElectable: {}, role: {} and node name: {}",
                 clusterId, isElectable, role.name(), nodeName);
+    }
+
+    /**
+     * write cloud/local to MODE_FILE.
+     */
+    protected void checkDeployMode() throws IOException {
+        File modeFile = new File(this.imageDir, Storage.DEPLOY_MODE_FILE);
+        Storage storage = new Storage(this.imageDir);
+        String expectedMode = getDeployMode();
+        if (modeFile.exists()) {
+            String actualMode = storage.getDeployMode();
+            Preconditions.checkArgument(expectedMode.equals(actualMode),
+                    "You can't switch deploy mode from %s to %s, maybe you need to check fe.conf",
+                    actualMode, expectedMode);
+            LOG.info("The current deployment mode is " + expectedMode + ".");
+        } else {
+            storage.setDeployMode(expectedMode);
+            storage.writeClusterMode();
+            LOG.info("The file DEPLOY_MODE doesn't exist, create it.");
+            File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+            if (versionFile.exists()) {
+                LOG.warn("This may be an upgrade from old version, "
+                        + "or the DEPLOY_MODE file has been manually deleted");
+            }
+        }
     }
 
     public static String genFeNodeName(String host, int port, boolean isOldStyle) {
@@ -1842,6 +1875,7 @@ public class Env {
         WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
+        new CreateInternalWorkloadGroupThread().start();
 
         // auto analyze related threads.
         statisticsCleaner.start();
@@ -1852,6 +1886,7 @@ public class Env {
     // start threads that should run on all FE
     protected void startNonMasterDaemonThreads() {
         // start load manager thread
+        tokenManager.start();
         loadManager.start();
         tabletStatMgr.start();
 
@@ -4207,6 +4242,10 @@ public class Env {
         return this.clusterId;
     }
 
+    public String getDeployMode() {
+        return Config.isCloudMode() ? Storage.CLOUD_MODE : Storage.LOCAL_MODE;
+    }
+
     public String getToken() {
         return token;
     }
@@ -4379,6 +4418,10 @@ public class Env {
 
     public LoadManager getLoadManager() {
         return loadManager;
+    }
+
+    public TokenManager getTokenManager() {
+        return tokenManager;
     }
 
     public ProgressManager getProgressManager() {
@@ -6710,3 +6753,4 @@ public class Env {
         System.exit(0);
     }
 }
+

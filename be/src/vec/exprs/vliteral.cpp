@@ -21,33 +21,21 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
 #include <glog/logging.h>
-#include <math.h>
-#include <stdint.h>
 #include <sys/types.h>
 
 #include <algorithm>
 #include <ostream>
-#include <vector>
 
-#include "common/exception.h"
-#include "olap/olap_common.h"
-#include "runtime/decimalv2_value.h"
-#include "runtime/define_primitive_type.h"
-#include "runtime/jsonb_value.h"
-#include "runtime/large_int_value.h"
-#include "runtime/types.h"
-#include "util/string_parser.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
-#include "vec/common/string_ref.h"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/block.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
-#include "vec/runtime/vdatetime_value.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
 class VExprContext;
 
 void VLiteral::init(const TExprNode& node) {
@@ -104,4 +92,5 @@ bool VLiteral::equals(const VExpr& other) {
     return true;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

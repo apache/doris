@@ -428,7 +428,7 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
     }
     SCOPED_TIMER(_cast_to_input_block_timer);
     // cast primitive type(PT0) to primitive type(PT1)
-    size_t idx = 0;
+    uint32_t idx = 0;
     for (auto& slot_desc : _input_tuple_desc->slots()) {
         if (_name_to_col_type.find(slot_desc->col_name()) == _name_to_col_type.end()) {
             // skip columns which does not exist in file

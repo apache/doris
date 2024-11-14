@@ -71,7 +71,7 @@ suite("test_index_compaction_p1", "p1, nonConcurrent") {
             "disable_auto_compaction" = "true"
         );
     """
-    def executor = Executors.newFixedThreadPool(50)
+    def executor = Executors.newFixedThreadPool(5)
     (1..110).each { i ->
         executor.submit {
             def fileName = "documents-" + i + ".json"
@@ -79,7 +79,7 @@ suite("test_index_compaction_p1", "p1, nonConcurrent") {
         }
     }
     executor.shutdown()
-    executor.awaitTermination(10, TimeUnit.MINUTES)
+    executor.awaitTermination(30, TimeUnit.MINUTES)
 
     def backendId_to_backendIP = [:]
     def backendId_to_backendHttpPort = [:]

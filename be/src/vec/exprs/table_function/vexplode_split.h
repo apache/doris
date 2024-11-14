@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <string_view>
 #include <vector>
 
 #include "common/status.h"
@@ -28,6 +27,7 @@
 #include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 class Block;
 template <typename T>
@@ -58,4 +58,5 @@ private:
     StringRef _delimiter = {};
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

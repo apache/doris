@@ -17,8 +17,8 @@
 
 #pragma once
 #include <gen_cpp/Types_types.h>
-#include <stddef.h>
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -31,6 +31,8 @@
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
 class RuntimeState;
 class SlotDescriptor;
 class ObjectPool;
@@ -97,7 +99,7 @@ public:
     bool is_merge() const { return _is_merge; }
     const VExprContextSPtrs& input_exprs_ctxs() const { return _input_exprs_ctxs; }
 
-    static Status check_agg_fn_output(int64_t key_size,
+    static Status check_agg_fn_output(uint32_t key_size,
                                       const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
                                       const RowDescriptor& output_row_desc);
 
@@ -145,4 +147,5 @@ private:
 };
 } // namespace vectorized
 
+#include "common/compile_check_end.h"
 } // namespace doris

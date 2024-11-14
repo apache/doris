@@ -157,8 +157,9 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     return Status::OK();
 }
 
-Status get_arrow_schema(const vectorized::Block& block, std::shared_ptr<arrow::Schema>* result,
-                        const std::string& timezone) {
+Status get_arrow_schema_from_block(const vectorized::Block& block,
+                                   std::shared_ptr<arrow::Schema>* result,
+                                   const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
@@ -171,9 +172,9 @@ Status get_arrow_schema(const vectorized::Block& block, std::shared_ptr<arrow::S
     return Status::OK();
 }
 
-Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
-                                      std::shared_ptr<arrow::Schema>* result,
-                                      const std::string& timezone) {
+Status get_arrow_schema_from_expr_ctxs(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+                                       std::shared_ptr<arrow::Schema>* result,
+                                       const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;

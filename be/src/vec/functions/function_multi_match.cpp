@@ -34,7 +34,7 @@
 namespace doris::vectorized {
 
 Status FunctionMultiMatch::execute_impl(FunctionContext* /*context*/, Block& block,
-                                        const ColumnNumbers& arguments, size_t result,
+                                        const ColumnNumbers& arguments, uint32_t result,
                                         size_t /*input_rows_count*/) const {
     return Status::RuntimeError("only inverted index queries are supported");
 }

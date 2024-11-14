@@ -53,6 +53,7 @@ import org.apache.doris.nereids.DorisParser.AggStateDataTypeContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
 import org.apache.doris.nereids.DorisParser.AlterMTMVContext;
+import org.apache.doris.nereids.DorisParser.AlterRoleContext;
 import org.apache.doris.nereids.DorisParser.AlterStorageVaultContext;
 import org.apache.doris.nereids.DorisParser.AlterViewContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
@@ -192,11 +193,15 @@ import org.apache.doris.nereids.DorisParser.SetTransactionContext;
 import org.apache.doris.nereids.DorisParser.SetUserPropertiesContext;
 import org.apache.doris.nereids.DorisParser.SetUserVariableContext;
 import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
+import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
+import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
+import org.apache.doris.nereids.DorisParser.ShowProcContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
+import org.apache.doris.nereids.DorisParser.ShowRolesContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
 import org.apache.doris.nereids.DorisParser.ShowViewContext;
 import org.apache.doris.nereids.DorisParser.SimpleColumnDefContext;
@@ -391,6 +396,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
@@ -423,11 +429,15 @@ import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultComma
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
@@ -3506,10 +3516,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             Expression outExpression;
             switch (ctx.kind.getType()) {
                 case DorisParser.BETWEEN:
-                    outExpression = new And(
-                            new GreaterThanEqual(valueExpression, getExpression(ctx.lower)),
-                            new LessThanEqual(valueExpression, getExpression(ctx.upper))
-                    );
+                    Expression lower = getExpression(ctx.lower);
+                    Expression upper = getExpression(ctx.upper);
+                    if (lower.equals(upper)) {
+                        outExpression = new EqualTo(valueExpression, lower);
+                    } else {
+                        outExpression = new And(
+                                new GreaterThanEqual(valueExpression, getExpression(ctx.lower)),
+                                new LessThanEqual(valueExpression, getExpression(ctx.upper))
+                        );
+                    }
                     break;
                 case DorisParser.LIKE:
                     outExpression = new Like(
@@ -3882,6 +3898,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowAuthors(ShowAuthorsContext ctx) {
+        return new ShowAuthorsCommand();
+    }
+
+    @Override
     public LogicalPlan visitShowConfig(ShowConfigContext ctx) {
         ShowConfigCommand command;
         if (ctx.type.getText().equalsIgnoreCase(NodeType.FRONTEND.name())) {
@@ -4058,5 +4079,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             databaseName = stripQuotes(ctx.database.getText());
         }
         return new ShowViewCommand(databaseName, new TableNameInfo(tableNameParts));
+    }
+
+    @Override
+    public LogicalPlan visitShowRoles(ShowRolesContext ctx) {
+        return new ShowRolesCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowProc(ShowProcContext ctx) {
+        String path = stripQuotes(ctx.path.getText());
+        return new ShowProcCommand(path);
+    }
+
+    @Override
+    public LogicalPlan visitShowCreateMaterializedView(ShowCreateMaterializedViewContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.tableName);
+        return new ShowCreateMaterializedViewCommand(stripQuotes(ctx.mvName.getText()), new TableNameInfo(nameParts));
+    }
+
+    @Override
+    public LogicalPlan visitAlterRole(AlterRoleContext ctx) {
+        String comment = visitCommentSpec(ctx.commentSpec());
+        return new AlterRoleCommand(ctx.role.getText(), comment);
     }
 }

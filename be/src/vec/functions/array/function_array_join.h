@@ -54,7 +54,7 @@ public:
         return std::make_shared<DataTypeString>();
     }
 
-    static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
+    static Status execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
                           const DataTypeArray* data_type_array, const ColumnArray& array) {
         ColumnPtr src_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();

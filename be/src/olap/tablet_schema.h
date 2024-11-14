@@ -324,7 +324,7 @@ public:
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex&& index);
-    void update_index(const TabletColumn& column, TabletIndex index);
+    void update_index(const TabletColumn& column, const IndexType& index_type, TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();
     // Must make sure the row column is always the last column
@@ -394,6 +394,8 @@ public:
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
+    void set_storage_page_size(long storage_page_size) { _storage_page_size = storage_page_size; }
+    long storage_page_size() const { return _storage_page_size; }
 
     const std::vector<const TabletIndex*> inverted_indexes() const {
         std::vector<const TabletIndex*> inverted_indexes;
@@ -555,6 +557,7 @@ private:
     CompressKind _compress_kind = COMPRESS_NONE;
     segment_v2::CompressionTypePB _compression_type = segment_v2::CompressionTypePB::LZ4F;
     long _row_store_page_size = segment_v2::ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
+    long _storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
     size_t _next_column_unique_id = 0;
     std::string _auto_increment_column;
 

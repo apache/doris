@@ -232,7 +232,6 @@ Status RowsetBuilder::init() {
     context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
     context.partial_update_info = _partial_update_info;
-    context.storage_page_size = _tablet->tablet_meta()->storage_page_size();
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
     _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 
@@ -259,6 +258,17 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
     }
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_submit_delete_bitmap_timer);
+    if (_partial_update_info && _partial_update_info->is_flexible_partial_update()) {
+        if (_rowset->num_segments() > 1) {
+            // in flexible partial update, when there are more one segment in one load,
+            // we need to do alignment process for same keys between segments, we haven't
+            // implemented it yet and just report an error when encouter this situation
+            return Status::NotSupported(
+                    "too large input data in flexible partial update, Please "
+                    "reduce the amount of data imported in a single load.");
+        }
+    }
+
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
     if (_tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, delete bitmap will be calculated later, "
