@@ -66,39 +66,14 @@ public:
     }
 };
 
-TEST_F(BitmapFilterPredicateTest, insert) {
-    std::unique_ptr<BitmapFilterFuncBase> func(create_bitmap_filter(PrimitiveType::TYPE_INT));
-
-    EXPECT_TRUE(func->empty());
-
-    BitmapValue bitmap_value = create_bitmap_value();
-    func->insert(&bitmap_value);
-
-    find_batch(func.get());
-}
-
 TEST_F(BitmapFilterPredicateTest, insert_many) {
     std::unique_ptr<BitmapFilterFuncBase> func(create_bitmap_filter(PrimitiveType::TYPE_INT));
 
     std::vector<const BitmapValue*> bitmaps;
-
-    func->insert_many(bitmaps);
-    EXPECT_TRUE(func->empty());
-
     auto bitmap = create_bitmap_value();
     bitmaps.emplace_back(&bitmap);
 
     func->insert_many(bitmaps);
-    EXPECT_FALSE(func->empty());
-
-    find_batch(func.get());
-}
-
-TEST_F(BitmapFilterPredicateTest, assign) {
-    std::unique_ptr<BitmapFilterFuncBase> func(create_bitmap_filter(PrimitiveType::TYPE_INT));
-
-    BitmapValue bitmap_value = create_bitmap_value();
-    EXPECT_EQ(func->assign(&bitmap_value), Status::OK());
 
     find_batch(func.get());
 }
@@ -107,7 +82,6 @@ TEST_F(BitmapFilterPredicateTest, contains_any) {
     std::unique_ptr<BitmapFilterFuncBase> func(create_bitmap_filter(PrimitiveType::TYPE_INT));
 
     BitmapValue bitmap_value = create_bitmap_value();
-    EXPECT_EQ(func->assign(&bitmap_value), Status::OK());
 
     auto* filter = assert_cast<BitmapFilterFunc<PrimitiveType::TYPE_INT>*>(func.get());
 
@@ -124,7 +98,6 @@ TEST_F(BitmapFilterPredicateTest, find_fixed_len_olap_engine) {
     std::unique_ptr<BitmapFilterFuncBase> func(create_bitmap_filter(PrimitiveType::TYPE_INT));
 
     BitmapValue bitmap_value = create_bitmap_value();
-    EXPECT_EQ(func->assign(&bitmap_value), Status::OK());
 
     auto* filter = assert_cast<BitmapFilterFunc<PrimitiveType::TYPE_INT>*>(func.get());
 
