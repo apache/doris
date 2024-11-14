@@ -214,10 +214,27 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 LOG.warn("Failed to get InetAddress {}", addr);
                 continue;
             }
-            if (fe.getHost().equals(address.getHostAddress())) {
+            // Format the IP address
+            String formattedIp = formatIp(address.getHostAddress());
+
+            if (fe.getHost().equals(formattedIp)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static String formatIp(String context) {
+        // Formatting rule 1: Replace ":0:" with "::"
+        while (context.contains(":0:")) {
+            context = context.replaceAll(":0:", "::");
+        }
+
+        // Formatting rule 2: Replace ":::" with "::"
+        while (context.contains(":::")) {
+            context = context.replaceAll(":::", "::");
+        }
+
+        return context;
     }
 }
