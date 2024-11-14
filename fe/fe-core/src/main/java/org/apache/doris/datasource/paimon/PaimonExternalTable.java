@@ -345,6 +345,11 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public boolean isPartitionColumnAllowNull() {
+        // Paimon will write to the 'null' partition regardless of whether it is' null or 'null'.
+        // The logic is inconsistent with Doris' empty partition logic, so it needs to return false.
+        // However, when Spark creates Paimon tables, specifying 'not null' does not take effect.
+        // In order to successfully create the materialized view, false is returned here.
+        // The cost is that Paimon partition writes a null value, and the materialized view cannot detect this data.
         return true;
     }
 }
