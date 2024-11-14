@@ -345,6 +345,6 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public boolean isPartitionColumnAllowNull() {
-        return false;
+        return true;
     }
 }
