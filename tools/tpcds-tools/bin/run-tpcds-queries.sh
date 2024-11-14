@@ -134,29 +134,28 @@ get_session_variable() {
         printf "Error: Failed to execute SQL command: 'show variables like %s\\G'\n" "${k}" >&2
         exit 1
     fi
-
     if ! grep_output=$(grep " Value: " <<<"${output}" 2>&1); then
         grep_status=$?
-        
-        if [ $grep_status -eq 2 ]; then
+        # shellcheck disable=SC2292       
+        if [ "${grep_status}" -eq 2 ]; then
             printf "%s\n" "${grep_output}" >&2
-            printf "Error: grep command failed with status %d while processing SQL output for variable '%s'.\n" "$grep_status" "$k" >&2
+            printf "Error: grep command failed with status %d while processing SQL output for variable '%s'.\n" "${grep_status}" "${k}" >&2
             exit 1
-        elif [ $grep_status -eq 1 ]; then
-            printf "Warning: No match for 'Value: ' found in the output of the query for variable '%s'.\n" "$k" >&2
+        elif [ "${grep_status}" -eq 1 ]; then
+            printf "Warning: No match for 'Value: ' found in the output of the query for variable '%s'.\n" "${k}" >&2
             return 1
         fi
     fi
 
     if ! v=$(awk '{print $2}' <<<"${grep_output}" 2>&1); then
         printf "%s\n" "${v}" >&2
-        printf "Error: awk command failed while processing the grep output for variable '%s'.\n" "$k" >&2
+        printf "Error: awk command failed while processing the grep output for variable '%s'.\n" "${k}" >&2
         exit 1
     fi
 
     if [[ -z ${v} ]]; then
-        printf "Warning: No value found for variable '%s'. The 'Value:' might be missing or empty.\n" "$k" >&2
-        return 1
+        printf "Warning: No value found for variable '%s'. The 'Value:' might be missing or empty.\n" "${k}" >&2
+        exit 1
     fi
     echo "${v}"
 }
