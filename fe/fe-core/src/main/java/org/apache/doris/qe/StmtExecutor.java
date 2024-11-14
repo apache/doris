@@ -155,6 +155,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
+import org.apache.doris.nereids.trees.plans.commands.Redirect;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -719,8 +720,8 @@ public class StmtExecutor {
             }
         }
         if (logicalPlan instanceof Command) {
-            if (logicalPlan instanceof Forward) {
-                redirectStatus = ((Forward) logicalPlan).toRedirectStatus();
+            if (logicalPlan instanceof Redirect) {
+                redirectStatus = ((Redirect) logicalPlan).toRedirectStatus();
                 if (isForwardToMaster()) {
                     // before forward to master, we also need to set profileType in this node
                     if (logicalPlan instanceof InsertIntoTableCommand) {

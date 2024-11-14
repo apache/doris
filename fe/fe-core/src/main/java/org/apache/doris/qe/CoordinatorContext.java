@@ -30,6 +30,10 @@ import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanRanges;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
@@ -40,12 +44,18 @@ import org.apache.doris.qe.runtime.QueryProcessor;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TDescriptorTable;
+import org.apache.doris.thrift.TExternalScanRange;
+import org.apache.doris.thrift.TFileScanRange;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
+import org.apache.doris.thrift.TScanRange;
+import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Suppliers;
@@ -418,9 +428,57 @@ public class CoordinatorContext {
 
     private int getScanRangeNum() {
         int scanRangeNum = 0;
-        for (ScanNode scanNode : scanNodes) {
-            scanRangeNum += scanNode.getScanRangeNum();
+        for (PipelineDistributedPlan distributedPlan : distributedPlans) {
+            for (AssignedJob instanceJob : distributedPlan.getInstanceJobs()) {
+                ScanSource scanSource = instanceJob.getScanSource();
+                if (scanSource instanceof BucketScanSource) {
+                    BucketScanSource bucketScanSource = (BucketScanSource) scanSource;
+                    for (Map<ScanNode, ScanRanges> kv : bucketScanSource.bucketIndexToScanNodeToTablets.values()) {
+                        for (ScanRanges scanRanges : kv.values()) {
+                            for (TScanRangeParams param : scanRanges.params) {
+                                scanRangeNum += computeScanRangeNumByScanRange(param);
+                            }
+                        }
+                    }
+                } else {
+                    DefaultScanSource defaultScanSource = (DefaultScanSource) scanSource;
+                    for (ScanRanges scanRanges : defaultScanSource.scanNodeToScanRanges.values()) {
+                        for (TScanRangeParams param : scanRanges.params) {
+                            scanRangeNum += computeScanRangeNumByScanRange(param);
+                        }
+                    }
+                }
+            }
         }
+        return scanRangeNum;
+    }
+
+    private int computeScanRangeNumByScanRange(TScanRangeParams param) {
+        int scanRangeNum = 0;
+        TScanRange scanRange = param.getScanRange();
+        if (scanRange == null) {
+            return scanRangeNum;
+        }
+        TBrokerScanRange brokerScanRange = scanRange.getBrokerScanRange();
+        if (brokerScanRange != null) {
+            scanRangeNum += brokerScanRange.getRanges().size();
+        }
+        TExternalScanRange externalScanRange = scanRange.getExtScanRange();
+        if (externalScanRange != null) {
+            TFileScanRange fileScanRange = externalScanRange.getFileScanRange();
+            if (fileScanRange != null) {
+                if (fileScanRange.isSetRanges()) {
+                    scanRangeNum += fileScanRange.getRanges().size();
+                } else if (fileScanRange.isSetSplitSource()) {
+                    scanRangeNum += fileScanRange.getSplitSource().getNumSplits();
+                }
+            }
+        }
+        TPaloScanRange paloScanRange = scanRange.getPaloScanRange();
+        if (paloScanRange != null) {
+            scanRangeNum += 1;
+        }
+        // TODO: more ranges?
         return scanRangeNum;
     }
 }

@@ -116,7 +116,8 @@ void finish_rpc(std::string_view func_name, brpc::Controller* ctrl, Response* re
         }
         LOG(INFO) << "finish " << func_name << " from " << ctrl->remote_side()
                   << " status=" << res->status().ShortDebugString()
-                  << " delete_bitmap_size=" << res->segment_delete_bitmaps_size();
+                  << " tablet=" << res->tablet_id()
+                  << " delete_bitmap_count=" << res->segment_delete_bitmaps_size();
     } else if constexpr (std::is_same_v<Response, GetObjStoreInfoResponse> ||
                          std::is_same_v<Response, GetStageResponse>) {
         std::string debug_string = res->DebugString();

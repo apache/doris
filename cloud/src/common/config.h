@@ -211,6 +211,9 @@ CONF_Validator(s3_client_http_scheme, [](const std::string& config) -> bool {
 // Max retry times for object storage request
 CONF_mInt64(max_s3_client_retry, "10");
 
+// Max byte getting delete bitmap can return, default is 1GB
+CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
