@@ -187,30 +187,8 @@ bool ColumnArray::is_default_at(size_t n) const {
 }
 
 void ColumnArray::insert_data(const char* pos, size_t length) {
-    /** Similarly - only for arrays of fixed length values.
-      */
-    if (!data->is_fixed_and_contiguous()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method insert_data should have_fixed_size, {} is not suitable",
-                               get_name());
-    }
-
-    size_t field_size = data->size_of_value_if_fixed();
-
-    size_t elems = 0;
-
-    if (length) {
-        const char* end = pos + length;
-        for (; pos + field_size <= end; pos += field_size, ++elems)
-            data->insert_data(pos, field_size);
-
-        if (pos != end)
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Incorrect length argument for method ColumnArray::insert_data");
-        __builtin_unreachable();
-    }
-
-    get_offsets().push_back(get_offsets().back() + elems);
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Method insert_data is not supported for " + get_name());
 }
 
 StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
