@@ -123,7 +123,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             _write_mem_usage * config::memtable_hard_limit_active_percent / 100) {
             _flush_active_memtables(_write_mem_usage / 20);
         }
-        if (!_hard_limit_reached()) {
+        if (!_hard_limit_reached() || _load_usage_low()) {
             break;
         }
         auto st = _hard_limit_end_cond.wait_for(l, std::chrono::milliseconds(1000));
