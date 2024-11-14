@@ -47,7 +47,6 @@ public class ShowBackendsCommand extends ShowCommand {
     /**
      * constructor
      */
-
     public ShowBackendsCommand() {
         super(PlanType.SHOW_BACKENDS_COMMAND);
     }
