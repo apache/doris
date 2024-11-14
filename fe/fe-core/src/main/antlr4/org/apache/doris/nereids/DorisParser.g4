@@ -184,6 +184,7 @@ supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         AS query                                                          #alterView
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause   #alterStorageVault
+    | ALTER ROLE role=identifier commentSpec                                        #alterRole
     ;
 
 supportedDropStatement
@@ -198,6 +199,8 @@ supportedShowStatement
         ((FROM | IN) database=identifier)?                                          #showView
     | SHOW ROLES                                                                    #showRoles        
     | SHOW PROC path=STRING_LITERAL                                                 #showProc        
+    | SHOW CREATE MATERIALIZED VIEW mvName=identifier
+        ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
     ;
 
 unsupportedOtherStatement
@@ -317,9 +320,7 @@ unsupportedShowStatement
     | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showEncryptKeys
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTableCreation
-    | SHOW LAST INSERT                                                              #showLastInsert    
-    | SHOW CREATE MATERIALIZED VIEW mvName=identifier
-        ON tableName=multipartIdentifier                                            #showCreateMaterializedView
+    | SHOW LAST INSERT                                                              #showLastInsert
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
@@ -558,7 +559,6 @@ unsupportedAlterStatement
         properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
-    | ALTER ROLE role=identifier commentSpec                                        #alterRole
     | ALTER REPOSITORY name=identifier properties=propertyClause?                   #alterRepository
     ;
 
