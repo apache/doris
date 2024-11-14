@@ -421,6 +421,91 @@ TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
             { writer.copyFile("0.segments", mock_dir.get(), nullptr, buffer, sizeof(buffer)); },
             CLuceneError);
 }
+class InvertedIndexFileWriterMock : public InvertedIndexFileWriter {
+public:
+    InvertedIndexFileWriterMock(const io::FileSystemSPtr& fs, const std::string& index_path_prefix,
+                                const std::string& rowset_id, int32_t segment_id,
+                                InvertedIndexStorageFormatPB storage_format)
+            : InvertedIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id,
+                                      storage_format) {}
+
+    MOCK_METHOD(void, write_header_and_data_v1,
+                (lucene::store::IndexOutput * output, const std::vector<FileInfo>& files,
+                 lucene::store::Directory* dir, int64_t header_length, int32_t file_count),
+                (override));
+};
+TEST_F(InvertedIndexFileWriterTest, WriteV1ExceptionHandlingTest) {
+    InvertedIndexFileWriterMock writer_mock(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                            InvertedIndexStorageFormatPB::V1);
+
+    int64_t index_id = 1;
+    std::string index_suffix = "suffix1";
+    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
+    ASSERT_NE(index_meta, nullptr);
+
+    auto open_result = writer_mock.open(index_meta.get());
+    ASSERT_TRUE(open_result.has_value());
+    auto dir = open_result.value();
+
+    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(dir->createOutput("test_file"));
+    out_file->writeString("test data");
+    out_file->close();
+    dir->close();
+    EXPECT_CALL(writer_mock, write_header_and_data_v1(::testing::_, ::testing::_, ::testing::_,
+                                                      ::testing::_, ::testing::_))
+            .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
+
+    Status status = writer_mock.write_v1();
+    ASSERT_FALSE(status.ok());
+    ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+}
+class InvertedIndexFileWriterMockV2 : public InvertedIndexFileWriter {
+public:
+    InvertedIndexFileWriterMockV2(const io::FileSystemSPtr& fs,
+                                  const std::string& index_path_prefix,
+                                  const std::string& rowset_id, int32_t segment_id,
+                                  InvertedIndexStorageFormatPB storage_format,
+                                  io::FileWriterPtr file_writer)
+            : InvertedIndexFileWriter(fs, index_path_prefix, rowset_id, segment_id, storage_format,
+                                      std::move(file_writer)) {}
+
+    MOCK_METHOD(void, write_index_headers_and_metadata,
+                (lucene::store::IndexOutput * compound_file_output,
+                 const std::vector<FileMetadata>& file_metadata),
+                (override));
+};
+
+TEST_F(InvertedIndexFileWriterTest, WriteV2ExceptionHandlingTest) {
+    io::FileWriterPtr file_writer;
+    std::string index_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
+    io::FileWriterOptions opts;
+    Status st = _fs->create_file(index_path, &file_writer, &opts);
+    ASSERT_TRUE(st.ok());
+    InvertedIndexFileWriterMockV2 writer_mock(_fs, _index_path_prefix, _rowset_id, _seg_id,
+                                              InvertedIndexStorageFormatPB::V2,
+                                              std::move(file_writer));
+
+    int64_t index_id = 1;
+    std::string index_suffix = "suffix1";
+    auto index_meta = create_mock_tablet_index(index_id, index_suffix);
+    ASSERT_NE(index_meta, nullptr);
+
+    auto open_result = writer_mock.open(index_meta.get());
+    ASSERT_TRUE(open_result.has_value());
+    auto dir = open_result.value();
+
+    auto out_file = std::unique_ptr<lucene::store::IndexOutput>(dir->createOutput("test_file"));
+    out_file->writeString("test data");
+    out_file->close();
+    dir->close();
+
+    EXPECT_CALL(writer_mock, write_index_headers_and_metadata(::testing::_, ::testing::_))
+            .WillOnce(::testing::Throw(CLuceneError(CL_ERR_IO, "Simulated exception", false)));
+
+    Status status = writer_mock.write_v2();
+    ASSERT_FALSE(status.ok());
+    ASSERT_EQ(status.code(), ErrorCode::INVERTED_INDEX_CLUCENE_ERROR);
+}
 
 } // namespace segment_v2
 } // namespace doris

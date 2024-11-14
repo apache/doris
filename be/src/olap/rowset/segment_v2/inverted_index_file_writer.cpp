@@ -243,6 +243,8 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
 
 Status InvertedIndexFileWriter::write_v1() {
     int64_t total_size = 0;
+    lucene::store::Directory* out_dir = nullptr;
+    std::unique_ptr<lucene::store::IndexOutput> output = nullptr;
     for (const auto& entry : _indices_dirs) {
         const int64_t index_id = entry.first.first;
         const auto& index_suffix = entry.first.second;
@@ -257,7 +259,9 @@ Status InvertedIndexFileWriter::write_v1() {
                     calculate_header_length(sorted_files, directory);
 
             // Create output stream
-            auto [out_dir, output] = create_output_stream_v1(index_id, index_suffix);
+            auto result = create_output_stream_v1(index_id, index_suffix);
+            out_dir = result.first;
+            output = std::move(result.second);
 
             size_t start = output->getFilePointer();
             // Write header and data
@@ -274,6 +278,11 @@ Status InvertedIndexFileWriter::write_v1() {
             add_index_info(index_id, index_suffix, compound_file_size);
 
         } catch (CLuceneError& err) {
+            finalize_output_dir(out_dir);
+            if (output != nullptr) {
+                output->close();
+                output.reset();
+            }
             auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
                     _index_path_prefix, index_id, index_suffix);
             LOG(ERROR) << "CLuceneError occur when write_v1 idx file " << index_path
@@ -325,10 +334,7 @@ Status InvertedIndexFileWriter::write_v2() {
             compound_file_output->close();
             compound_file_output.reset();
         }
-        if (out_dir != nullptr) {
-            out_dir->close();
-            _CLDECDELETE(out_dir)
-        }
+        finalize_output_dir(out_dir);
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                 "CLuceneError occur when close idx file: {}, error msg: {}", index_path.c_str(),
                 err.what());

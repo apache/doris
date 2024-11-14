@@ -69,7 +69,7 @@ public:
     Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
-    ~InvertedIndexFileWriter() = default;
+    virtual ~InvertedIndexFileWriter() = default;
     Status write_v2();
     Status write_v1();
     Status close();
@@ -114,10 +114,10 @@ private:
                                                         lucene::store::Directory* directory);
     std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
     create_output_stream_v1(int64_t index_id, const std::string& index_suffix);
-    void write_header_and_data_v1(lucene::store::IndexOutput* output,
-                                  const std::vector<FileInfo>& sorted_files,
-                                  lucene::store::Directory* directory, int64_t header_length,
-                                  int32_t header_file_count);
+    virtual void write_header_and_data_v1(lucene::store::IndexOutput* output,
+                                          const std::vector<FileInfo>& sorted_files,
+                                          lucene::store::Directory* directory,
+                                          int64_t header_length, int32_t header_file_count);
     // Helper functions specific to write_v2
     std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
     create_output_stream_v2();
@@ -140,8 +140,8 @@ private:
                   directory(dir) {}
     };
     std::vector<FileMetadata> prepare_file_metadata_v2(int64_t& current_offset);
-    void write_index_headers_and_metadata(lucene::store::IndexOutput* output,
-                                          const std::vector<FileMetadata>& file_metadata);
+    virtual void write_index_headers_and_metadata(lucene::store::IndexOutput* output,
+                                                  const std::vector<FileMetadata>& file_metadata);
     void copy_files_data_v2(lucene::store::IndexOutput* output,
                             const std::vector<FileMetadata>& file_metadata);
     Status _insert_directory_into_map(int64_t index_id, const std::string& index_suffix,
