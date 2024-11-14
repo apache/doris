@@ -39,7 +39,7 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
             "s3.region" = "us-east-1"
         );"""
 
-    order_qt_base_table """ select * from ${catalogName}.test_paimon_spark.test_tb_mix_format order by par,id; """
+    order_qt_base_table """ select * from ${catalogName}.test_paimon_spark.test_tb_mix_format ; """
 
     sql """drop materialized view if exists ${mvName};"""
 
@@ -62,16 +62,16 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_a);
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_one_partition "SELECT * FROM ${mvName} order by par,id"
+    order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
 
     //refresh auto
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} auto
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_auto "SELECT * FROM ${mvName} order by par,id"
-
+    order_qt_refresh_auto "SELECT * FROM ${mvName} "
     order_qt_is_sync_before_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
+
    // rebuild catalog, should not Affects MTMV
     sql """drop catalog if exists ${catalogName}"""
     sql """
@@ -84,7 +84,6 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
                 "s3.region" = "us-east-1"
             );
     """
-
     order_qt_is_sync_after_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
 
     // should refresh normal after catalog rebuild
@@ -92,7 +91,26 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
             REFRESH MATERIALIZED VIEW ${mvName} complete
         """
     waitingMTMVTaskFinishedByMvName(mvName)
-    order_qt_refresh_complete_rebuild "SELECT * FROM ${mvName} order by par,id"
+    order_qt_refresh_complete_rebuild "SELECT * FROM ${mvName} "
+
+    sql """drop materialized view if exists ${mvName};"""
+
+     // not have partition
+     sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${catalogName}.`test_paimon_spark`.test_tb_mix_format;
+        """
+
+    //should can refresh auto
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} auto
+        """
+    waitingMTMVTaskFinishedByMvName(mvName)
+    order_qt_not_partition "SELECT * FROM ${mvName} "
 
     sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
