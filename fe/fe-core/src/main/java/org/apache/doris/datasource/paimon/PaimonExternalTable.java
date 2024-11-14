@@ -44,6 +44,7 @@ import org.apache.doris.thrift.TTableType;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.paimon.catalog.Catalog;
@@ -166,6 +167,9 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     private PaimonPartitionInfo loadPartitionInfo(List<Column> partitionColumns) throws IOException, AnalysisException {
+        if (CollectionUtils.isEmpty(partitionColumns)) {
+            return new PaimonPartitionInfo();
+        }
         List<PaimonPartition> paimonPartitions = loadPartitions();
         return PaimonUtil.generatePartitionInfo(partitionColumns, paimonPartitions);
     }
