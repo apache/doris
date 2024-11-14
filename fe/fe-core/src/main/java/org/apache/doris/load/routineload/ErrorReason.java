@@ -19,8 +19,12 @@ package org.apache.doris.load.routineload;
 
 import org.apache.doris.common.InternalErrorCode;
 
+import com.google.gson.annotations.SerializedName;
+
 public class ErrorReason {
+    @SerializedName(value = "code")
     private InternalErrorCode code;
+    @SerializedName(value = "msg")
     private String msg;
 
     public ErrorReason(InternalErrorCode errCode, String msg) {

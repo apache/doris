@@ -20,6 +20,7 @@ package org.apache.doris.persist;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
+import org.apache.doris.load.routineload.ErrorReason;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -37,12 +38,22 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
     private Map<String, String> jobProperties;
     @SerializedName(value = "dataSourceProperties")
     private AbstractDataSourceProperties dataSourceProperties;
+    @SerializedName(value = "pauseReason")
+    private ErrorReason pauseReason;
 
     public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
             AbstractDataSourceProperties dataSourceProperties) {
         this.jobId = jobId;
         this.jobProperties = jobProperties;
         this.dataSourceProperties = dataSourceProperties;
+    }
+
+    public AlterRoutineLoadJobOperationLog(long jobId, Map<String, String> jobProperties,
+            AbstractDataSourceProperties dataSourceProperties, ErrorReason pauseReason) {
+        this.jobId = jobId;
+        this.jobProperties = jobProperties;
+        this.dataSourceProperties = dataSourceProperties;
+        this.pauseReason = pauseReason;
     }
 
     public long getJobId() {
@@ -57,6 +68,10 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
         return dataSourceProperties;
     }
 
+    public ErrorReason getPauseReason() {
+        return pauseReason;
+    }
+
     public static AlterRoutineLoadJobOperationLog read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, AlterRoutineLoadJobOperationLog.class);
@@ -66,5 +81,10 @@ public class AlterRoutineLoadJobOperationLog  implements Writable {
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
         Text.writeString(out, json);
+    }
+
+    @Override
+    public String toString() {
+        return GsonUtils.GSON.toJson(this);
     }
 }

@@ -681,6 +681,20 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void modifyPropertiesInternal(Map<String, String> jobProperties,
+                                          KafkaDataSourceProperties dataSourceProperties,
+                                          ErrorReason reason) throws DdlException {
+        if (MapUtils.isEmpty(jobProperties) && dataSourceProperties == null && reason != null) {
+            if (pauseReason != null) {
+                pauseReason.setCode(reason.getCode());
+            } else {
+                pauseReason = new ErrorReason(reason.getCode(), reason.getMsg());
+            }
+            return;
+        }
+        modifyPropertiesInternal(jobProperties, dataSourceProperties);
+    }
+
+    private void modifyPropertiesInternal(Map<String, String> jobProperties,
                                           KafkaDataSourceProperties dataSourceProperties)
             throws DdlException {
         if (null != dataSourceProperties) {
@@ -735,7 +749,8 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
     @Override
     public void replayModifyProperties(AlterRoutineLoadJobOperationLog log) {
         try {
-            modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties());
+            modifyPropertiesInternal(log.getJobProperties(), (KafkaDataSourceProperties) log.getDataSourceProperties(),
+                    log.getPauseReason());
         } catch (DdlException e) {
             // should not happen
             LOG.error("failed to replay modify kafka routine load job: {}", id, e);

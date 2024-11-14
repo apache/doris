@@ -1355,6 +1355,13 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         if (!isReplay && jobState != JobState.RUNNING) {
             Env.getCurrentEnv().getEditLog().logOpRoutineLoadJob(new RoutineLoadOperation(id, jobState));
+            // for kafka, if job is paused, we should record this operation in edit log
+            // otherwise, we don't auto resume job
+            // this way is more trick, but it is also a helpless choice
+            if (jobState == JobState.PAUSED && dataSourceType == LoadDataSourceType.KAFKA) {
+                Env.getCurrentEnv().getEditLog().logAlterRoutineLoadJob(new AlterRoutineLoadJobOperationLog(this.id,
+                        Maps.newHashMap(), null, reason));
+            }
         }
     }
 
