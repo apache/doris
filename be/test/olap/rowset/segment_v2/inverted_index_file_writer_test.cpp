@@ -417,9 +417,13 @@ TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
             }));
 
     uint8_t buffer[16384];
-    ASSERT_THROW(
-            { writer.copyFile("0.segments", mock_dir.get(), nullptr, buffer, sizeof(buffer)); },
-            CLuceneError);
+    std::string error_message;
+    try {
+        writer.copyFile("0.segments", mock_dir.get(), nullptr, buffer, sizeof(buffer));
+    } catch (CLuceneError& err) {
+        error_message = err.what();
+    }
+    ASSERT_EQ(error_message, "Could not open file, file is 0.segments");
 }
 class InvertedIndexFileWriterMock : public InvertedIndexFileWriter {
 public:
