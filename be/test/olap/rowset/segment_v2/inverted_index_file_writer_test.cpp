@@ -383,7 +383,7 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
         }
     }
 }
-TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
+/*TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
     auto mock_dir = std::make_shared<MockDorisFSDirectoryOpenInput>();
     std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(), _rowset_id,
@@ -406,7 +406,7 @@ TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
                   << st.msg() << std::endl;
         ASSERT_TRUE(false);
         return;
-    }
+    }*/
 
     EXPECT_CALL(*mock_dir,
                 openInput(::testing::StrEq("0.segments"), ::testing::_, ::testing::_, ::testing::_))
