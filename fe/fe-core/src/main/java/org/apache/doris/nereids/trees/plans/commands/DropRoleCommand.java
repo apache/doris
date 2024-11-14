@@ -43,7 +43,6 @@ public class DropRoleCommand extends DropCommand {
     /**
      * constructor
      */
-
     public DropRoleCommand(String role, boolean ifExists) {
         super(PlanType.DROP_ROLE_COMMAND);
         this.role = role;
