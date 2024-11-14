@@ -24,11 +24,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
-import java.util.ArrayList;
-import java.util.DoubleSummaryStatistics;
-import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 public class ProfileSpanWithStepTimerTest {
     private static final double TIMING_ERROR_MARGIN = 0.3; // Allow 30% error margin for timing tests
@@ -46,37 +42,31 @@ public class ProfileSpanWithStepTimerTest {
     public void testBasicTiming() {
         String nodeId = "node1";
         NestedStepTimer timer = summaryProfile.createNodeTimer(nodeId);
-        long expectedTime = 100;
 
-        long startTime = System.nanoTime();
         try (ProfileSpan span = ProfileSpan.create(summaryProfile, nodeId, "step1")) {
-            sleep(expectedTime);
+            sleep(100);
         }
-        long actualTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
 
         TimeStats stepStats = timer.getScanNodesStats().get("step1");
         Assert.assertNotNull("Stats should exist for step1", stepStats);
         Assert.assertEquals("Should have 1 execution", 1, stepStats.getCount());
-        assertTimingWithinRange(expectedTime, stepStats.getSum());
-        assertTimingWithinRange(expectedTime, actualTime);
+        assertTimingWithinRange(100, stepStats.getSum());
     }
 
     @Test
     public void testNestedSpans() {
         String nodeId = "node1";
         NestedStepTimer timer = summaryProfile.createNodeTimer(nodeId);
-        long innerTime = 100;
-        long outerTime = 200;
 
-        long startTime = System.nanoTime();
         try (ProfileSpan outerSpan = ProfileSpan.create(summaryProfile, nodeId, "outer")) {
             sleep(50);
+
             try (ProfileSpan innerSpan = ProfileSpan.create(summaryProfile, nodeId, "inner")) {
-                sleep(innerTime);
+                sleep(100);
             }
+
             sleep(50);
         }
-        long actualTotalTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
 
         TimeStats outerStats = timer.getScanNodesStats().get("outer");
         TimeStats innerStats = timer.getScanNodesStats().get("inner");
@@ -84,53 +74,28 @@ public class ProfileSpanWithStepTimerTest {
         Assert.assertNotNull("Outer stats should exist", outerStats);
         Assert.assertNotNull("Inner stats should exist", innerStats);
 
-        assertTimingWithinRange(innerTime, innerStats.getSum());
-        assertTimingWithinRange(actualTotalTime, outerStats.getSum());
+        assertTimingWithinRange(100, innerStats.getSum());
+        assertTimingWithinRange(200, outerStats.getSum());
     }
 
     @Test
     public void testMultipleExecutions() {
         String nodeId = "node1";
         NestedStepTimer timer = summaryProfile.createNodeTimer(nodeId);
-        long expectedTime = 50;
 
-        List<Long> measurements = new ArrayList<>();
-        for (int i = 0; i < 2; i++) {
-            long start = System.nanoTime();
-            try (ProfileSpan span = ProfileSpan.create(summaryProfile, nodeId, "step1")) {
-                sleep(expectedTime);
-            }
-            measurements.add(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+        // First execution
+        try (ProfileSpan span = ProfileSpan.create(summaryProfile, nodeId, "step1")) {
+            sleep(50);
+        }
+
+        // Second execution
+        try (ProfileSpan span = ProfileSpan.create(summaryProfile, nodeId, "step1")) {
+            sleep(50);
         }
 
         TimeStats stats = timer.getScanNodesStats().get("step1");
         Assert.assertEquals("Should have 2 executions", 2, stats.getCount());
-
-        double avgTime = measurements.stream().mapToLong(Long::longValue).average().orElse(0.0);
-        assertTimingWithinRange(expectedTime, (long) avgTime);
-    }
-
-    @Test
-    public void testParallelSteps() {
-        String nodeId = "node1";
-        NestedStepTimer timer = summaryProfile.createNodeTimer(nodeId);
-        long expectedTime = 100;
-
-        List<Long> timings = new ArrayList<>();
-        for (String step : new String[]{"parallel1", "parallel2"}) {
-            long start = System.nanoTime();
-            try (ProfileSpan span = ProfileSpan.create(summaryProfile, nodeId, step)) {
-                sleep(expectedTime);
-            }
-            timings.add(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
-        }
-
-        DoubleSummaryStatistics stats = timings.stream()
-                .mapToDouble(Long::doubleValue)
-                .summaryStatistics();
-
-        Assert.assertTrue("Steps should have similar duration",
-                Math.abs(stats.getMax() - stats.getMin()) <= expectedTime * TIMING_ERROR_MARGIN);
+        assertTimingWithinRange(100, stats.getSum());
     }
 
     @Test
@@ -138,93 +103,96 @@ public class ProfileSpanWithStepTimerTest {
         String nodeId = "node1";
         NestedStepTimer timer = summaryProfile.createNodeTimer(nodeId);
 
-        long startTime = System.nanoTime();
-        executeComplexScenario(nodeId);
-        long totalTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
-
-        Map<String, TimeStats> stats = timer.getScanNodesStats();
-        Assert.assertEquals("Should have all steps", 6, stats.size());
-
-        // 使用实际测量的总时间而不是预期时间
-        assertTimingWithinRange(totalTime, stats.get("transaction").getSum());
-        verifyStepStats(stats);
-    }
-
-    private void executeComplexScenario(String nodeId) {
         try (ProfileSpan transaction = ProfileSpan.create(summaryProfile, nodeId, "transaction")) {
             sleep(50);
+
             try (ProfileSpan prepare = ProfileSpan.create(summaryProfile, nodeId, "prepare")) {
                 sleep(100);
             }
+
             try (ProfileSpan execute = ProfileSpan.create(summaryProfile, nodeId, "execute")) {
                 try (ProfileSpan subquery1 = ProfileSpan.create(summaryProfile, nodeId, "subquery1")) {
                     sleep(150);
                 }
+
                 try (ProfileSpan subquery2 = ProfileSpan.create(summaryProfile, nodeId, "subquery2")) {
                     sleep(200);
                 }
             }
+
             try (ProfileSpan commit = ProfileSpan.create(summaryProfile, nodeId, "commit")) {
                 sleep(50);
             }
         }
+
+        Assert.assertEquals("Should have all steps", 6, timer.getScanNodesStats().size());
+
+        verifyStepDuration("transaction", timer.getScanNodesStats(), 550);
+        verifyStepDuration("prepare", timer.getScanNodesStats(), 100);
+        verifyStepDuration("execute", timer.getScanNodesStats(), 350);
+        verifyStepDuration("subquery1", timer.getScanNodesStats(), 150);
+        verifyStepDuration("subquery2", timer.getScanNodesStats(), 200);
+        verifyStepDuration("commit", timer.getScanNodesStats(), 50);
     }
 
     @Test
     public void testExceptionHandling() {
         String nodeId = "node1";
         NestedStepTimer timer = summaryProfile.createNodeTimer(nodeId);
-        long expectedTime = 100;
 
-        long startTime = System.nanoTime();
         try {
             try (ProfileSpan span = ProfileSpan.create(summaryProfile, nodeId, "errorStep")) {
-                sleep(expectedTime);
+                sleep(100);
                 throw new RuntimeException("Test exception");
             }
         } catch (RuntimeException e) {
             // Expected exception
         }
-        long actualTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
 
         TimeStats stats = timer.getScanNodesStats().get("errorStep");
         Assert.assertNotNull("Stats should exist despite exception", stats);
         Assert.assertEquals("Should have 1 execution", 1, stats.getCount());
-        assertTimingWithinRange(expectedTime, actualTime);
+        assertTimingWithinRange(100, stats.getSum());
     }
 
     @Test
-    public void testTimingAccuracy() {
-        String nodeId = "node1";
-        NestedStepTimer timer = summaryProfile.createNodeTimer(nodeId);
+    public void testMultipleNodes() {
+        String node1 = "node1";
+        String node2 = "node2";
+        NestedStepTimer timer1 = summaryProfile.createNodeTimer(node1);
+        NestedStepTimer timer2 = summaryProfile.createNodeTimer(node2);
 
-        List<Long> measurements = new ArrayList<>();
-        int iterations = 10;
-        long targetTime = 50;
-
-        for (int i = 0; i < iterations; i++) {
-            long start = System.nanoTime();
-            try (ProfileSpan span = ProfileSpan.create(summaryProfile, nodeId, "accuracy" + i)) {
-                sleep(targetTime);
-            }
-            measurements.add(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+        try (ProfileSpan span1 = ProfileSpan.create(summaryProfile, node1, "step1")) {
+            sleep(100);
         }
 
-        DoubleSummaryStatistics stats = measurements.stream()
-                .mapToDouble(Long::doubleValue)
-                .summaryStatistics();
+        try (ProfileSpan span2 = ProfileSpan.create(summaryProfile, node2, "step1")) {
+            sleep(100);
+        }
 
-        System.out.printf("Timing statistics for %d ms target:%n", targetTime);
-        System.out.printf("  Average: %.2f ms%n", stats.getAverage());
-        System.out.printf("  Min: %.2f ms%n", stats.getMin());
-        System.out.printf("  Max: %.2f ms%n", stats.getMax());
-        System.out.printf("  StdDev: %.2f ms%n", calculateStdDev(measurements, stats.getAverage()));
+        TimeStats stats1 = timer1.getScanNodesStats().get("step1");
+        Assert.assertEquals("Should have 2 executions", 2, stats1.getCount());
 
-        assertTimingWithinRange(targetTime, (long) stats.getAverage());
+        TimeStats stats2 = timer2.getScanNodesStats().get("step1");
+        Assert.assertEquals("Should have 2 executions", 2, stats2.getCount());
+    }
+
+    private void verifyStepDuration(String step, Map<String, TimeStats> scanNodeStats, long expectedDuration) {
+        TimeStats stats = scanNodeStats.get(step);
+        Assert.assertNotNull("Stats should exist for " + step, stats);
+        assertTimingWithinRange(expectedDuration, stats.getSum());
+    }
+
+    private void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void assertTimingWithinRange(long expected, long actual) {
-        long allowedDelta = (long)(expected * TIMING_ERROR_MARGIN);
+        long allowedDelta = (long) (expected * TIMING_ERROR_MARGIN);
         long minExpected = Math.max(expected - allowedDelta, MIN_SLEEP_TIME);
         long maxExpected = expected + allowedDelta;
 
@@ -235,37 +203,5 @@ public class ProfileSpanWithStepTimerTest {
                 ),
                 actual >= minExpected && actual <= maxExpected
         );
-    }
-
-    private void verifyStepStats(Map<String, TimeStats> stats) {
-        for (Map.Entry<String, TimeStats> entry : stats.entrySet()) {
-            TimeStats timeStats = entry.getValue();
-            Assert.assertTrue(
-                    String.format("Stats for %s should be reasonable", entry.getKey()),
-                    timeStats.getMin() <= timeStats.getAverage() &&
-                            timeStats.getAverage() <= timeStats.getMax()
-            );
-        }
-    }
-
-    private double calculateStdDev(List<Long> measurements, double mean) {
-        return Math.sqrt(measurements.stream()
-                .mapToDouble(m -> Math.pow(m - mean, 2))
-                .average()
-                .orElse(0.0));
-    }
-
-    private void sleep(long targetMillis) {
-        long start = System.nanoTime();
-        long targetNanos = TimeUnit.MILLISECONDS.toNanos(targetMillis);
-
-        while (System.nanoTime() - start < targetNanos) {
-            try {
-                Thread.sleep(1);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-        }
     }
 }
