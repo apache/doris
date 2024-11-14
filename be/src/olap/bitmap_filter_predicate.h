@@ -42,7 +42,7 @@ public:
                                 const std::shared_ptr<BitmapFilterFuncBase>& filter, int)
             : ColumnPredicate(column_id),
               _filter(filter),
-              _specific_filter(static_cast<SpecificFilter*>(_filter.get())) {}
+              _specific_filter(assert_cast<SpecificFilter*>(_filter.get())) {}
     ~BitmapFilterColumnPredicate() override = default;
 
     PredicateType type() const override { return PredicateType::BITMAP_FILTER; }
