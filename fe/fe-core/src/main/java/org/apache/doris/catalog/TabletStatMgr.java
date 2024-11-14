@@ -104,6 +104,16 @@ public class TabletStatMgr extends MasterDaemon {
                     continue;
                 }
                 OlapTable olapTable = (OlapTable) table;
+
+                Long tableDataSize = 0L;
+                Long tableTotalReplicaDataSize = 0L;
+
+                Long tableRemoteDataSize = 0L;
+
+                Long tableReplicaCount = 0L;
+
+                Long tableRowCount = 0L;
+
                 // Use try write lock to avoid such cases
                 //    Time1: Thread1 hold read lock for 5min
                 //    Time2: Thread2 want to add write lock, then it will be the first element in lock queue
@@ -120,7 +130,12 @@ public class TabletStatMgr extends MasterDaemon {
                             long indexRowCount = 0L;
                             boolean indexReported = true;
                             for (Tablet tablet : index.getTablets()) {
-                                long tabletRowCount = Long.MAX_VALUE;
+
+                                Long tabletDataSize = 0L;
+                                Long tabletRemoteDataSize = 0L;
+
+                                Long tabletRowCount = Long.MAX_VALUE;
+
                                 boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
                                     LOG.debug("Table {} replica {} current version {}, report version {}",
@@ -146,12 +161,26 @@ public class TabletStatMgr extends MasterDaemon {
                                         }
                                         tabletRowCount = replica.getRowCount();
                                     }
+
+                                    if (replica.getDataSize() > tabletDataSize) {
+                                        tabletDataSize = replica.getDataSize();
+                                    }
+                                    tableTotalReplicaDataSize += replica.getDataSize();
+
+                                    if (replica.getRemoteDataSize() > tabletRemoteDataSize) {
+                                        tabletRemoteDataSize = replica.getRemoteDataSize();
+                                    }
+                                    tableReplicaCount++;
                                 }
+
+                                tableDataSize += tabletDataSize;
+                                tableRemoteDataSize += tabletRemoteDataSize;
 
                                 // When all BEs are down, avoid set Long.MAX_VALUE to index and table row count. Use 0.
                                 if (tabletRowCount == Long.MAX_VALUE) {
                                     tabletRowCount = 0L;
                                 }
+                                tableRowCount += tabletRowCount;
                                 indexRowCount += tabletRowCount;
                                 // Only when all tablets of this index are reported, we set indexReported to true.
                                 indexReported = indexReported && tabletReported;
@@ -163,6 +192,11 @@ public class TabletStatMgr extends MasterDaemon {
                                     indexReported, indexRowCount);
                         } // end for indices
                     } // end for partitions
+
+                    olapTable.setStatistics(new OlapTable.Statistics(db.getName(), table.getName(),
+                            tableDataSize, tableTotalReplicaDataSize,
+                            tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L));
+
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("finished to set row num for table: {} in database: {}",
                                  table.getName(), db.getFullName());
