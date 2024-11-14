@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
@@ -262,5 +263,9 @@ public interface CommandVisitor<R, C> {
     default R visitShowCreateMaterializedViewCommand(ShowCreateMaterializedViewCommand showCreateMtlzViewCommand,
                         C context) {
         return visitCommand(showCreateMtlzViewCommand, context);
+    }
+
+    default R visitAlterRoleCommand(AlterRoleCommand alterRoleCommand, C context) {
+        return visitCommand(alterRoleCommand, context);
     }
 }
