@@ -408,22 +408,22 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
         return;
     }*/
 
-    EXPECT_CALL(*mock_dir,
-                openInput(::testing::StrEq("0.segments"), ::testing::_, ::testing::_, ::testing::_))
-            .WillOnce(::testing::Invoke([&](const char* name, lucene::store::IndexInput*& ret,
-                                            CLuceneError& err_ref, int bufferSize) {
-                err_ref.set(CL_ERR_IO, fmt::format("Could not open file, file is {}", name).data());
-                return false;
-            }));
+EXPECT_CALL(*mock_dir,
+            openInput(::testing::StrEq("0.segments"), ::testing::_, ::testing::_, ::testing::_))
+        .WillOnce(::testing::Invoke([&](const char* name, lucene::store::IndexInput*& ret,
+                                        CLuceneError& err_ref, int bufferSize) {
+            err_ref.set(CL_ERR_IO, fmt::format("Could not open file, file is {}", name).data());
+            return false;
+        }));
 
-    uint8_t buffer[16384];
-    std::string error_message;
-    try {
-        writer.copyFile("0.segments", mock_dir.get(), nullptr, buffer, sizeof(buffer));
-    } catch (CLuceneError& err) {
-        error_message = err.what();
-    }
-    ASSERT_EQ(error_message, "Could not open file, file is 0.segments");
+uint8_t buffer[16384];
+std::string error_message;
+try {
+    writer.copyFile("0.segments", mock_dir.get(), nullptr, buffer, sizeof(buffer));
+} catch (CLuceneError& err) {
+    error_message = err.what();
+}
+ASSERT_EQ(error_message, "Could not open file, file is 0.segments");
 }
 class InvertedIndexFileWriterMock : public InvertedIndexFileWriter {
 public:
