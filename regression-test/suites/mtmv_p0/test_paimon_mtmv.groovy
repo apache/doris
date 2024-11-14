@@ -74,14 +74,14 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
    // rebuild catalog, should not Affects MTMV
     sql """drop catalog if exists ${catalogName}"""
     sql """
-    sql """CREATE CATALOG ${catalogName} PROPERTIES (
+        CREATE CATALOG ${catalogName} PROPERTIES (
                 'type'='paimon',
                 'warehouse' = 's3://warehouse/wh/',
                 "s3.access_key" = "admin",
                 "s3.secret_key" = "password",
                 "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
                 "s3.region" = "us-east-1"
-            );"""
+            );
     """
 
     order_qt_is_sync_after_rebuild "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
