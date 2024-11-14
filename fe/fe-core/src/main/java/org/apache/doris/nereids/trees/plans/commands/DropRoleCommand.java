@@ -51,7 +51,6 @@ public class DropRoleCommand extends DropCommand {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-
         if (Config.access_controller_type.equalsIgnoreCase("ranger-doris")) {
             throw new AnalysisException("Drop role is prohibited when Ranger is enabled.");
         }
