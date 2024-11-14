@@ -361,6 +361,9 @@ void update_least_sparse_column(const std::vector<TabletSchemaSPtr>& schemas,
 void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                                TabletSchemaSPtr& target_schema) {
     DCHECK(target.is_extracted_column());
+    target.set_aggregation_method(source.aggregation());
+
+    // 1. bloom filter
     if (target.type() != FieldType::OLAP_FIELD_TYPE_TINYINT &&
         target.type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
         target.type() != FieldType::OLAP_FIELD_TYPE_DOUBLE &&
@@ -368,7 +371,8 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
         // above types are not supported in bf
         target.set_is_bf_column(source.is_bf_column());
     }
-    target.set_aggregation_method(source.aggregation());
+
+    // 2. inverted index
     const auto* source_index_meta = target_schema->inverted_index(source.unique_id());
     if (source_index_meta != nullptr) {
         // add index meta
@@ -378,11 +382,13 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
                 target.parent_unique_id(), target.path_info_ptr()->get_path());
         if (target_index_meta != nullptr) {
             // already exist
-            target_schema->update_index(target, index_info);
+            target_schema->update_index(target, IndexType::INVERTED, std::move(index_info));
         } else {
             target_schema->append_index(std::move(index_info));
         }
     }
+
+    // 3. TODO: gnragm bf index
 }
 
 void inherit_column_attributes(TabletSchemaSPtr& schema) {
@@ -572,7 +578,7 @@ Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst) 
                                  : std::make_shared<DataTypeJsonb>();
     ColumnsWithTypeAndName arguments {
             {source, json_type, ""},
-            {type_string->create_column_const(1, Field(jsonpath.data(), jsonpath.size())),
+            {type_string->create_column_const(1, Field(String(jsonpath.data(), jsonpath.size()))),
              type_string, ""}};
     auto function =
             SimpleFunctionFactory::instance().get_function("jsonb_extract", arguments, json_type);

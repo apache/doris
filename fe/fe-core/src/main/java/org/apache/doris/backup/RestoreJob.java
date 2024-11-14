@@ -1643,8 +1643,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             return;
         }
 
-        LOG.info("waiting {} replicas to make snapshot: [{}]. {}",
-                 unfinishedSignatureToId.size(), unfinishedSignatureToId, this);
+        LOG.info("waiting {} replicas to make snapshot. {}", unfinishedSignatureToId.size(), this);
         return;
     }
 

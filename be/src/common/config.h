@@ -104,6 +104,7 @@ DECLARE_Int32(arrow_flight_sql_port);
 // For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
 // If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
 DECLARE_mString(public_access_ip);
+DECLARE_Int32(public_access_port);
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -571,6 +572,8 @@ DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
+DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
+DECLARE_Int32(brpc_arrow_flight_work_pool_max_queue_size);
 
 // The maximum amount of data that can be processed by a stream load
 DECLARE_mInt64(streaming_load_max_mb);
@@ -677,6 +680,9 @@ DECLARE_mInt32(result_buffer_cancelled_interval_time);
 
 // arrow flight result sink buffer rows size, default 4096 * 8
 DECLARE_mInt32(arrow_flight_result_sink_buffer_size_rows);
+// The timeout for ADBC Client to wait for data using arrow flight reader.
+// If the query is very complex and no result is generated after this time, consider increasing this timeout.
+DECLARE_mInt32(arrow_flight_reader_brpc_controller_timeout_ms);
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
@@ -991,12 +997,16 @@ DECLARE_Int64(file_cache_recycle_keys_size);
 
 DECLARE_Bool(enable_brpc_builtin_services);
 
+DECLARE_Bool(enable_brpc_connection_check);
+
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
 // This parameter is usually only used when the FE loses connection,
 // and the BE can automatically cancel the relevant fragment after the timeout,
 // so as to avoid occupying the execution thread for a long time.
 DECLARE_mInt32(max_fragment_start_wait_time_seconds);
+
+DECLARE_Int32(fragment_mgr_cancel_worker_interval_seconds);
 
 // Node role tag for backend. Mix role is the default role, and computation role have no
 // any tablet.
@@ -1063,8 +1073,6 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
-// rename ttl filename to new format during read, with some performance cost
-DECLARE_Bool(translate_to_new_ttl_format_during_read);
 DECLARE_mBool(enbale_dump_error_file);
 // limit the max size of error log on disk
 DECLARE_mInt64(file_cache_error_log_limit_bytes);

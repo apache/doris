@@ -105,4 +105,8 @@ public class AlterViewInfo implements Writable {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, AlterViewInfo.class);
     }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
 }

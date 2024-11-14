@@ -66,7 +66,7 @@ Status DataTypeString::from_string(ReadBuffer& rb, IColumn* column) const {
 }
 
 Field DataTypeString::get_default() const {
-    return String();
+    return Field(String());
 }
 
 MutableColumnPtr DataTypeString::create_column() const {

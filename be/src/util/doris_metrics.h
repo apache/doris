@@ -218,6 +218,11 @@ public:
     UIntGauge* heavy_work_max_threads = nullptr;
     UIntGauge* light_work_max_threads = nullptr;
 
+    UIntGauge* arrow_flight_work_pool_queue_size = nullptr;
+    UIntGauge* arrow_flight_work_active_threads = nullptr;
+    UIntGauge* arrow_flight_work_pool_max_queue_size = nullptr;
+    UIntGauge* arrow_flight_work_max_threads = nullptr;
+
     UIntGauge* flush_thread_pool_queue_size = nullptr;
     UIntGauge* flush_thread_pool_thread_num = nullptr;
 

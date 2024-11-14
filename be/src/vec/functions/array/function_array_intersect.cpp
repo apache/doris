@@ -17,7 +17,6 @@
 
 #include "vec/columns/column_const.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/hash_table/hash_map.h"
 #include "vec/functions/array/function_array_binary.h"
 #include "vec/functions/array/function_array_map.h"
 #include "vec/functions/array/function_array_nary.h"

@@ -140,7 +140,7 @@ TEST_F(HttpClientTest, get_normal) {
     client.set_basic_auth("test1", "");
     std::string response;
     st = client.execute(&response);
-    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(st.ok()) << st;
     EXPECT_STREQ("test1", response.c_str());
 
     // for head
@@ -380,7 +380,7 @@ TEST_F(HttpClientTest, enable_http_auth) {
         std::cout << "st = " << st << "\n";
         std::cout << "response = " << response << "\n";
         std::cout << "st.msg() = " << st.msg() << "\n";
-        EXPECT_TRUE(!st.ok());
+        EXPECT_TRUE(!st.ok()) << st;
         EXPECT_TRUE(st.msg().find("The requested URL returned error") != std::string::npos);
     }
 
@@ -475,6 +475,36 @@ TEST_F(HttpClientTest, enable_http_auth) {
         std::cout << "response = " << response << "\n";
         std::cout << "st.msg() = " << st.msg() << "\n";
         EXPECT_TRUE(st.msg().find("Operation timed out after") != std::string::npos);
+    }
+
+    // valid token
+    {
+        config::enable_all_http_auth = true;
+        std::string url = hostname + "/metrics";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        client.set_auth_token("valid_token");
+        client.set_timeout_ms(200);
+        std::string response;
+        st = client.execute(&response);
+        EXPECT_TRUE(st.ok()) << st;
+    }
+
+    // invalid token
+    {
+        config::enable_all_http_auth = true;
+        std::string url = hostname + "/metrics";
+        HttpClient client;
+        auto st = client.init(url);
+        EXPECT_TRUE(st.ok());
+        client.set_method(GET);
+        client.set_auth_token("invalid_token");
+        client.set_timeout_ms(200);
+        std::string response;
+        st = client.execute(&response);
+        EXPECT_TRUE(!st.ok()) << st;
     }
 
     {

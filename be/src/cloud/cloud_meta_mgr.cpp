@@ -384,7 +384,8 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     return Status::OK();
 }
 
-Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data) {
+Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data,
+                                         bool sync_delete_bitmap) {
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
@@ -465,7 +466,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
 
         // If is mow, the tablet has no delete bitmap in base rowsets.
         // So dont need to sync it.
-        if (tablet->enable_unique_key_merge_on_write() &&
+        if (sync_delete_bitmap && tablet->enable_unique_key_merge_on_write() &&
             tablet->tablet_state() == TABLET_RUNNING) {
             DeleteBitmap delete_bitmap(tablet_id);
             int64_t old_max_version = req.start_version() - 1;
@@ -554,6 +555,7 @@ Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_
                 bool version_overlap =
                         tablet->max_version_unlocked() >= rowsets.front()->start_version();
                 tablet->add_rowsets(std::move(rowsets), version_overlap, wlock, warmup_delta_data);
+                RETURN_IF_ERROR(tablet->merge_rowsets_schema());
             }
             tablet->last_base_compaction_success_time_ms = stats.last_base_compaction_time_ms();
             tablet->last_cumu_compaction_success_time_ms = stats.last_cumu_compaction_time_ms();
@@ -835,7 +837,7 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                 Status status;
                 int64_t duration_ns = 0;
                 TNetworkAddress master_addr =
-                        ExecEnv::GetInstance()->master_info()->network_address;
+                        ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
                 if (master_addr.hostname.empty() || master_addr.port == 0) {
                     status = Status::Error<SERVICE_UNAVAILABLE>(
                             "Have not get FE Master heartbeat yet");
@@ -1201,7 +1203,7 @@ int64_t CloudMetaMgr::get_segment_file_size(const RowsetMeta& rs_meta) {
         auto st = fs->file_size(segment_path, &segment_file_size);
         if (!st.ok()) {
             segment_file_size = 0;
-            if (st.is<FILE_NOT_EXIST>()) {
+            if (st.is<NOT_FOUND>()) {
                 LOG(INFO) << "cloud table size correctness check get segment size 0 because "
                              "file not exist! msg:"
                           << st.msg() << ", segment path:" << segment_path;
@@ -1237,7 +1239,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
                 auto st = fs->file_size(inverted_index_file_path, &file_size);
                 if (!st.ok()) {
                     file_size = 0;
-                    if (st.is<FILE_NOT_EXIST>()) {
+                    if (st.is<NOT_FOUND>()) {
                         LOG(INFO) << "cloud table size correctness check get inverted index v1 "
                                      "0 because file not exist! msg:"
                                   << st.msg()
@@ -1263,7 +1265,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
             auto st = fs->file_size(inverted_index_file_path, &file_size);
             if (!st.ok()) {
                 file_size = 0;
-                if (st.is<FILE_NOT_EXIST>()) {
+                if (st.is<NOT_FOUND>()) {
                     LOG(INFO) << "cloud table size correctness check get inverted index v2 "
                                  "0 because file not exist! msg:"
                               << st.msg() << ", inverted index path:" << inverted_index_file_path;

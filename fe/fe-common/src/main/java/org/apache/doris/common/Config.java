@@ -1513,9 +1513,10 @@ public class Config extends ConfigBase {
 
     /**
      * Whether to allow the outfile function to export the results to the local disk.
+     * If set to true, there's risk to run out of FE disk capacity.
      */
     @ConfField
-    public static boolean enable_outfile_to_local = true;
+    public static boolean enable_outfile_to_local = false;
 
     /**
      * Used to set the initial flow window size of the GRPC client channel, and also used to max message size.
@@ -1595,6 +1596,15 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false)
     public static boolean backup_job_compressed_serialization = false;
+
+    /**
+     * A internal config, to indicate whether to enable the restore snapshot rpc compression.
+     *
+     * The ccr syncer will depends this config to decide whether to compress the meta and job
+     * info of the restore snapshot request.
+     */
+    @ConfField(mutable = false)
+    public static boolean enable_restore_snapshot_rpc_compression = true;
 
     /**
      * Control the max num of tablets per backup job involved.
@@ -3239,4 +3249,10 @@ public class Config extends ConfigBase {
             "For testing purposes, all queries are forcibly forwarded to the master to verify"
                     + "the behavior of forwarding queries."})
     public static boolean force_forward_all_queries = false;
+
+    @ConfField(description = {"用于禁用某些SQL，配置项为AST的class simple name列表(例如CreateRepositoryStmt,"
+            + "CreatePolicyCommand)，用逗号间隔开",
+            "For disabling certain SQL queries, the configuration item is a list of simple class names of AST"
+                    + "(for example CreateRepositoryStmt, CreatePolicyCommand), separated by commas."})
+    public static String block_sql_ast_names = "";
 }

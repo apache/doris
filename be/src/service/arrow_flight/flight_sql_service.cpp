@@ -19,15 +19,17 @@
 
 #include <arrow/status.h>
 
+#include <memory>
+
 #include "arrow/flight/sql/server.h"
+#include "gutil/strings/split.h"
 #include "service/arrow_flight/arrow_flight_batch_reader.h"
 #include "service/arrow_flight/flight_sql_info.h"
 #include "service/backend_options.h"
 #include "util/arrow/utils.h"
 #include "util/uid_util.h"
 
-namespace doris {
-namespace flight {
+namespace doris::flight {
 
 class FlightSqlServer::Impl {
 private:
@@ -41,14 +43,21 @@ private:
         return arrow::flight::Ticket {std::move(ticket)};
     }
 
-    arrow::Result<std::pair<std::string, std::string>> decode_ticket(const std::string& ticket) {
-        auto divider = ticket.find(':');
-        if (divider == std::string::npos) {
-            return arrow::Status::Invalid("Malformed ticket");
+    arrow::Result<std::shared_ptr<QueryStatement>> decode_ticket(const std::string& ticket) {
+        std::vector<string> fields = strings::Split(ticket, "&");
+        if (fields.size() != 4) {
+            return arrow::Status::Invalid(fmt::format("Malformed ticket, size: {}", fields.size()));
         }
-        std::string query_id = ticket.substr(0, divider);
-        std::string sql = ticket.substr(divider + 1);
-        return std::make_pair(std::move(sql), std::move(query_id));
+
+        TUniqueId queryid;
+        parse_id(fields[0], &queryid);
+        TNetworkAddress result_addr;
+        result_addr.hostname = fields[1];
+        result_addr.port = std::stoi(fields[2]);
+        std::string sql = fields[3];
+        std::shared_ptr<QueryStatement> statement =
+                std::make_shared<QueryStatement>(queryid, result_addr, sql);
+        return statement;
     }
 
 public:
@@ -59,18 +68,21 @@ public:
     arrow::Result<std::unique_ptr<arrow::flight::FlightDataStream>> DoGetStatement(
             const arrow::flight::ServerCallContext& context,
             const arrow::flight::sql::StatementQueryTicket& command) {
-        ARROW_ASSIGN_OR_RAISE(auto pair, decode_ticket(command.statement_handle));
-        const std::string& sql = pair.first;
-        const std::string query_id = pair.second;
-        TUniqueId queryid;
-        parse_id(query_id, &queryid);
-
-        auto statement = std::make_shared<QueryStatement>(queryid, sql);
-
-        std::shared_ptr<ArrowFlightBatchReader> reader;
-        ARROW_ASSIGN_OR_RAISE(reader, ArrowFlightBatchReader::Create(statement));
-
-        return std::make_unique<arrow::flight::RecordBatchStream>(reader);
+        ARROW_ASSIGN_OR_RAISE(auto statement, decode_ticket(command.statement_handle));
+        // if IP:BrpcPort in the Ticket is not current BE node,
+        // pulls the query result Block from the BE node specified by IP:BrpcPort,
+        // converts it to Arrow Batch and returns it to ADBC client.
+        // use brpc to transmit blocks between BEs.
+        if (statement->result_addr.hostname == BackendOptions::get_localhost() &&
+            statement->result_addr.port == config::brpc_port) {
+            std::shared_ptr<ArrowFlightBatchLocalReader> reader;
+            ARROW_ASSIGN_OR_RAISE(reader, ArrowFlightBatchLocalReader::Create(statement));
+            return std::make_unique<arrow::flight::RecordBatchStream>(reader);
+        } else {
+            std::shared_ptr<ArrowFlightBatchRemoteReader> reader;
+            ARROW_ASSIGN_OR_RAISE(reader, ArrowFlightBatchRemoteReader::Create(statement));
+            return std::make_unique<arrow::flight::RecordBatchStream>(reader);
+        }
     }
 };
 
@@ -135,5 +147,4 @@ Status FlightSqlServer::join() {
     return Status::OK();
 }
 
-} // namespace flight
-} // namespace doris
+} // namespace doris::flight
