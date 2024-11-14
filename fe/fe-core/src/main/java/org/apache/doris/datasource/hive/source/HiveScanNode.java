@@ -44,12 +44,14 @@ import org.apache.doris.datasource.hive.source.HiveSplit.HiveSplitCreator;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileTextScanRangeParams;
+import org.apache.doris.thrift.TPushAggOp;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -98,15 +100,13 @@ public class HiveScanNode extends FileQueryScanNode {
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        super(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv);
-        hmsTable = (HMSExternalTable) desc.getTable();
-        brokerName = hmsTable.getCatalog().bindBrokerName();
+    public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
+        this(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv, sv);
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-                        StatisticalType statisticalType, boolean needCheckColumnPriv) {
-        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+            StatisticalType statisticalType, boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, planNodeName, statisticalType, needCheckColumnPriv, sv);
         hmsTable = (HMSExternalTable) desc.getTable();
         brokerName = hmsTable.getCatalog().bindBrokerName();
     }
@@ -163,7 +163,7 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
+    public List<Split> getSplits(int numBackends) throws UserException {
         long start = System.currentTimeMillis();
         try {
             if (!partitionInit) {
@@ -174,7 +174,7 @@ public class HiveScanNode extends FileQueryScanNode {
                     .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
             String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
             List<Split> allFiles = Lists.newArrayList();
-            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName);
+            getFileSplitByPartitions(cache, prunedPartitions, allFiles, bindBrokerName, numBackends);
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetPartitionFilesFinishTime();
             }
@@ -193,7 +193,7 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public void startSplit() {
+    public void startSplit(int numBackends) {
         if (prunedPartitions.isEmpty()) {
             splitAssignment.finishSchedule();
             return;
@@ -214,12 +214,12 @@ public class HiveScanNode extends FileQueryScanNode {
                         try {
                             List<Split> allFiles = Lists.newArrayList();
                             getFileSplitByPartitions(
-                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName);
+                                    cache, Collections.singletonList(partition), allFiles, bindBrokerName, numBackends);
                             if (allFiles.size() > numSplitsPerPartition.get()) {
                                 numSplitsPerPartition.set(allFiles.size());
                             }
                             splitAssignment.addToQueue(allFiles);
-                        } catch (IOException e) {
+                        } catch (Exception e) {
                             batchException.set(new UserException(e.getMessage(), e));
                         } finally {
                             splittersOnFlight.release();
@@ -263,7 +263,7 @@ public class HiveScanNode extends FileQueryScanNode {
     }
 
     private void getFileSplitByPartitions(HiveMetaStoreCache cache, List<HivePartition> partitions,
-                                          List<Split> allFiles, String bindBrokerName) throws IOException {
+            List<Split> allFiles, String bindBrokerName, int numBackends) throws IOException, UserException {
         List<FileCacheValue> fileCaches;
         if (hiveTransaction != null) {
             fileCaches = getFileSplitByTransaction(cache, partitions, bindBrokerName);
@@ -276,11 +276,39 @@ public class HiveScanNode extends FileQueryScanNode {
             splitAllFiles(allFiles, hiveFileStatuses);
             return;
         }
+
+        /**
+         * If the push down aggregation operator is COUNT,
+         * we don't need to split the file because for parquet/orc format, only metadata is read.
+         * If we split the file, we will read metadata of a file multiple times, which is not efficient.
+         *
+         * - Hive Transactional Table may need merge on read, so do not apply this optimization.
+         * - If the file format is not parquet/orc, eg, text, we need to split the file to increase the parallelism.
+         */
+        boolean needSplit = true;
+        if (getPushDownAggNoGroupingOp() == TPushAggOp.COUNT
+                && hiveTransaction != null
+                && noNeedSplitForCountPushDown()) {
+            int parallelNum = sessionVariable.getParallelExecInstanceNum();
+            int totalFileNum = 0;
+            for (FileCacheValue fileCacheValue : fileCaches) {
+                if (fileCacheValue.getFiles() != null) {
+                    totalFileNum += fileCacheValue.getFiles().size();
+                }
+            }
+            // If the number of files is larger than parallel instances * num of backends,
+            // we don't need to split the file.
+            // Otherwise, split the file to avoid local shuffle.
+            if (totalFileNum > parallelNum * numBackends) {
+                needSplit = false;
+            }
+        }
         for (HiveMetaStoreCache.FileCacheValue fileCacheValue : fileCaches) {
             if (fileCacheValue.getFiles() != null) {
                 boolean isSplittable = fileCacheValue.isSplittable();
                 for (HiveMetaStoreCache.HiveFileStatus status : fileCacheValue.getFiles()) {
-                    allFiles.addAll(splitFile(status.getPath(), status.getBlockSize(),
+                    // set block size to Long.MAX_VALUE to avoid splitting the file.
+                    allFiles.addAll(splitFile(status.getPath(), needSplit ? status.getBlockSize() : Long.MAX_VALUE,
                             status.getBlockLocations(), status.getLength(), status.getModificationTime(),
                             isSplittable, fileCacheValue.getPartitionValues(),
                             new HiveSplitCreator(fileCacheValue.getAcidInfo())));

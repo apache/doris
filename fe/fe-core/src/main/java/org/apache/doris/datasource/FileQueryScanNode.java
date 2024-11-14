@@ -39,6 +39,7 @@ import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hive.source.HiveSplit;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
@@ -94,6 +95,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected String brokerName;
 
     protected TableSnapshot tableSnapshot;
+    // Save the reference of session variable, so that we don't need to get it from connection context.
+    // connection context is a thread local variable, it is not available is running in other thread.
+    protected SessionVariable sessionVariable;
 
     /**
      * External file scan node for Query hms table
@@ -102,8 +106,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
     public FileQueryScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-                             StatisticalType statisticalType, boolean needCheckColumnPriv) {
+            StatisticalType statisticalType, boolean needCheckColumnPriv,
+            SessionVariable sv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
+        this.sessionVariable = sv;
     }
 
     @Override
@@ -314,6 +320,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.setProperties(locationProperties);
         }
 
+        int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
@@ -356,7 +363,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanBackendIds.add(backend.getId());
             }
         } else {
-            List<Split> inputSplits = getSplits();
+            List<Split> inputSplits = getSplits(numBackends);
             if (ConnectContext.get().getExecutor() != null) {
                 ConnectContext.get().getExecutor().getSummaryProfile().setGetSplitsFinishTime();
             }
@@ -604,5 +611,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return snapshot;
         }
         return this.tableSnapshot;
+    }
+
+    protected boolean noNeedSplitForCountPushDown() throws UserException {
+        TFileFormatType fileFormatType = getFileFormatType();
+        return fileFormatType == TFileFormatType.FORMAT_PARQUET || fileFormatType == TFileFormatType.FORMAT_ORC;
     }
 }

@@ -15,25 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.tablefunction;
+package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.common.UserException;
-import org.apache.doris.planner.DataGenScanNode;
-import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.ScanNode;
-import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.thrift.TDataGenFunctionName;
+import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.common.util.Util;
+import org.apache.doris.spi.Split;
+import org.apache.doris.thrift.TFileCompressType;
 
+import com.google.common.collect.Lists;
+import org.apache.hadoop.fs.BlockLocation;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.io.IOException;
 import java.util.List;
 
-public abstract class DataGenTableValuedFunction extends TableValuedFunctionIf {
-    public abstract List<TableValuedFunctionTask> getTasks() throws UserException;
-
-    public abstract TDataGenFunctionName getDataGenFunctionName();
-
-    @Override
-    public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new DataGenScanNode(id, desc, this);
-    }
+public class FileSplitter {
+    private static final Logger LOG = LogManager.getLogger(FileSplitter.class);
 }

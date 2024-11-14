@@ -36,7 +36,7 @@ import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -96,8 +96,8 @@ public class IcebergScanNode extends FileQueryScanNode {
      * eg: s3 tvf
      * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
-        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, needCheckColumnPriv);
+    public IcebergScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv, SessionVariable sv) {
+        super(id, desc, "ICEBERG_SCAN_NODE", StatisticalType.ICEBERG_SCAN_NODE, needCheckColumnPriv, sv);
 
         ExternalTable table = (ExternalTable) desc.getTable();
         if (table instanceof HMSExternalTable) {
@@ -177,11 +177,12 @@ public class IcebergScanNode extends FileQueryScanNode {
     }
 
     @Override
-    public List<Split> getSplits() throws UserException {
-        return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(), this::doGetSplits);
+    public List<Split> getSplits(int numBackends) throws UserException {
+        return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(),
+                () -> doGetSplits(numBackends));
     }
 
-    private List<Split> doGetSplits() throws UserException {
+    private List<Split> doGetSplits(int numBackends) throws UserException {
         TableScan scan = icebergTable.newScan();
 
         // set snapshot
@@ -271,8 +272,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                 pushDownCount = true;
                 List<Split> pushDownCountSplits;
                 if (countFromSnapshot > COUNT_WITH_PARALLEL_SPLITS) {
-                    int parallelNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), parallelNum));
+                    int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
+                    pushDownCountSplits = splits.subList(0, Math.min(splits.size(), minSplits));
                 } else {
                     pushDownCountSplits = Collections.singletonList(splits.get(0));
                 }
