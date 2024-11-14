@@ -17,16 +17,8 @@
 
 #pragma once
 
-#include <type_traits>
-
-#include "common/object_pool.h"
 #include "exprs/runtime_filter.h"
-#include "runtime/type_limit.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/string_ref.h"
+#include "exprs/runtime_filter_convertor.h"
 
 namespace doris {
 // only used in Runtime Filter

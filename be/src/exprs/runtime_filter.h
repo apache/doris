@@ -434,39 +434,4 @@ private:
     WrapperPtr _wrapper;
 };
 
-template <typename T>
-auto get_convertor() {
-    if constexpr (std::is_same_v<T, bool>) {
-        return [](PColumnValue* value, const T& data) { value->set_boolval(data); };
-    } else if constexpr (std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> ||
-                         std::is_same_v<T, int32_t>) {
-        return [](PColumnValue* value, const T& data) { value->set_intval(data); };
-    } else if constexpr (std::is_same_v<T, int64_t>) {
-        return [](PColumnValue* value, const T& data) { value->set_longval(data); };
-    } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
-        return [](PColumnValue* value, const T& data) { value->set_doubleval(data); };
-    } else if constexpr (std::is_same_v<T, int128_t> || std::is_same_v<T, uint128_t>) {
-        return [](PColumnValue* value, const T& data) {
-            value->set_stringval(LargeIntValue::to_string(data));
-        };
-    } else if constexpr (std::is_same_v<T, wide::Int256>) {
-        return [](PColumnValue* value, const T& data) {
-            value->set_stringval(wide::to_string(data));
-        };
-    } else if constexpr (std::is_same_v<T, std::string>) {
-        return [](PColumnValue* value, const T& data) { value->set_stringval(data); };
-    } else if constexpr (std::is_same_v<T, VecDateTimeValue>) {
-        return [](PColumnValue* value, const T& data) {
-            char convert_buffer[30];
-            data.to_string(convert_buffer);
-            value->set_stringval(convert_buffer);
-        };
-    } else if constexpr (std::is_same_v<T, DecimalV2Value>) {
-        return [](PColumnValue* value, const T& data) { value->set_stringval(data.to_string()); };
-    } else {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "minmax meet invalid type {}", typeid(T).name());
-        return [](PColumnValue* value, const T& data) {};
-    }
-}
-
 } // namespace doris

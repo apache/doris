@@ -898,8 +898,6 @@ public:
         return Status::InternalError("not support!");
     }
 
-    HybridSetBase::IteratorBase* get_in_filter_iterator() { return _context->hybrid_set->begin(); }
-
     void get_bloom_filter_desc(char** data, int* filter_length) {
         _context->bloom_filter_func->get_data(data, filter_length);
     }
@@ -1534,17 +1532,6 @@ Status IRuntimeFilter::merge_from(const RuntimePredicateWrapper* wrapper) {
     return Status::OK();
 }
 
-template <typename T>
-void batch_copy(PInFilter* filter, HybridSetBase::IteratorBase* it,
-                void (*set_func)(PColumnValue*, const T*)) {
-    while (it->has_next()) {
-        const void* void_value = it->get_value();
-        auto origin_value = reinterpret_cast<const T*>(void_value);
-        set_func(filter->add_values(), origin_value);
-        it->next();
-    }
-}
-
 template <class T>
 Status IRuntimeFilter::serialize_impl(T* request, void** data, int* len) {
     auto real_runtime_filter_type = _wrapper->get_real_type();
@@ -1572,144 +1559,8 @@ Status IRuntimeFilter::serialize_impl(T* request, void** data, int* len) {
 }
 
 void IRuntimeFilter::to_protobuf(PInFilter* filter) {
-    auto column_type = _wrapper->column_type();
-    filter->set_column_type(to_proto(column_type));
-
-    auto* it = _wrapper->get_in_filter_iterator();
-    DCHECK(it != nullptr);
-
-    switch (column_type) {
-    case TYPE_BOOLEAN: {
-        batch_copy<bool>(filter, it, [](PColumnValue* column, const bool* value) {
-            column->set_boolval(*value);
-        });
-        return;
-    }
-    case TYPE_TINYINT: {
-        batch_copy<int8_t>(filter, it, [](PColumnValue* column, const int8_t* value) {
-            column->set_intval(*value);
-        });
-        return;
-    }
-    case TYPE_SMALLINT: {
-        batch_copy<int16_t>(filter, it, [](PColumnValue* column, const int16_t* value) {
-            column->set_intval(*value);
-        });
-        return;
-    }
-    case TYPE_INT: {
-        batch_copy<int32_t>(filter, it, [](PColumnValue* column, const int32_t* value) {
-            column->set_intval(*value);
-        });
-        return;
-    }
-    case TYPE_BIGINT: {
-        batch_copy<int64_t>(filter, it, [](PColumnValue* column, const int64_t* value) {
-            column->set_longval(*value);
-        });
-        return;
-    }
-    case TYPE_LARGEINT: {
-        batch_copy<int128_t>(filter, it, [](PColumnValue* column, const int128_t* value) {
-            column->set_stringval(LargeIntValue::to_string(*value));
-        });
-        return;
-    }
-    case TYPE_FLOAT: {
-        batch_copy<float>(filter, it, [](PColumnValue* column, const float* value) {
-            column->set_doubleval(*value);
-        });
-        return;
-    }
-    case TYPE_DOUBLE: {
-        batch_copy<double>(filter, it, [](PColumnValue* column, const double* value) {
-            column->set_doubleval(*value);
-        });
-        return;
-    }
-    case TYPE_DATEV2: {
-        batch_copy<DateV2Value<DateV2ValueType>>(
-                filter, it, [](PColumnValue* column, const DateV2Value<DateV2ValueType>* value) {
-                    column->set_intval(*reinterpret_cast<const int32_t*>(value));
-                });
-        return;
-    }
-    case TYPE_DATETIMEV2: {
-        batch_copy<DateV2Value<DateTimeV2ValueType>>(
-                filter, it,
-                [](PColumnValue* column, const DateV2Value<DateTimeV2ValueType>* value) {
-                    column->set_longval(*reinterpret_cast<const int64_t*>(value));
-                });
-        return;
-    }
-    case TYPE_DATE:
-    case TYPE_DATETIME: {
-        batch_copy<VecDateTimeValue>(filter, it,
-                                     [](PColumnValue* column, const VecDateTimeValue* value) {
-                                         char convert_buffer[30];
-                                         value->to_string(convert_buffer);
-                                         column->set_stringval(convert_buffer);
-                                     });
-        return;
-    }
-    case TYPE_DECIMALV2: {
-        batch_copy<DecimalV2Value>(filter, it,
-                                   [](PColumnValue* column, const DecimalV2Value* value) {
-                                       column->set_stringval(value->to_string());
-                                   });
-        return;
-    }
-    case TYPE_DECIMAL32: {
-        batch_copy<int32_t>(filter, it, [](PColumnValue* column, const int32_t* value) {
-            column->set_intval(*value);
-        });
-        return;
-    }
-    case TYPE_DECIMAL64: {
-        batch_copy<int64_t>(filter, it, [](PColumnValue* column, const int64_t* value) {
-            column->set_longval(*value);
-        });
-        return;
-    }
-    case TYPE_DECIMAL128I: {
-        batch_copy<int128_t>(filter, it, [](PColumnValue* column, const int128_t* value) {
-            column->set_stringval(LargeIntValue::to_string(*value));
-        });
-        return;
-    }
-    case TYPE_DECIMAL256: {
-        batch_copy<wide::Int256>(filter, it, [](PColumnValue* column, const wide::Int256* value) {
-            column->set_stringval(wide::to_string(*value));
-        });
-        return;
-    }
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        //const void* void_value = it->get_value();
-        //Now the get_value return void* is StringRef
-        batch_copy<StringRef>(filter, it, [](PColumnValue* column, const StringRef* value) {
-            column->set_stringval(value->to_string());
-        });
-        return;
-    }
-    case TYPE_IPV4: {
-        batch_copy<IPv4>(filter, it, [](PColumnValue* column, const IPv4* value) {
-            column->set_intval(*reinterpret_cast<const int32_t*>(value));
-        });
-        return;
-    }
-    case TYPE_IPV6: {
-        batch_copy<IPv6>(filter, it, [](PColumnValue* column, const IPv6* value) {
-            column->set_stringval(LargeIntValue::to_string(*value));
-        });
-        return;
-    }
-    default: {
-        throw Exception(ErrorCode::INTERNAL_ERROR,
-                        "runtime filter meet invalid PrimitiveType type {}", int(column_type));
-    }
-    }
+    filter->set_column_type(to_proto(_wrapper->column_type()));
+    _wrapper->_context->hybrid_set->to_pb(filter);
 }
 
 void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
