@@ -2040,7 +2040,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
             description = {"是否允许嵌套物化视图改写",
                     "Whether enable materialized view nest rewrite"})
-    public boolean enableMaterializedViewNestRewrite = true;
+    public boolean enableMaterializedViewNestRewrite = false;
 
     @VariableMgr.VarAttr(name = ENABLE_SYNC_MV_COST_BASED_REWRITE, needForward = true,
             description = {"是否允许基于代价改写同步物化视图",
