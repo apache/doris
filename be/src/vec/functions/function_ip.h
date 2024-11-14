@@ -1291,14 +1291,17 @@ public:
         offsets_res.resize(input_rows_count);
         auto* begin = reinterpret_cast<char*>(chars_res.data());
         auto* pos = begin;
+        unsigned char ipv6_address_data[IPV6_BINARY_LENGTH];
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto ipv6_idx = index_check_const(i, ipv6_const);
             auto bytes_to_cut_for_ipv6_idx = index_check_const(i, bytes_to_cut_for_ipv6_const);
             auto bytes_to_cut_for_ipv4_idx = index_check_const(i, bytes_to_cut_for_ipv4_const);
 
-            auto* address = const_cast<unsigned char*>(
-                    reinterpret_cast<const unsigned char*>(&ipv6_addr_column_data[ipv6_idx]));
+            memcpy(ipv6_address_data,
+                   reinterpret_cast<const unsigned char*>(&ipv6_addr_column_data[ipv6_idx]),
+                   IPV6_BINARY_LENGTH);
+
             Int8 bytes_to_cut_for_ipv6_count =
                     to_cut_for_ipv6_bytes_column_data[bytes_to_cut_for_ipv6_idx];
             Int8 bytes_to_cut_for_ipv4_count =
@@ -1318,9 +1321,10 @@ public:
                                 get_name());
             }
 
-            UInt8 bytes_to_cut_count = is_ipv4_mapped(address) ? bytes_to_cut_for_ipv4_count
-                                                               : bytes_to_cut_for_ipv6_count;
-            cut_address(address, pos, bytes_to_cut_count);
+            UInt8 bytes_to_cut_count = is_ipv4_mapped(ipv6_address_data)
+                                               ? bytes_to_cut_for_ipv4_count
+                                               : bytes_to_cut_for_ipv6_count;
+            cut_address(ipv6_address_data, pos, bytes_to_cut_count);
             offsets_res[i] = cast_set<uint32_t>(pos - begin);
         }
 
