@@ -39,7 +39,7 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
             "s3.region" = "us-east-1"
         );"""
 
-    order_qt """ select * from ${catalogName}.test_paimon_spark.test_tb_mix_format order by par,id; """
+    order_qt_base_table """ select * from ${catalogName}.test_paimon_spark.test_tb_mix_format order by par,id; """
 
     sql """drop materialized view if exists ${mvName};"""
 
