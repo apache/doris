@@ -945,12 +945,6 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
 Status CsvReader::_parse_col_nums(size_t* col_nums) {
     const uint8_t* ptr = nullptr;
     size_t size = 0;
-    while (true) {
-        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
-        if (size != 0 || _line_reader_eof) {
-            break;
-        }
-    }
     if (size == 0) {
         return Status::InternalError<false>("The line is all empty, can not parse column numbers");
     }

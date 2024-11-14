@@ -92,12 +92,12 @@ bool _check_headers(HttpRequest* req, std::shared_ptr<StreamLoadContext>& ctx) {
         return false;                                  \
     }
     __RETURN_FALSE_IF_SET(HTTP_COLUMNS)
-    //__RETURN_FALSE_IF_SET(HTTP_LABEL_KEY)
     __RETURN_FALSE_IF_SET(HTTP_WHERE)
     __RETURN_FALSE_IF_SET(HTTP_ENCLOSE)
     __RETURN_FALSE_IF_SET(HTTP_ESCAPE)
     __RETURN_FALSE_IF_SET(HTTP_MAX_FILTER_RATIO)
     __RETURN_FALSE_IF_SET(HTTP_READ_JSON_BY_LINE)
+    __RETURN_FALSE_IF_SET(HTTP_TIMEZONE)
 
 #undef __RETURN_FALSE_IF_SET
     LoadUtil::parse_format(req->header(HTTP_FORMAT_KEY), req->header(HTTP_COMPRESS_TYPE),
@@ -1014,6 +1014,7 @@ int StreamLoadAction::_httpstream_on_header(HttpRequest* req,
                                             std::shared_ptr<StreamLoadContext> ctx) {
     req->set_handler_ctx(ctx);
 
+    ctx->label = req->header(HTTP_LABEL_KEY);
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
