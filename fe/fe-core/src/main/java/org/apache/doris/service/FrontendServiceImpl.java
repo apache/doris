@@ -2264,6 +2264,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
 
             if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
+                // If the version of FE is too old, we need to ensure compatibility.
+                if (request.getDeployMode() == null) {
+                    LOG.warn("Couldn't find deployMode in heartbeat info, "
+                            + "maybe you need upgrade FE master.");
+                } else if (!request.getDeployMode().equals(Env.getCurrentEnv().getDeployMode())) {
+                    result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+                    result.setMsg("expected deployMode: "
+                            + request.getDeployMode()
+                            + ", but found deployMode: "
+                            + Env.getCurrentEnv().getDeployMode());
+                }
+            }
+            if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
                 if (!request.getToken().equals(Env.getCurrentEnv().getToken())) {
                     result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
                     result.setMsg("invalid token: " + Env.getCurrentEnv().getToken());
@@ -2932,12 +2945,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (snapshot == null) {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_NOT_EXIST);
             result.getStatus().addToErrorMsgs(String.format("snapshot %s not exist", label));
+        } else if (snapshot.isExpired()) {
+            result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_EXPIRED);
+            result.getStatus().addToErrorMsgs(String.format("snapshot %s is expired", label));
         } else {
             byte[] meta = snapshot.getMeta();
             byte[] jobInfo = snapshot.getJobInfo();
+            long expiredAt = snapshot.getExpiredAt();
 
-            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}",
-                    label, meta.length, jobInfo.length);
+            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, expired at: {}",
+                    label, meta.length, jobInfo.length, expiredAt);
             if (request.isEnableCompress()) {
                 meta = GZIPUtils.compress(meta);
                 jobInfo = GZIPUtils.compress(jobInfo);
@@ -2949,6 +2966,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             result.setMeta(meta);
             result.setJobInfo(jobInfo);
+            result.setExpiredAt(expiredAt);
         }
 
         return result;

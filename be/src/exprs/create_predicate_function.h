@@ -234,7 +234,8 @@ ColumnPredicate* create_olap_column_predicate(uint32_t column_id,
     std::shared_ptr<BloomFilterFuncBase> filter_olap;
     filter_olap.reset(create_bloom_filter(PT));
     filter_olap->light_copy(filter.get());
-    return new BloomFilterColumnPredicate<PT>(column_id, filter);
+    // create a new filter to match the input filter and PT. For example, filter may be varchar, but PT is char
+    return new BloomFilterColumnPredicate<PT>(column_id, filter_olap);
 }
 
 template <PrimitiveType PT>

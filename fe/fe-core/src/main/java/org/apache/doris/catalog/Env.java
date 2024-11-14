@@ -246,9 +246,11 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.CreateInternalWorkloadGroupThread;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
@@ -1080,6 +1082,7 @@ public class Env {
 
         // 2. get cluster id and role (Observer or Follower)
         if (!Config.enable_check_compatibility_mode) {
+            checkDeployMode();
             getClusterIdAndRole();
         } else {
             isElectable = true;
@@ -1116,6 +1119,8 @@ public class Env {
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
         queryCancelWorker.start();
+
+        StmtExecutor.initBlockSqlAstNames();
     }
 
     // wait until FE is ready.
@@ -1365,6 +1370,31 @@ public class Env {
         Preconditions.checkState(helperNodes.size() == 1);
         LOG.info("finished to get cluster id: {}, isElectable: {}, role: {} and node name: {}",
                 clusterId, isElectable, role.name(), nodeName);
+    }
+
+    /**
+     * write cloud/local to MODE_FILE.
+     */
+    protected void checkDeployMode() throws IOException {
+        File modeFile = new File(this.imageDir, Storage.DEPLOY_MODE_FILE);
+        Storage storage = new Storage(this.imageDir);
+        String expectedMode = getDeployMode();
+        if (modeFile.exists()) {
+            String actualMode = storage.getDeployMode();
+            Preconditions.checkArgument(expectedMode.equals(actualMode),
+                    "You can't switch deploy mode from %s to %s, maybe you need to check fe.conf",
+                    actualMode, expectedMode);
+            LOG.info("The current deployment mode is " + expectedMode + ".");
+        } else {
+            storage.setDeployMode(expectedMode);
+            storage.writeClusterMode();
+            LOG.info("The file DEPLOY_MODE doesn't exist, create it.");
+            File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+            if (versionFile.exists()) {
+                LOG.warn("This may be an upgrade from old version, "
+                        + "or the DEPLOY_MODE file has been manually deleted");
+            }
+        }
     }
 
     public static String genFeNodeName(String host, int port, boolean isOldStyle) {
@@ -1845,6 +1875,7 @@ public class Env {
         WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
+        new CreateInternalWorkloadGroupThread().start();
 
         // auto analyze related threads.
         statisticsCleaner.start();
@@ -3609,6 +3640,12 @@ public class Env {
             sb.append(olapTable.rowStorePageSize()).append("\"");
         }
 
+        // storage page size
+        if (olapTable.storagePageSize() != PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.storagePageSize()).append("\"");
+        }
+
         // skip inverted index on load
         if (olapTable.skipWriteIndexOnLoad()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).append("\" = \"");
@@ -4203,6 +4240,10 @@ public class Env {
 
     public int getClusterId() {
         return this.clusterId;
+    }
+
+    public String getDeployMode() {
+        return Config.isCloudMode() ? Storage.CLOUD_MODE : Storage.LOCAL_MODE;
     }
 
     public String getToken() {
@@ -6712,3 +6753,4 @@ public class Env {
         System.exit(0);
     }
 }
+

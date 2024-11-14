@@ -1027,12 +1027,18 @@ public class BackupJob extends AbstractJob {
             return null;
         }
 
+        // Avoid loading expired meta.
+        long expiredAt = createTime + timeoutMs;
+        if (System.currentTimeMillis() >= expiredAt) {
+            return new Snapshot(label, new byte[0], new byte[0], expiredAt);
+        }
+
         try {
             File metaInfoFile = new File(localMetaInfoFilePath);
             File jobInfoFile = new File(localJobInfoFilePath);
             byte[] metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
             byte[] jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
-            return new Snapshot(label, metaInfoBytes, jobInfoBytes);
+            return new Snapshot(label, metaInfoBytes, jobInfoBytes, expiredAt);
         } catch (IOException e) {
             LOG.warn("failed to load meta info and job info file, meta info file {}, job info file {}: ",
                     localMetaInfoFilePath, localJobInfoFilePath, e);

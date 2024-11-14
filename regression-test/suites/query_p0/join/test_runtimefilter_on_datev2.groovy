@@ -23,6 +23,8 @@ suite("test_runtimefilter_on_datev2", "query_p0") {
     def dateV2Table2 = "dateV2Table2"
     def dateTimeV2Table2 = "dateTimeV2Table2"
 
+    sql "set enable_runtime_filter_prune=false;"
+
     sql "DROP TABLE IF EXISTS ${dateTable}"
     sql """
             CREATE TABLE IF NOT EXISTS ${dateTable} (

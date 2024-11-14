@@ -428,11 +428,11 @@ public class MaterializedViewUtils {
             } else if ((joinType.isLeftJoin()
                     || joinType.isLeftSemiJoin()
                     || joinType.isLeftAntiJoin()) && useLeft) {
-                return visit(join.left(), context);
+                return join.left().accept(this, context);
             } else if ((joinType.isRightJoin()
                     || joinType.isRightAntiJoin()
                     || joinType.isRightSemiJoin()) && !useLeft) {
-                return visit(join.right(), context);
+                return join.right().accept(this, context);
             }
             context.addFailReason(String.format("partition column is in un supported join null generate side, "
                     + "current join type is %s", joinType));

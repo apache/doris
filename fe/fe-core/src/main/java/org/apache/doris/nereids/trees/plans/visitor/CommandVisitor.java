@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
@@ -51,7 +52,9 @@ import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
@@ -251,5 +254,18 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowRolesCommand(ShowRolesCommand showRolesCommand, C context) {
         return visitCommand(showRolesCommand, context);
+    }
+
+    default R visitShowProcCommand(ShowProcCommand showProcCommand, C context) {
+        return visitCommand(showProcCommand, context);
+    }
+
+    default R visitShowCreateMaterializedViewCommand(ShowCreateMaterializedViewCommand showCreateMtlzViewCommand,
+                        C context) {
+        return visitCommand(showCreateMtlzViewCommand, context);
+    }
+
+    default R visitAlterRoleCommand(AlterRoleCommand alterRoleCommand, C context) {
+        return visitCommand(alterRoleCommand, context);
     }
 }
