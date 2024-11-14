@@ -37,11 +37,11 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 /**
  * SummaryProfile is part of a query profile.
@@ -380,13 +380,18 @@ public class SummaryProfile {
 
     // Step Name -> TimeStats
     @SerializedName(value = "scanNodesStats")
-    private final Map<String, TimeStats> scanNodesStats = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, TimeStats> scanNodesStats = new ConcurrentHashMap<>();
 
+    /**
+     * NOTE: Each StepTimer instance must be used by a single thread only.
+     * It is not thread-safe for multiple threads to operate on the same StepTimer instance.
+     * The shared scanNodesStats map is thread-safe as it's a ConcurrentHashMap.
+     */
     public static class NestedStepTimer {
+        private final ConcurrentMap<String, TimeStats> scanNodesStats;
+        private StepInfo currentStep;
 
-        private final Map<String, TimeStats> scanNodesStats;
-
-        public NestedStepTimer(Map<String, TimeStats> scanNodesStats) {
+        public NestedStepTimer(ConcurrentMap<String, TimeStats> scanNodesStats) {
             this.scanNodesStats = scanNodesStats;
         }
 
@@ -395,8 +400,6 @@ public class SummaryProfile {
             private final long startTime;
             private final StepInfo parent;
 
-            private final List<StepInfo> children = new ArrayList<>();
-
             StepInfo(String name, long startTime, StepInfo parent) {
                 this.name = name;
                 this.startTime = startTime;
@@ -404,14 +407,9 @@ public class SummaryProfile {
             }
         }
 
-        private StepInfo currentStep;
-
         public void startStep(String step) {
             long now = System.currentTimeMillis();
             StepInfo newStep = new StepInfo(step, now, currentStep);
-            if (currentStep != null) {
-                currentStep.children.add(newStep);
-            }
             currentStep = newStep;
         }
 

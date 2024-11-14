@@ -171,10 +171,10 @@ public class ProfileSpanWithStepTimerTest {
         }
 
         TimeStats stats1 = timer1.getScanNodesStats().get("step1");
-        Assert.assertEquals("Should have 2 executions", 2, stats1.getCount());
+        Assert.assertEquals("Should have 1 executions", 2, stats1.getCount());
 
         TimeStats stats2 = timer2.getScanNodesStats().get("step1");
-        Assert.assertEquals("Should have 2 executions", 2, stats2.getCount());
+        Assert.assertEquals("Should have 1 executions", 2, stats2.getCount());
     }
 
     private void verifyStepDuration(String step, Map<String, TimeStats> scanNodeStats, long expectedDuration) {
