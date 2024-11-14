@@ -31,7 +31,7 @@ public class FileGroupIntoTest {
 
     private static Stream<Arguments> provideParameters() {
         return Stream.of(
-            // 6, 1+5, 2+4, 3, max=6
+            // 6, 5, 4+1, 3+2, max=6
             Arguments.of(Arrays.asList(1L, 2L, 3L, 4L, 5L, 6L), 4, 6),
 
             // 6+1, 5+2, 4+3, max=7
