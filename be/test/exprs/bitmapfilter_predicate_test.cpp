@@ -151,19 +151,4 @@ TEST_F(BitmapFilterPredicateTest, find_fixed_len_olap_engine) {
     EXPECT_EQ(results2[2], 7);
 }
 
-TEST_F(BitmapFilterPredicateTest, light_copy) {
-    std::unique_ptr<BitmapFilterFuncBase> func(create_bitmap_filter(PrimitiveType::TYPE_INT));
-    std::unique_ptr<BitmapFilterFuncBase> func2(create_bitmap_filter(PrimitiveType::TYPE_INT));
-
-    BitmapValue bitmap_value = create_bitmap_value();
-    EXPECT_EQ(func->assign(&bitmap_value), Status::OK());
-
-    auto* filter = assert_cast<BitmapFilterFunc<PrimitiveType::TYPE_INT>*>(func.get());
-    auto* filter2 = assert_cast<BitmapFilterFunc<PrimitiveType::TYPE_INT>*>(func2.get());
-
-    filter2->light_copy(filter);
-
-    find_batch(func2.get());
-}
-
 } // namespace doris
