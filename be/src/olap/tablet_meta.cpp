@@ -1198,7 +1198,7 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::
     std::shared_lock l(stale_delete_bitmap_lock);
     //<rowset_id, start_version, end_version>
     std::vector<std::tuple<std::string, uint64_t, uint64_t>> to_delete;
-    auto tablet_id = -1;
+    int64_t tablet_id = -1;
     for (auto& version_str : vector) {
         auto it = _stale_delete_bitmap.find(version_str);
         if (it != _stale_delete_bitmap.end()) {
