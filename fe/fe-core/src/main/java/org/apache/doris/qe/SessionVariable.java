@@ -1408,6 +1408,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = "filter_cost_factor", needForward = true)
     public double filterCostFactor = 0.0001;
 
+    @VariableMgr.VarAttr(name = "scan_cost_factor", needForward = true)
+    public double scanCostFactor = 0.0005;
+
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 
@@ -2037,7 +2040,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_MATERIALIZED_VIEW_NEST_REWRITE, needForward = true,
             description = {"是否允许嵌套物化视图改写",
                     "Whether enable materialized view nest rewrite"})
-    public boolean enableMaterializedViewNestRewrite = false;
+    public boolean enableMaterializedViewNestRewrite = true;
 
     @VariableMgr.VarAttr(name = ENABLE_SYNC_MV_COST_BASED_REWRITE, needForward = true,
             description = {"是否允许基于代价改写同步物化视图",

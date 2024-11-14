@@ -111,7 +111,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 aggMvBonus = rows > 1.0 ? 1.0 : rows * 0.5;
             }
         }
-        return CostV1.ofCpu(context.getSessionVariable(), rows - aggMvBonus);
+        double defaultFactor = 1D;
+        if (context.getSessionVariable() != null) {
+            defaultFactor = context.getSessionVariable().scanCostFactor;
+        }
+        return CostV1.ofCpu(context.getSessionVariable(), (rows - aggMvBonus) * defaultFactor);
     }
 
     private Set<Column> getColumnForRangePredicate(Set<Expression> expressions) {
