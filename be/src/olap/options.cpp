@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "gutil/strings/strip.h"
+#include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "olap/olap_define.h"
 #include "olap/utils.h"
@@ -56,6 +57,7 @@ static std::string CACHE_QUERY_LIMIT_SIZE = "query_limit";
 static std::string CACHE_NORMAL_PERCENT = "normal_percent";
 static std::string CACHE_DISPOSABLE_PERCENT = "disposable_percent";
 static std::string CACHE_INDEX_PERCENT = "index_percent";
+static std::string CACHE_TTL_PERCENT = "ttl_percent";
 static std::string CACHE_STORAGE = "storage";
 static std::string CACHE_STORAGE_DISK = "disk";
 static std::string CACHE_STORAGE_MEMORY = "memory";
@@ -206,7 +208,7 @@ void parse_conf_broken_store_paths(const string& config_path, std::set<std::stri
  *  [
  *    {"path": "storage1", "total_size":53687091200,"query_limit": "10737418240"},
  *    {"path": "storage2", "total_size":53687091200},
- *    {"path": "storage3", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
+ *    {"path": "storage3", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
  *    {"path": "xxx", "total_size":53687091200, "storage": "memory"}
  *  ]
  */
@@ -265,26 +267,30 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
             return Status::OK();
         };
 
-        size_t normal_percent = 85;
-        size_t disposable_percent = 10;
-        size_t index_percent = 5;
+        size_t normal_percent = io::DEFAULT_NORMAL_PERCENT;
+        size_t disposable_percent = io::DEFAULT_DISPOSABLE_PERCENT;
+        size_t index_percent = io::DEFAULT_INDEX_PERCENT;
+        size_t ttl_percent = io::DEFAULT_TTL_PERCENT;
         bool has_normal_percent = map.HasMember(CACHE_NORMAL_PERCENT.c_str());
         bool has_disposable_percent = map.HasMember(CACHE_DISPOSABLE_PERCENT.c_str());
         bool has_index_percent = map.HasMember(CACHE_INDEX_PERCENT.c_str());
-        if (has_normal_percent && has_disposable_percent && has_index_percent) {
+        bool has_ttl_percent = map.HasMember(CACHE_TTL_PERCENT.c_str());
+        if (has_normal_percent && has_disposable_percent && has_index_percent && has_ttl_percent) {
             RETURN_IF_ERROR(get_percent_value(CACHE_NORMAL_PERCENT, normal_percent));
             RETURN_IF_ERROR(get_percent_value(CACHE_DISPOSABLE_PERCENT, disposable_percent));
             RETURN_IF_ERROR(get_percent_value(CACHE_INDEX_PERCENT, index_percent));
-        } else if (has_normal_percent || has_disposable_percent || has_index_percent) {
+            RETURN_IF_ERROR(get_percent_value(CACHE_TTL_PERCENT, ttl_percent));
+        } else if (has_normal_percent || has_disposable_percent || has_index_percent ||
+                   has_ttl_percent) {
             return Status::InvalidArgument(
                     "cache percent config must either be all set or all unset.");
         }
-        if ((normal_percent + disposable_percent + index_percent) != 100) {
+        if ((normal_percent + disposable_percent + index_percent + ttl_percent) != 100) {
             return Status::InvalidArgument("The sum of cache percent config must equal 100.");
         }
 
         paths.emplace_back(std::move(path), total_size, query_limit_bytes, normal_percent,
-                           disposable_percent, index_percent, storage);
+                           disposable_percent, index_percent, ttl_percent, storage);
     }
     if (paths.empty()) {
         return Status::InvalidArgument("fail to parse storage_root_path config. value={}",
@@ -295,7 +301,7 @@ Status parse_conf_cache_paths(const std::string& config_path, std::vector<CacheP
 
 io::FileCacheSettings CachePath::init_settings() const {
     return io::get_file_cache_settings(total_bytes, query_limit_bytes, normal_percent,
-                                       disposable_percent, index_percent, storage);
+                                       disposable_percent, index_percent, ttl_percent, storage);
 }
 
 } // end namespace doris
