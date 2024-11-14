@@ -262,8 +262,6 @@ public:
     //    bool is_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
     bool is_numeric() const override { return data->is_numeric(); }
-    bool is_fixed_and_contiguous() const override { return data->is_fixed_and_contiguous(); }
-    size_t size_of_value_if_fixed() const override { return data->size_of_value_if_fixed(); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
     /// Not part of the common interface.
