@@ -1591,7 +1591,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = TOPN_FILTER_RATIO)
     public double topnFilterRatio = 0.5;
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
-    public boolean enableSnapshotPointQuery = true;
+    public boolean enableSnapshotPointQuery = false;
 
     @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
             "是否启用开启服务端prepared statement", "Set whether to enable server side prepared statement."})
