@@ -71,6 +71,7 @@ class TxnManager;
 class ReportWorker;
 class CreateTabletIdxCache;
 struct DirInfo;
+class WorkloadGroup;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -171,7 +172,7 @@ public:
     }
 
     // start all background threads. This should be call after env is ready.
-    Status start_bg_threads();
+    Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr);
 
     // clear trash and snapshot file
     // option: update disk usage after sweep

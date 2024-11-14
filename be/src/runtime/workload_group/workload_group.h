@@ -59,6 +59,8 @@ class WorkloadGroup : public std::enable_shared_from_this<WorkloadGroup> {
 public:
     explicit WorkloadGroup(const WorkloadGroupInfo& tg_info);
 
+    explicit WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_query_thread_pool);
+
     int64_t version() const { return _version; }
 
     uint64_t cpu_share() const { return _cpu_share.load(); }
@@ -210,7 +212,17 @@ public:
     }
     int64_t get_remote_scan_bytes_per_second();
 
+    void create_cgroup_cpu_ctl();
+
+    std::weak_ptr<CgroupCpuCtl> get_cgroup_cpu_ctl_wptr();
+
 private:
+    void create_cgroup_cpu_ctl_no_lock();
+    void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
+    void upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
+                                    std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr,
+                                    ExecEnv* exec_env);
+
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
     std::string _name;
@@ -241,7 +253,10 @@ private:
     std::unordered_map<TUniqueId, std::weak_ptr<QueryContext>> _query_ctxs;
 
     std::shared_mutex _task_sched_lock;
-    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
+    // _cgroup_cpu_ctl not only used by threadpool which managed by WorkloadGroup,
+    // but also some global background threadpool which not owned by WorkloadGroup,
+    // so it should be shared ptr;
+    std::shared_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
     std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _scan_task_sched {nullptr};
     std::unique_ptr<vectorized::SimplifiedScanScheduler> _remote_scan_task_sched {nullptr};
@@ -249,6 +264,9 @@ private:
 
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;
     std::shared_ptr<IOThrottle> _remote_scan_io_throttle {nullptr};
+
+    // for some background workload, it doesn't need to create query thread pool
+    const bool _need_create_query_thread_pool;
 
     // bvar metric
     std::unique_ptr<bvar::Status<int64_t>> _mem_used_status;
