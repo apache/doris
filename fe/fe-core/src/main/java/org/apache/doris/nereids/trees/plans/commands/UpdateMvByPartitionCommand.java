@@ -44,7 +44,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
@@ -180,8 +179,6 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
             inValues = inValues.stream()
                     .filter(e -> !(e instanceof NullLiteral))
                     .collect(Collectors.toList());
-            // paimon "null" will in NULL partition
-            inValues.add(new StringLiteral("null"));
             Expression isNullPredicate = new IsNull(col);
             predicates.add(isNullPredicate);
         }

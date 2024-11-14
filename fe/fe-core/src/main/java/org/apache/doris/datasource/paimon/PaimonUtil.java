@@ -145,7 +145,8 @@ public class PaimonUtil {
             // "null" will in partition 'null'
             // NULL  will in partition 'null'
             // "NULL" will in partition 'NULL'
-            values.add(new PartitionValue(partitionValue, "null".equals(partitionValue)));
+            // values.add(new PartitionValue(partitionValue, "null".equals(partitionValue)));
+            values.add(new PartitionValue(partitionValue, false));
         }
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
         ListPartitionItem listPartitionItem = new ListPartitionItem(Lists.newArrayList(key));
