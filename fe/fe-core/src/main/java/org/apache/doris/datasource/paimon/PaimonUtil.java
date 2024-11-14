@@ -141,7 +141,10 @@ public class PaimonUtil {
         Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
         for (String partitionValue : partitionValues) {
-            // null data will be 'null'
+            // null  will in partition 'null'
+            // "null" will in partition 'null'
+            // NULL  will in partition 'null'
+            // "NULL" will in partition 'NULL'
             values.add(new PartitionValue(partitionValue, "null".equals(partitionValue)));
         }
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
