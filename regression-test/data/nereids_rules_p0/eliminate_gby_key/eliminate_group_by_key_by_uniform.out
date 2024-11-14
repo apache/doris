@@ -55,3 +55,121 @@ cherry	3
 
 -- !project_slot_uniform_confict_value --
 
+-- !inner_join_left_has_filter --
+100	100
+
+-- !inner_join_right_has_filter --
+100	100
+
+-- !left_join_right_has_filter --
+100	100
+101	\N
+102	\N
+103	\N
+104	\N
+105	\N
+106	\N
+107	\N
+
+-- !left_join_left_has_filter --
+100	100
+101	\N
+102	\N
+103	\N
+104	\N
+105	\N
+106	\N
+107	\N
+
+-- !right_join_right_has_filter --
+\N	105
+\N	102
+\N	106
+\N	101
+\N	103
+\N	107
+\N	104
+100	100
+
+-- !right_join_left_has_filter --
+\N	103
+\N	107
+\N	104
+\N	102
+\N	106
+\N	105
+\N	101
+100	100
+
+-- !left_semi_join_right_has_filter --
+100
+
+-- !left_semi_join_left_has_filter --
+100
+
+-- !left_anti_join_right_has_on_filter --
+101
+102
+103
+104
+105
+106
+107
+
+-- !left_anti_join_left_has_on_filter --
+101
+102
+103
+104
+105
+106
+107
+
+-- !left_anti_join_left_has_where_filter --
+
+-- !right_semi_join_right_has_filter --
+100
+
+-- !right_semi_join_left_has_filter --
+100
+
+-- !right_anti_join_right_has_on_filter --
+101
+102
+103
+104
+105
+106
+107
+
+-- !right_anti_join_left_has_on_filter --
+101
+102
+103
+104
+105
+106
+107
+
+-- !right_anti_join_right_has_where_filter --
+
+-- !cross_join_left_has_filter --
+100	103
+100	107
+100	105
+100	100
+100	102
+100	106
+100	101
+100	104
+
+-- !cross_join_right_has_filter --
+100	100
+101	100
+102	100
+103	100
+104	100
+105	100
+106	100
+107	100
+

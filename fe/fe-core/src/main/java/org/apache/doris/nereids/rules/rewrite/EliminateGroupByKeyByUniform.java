@@ -17,10 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -28,10 +28,14 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -40,22 +44,37 @@ import java.util.Set;
  * ->
  * +--aggregate(group by b output b,any_value(a) as a,max(c))
  * */
-public class EliminateGroupByKeyByUniform extends OneRewriteRuleFactory {
-    @Override
-    public Rule build() {
-        return logicalAggregate().whenNot(agg -> agg.getSourceRepeat().isPresent())
-                .whenNot(agg -> agg.getGroupByExpressions().isEmpty())
-                .then(EliminateGroupByKeyByUniform::eliminate)
-                .toRule(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM);
+public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId, ExprId>> implements CustomRewriter {
+    private ExprIdRewriter exprIdReplacer;
 
+    @Override
+    public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        Map<ExprId, ExprId> replaceMap = new HashMap<>();
+        ExprIdRewriter.ReplaceRule replaceRule = new ExprIdRewriter.ReplaceRule(replaceMap);
+        exprIdReplacer = new ExprIdRewriter(replaceRule, jobContext);
+        return plan.accept(this, replaceMap);
     }
 
-    private static Plan eliminate(LogicalAggregate<Plan> agg) {
-        DataTrait aggChildTrait = agg.child().getLogicalProperties().getTrait();
+    @Override
+    public Plan visit(Plan plan, Map<ExprId, ExprId> replaceMap) {
+        plan = visitChildren(this, plan, replaceMap);
+        plan = exprIdReplacer.rewriteExpr(plan);
+        return plan;
+    }
+
+    @Override
+    public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Map<ExprId, ExprId> replaceMap) {
+        aggregate = visitChildren(this, aggregate, replaceMap);
+        aggregate = (LogicalAggregate<? extends Plan>) exprIdReplacer.rewriteExpr(aggregate);
+
+        if (aggregate.getGroupByExpressions().isEmpty() || aggregate.getSourceRepeat().isPresent()) {
+            return aggregate;
+        }
+        DataTrait aggChildTrait = aggregate.child().getLogicalProperties().getTrait();
         // Get the Group by column of agg. If there is a uniform one, delete the group by key.
         Set<Expression> removedExpression = new LinkedHashSet<>();
         List<Expression> newGroupBy = new ArrayList<>();
-        for (Expression groupBy : agg.getGroupByExpressions()) {
+        for (Expression groupBy : aggregate.getGroupByExpressions()) {
             if (!(groupBy instanceof Slot)) {
                 newGroupBy.add(groupBy);
                 continue;
@@ -67,7 +86,7 @@ public class EliminateGroupByKeyByUniform extends OneRewriteRuleFactory {
             }
         }
         if (removedExpression.isEmpty()) {
-            return null;
+            return aggregate;
         }
         // when newGroupBy is empty, need retain one expr in group by, otherwise the result may be wrong in empty table
         if (newGroupBy.isEmpty()) {
@@ -76,20 +95,22 @@ public class EliminateGroupByKeyByUniform extends OneRewriteRuleFactory {
             removedExpression.remove(expr);
         }
         if (removedExpression.isEmpty()) {
-            return null;
+            return aggregate;
         }
         List<NamedExpression> newOutputs = new ArrayList<>();
         // If this output appears in the removedExpression column, replace it with any_value
-        for (NamedExpression output : agg.getOutputExpressions()) {
+        for (NamedExpression output : aggregate.getOutputExpressions()) {
             if (output instanceof Slot) {
                 if (removedExpression.contains(output)) {
-                    newOutputs.add(new Alias(output.getExprId(), new AnyValue(false, output), output.getName()));
+                    Alias alias = new Alias(new AnyValue(false, output), output.getName());
+                    newOutputs.add(alias);
+                    replaceMap.put(output.getExprId(), alias.getExprId());
                 } else {
                     newOutputs.add(output);
                 }
             } else if (output instanceof Alias) {
                 if (removedExpression.contains(output.child(0))) {
-                    newOutputs.add(new Alias(output.getExprId(),
+                    newOutputs.add(new Alias(
                             new AnyValue(false, output.child(0)), output.getName()));
                 } else {
                     newOutputs.add(output);
@@ -111,6 +132,6 @@ public class EliminateGroupByKeyByUniform extends OneRewriteRuleFactory {
             }
         }
         orderOutput.addAll(aggFuncs);
-        return agg.withGroupByAndOutput(newGroupBy, orderOutput);
+        return aggregate.withGroupByAndOutput(newGroupBy, orderOutput);
     }
 }

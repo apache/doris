@@ -121,4 +121,130 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
                 .printlnTree()
                 .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 3));
     }
+
+    @Test
+    void testInnerJoin() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b,t2.b from eli_gbk_by_uniform_t t1 inner join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t1.b=100 group by t1.b,t2.b,t2.c;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testLeftJoinOnConditionNotRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b,t2.b from eli_gbk_by_uniform_t t1 left join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t1.b=100 group by t1.b,t2.b,t2.c;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 3));
+    }
+
+    @Test
+    void testLeftJoinWhereConditionRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b,t2.b from eli_gbk_by_uniform_t t1 left join eli_gbk_by_uniform_t t2 on t1.b=t2.b where t1.b=100 group by t1.b,t2.b,t2.c;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
+    }
+
+    @Test
+    void testRightJoinOnConditionNullableSideFilterNotRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b,t2.b from eli_gbk_by_uniform_t t1 right join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t1.b=100 group by t1.b,t2.b,t2.c;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 3));
+    }
+
+    @Test
+    void testRightJoinOnConditionNonNullableSideFilterNotRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b,t2.b from eli_gbk_by_uniform_t t1 right join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t2.b=100 group by t1.b,t2.b,t2.c;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 3));
+    }
+
+    @Test
+    void testRightJoinWhereConditionToInnerRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b,t2.b from eli_gbk_by_uniform_t t1 right join eli_gbk_by_uniform_t t2 on t1.b=t2.b where t1.b=100 group by t1.b,t2.b,t2.c;")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testLeftSemiJoinWhereConditionRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b from eli_gbk_by_uniform_t t1 left semi join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t2.b=100 group by t1.b,t1.a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testLeftSemiJoinRetainOneSlotInGroupBy() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b from eli_gbk_by_uniform_t t1 left semi join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t2.b=100 group by t1.b")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testRightSemiJoinWhereConditionRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t2.b from eli_gbk_by_uniform_t t1 right semi join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t2.b=100 group by t2.b,t2.a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testRightSemiJoinRetainOneSlotInGroupBy() {
+        PlanChecker.from(connectContext)
+                .analyze("select t2.b from eli_gbk_by_uniform_t t1 right semi join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t2.b=100 group by t2.b")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testLeftAntiJoinOnConditionNotRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b from eli_gbk_by_uniform_t t1 left anti join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t1.b=100 group by t1.b,t1.a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
+    }
+
+    @Test
+    void testLeftAntiJoinWhereConditionRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t1.b from eli_gbk_by_uniform_t t1 left anti join eli_gbk_by_uniform_t t2 on t1.b=t2.b where t1.b=100 group by t1.b,t1.c")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+    }
+
+    @Test
+    void testRightAntiJoinOnConditionNotRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t2.b from eli_gbk_by_uniform_t t1 right anti join eli_gbk_by_uniform_t t2 on t1.b=t2.b and t1.b=100 group by t2.b,t2.a")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 2));
+    }
+
+    @Test
+    void testRightAntiJoinWhereConditionRewrite() {
+        PlanChecker.from(connectContext)
+                .analyze("select t2.b from eli_gbk_by_uniform_t t1 right anti join eli_gbk_by_uniform_t t2 on t1.b=t2.b where t2.b=100 group by t2.b,t2.c")
+                .rewrite()
+                .printlnTree()
+                .matches(logicalAggregate().when(agg -> agg.getGroupByExpressions().size() == 1));
+    }
 }

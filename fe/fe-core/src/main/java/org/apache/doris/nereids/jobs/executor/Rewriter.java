@@ -357,7 +357,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new EliminateJoinByUnique())
                 ),
                 topic("eliminate Aggregate according to fd items",
-                        topDown(new EliminateGroupByKeyByUniform()),
+                        custom(RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM, EliminateGroupByKeyByUniform::new),
                         topDown(new EliminateGroupByKey()),
                         topDown(new PushDownAggThroughJoinOnPkFk()),
                         topDown(new PullUpJoinFromUnionAll())
