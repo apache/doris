@@ -174,6 +174,15 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         }
     }
 
+    public boolean readLockIfExist() {
+        readLock();
+        if (isDropped) {
+            readUnlock();
+            return false;
+        }
+        return true;
+    }
+
     public boolean tryReadLock(long timeout, TimeUnit unit) {
         try {
             boolean res = this.rwLock.readLock().tryLock(timeout, unit);
