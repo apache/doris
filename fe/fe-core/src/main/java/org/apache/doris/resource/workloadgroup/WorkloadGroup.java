@@ -30,8 +30,10 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TWorkloadGroupInfo;
+import org.apache.doris.thrift.TWorkloadType;
 import org.apache.doris.thrift.TopicInfo;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
@@ -43,8 +45,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 public class WorkloadGroup implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(WorkloadGroup.class);
@@ -79,6 +84,11 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String REMOTE_READ_BYTES_PER_SECOND = "remote_read_bytes_per_second";
 
+    // it's used to define Doris's internal workload group,
+    // currently it is internal, only contains compaction
+    // later more type and workload may be included in the future.
+    public static final String INTERNAL_TYPE = "internal_type";
+
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
     // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
@@ -87,7 +97,10 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
             .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
             .add(SPILL_THRESHOLD_LOW_WATERMARK).add(SPILL_THRESHOLD_HIGH_WATERMARK)
-            .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND).build();
+            .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND).add(INTERNAL_TYPE).build();
+
+    public static final ImmutableMap<String, Integer> WORKLOAD_TYPE_MAP = new ImmutableMap.Builder<String, Integer>()
+            .put(TWorkloadType.INTERNAL.toString().toLowerCase(), TWorkloadType.INTERNAL.getValue()).build();
 
     public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
     public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
@@ -420,13 +433,31 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             String[] tagArr = tagStr.split(",");
             for (String tag : tagArr) {
                 try {
-                    FeNameFormat.checkCommonName("workload group tag name", tag);
+                    FeNameFormat.checkCommonName("workload group tag", tag);
                 } catch (AnalysisException e) {
-                    throw new DdlException("workload group tag name format is illegal, " + tagStr);
+                    throw new DdlException("tag format is illegal, " + tagStr);
                 }
             }
         }
 
+        // internal workload group is usually created by Doris.
+        // If exception happens here, it means thrift not match WORKLOAD_TYPE_MAP.
+        String interTypeId = properties.get(WorkloadGroup.INTERNAL_TYPE);
+        if (!StringUtils.isEmpty(interTypeId)) {
+            int wid = Integer.valueOf(interTypeId);
+            if (TWorkloadType.findByValue(wid) == null) {
+                throw new DdlException("error internal type id: " + wid + ", current id map:" + WORKLOAD_TYPE_MAP);
+            }
+        }
+
+    }
+
+    Optional<Integer> getInternalTypeId() {
+        String typeIdStr = this.properties.get(INTERNAL_TYPE);
+        if (StringUtils.isEmpty(typeIdStr)) {
+            return Optional.empty();
+        }
+        return Optional.of(Integer.valueOf(typeIdStr));
     }
 
     public long getId() {
@@ -535,8 +566,18 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return cpuHardLimit;
     }
 
-    public String getTag() {
-        return properties.get(TAG);
+    public Optional<Set<String>> getTag() {
+        String tagStr = properties.get(TAG);
+        if (StringUtils.isEmpty(tagStr)) {
+            return Optional.empty();
+        }
+
+        Set<String> tagSet = new HashSet<>();
+        String[] ss = tagStr.split(",");
+        for (String str : ss) {
+            tagSet.add(str);
+        }
+        return Optional.of(tagSet);
     }
 
     @Override
@@ -550,7 +591,13 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public TopicInfo toTopicInfo() {
         TWorkloadGroupInfo tWorkloadGroupInfo = new TWorkloadGroupInfo();
-        tWorkloadGroupInfo.setId(id);
+        long wgId = this.id;
+        Optional<Integer> internalTypeId = getInternalTypeId();
+        if (internalTypeId.isPresent()) {
+            wgId = internalTypeId.get();
+        }
+        tWorkloadGroupInfo.setId(wgId);
+
         tWorkloadGroupInfo.setName(name);
         tWorkloadGroupInfo.setVersion(version);
 

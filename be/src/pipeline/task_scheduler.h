@@ -43,7 +43,7 @@ namespace doris::pipeline {
 
 class TaskScheduler {
 public:
-    TaskScheduler(int core_num, std::string name, CgroupCpuCtl* cgroup_cpu_ctl)
+    TaskScheduler(int core_num, std::string name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
             : _task_queue(core_num),
               _shutdown(false),
               _name(std::move(name)),
@@ -65,7 +65,7 @@ private:
     std::vector<bool> _markers;
     bool _shutdown;
     std::string _name;
-    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
+    std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
 
     void _do_work(int index);
 };
