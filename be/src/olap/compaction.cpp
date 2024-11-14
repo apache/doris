@@ -632,6 +632,15 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                 std::optional<std::map<std::string, std::string>> first_properties;
                 for (const auto& rowset : _input_rowsets) {
                     const auto* tablet_index = rowset->tablet_schema()->get_inverted_index(col);
+                    // no inverted index or index id is different from current index id
+                    if (tablet_index == nullptr ||
+                        tablet_index->index_id() != index_meta->index_id()) {
+                        error_handler(index_meta->index_id(), column_uniq_id);
+                        status = Status::Error<INVERTED_INDEX_COMPACTION_ERROR>(
+                                "index ids are different, skip index compaction");
+                        is_continue = true;
+                        break;
+                    }
                     const auto& properties = tablet_index->properties();
                     if (!first_properties.has_value()) {
                         first_properties = properties;
