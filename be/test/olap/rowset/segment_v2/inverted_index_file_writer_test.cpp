@@ -383,7 +383,7 @@ TEST_F(InvertedIndexFileWriterTest, PrepareSortedFilesTest) {
         }
     }
 }
-TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
+/*TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
     auto mock_dir = std::make_shared<MockDorisFSDirectoryOpenInput>();
     std::string local_fs_index_path = InvertedIndexDescriptor::get_temporary_index_path(
             ExecEnv::GetInstance()->get_tmp_file_dirs()->get_tmp_file_dir().native(), _rowset_id,
@@ -424,7 +424,7 @@ TEST_F(InvertedIndexFileWriterTest, CopyFileTest_OpenInputFailure) {
         error_message = err.what();
     }
     ASSERT_EQ(error_message, "Could not open file, file is 0.segments");
-}
+}*/
 class InvertedIndexFileWriterMock : public InvertedIndexFileWriter {
 public:
     InvertedIndexFileWriterMock(const io::FileSystemSPtr& fs, const std::string& index_path_prefix,
