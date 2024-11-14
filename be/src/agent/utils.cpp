@@ -72,7 +72,8 @@ MasterServerClient* MasterServerClient::instance() {
 
 MasterServerClient::MasterServerClient(const ClusterInfo* cluster_info)
         : _cluster_info(cluster_info),
-          _client_cache(std::make_unique<FrontendServiceClientCache>(config::max_master_fe_client_cache_size)) {
+          _client_cache(std::make_unique<FrontendServiceClientCache>(
+                  config::max_master_fe_client_cache_size)) {
     _client_cache->init_metrics("master_fe");
 }
 
