@@ -21,6 +21,8 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
@@ -62,12 +64,37 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 && ConnectContext.get().getSessionVariable().pushTopnToAgg
                                 && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                 >= limit.getLimit() + limit.getOffset())
-                        .when(limit -> outputAllGroupKeys(limit, limit.child().child()))
                         .then(limit -> {
                             LogicalProject<? extends Plan> project = limit.child();
-                            LogicalAggregate<? extends Plan> agg = (LogicalAggregate<? extends Plan>) project.child();
+                            LogicalAggregate<? extends Plan> agg
+                                    = (LogicalAggregate<? extends Plan>) project.child();
                             List<OrderKey> orderKeys = generateOrderKeyByGroupKey(agg);
-                            return new LogicalTopN<>(orderKeys, limit.getLimit(), limit.getOffset(), project);
+                            Plan result;
+
+                            if (outputAllGroupKeys(limit, agg)) {
+                                result = new LogicalTopN<>(orderKeys, limit.getLimit(),
+                                        limit.getOffset(), project);
+                            } else {
+                                // add the first group by key to topn, and prune this key by upper project
+                                // topn order keys are prefix of group by keys
+                                // refer to PushTopnToAgg.tryGenerateOrderKeyByGroupKeyAndTopnKey()
+                                List<NamedExpression> bottomProjections = Lists.newArrayList(project.getProjects());
+                                if (agg.getGroupByExpressions().isEmpty()) {
+                                    return null;
+                                }
+                                Expression firstGroupByKey = agg.getGroupByExpressions().get(0);
+                                if (!(firstGroupByKey instanceof SlotReference)) {
+                                    return null;
+                                }
+                                bottomProjections.add((SlotReference) firstGroupByKey);
+                                LogicalProject<Plan> bottomProject = project.withProjects(bottomProjections);
+                                LogicalTopN topn = new LogicalTopN<>(orderKeys, limit.getLimit(),
+                                        limit.getOffset(), bottomProject);
+                                List<NamedExpression> limitOutput = limit.getOutput().stream()
+                                        .map(e -> (NamedExpression) e).collect(Collectors.toList());
+                                result = new LogicalProject<>(limitOutput, topn);
+                            }
+                            return result;
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),
                 // topn -> agg: add all group key to sort key, if sort key is prefix of group key
                 logicalTopN(logicalAggregate())
