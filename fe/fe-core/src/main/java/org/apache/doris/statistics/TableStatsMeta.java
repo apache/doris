@@ -255,4 +255,8 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         }
         return updatedRows.get() - maxUpdateRows;
     }
+
+    public boolean isColumnsStatsEmpty() {
+        return colToColStatsMeta == null || colToColStatsMeta.isEmpty();
+    }
 }
