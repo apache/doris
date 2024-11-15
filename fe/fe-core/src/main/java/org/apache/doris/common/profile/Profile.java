@@ -290,8 +290,8 @@ public class Profile {
                     FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
                     if (distributedPlans != null) {
                         summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,
-                            DistributedPlan.toString(Lists.newArrayList(distributedPlans.values()))
-                                .replace("\n", "\n     ")
+                                DistributedPlan.toString(Lists.newArrayList(distributedPlans.values()))
+                                    .replace("\n", "\n     ")
                         );
                     }
                 }
