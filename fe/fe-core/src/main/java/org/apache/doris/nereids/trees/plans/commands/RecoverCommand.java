@@ -14,27 +14,32 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("check_meta", "data_reliability,p3") {
-    List<List<Object>> dbRes = sql "show databases"
-    for (dbRow : dbRes) {
-        def db = dbRow[0]
-        if (db == "__internal_schema" || db == "information_schema") {
-            continue
-        }
-        if (db.contains("external_table")) {
-            continue
-        }
 
-        List<List<Object>> tableRes = sql """ show tables from ${db} """
-        for (tableRow : tableRes) {
-            def table = tableRow[0]
-            logger.info("select count database: {}, table {}", db, table)
+package org.apache.doris.nereids.trees.plans.commands;
 
-            def repeatedTimes = 6;  // replica num * 2
-            for (int i = 0; i < repeatedTimes; i++) {
-                sql """ select /*+ SET_VAR(enable_push_down_no_group_agg=false) */ count(*) from ${db}.`${table}` """
-            }
-        }
+import org.apache.doris.analysis.StmtType;
+import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.StmtExecutor;
+
+/**
+ * base class for all recover commands
+ */
+public abstract class RecoverCommand extends Command implements ForwardWithSync {
+    public RecoverCommand(PlanType type) {
+        super(type);
     }
-}
 
+    @Override
+    public StmtType stmtType() {
+        return StmtType.RECOVER;
+    }
+
+    @Override
+    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        doRun(ctx, executor);
+    }
+
+    public abstract void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception;
+
+}
