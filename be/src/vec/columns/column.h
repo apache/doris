@@ -657,6 +657,20 @@ public:
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
+    /**
+     * ColumnSorter is used to sort each columns in a Block. In this sorting pattern, sorting a
+     * column will produce a list of EqualRange which has the same elements respectively. And for
+     * next column in this block, we only need to sort rows in those `range`.
+     *
+     * Besides, we do not materialize sorted data eagerly. Instead, the intermediate sorting results
+     * are represendted by permutation and data will be materialized after all of columns are sorted.
+     *
+     * @sorter: ColumnSorter is used to do sorting.
+     * @flags : indicates if current item equals to the previous one.
+     * @perms : permutation after sorting
+     * @range : EqualRange which has the same elements respectively.
+     * @last_column : indicates if this column is the last in this block.
+     */
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                              IColumn::Permutation& perms, EqualRange& range,
                              bool last_column) const;
