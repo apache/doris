@@ -1292,12 +1292,12 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
     EXPECT_EQ(*(int64_t*)data_size_val.data(), 22000);
     std::string index_size_key, index_size_val;
     stats_tablet_index_size_key({mock_instance, table_id, index_id, partition_id, tablet_id},
-                               &index_size_key);
+                                &index_size_key);
     ASSERT_EQ(txn->get(index_size_key, &index_size_val), TxnErrorCode::TXN_OK);
     EXPECT_EQ(*(int64_t*)index_size_val.data(), 2000);
     std::string segment_size_key, segment_size_val;
     stats_tablet_segment_size_key({mock_instance, table_id, index_id, partition_id, tablet_id},
-                               &segment_size_key);
+                                  &segment_size_key);
     ASSERT_EQ(txn->get(segment_size_key, &segment_size_val), TxnErrorCode::TXN_OK);
     EXPECT_EQ(*(int64_t*)segment_size_val.data(), 20000);
     std::string num_rows_key, num_rows_val;

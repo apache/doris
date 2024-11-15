@@ -45,7 +45,8 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
     auto end_key = stats_tablet_key({instance_id, idx.table_id(), idx.index_id(), idx.partition_id(), idx.tablet_id() + 1});
     // clang-format on
     std::vector<std::pair<std::string, std::string>> stats_kvs;
-    stats_kvs.reserve(7); // aggregate + data_size + num_rows + num_rowsets + num_segments + index_size + segment_size
+    stats_kvs.reserve(
+            7); // aggregate + data_size + num_rows + num_rowsets + num_segments + index_size + segment_size
 
     std::unique_ptr<RangeGetIterator> it;
     do {

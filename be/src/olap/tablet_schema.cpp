@@ -906,7 +906,7 @@ void TabletColumn::append_sparse_column(TabletColumn column) {
     _num_sparse_columns++;
 }
 
-void TabletSchema::append_index(TabletIndex&& index) {
+void TabletSchema::append_index(TabletIndex index) {
     _indexes.push_back(std::move(index));
 }
 

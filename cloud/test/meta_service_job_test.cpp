@@ -251,7 +251,8 @@ void finish_schema_change_job(
             sc->set_num_output_segments(sc->num_output_segments() + rowset.num_segments());
             sc->set_size_output_rowsets(sc->size_output_rowsets() + rowset.total_disk_size());
             sc->set_index_size_output_rowsets(sc->size_output_rowsets() + rowset.index_disk_size());
-            sc->set_segment_size_output_rowsets(sc->size_output_rowsets() + rowset.data_disk_size());
+            sc->set_segment_size_output_rowsets(sc->size_output_rowsets() +
+                                                rowset.data_disk_size());
         }
         sc->set_num_output_rowsets(output_rowsets.size());
     }

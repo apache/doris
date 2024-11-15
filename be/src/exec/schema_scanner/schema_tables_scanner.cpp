@@ -248,7 +248,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     // max_data_length
     { RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, null_datas)); }
     // index_length
-    { 
+    {
         std::vector<int64_t> srcs(table_num);
         for (int i = 0; i < table_num; ++i) {
             const TTableStatus& tbl_status = _table_result.tables[i];
