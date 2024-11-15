@@ -286,10 +286,10 @@ private:
 // 1. Global runtime filter. Managed by QueryContext's RuntimeFilterMgr which is produced by multiple producers and shared by multiple consumers.
 // 2. Local runtime filter. Managed by RuntimeState's RuntimeFilterMgr which is 1-producer-1-consumer mode.
 struct RuntimeFilterParamsContext {
-    static RuntimeFilterParamsContext* create(RuntimeState* state);
     static RuntimeFilterParamsContext* create(QueryContext* query_ctx);
 
     QueryContext* get_query_ctx() const { return _query_ctx; }
+    void set_state(RuntimeState* state) { _state = state; }
     RuntimeFilterMgr* global_runtime_filter_mgr();
     RuntimeFilterMgr* local_runtime_filter_mgr();
 

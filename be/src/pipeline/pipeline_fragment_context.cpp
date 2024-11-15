@@ -367,12 +367,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         auto fragment_instance_id = local_params.fragment_instance_id;
         _fragment_instance_ids[i] = fragment_instance_id;
 
-        std::unique_ptr<RuntimeFilterParamsContext> filterparams;
-        filterparams.reset(RuntimeFilterParamsContext::create(_runtime_state.get()));
-
-        auto runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-                request.query_id, filterparams.get(), _query_ctx->query_mem_tracker, false);
-        _runtime_filter_states[i] = std::move(filterparams);
+        _runtime_filter_states[i] = RuntimeFilterParamsContext::create(_query_ctx.get());
+        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
+                request.query_id, _runtime_filter_states[i], _query_ctx->query_mem_tracker, false);
         std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
@@ -404,6 +401,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
                         _exec_env, _query_ctx.get());
                 auto& task_runtime_state = _task_runtime_states[pip_idx][i];
+                _runtime_filter_states[i]->set_state(task_runtime_state.get());
                 {
                     // Initialize runtime state for this task
                     task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);

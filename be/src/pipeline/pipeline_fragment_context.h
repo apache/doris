@@ -299,7 +299,7 @@ private:
      */
     std::vector<std::vector<std::unique_ptr<RuntimeState>>> _task_runtime_states;
 
-    std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
+    std::vector<RuntimeFilterParamsContext*> _runtime_filter_states;
 
     // Total instance num running on all BEs
     int _total_instances = -1;
