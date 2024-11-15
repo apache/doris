@@ -310,7 +310,7 @@ txn_id=126419752960)",
         },
         R"({"creation_time":"12345","label":"label_1"})",
     },
-    Input { // aggregated_stats + full detached_stats, there are 5 KVs in total
+    Input { // aggregated_stats + full detached_stats, there are 7 KVs in total
         "StatsTabletKey",
         "instance_id=gavin-instance&table_id=10086&index_id=10010&part_id=10000&tablet_id=1008601",
         {
@@ -380,11 +380,13 @@ merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"100
             pb.set_num_rows(10);
             pb.set_num_rowsets(11);
             pb.set_num_segments(12);
+            pb.set_index_size(0);
+            pb.set_segment_size(1);
             return {pb.SerializeAsString()};
         },
-        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"1","num_rows":"10","num_rowsets":"11","num_segments":"12"}
-detached_stats: {"data_size":"0","num_rows":"0","num_rowsets":"0","num_segments":"0"}
-merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"1","num_rows":"10","num_rowsets":"11","num_segments":"12"}
+        R"(aggregated_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"1","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"0", "segment_size":"1"}
+detached_stats: {"data_size":"0","num_rows":"0","num_rowsets":"0","num_segments":"0", "index_size":"0", "segment_size":"0"}
+merged_stats: {"idx":{"table_id":"10086","index_id":"100010","partition_id":"10000","tablet_id":"1008602"},"data_size":"1","num_rows":"10","num_rowsets":"11","num_segments":"12","index_size":"0", "segment_size":"1"}
 )",
     },
     Input {

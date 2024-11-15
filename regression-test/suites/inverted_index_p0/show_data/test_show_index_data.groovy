@@ -15,17 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_data") {
-    def result = sql """show data;"""
+suite("test_show_index_data", "p0") {
+    def result = sql """show data with detail;"""
     logger.info("show data result:${result}");
     assertTrue(result.size() > 0);
 
     def jdbcUrlWithoutDbStr = (context.config.jdbcUrl).split(context.config.defaultDb)
     logger.info("jdbcUrlWithoutDbStr:${jdbcUrlWithoutDbStr}");
     def result2 = connect(context.config.jdbcUser, password = context.config.jdbcPassword, url = jdbcUrlWithoutDbStr[0]) {
-        sql """show data;"""
+        sql """show data with detail;"""
     }
-    logger.info("show data result2:${result2}");
+
     assertTrue(result2.size() > 0);
-    assertTrue(result2[0].size() == 6);
+    assertTrue(result2[0].size() == 8);
 }

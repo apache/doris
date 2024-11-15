@@ -95,7 +95,9 @@ doris::RowsetMetaCloudPB create_rowset(int64_t tablet_id, int64_t start_version,
     rowset.set_end_version(end_version);
     rowset.set_num_segments(1);
     rowset.set_num_rows(num_rows);
-    rowset.set_data_disk_size(num_rows * 100);
+    rowset.set_total_disk_size(num_rows * 100);
+    rowset.set_data_disk_size(num_rows * 50);
+    rowset.set_index_disk_size(num_rows * 50);
     rowset.mutable_tablet_schema()->set_schema_version(0);
     rowset.set_txn_expiration(::time(nullptr)); // Required by DCHECK
     return rowset;
@@ -114,7 +116,7 @@ void insert_rowsets(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t p
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK) << tablet_id;
     std::deque<std::string> buffer;
-    int data_size = 0, num_rows = 0, num_seg = 0;
+    int data_size = 0, num_rows = 0, num_seg = 0, index_size = 0, segment_size = 0;
     for (auto& rowset : rowsets) {
         data_size += rowset.data_disk_size();
         num_rows += rowset.num_rows();
@@ -138,6 +140,12 @@ void insert_rowsets(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t p
     std::string num_segs_key;
     stats_tablet_num_segs_key(info, &num_segs_key);
     txn->atomic_add(num_segs_key, num_seg);
+    std::string index_size_key;
+    stats_tablet_index_size_key(info, &index_size_key);
+    txn->atomic_add(index_size_key, index_size);
+    std::string segment_size_key;
+    stats_tablet_segment_size_key(info, &segment_size_key);
+    txn->atomic_add(segment_size_key, segment_size);
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK) << tablet_id;
 }
 
@@ -241,7 +249,9 @@ void finish_schema_change_job(
             sc->add_output_versions(rowset.end_version());
             sc->set_num_output_rows(sc->num_output_rows() + rowset.num_rows());
             sc->set_num_output_segments(sc->num_output_segments() + rowset.num_segments());
-            sc->set_size_output_rowsets(sc->size_output_rowsets() + rowset.data_disk_size());
+            sc->set_size_output_rowsets(sc->size_output_rowsets() + rowset.total_disk_size());
+            sc->set_index_size_output_rowsets(sc->size_output_rowsets() + rowset.index_disk_size());
+            sc->set_segment_size_output_rowsets(sc->size_output_rowsets() + rowset.data_disk_size());
         }
         sc->set_num_output_rowsets(output_rowsets.size());
     }
@@ -853,6 +863,10 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         compaction->set_num_input_segments(dist(rng));
         compaction->set_size_input_rowsets(dist(rng));
         compaction->set_size_output_rowsets(dist(rng));
+        compaction->set_index_size_input_rowsets(dist(rng));
+        compaction->set_segment_size_output_rowsets(dist(rng));
+        compaction->set_index_size_input_rowsets(dist(rng));
+        compaction->set_segment_size_output_rowsets(dist(rng));
         compaction->set_type(type);
 
         tablet_stats_pb.set_cumulative_compaction_cnt(dist(rng));
@@ -863,6 +877,8 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         tablet_stats_pb.set_data_size(dist(rng) + compaction->size_input_rowsets());
         tablet_stats_pb.set_num_rowsets(dist(rng) + compaction->num_input_rowsets());
         tablet_stats_pb.set_num_segments(dist(rng) + compaction->num_input_segments());
+        tablet_stats_pb.set_index_size(dist(rng) + compaction->index_size_input_rowsets());
+        tablet_stats_pb.set_data_size(dist(rng) + compaction->segment_size_input_rowsets());
 
         std::string tablet_stats_val = tablet_stats_pb.SerializeAsString();
         ASSERT_FALSE(tablet_stats_val.empty());
@@ -981,6 +997,8 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         EXPECT_EQ(stats.data_size()                , tablet_stats_pb.data_size() + (req.job().compaction(0).size_output_rowsets() - req.job().compaction(0).size_input_rowsets()));
         EXPECT_EQ(stats.num_rowsets()              , tablet_stats_pb.num_rowsets() + (req.job().compaction(0).num_output_rowsets() - req.job().compaction(0).num_input_rowsets()));
         EXPECT_EQ(stats.num_segments()             , tablet_stats_pb.num_segments() + (req.job().compaction(0).num_output_segments() - req.job().compaction(0).num_input_segments()));
+        EXPECT_EQ(stats.index_size()               , tablet_stats_pb.index_size() + (req.job().compaction(0).index_size_output_rowsets() - req.job().compaction(0).index_size_input_rowsets()));
+        EXPECT_EQ(stats.segment_size()             , tablet_stats_pb.segment_size() + (req.job().compaction(0).segment_size_output_rowsets() - req.job().compaction(0).segment_size_input_rowsets()));
         // clang-format on
 
         // Check job removed, tablet meta updated
@@ -1157,6 +1175,8 @@ TEST(MetaServiceJobTest, CompactionJobWithMoWTest) {
         tablet_stats_pb.set_data_size(dist(rng) + compaction->size_input_rowsets());
         tablet_stats_pb.set_num_rowsets(dist(rng) + compaction->num_input_rowsets());
         tablet_stats_pb.set_num_segments(dist(rng) + compaction->num_input_segments());
+        tablet_stats_pb.set_index_size(dist(rng) + compaction->index_size_input_rowsets());
+        tablet_stats_pb.set_segment_size(dist(rng) + compaction->segment_size_input_rowsets());
 
         std::string tablet_stats_val = tablet_stats_pb.SerializeAsString();
         ASSERT_FALSE(tablet_stats_val.empty());
@@ -1391,12 +1411,16 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         EXPECT_EQ(res.stats().num_rowsets(), 6);
         EXPECT_EQ(res.stats().num_segments(), 5);
         EXPECT_EQ(res.stats().data_size(), 50000);
+        EXPECT_EQ(res.stats().index_size(), 20000);
+        EXPECT_EQ(res.stats().segment_size(), 30000);
         TabletStatsPB tablet_stats;
         get_tablet_stats(meta_service.get(), new_tablet_id, tablet_stats);
         EXPECT_EQ(tablet_stats.num_rows(), 500);
         EXPECT_EQ(tablet_stats.num_rowsets(), 6);
         EXPECT_EQ(tablet_stats.num_segments(), 5);
         EXPECT_EQ(tablet_stats.data_size(), 50000);
+        EXPECT_EQ(tablet_stats.index_size(), 20000);
+        EXPECT_EQ(tablet_stats.segment_size(), 30000);
 
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -1465,12 +1489,16 @@ TEST(MetaServiceJobTest, SchemaChangeJobTest) {
         EXPECT_EQ(res.stats().num_rowsets(), 6);
         EXPECT_EQ(res.stats().num_segments(), 5);
         EXPECT_EQ(res.stats().data_size(), 50000);
+        EXPECT_EQ(res.stats().index_size(), 20000);
+        EXPECT_EQ(res.stats().segment_size(), 30000);
         TabletStatsPB tablet_stats;
         get_tablet_stats(meta_service.get(), new_tablet_id, tablet_stats);
         EXPECT_EQ(tablet_stats.num_rows(), 500);
         EXPECT_EQ(tablet_stats.num_rowsets(), 6);
         EXPECT_EQ(tablet_stats.num_segments(), 5);
         EXPECT_EQ(tablet_stats.data_size(), 50000);
+        EXPECT_EQ(tablet_stats.index_size(), 20000);
+        EXPECT_EQ(tablet_stats.segment_size(), 30000);
 
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -1628,12 +1656,16 @@ TEST(MetaServiceJobTest, RetrySchemaChangeJobTest) {
     EXPECT_EQ(res.stats().num_rowsets(), 6);
     EXPECT_EQ(res.stats().num_segments(), 5);
     EXPECT_EQ(res.stats().data_size(), 50000);
+    EXPECT_EQ(res.stats().index_size(), 20000);
+    EXPECT_EQ(res.stats().segment_size(), 30000);
     TabletStatsPB tablet_stats;
     get_tablet_stats(meta_service.get(), new_tablet_id, tablet_stats);
     EXPECT_EQ(tablet_stats.num_rows(), 500);
     EXPECT_EQ(tablet_stats.num_rowsets(), 6);
     EXPECT_EQ(tablet_stats.num_segments(), 5);
     EXPECT_EQ(tablet_stats.data_size(), 50000);
+    EXPECT_EQ(tablet_stats.index_size(), 20000);
+    EXPECT_EQ(tablet_stats.segment_size(), 30000);
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
@@ -1942,10 +1974,14 @@ TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
         compaction->add_output_rowset_ids(output_rowset.rowset_id_v2());
         compaction->set_output_cumulative_point(11);
         compaction->set_size_input_rowsets(60000);
+        compaction->set_index_size_input_rowsets(24000);
+        compaction->set_segment_size_input_rowsets(36000);
         compaction->set_num_input_rows(600);
         compaction->set_num_input_rowsets(6);
         compaction->set_num_input_segments(6);
         compaction->set_size_output_rowsets(10000);
+        compaction->set_index_size_output_rowsets(4000);
+        compaction->set_segment_size_output_rowsets(6000);
         compaction->set_num_output_rows(100);
         compaction->set_num_output_rowsets(1);
         compaction->set_num_output_segments(1);
@@ -1958,12 +1994,16 @@ TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
         EXPECT_EQ(res.stats().num_rowsets(), 6);
         EXPECT_EQ(res.stats().num_segments(), 5);
         EXPECT_EQ(res.stats().data_size(), 50000);
+        EXPECT_EQ(res.stats().index_size(), 20000);
+        EXPECT_EQ(res.stats().segment_size(), 30000);
         TabletStatsPB tablet_stats;
         get_tablet_stats(meta_service.get(), tablet_id, tablet_stats);
         EXPECT_EQ(tablet_stats.num_rows(), 500);
         EXPECT_EQ(tablet_stats.num_rowsets(), 6);
         EXPECT_EQ(tablet_stats.num_segments(), 5);
         EXPECT_EQ(tablet_stats.data_size(), 50000);
+        EXPECT_EQ(tablet_stats.index_size(), 20000);
+        EXPECT_EQ(tablet_stats.segment_size(), 30000);
 
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         // Check tmp rowsets
@@ -2046,10 +2086,14 @@ TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
         compaction->add_output_rowset_ids(output_rowset.rowset_id_v2());
         compaction->set_output_cumulative_point(5);
         compaction->set_size_input_rowsets(30000);
+        compaction->set_index_size_input_rowsets(12000);
+        compaction->set_segment_size_input_rowsets(18000);
         compaction->set_num_input_rows(300);
         compaction->set_num_input_rowsets(3);
         compaction->set_num_input_segments(3);
         compaction->set_size_output_rowsets(10000);
+        compaction->set_index_size_output_rowsets(4000);
+        compaction->set_segment_size_output_rowsets(6000);
         compaction->set_num_output_rows(100);
         compaction->set_num_output_rowsets(1);
         compaction->set_num_output_segments(1);
@@ -2062,12 +2106,16 @@ TEST(MetaServiceJobTest, ConcurrentCompactionTest) {
         EXPECT_EQ(res.stats().num_rowsets(), 4);
         EXPECT_EQ(res.stats().num_segments(), 3);
         EXPECT_EQ(res.stats().data_size(), 30000);
+        EXPECT_EQ(res.stats().index_size(), 12000);
+        EXPECT_EQ(res.stats().segment_size(), 18000);
         TabletStatsPB tablet_stats;
         get_tablet_stats(meta_service.get(), tablet_id, tablet_stats);
         EXPECT_EQ(tablet_stats.num_rows(), 300);
         EXPECT_EQ(tablet_stats.num_rowsets(), 4);
         EXPECT_EQ(tablet_stats.num_segments(), 3);
         EXPECT_EQ(tablet_stats.data_size(), 30000);
+        EXPECT_EQ(tablet_stats.index_size(), 12000);
+        EXPECT_EQ(tablet_stats.segment_size(), 18000);
 
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         // Check tmp rowsets
