@@ -341,7 +341,6 @@ private:
             auto offset_address = reinterpret_cast<int64_t>(offset_column.get_raw_data().data);
             auto& null_map_data =
                     assert_cast<ColumnVector<UInt8>*>(data_column_null_map.get())->get_data();
-            auto nested_nullmap_address = reinterpret_cast<int64_t>(null_map_data.data());
             jmethodID list_size = env->GetMethodID(arraylist_class, "size", "()I");
 
             size_t has_put_element_size = array_col->get_offsets().back();
@@ -349,6 +348,7 @@ private:
             size_t element_size = has_put_element_size + arrar_list_size;
             array_nested_nullable.resize(element_size);
             memset(null_map_data.data() + has_put_element_size, 0, arrar_list_size);
+            auto nested_nullmap_address = reinterpret_cast<int64_t>(null_map_data.data());
             int64_t nested_data_address = 0, nested_offset_address = 0;
             if (data_column->is_column_string()) {
                 ColumnString* str_col = assert_cast<ColumnString*>(data_column.get());
@@ -378,15 +378,12 @@ private:
             auto key_data_column = map_key_column_nullable.get_nested_column_ptr();
             auto& key_null_map_data =
                     assert_cast<ColumnVector<UInt8>*>(key_data_column_null_map.get())->get_data();
-            auto key_nested_nullmap_address = reinterpret_cast<int64_t>(key_null_map_data.data());
             ColumnNullable& map_value_column_nullable =
                     assert_cast<ColumnNullable&>(map_col->get_values());
             auto value_data_column_null_map = map_value_column_nullable.get_null_map_column_ptr();
             auto value_data_column = map_value_column_nullable.get_nested_column_ptr();
             auto& value_null_map_data =
                     assert_cast<ColumnVector<UInt8>*>(value_data_column_null_map.get())->get_data();
-            auto value_nested_nullmap_address =
-                    reinterpret_cast<int64_t>(value_null_map_data.data());
             jmethodID map_size = env->GetMethodID(hashmap_class, "size", "()I");
             size_t has_put_element_size = map_col->get_offsets().back();
             size_t hashmap_size = env->CallIntMethod(result_obj, map_size);
@@ -395,6 +392,9 @@ private:
             memset(key_null_map_data.data() + has_put_element_size, 0, hashmap_size);
             map_value_column_nullable.resize(element_size);
             memset(value_null_map_data.data() + has_put_element_size, 0, hashmap_size);
+            auto key_nested_nullmap_address = reinterpret_cast<int64_t>(key_null_map_data.data());
+            auto value_nested_nullmap_address =
+                    reinterpret_cast<int64_t>(value_null_map_data.data());
 
             int64_t key_nested_data_address = 0, key_nested_offset_address = 0;
             if (key_data_column->is_column_string()) {

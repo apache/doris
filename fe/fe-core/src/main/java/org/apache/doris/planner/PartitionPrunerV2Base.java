@@ -108,7 +108,7 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     public Collection<Long> prune() throws AnalysisException {
         Map<Column, FinalFilters> columnToFilters = Maps.newHashMap();
         for (Column column : partitionColumns) {
-            ColumnRange columnRange = columnNameToRange.get(column.getName());
+            ColumnRange columnRange = columnNameToRange.get(column.getName().toLowerCase());
             if (columnRange == null) {
                 columnToFilters.put(column, FinalFilters.noFilters());
             } else {

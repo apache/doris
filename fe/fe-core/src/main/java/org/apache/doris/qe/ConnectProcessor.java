@@ -548,6 +548,9 @@ public class ConnectProcessor {
             case COM_STMT_CLOSE:
                 handleStmtClose();
                 break;
+            case COM_SET_OPTION:
+                handleSetOption();
+                break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
                 LOG.warn("Unsupported command(" + command + ")");
@@ -578,11 +581,8 @@ public class ConnectProcessor {
                 && ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             ShowResultSet resultSet = executor.getShowResultSet();
             if (resultSet == null) {
-                if (executor.sendProxyQueryResult()) {
-                    packet = getResultPacket();
-                } else {
-                    packet = executor.getOutputPacket();
-                }
+                executor.sendProxyQueryResult();
+                packet = executor.getOutputPacket();
             } else {
                 executor.sendResultSet(resultSet);
                 packet = getResultPacket();
@@ -758,7 +758,12 @@ public class ConnectProcessor {
         if (ctx.getState().getStateType() == MysqlStateType.OK) {
             result.setStatusCode(0);
         } else {
-            result.setStatusCode(ctx.getState().getErrorCode().getCode());
+            ErrorCode errorCode = ctx.getState().getErrorCode();
+            if (errorCode != null) {
+                result.setStatusCode(errorCode.getCode());
+            } else {
+                result.setStatusCode(ErrorCode.ERR_UNKNOWN_ERROR.getCode());
+            }
             result.setErrMessage(ctx.getState().getErrorMessage());
         }
         if (executor != null) {
@@ -858,6 +863,15 @@ public class ConnectProcessor {
                 return;
             }
         }
+        ctx.getState().setOk();
+    }
+
+    private void handleSetOption() {
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_set_option.html
+        int optionOperation = MysqlProto.readInt2(packetBuf);
+        LOG.debug("option_operation {}", optionOperation);
+        // Do nothing for now.
+        // https://dev.mysql.com/doc/c-api/8.0/en/mysql-set-server-option.html
         ctx.getState().setOk();
     }
 

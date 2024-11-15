@@ -107,6 +107,7 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
         RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
     }
     --context->_depth_num;
+    _enable_inverted_index_query = state->query_options().enable_inverted_index_query;
     return Status::OK();
 }
 
@@ -451,6 +452,10 @@ Status VExpr::check_constant(const Block& block, ColumnNumbers arguments) const 
 
 bool VExpr::fast_execute(Block& block, const ColumnNumbers& arguments, size_t result,
                          size_t input_rows_count, const std::string& function_name) {
+    if (!_enable_inverted_index_query) {
+        return false;
+    }
+
     std::string result_column_name = gen_predicate_result_sign(block, arguments, function_name);
     if (!block.has(result_column_name)) {
         return false;
@@ -481,11 +486,19 @@ std::string VExpr::gen_predicate_result_sign(Block& block, const ColumnNumbers& 
         std::set<std::string> values;
         for (size_t i = 1; i < arguments.size(); i++) {
             const auto& entry = block.get_by_position(arguments[i]);
+            if (!is_column_const(*entry.column)) {
+                return pred_result_sign;
+            }
             values.insert(entry.type->to_string(*entry.column, 0));
         }
         pred_result_sign += boost::join(values, ",");
+    } else if (function_name == "collection_in" || function_name == "collection_not_in") {
+        return pred_result_sign;
     } else {
         const auto& entry = block.get_by_position(arguments[1]);
+        if (!is_column_const(*entry.column)) {
+            return pred_result_sign;
+        }
         pred_result_sign += entry.type->to_string(*entry.column, 0);
     }
     return pred_result_sign;

@@ -91,6 +91,15 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, const TabletSharedPtr&
     const auto& schema_hash = tablet->schema_hash();
     const auto& tablet_uid = tablet->tablet_uid();
 
+    // check if the tablet has already been shutdown. If it has, it indicates that
+    // it is an old tablet, and data should not be imported into the old tablet.
+    // Otherwise, it may lead to data loss during migration.
+    if (tablet->tablet_state() == TABLET_SHUTDOWN) {
+        return Status::InternalError<false>(
+                "The tablet's state is shutdown, tablet_id: {}. The tablet may have been dropped "
+                "or migrationed. Please check if the table has been dropped or try again.",
+                tablet_id);
+    }
     return prepare_txn(partition_id, transaction_id, tablet_id, schema_hash, tablet_uid, load_id,
                        ingest);
 }

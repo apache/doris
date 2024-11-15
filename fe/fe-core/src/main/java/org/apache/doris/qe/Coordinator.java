@@ -3203,6 +3203,7 @@ public class Coordinator implements CoordInterface {
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 TExecPlanFragmentParams params = new TExecPlanFragmentParams();
+                params.setIsNereids(ConnectContext.get() != null ? ConnectContext.get().getState().isNereids() : false);
                 params.setProtocolVersion(PaloInternalServiceVersion.V1);
                 params.setFragment(fragment.toThrift());
                 params.setDescTbl(descTable);
@@ -3302,6 +3303,8 @@ public class Coordinator implements CoordInterface {
                     TPipelineFragmentParams params = new TPipelineFragmentParams();
 
                     // Set global param
+                    params.setIsNereids(
+                            ConnectContext.get() != null ? ConnectContext.get().getState().isNereids() : false);
                     params.setProtocolVersion(PaloInternalServiceVersion.V1);
                     params.setDescTbl(descTable);
                     params.setQueryId(queryId);

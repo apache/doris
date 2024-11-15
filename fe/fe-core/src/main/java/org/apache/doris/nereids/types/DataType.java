@@ -174,7 +174,7 @@ public abstract class DataType implements AbstractDataType {
             case "decimalv3":
                 switch (types.size()) {
                     case 1:
-                        return DecimalV3Type.CATALOG_DEFAULT;
+                        return DecimalV3Type.createDecimalV3Type(38, 9);
                     case 2:
                         return DecimalV3Type.createDecimalV3Type(Integer.parseInt(types.get(1)));
                     case 3:

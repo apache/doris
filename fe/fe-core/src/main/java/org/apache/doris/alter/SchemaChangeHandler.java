@@ -411,6 +411,18 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
 
+            // drop bloom filter column
+            Set<String> bfCols = olapTable.getCopiedBfColumns();
+            if (bfCols != null) {
+                Set<String> newBfCols = new HashSet<>();
+                for (String bfCol : bfCols) {
+                    if (!bfCol.equalsIgnoreCase(dropColName)) {
+                        newBfCols.add(bfCol);
+                    }
+                }
+                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
+            }
+
             for (int i = 1; i < indexIds.size(); i++) {
                 List<Column> rollupSchema = indexSchemaMap.get(indexIds.get(i));
                 Iterator<Column> iter = rollupSchema.iterator();

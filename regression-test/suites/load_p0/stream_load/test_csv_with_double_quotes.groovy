@@ -44,7 +44,7 @@ suite("test_csv_with_double_quotes", "p0") {
     }
 
     sql "sync"
-    qt_sql "select * from ${tableName} order by k1, k2"
+    qt_sql "select * from ${tableName} order by k1, k2, v1, v2"
 
     sql """truncate table ${tableName}"""
     streamLoad {

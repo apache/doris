@@ -135,7 +135,7 @@ columnAliases
     ;
 
 selectClause
-    : SELECT selectHint? (DISTINCT|ALL)? selectColumnClause
+    : SELECT (DISTINCT|ALL)? selectColumnClause
     ;
 
 selectColumnClause

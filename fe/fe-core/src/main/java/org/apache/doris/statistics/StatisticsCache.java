@@ -171,12 +171,8 @@ public class StatisticsCache {
                 long tblId = statsId.tblId;
                 long idxId = statsId.idxId;
                 String colId = statsId.colId;
-                final StatisticsCacheKey k =
-                        new StatisticsCacheKey(tblId, idxId, colId);
+                final StatisticsCacheKey k = new StatisticsCacheKey(tblId, idxId, colId);
                 ColumnStatistic c = ColumnStatistic.fromResultRow(r);
-                if (c.count > 0 && c.ndv == 0 && c.count != c.numNulls) {
-                    c = ColumnStatistic.UNKNOWN;
-                }
                 putCache(k, c);
             } catch (Throwable t) {
                 LOG.warn("Error when preheating stats cache. reason: [{}]. Row:[{}]", t.getMessage(), r);

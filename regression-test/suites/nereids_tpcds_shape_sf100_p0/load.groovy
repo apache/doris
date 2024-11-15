@@ -1269,10 +1269,6 @@ alter table web_page modify column wp_max_ad_count set stats ('row_count'='2040'
 """
 
 sql """
-alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'min_value'='2415022', 'max_value'='2488070', 'avg_size'='120', 'max_size'='120' )
-"""
-
-sql """
 alter table web_returns modify column wr_return_ship_cost set stats ('row_count'='7197670', 'ndv'='10429', 'min_value'='0.00', 'max_value'='13602.60', 'avg_size'='28790680', 'max_size'='28790680' )
 """
 
@@ -1989,7 +1985,7 @@ alter table ship_mode modify column sm_contract set stats ('row_count'='20', 'nd
 """
 
 sql """
-alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'min_value'='0', 'max_value'='0', 'avg_size'='120', 'max_size'='120' )
+alter table call_center modify column cc_closed_date_sk set stats ('row_count'='30', 'ndv'='0', 'num_nulls'='30', 'avg_size'='120', 'max_size'='120' )
 """
 
 sql """

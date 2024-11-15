@@ -227,18 +227,19 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
         return indexesRowCount.getOrDefault(indexId, -1L);
     }
 
-    public void clearIndexesRowCount() {
-        indexesRowCount.clear();
-    }
-
-    private void clearStaleIndexRowCount(OlapTable table) {
+    protected void clearStaleIndexRowCount(OlapTable table) {
         Iterator<Long> iterator = indexesRowCount.keySet().iterator();
-        List<Long> indexIds = table.getIndexIds();
+        List<Long> indexIds = table.getIndexIdList();
         while (iterator.hasNext()) {
             long key = iterator.next();
-            if (indexIds.contains(key)) {
+            if (!indexIds.contains(key)) {
                 iterator.remove();
             }
         }
+    }
+
+    // For unit test only.
+    protected void addIndexRowForTest(long indexId, long rowCount) {
+        indexesRowCount.put(indexId, rowCount);
     }
 }

@@ -293,9 +293,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .collect(Collectors.toList());
             keys.addAll(validOutputIds);
             validOutputIds = keys;
-        } else if (child instanceof PhysicalLimit && ((PhysicalLimit<?>) child).getPhase().isGlobal()) {
-            // because sort already contains Offset, we don't need to handle PhysicalTopN
-            exchangeNode.setOffset(((PhysicalLimit<?>) child).getOffset());
         }
         if (inputFragment instanceof MultiCastPlanFragment) {
             // TODO: remove this logic when we split to multi-window in logical window to physical window conversion
@@ -1560,10 +1557,35 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalLimit(PhysicalLimit<? extends Plan> physicalLimit, PlanTranslatorContext context) {
         PlanFragment inputFragment = physicalLimit.child(0).accept(this, context);
         PlanNode child = inputFragment.getPlanRoot();
-        child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(), child.getLimit()));
-        // TODO: plan node don't support limit
-        // child.setOffset(MergeLimits.mergeOffset(physicalLimit.getOffset(), child.getOffset()));
-        updateLegacyPlanIdToPhysicalPlan(child, physicalLimit);
+
+        if (physicalLimit.getPhase().isLocal()) {
+            child.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(),
+                    child.getLimit()));
+        } else if (physicalLimit.getPhase().isGlobal()) {
+            if (!(child instanceof ExchangeNode)) {
+                ExchangeNode exchangeNode = new ExchangeNode(context.nextPlanNodeId(), child);
+                exchangeNode.setLimit(physicalLimit.getLimit());
+                exchangeNode.setOffset(physicalLimit.getOffset());
+                exchangeNode.setPartitionType(TPartitionType.UNPARTITIONED);
+                exchangeNode.setNumInstances(1);
+                PlanFragment fragment = new PlanFragment(context.nextFragmentId(), exchangeNode,
+                        DataPartition.UNPARTITIONED);
+                inputFragment.setDestination(exchangeNode);
+                inputFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+                DataStreamSink sink = new DataStreamSink(exchangeNode.getId());
+                sink.setOutputPartition(DataPartition.UNPARTITIONED);
+                inputFragment.setSink(sink);
+                context.addPlanFragment(fragment);
+                inputFragment = fragment;
+            } else {
+                ExchangeNode exchangeNode = (ExchangeNode) child;
+                exchangeNode.setLimit(MergeLimits.mergeLimit(physicalLimit.getLimit(), physicalLimit.getOffset(),
+                        exchangeNode.getLimit()));
+                exchangeNode.setOffset(MergeLimits.mergeOffset(physicalLimit.getOffset(), exchangeNode.getOffset()));
+            }
+        }
+
+        updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), physicalLimit);
         return inputFragment;
     }
 

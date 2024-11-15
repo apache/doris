@@ -665,7 +665,7 @@ public class ExportJob implements Writable {
         }
         // we only persist Pending/Cancel/Finish state
         if (!isReplay && newState != JobState.IN_QUEUE && newState != JobState.EXPORTING) {
-            Env.getCurrentEnv().getEditLog().logExportUpdateState(id, newState);
+            Env.getCurrentEnv().getEditLog().logExportUpdateState(this, newState);
         }
         return true;
     }
@@ -846,10 +846,9 @@ public class ExportJob implements Writable {
         }
 
         // used for persisting one log
-        public StateTransfer(long jobId, JobState state) {
-            this.jobId = jobId;
+        public StateTransfer(ExportJob job, JobState state) {
+            this.jobId = job.getId();
             this.state = state;
-            ExportJob job = Env.getCurrentEnv().getExportMgr().getJob(jobId);
             this.startTimeMs = job.getStartTimeMs();
             this.finishTimeMs = job.getFinishTimeMs();
             this.failMsg = job.getFailMsg();

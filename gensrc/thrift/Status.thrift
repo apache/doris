@@ -103,6 +103,13 @@ enum TStatusCode {
     TABLET_MISSING = 72,
 
     NOT_MASTER = 73,
+
+    OBTAIN_LOCK_FAILED = 74,
+
+    SNAPSHOT_EXPIRED = 75,
+
+    // Not be larger than 200, see status.h
+    // And all error code defined here, should also be defined in status.h
 }
 
 struct TStatus {

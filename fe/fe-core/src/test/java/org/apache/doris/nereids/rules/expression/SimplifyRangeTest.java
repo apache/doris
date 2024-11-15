@@ -30,7 +30,9 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DateV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
@@ -61,34 +63,39 @@ public class SimplifyRangeTest {
     public void testSimplify() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyRange.INSTANCE));
         assertRewrite("TA", "TA");
-        assertRewrite("TA > 3 or TA > null", "TA > 3");
-        assertRewrite("TA > 3 or TA < null", "TA > 3");
-        assertRewrite("TA > 3 or TA = null", "TA > 3");
-        assertRewrite("TA > 3 or TA <> null", "TA > 3 or TA <> null");
+        assertRewrite("TA > 3 or TA > null", "TA > 3 OR NULL");
+        assertRewrite("TA > 3 or TA < null", "TA > 3 OR NULL");
+        assertRewrite("TA > 3 or TA = null", "TA > 3 OR NULL");
+        assertRewrite("TA > 3 or TA <> null", "TA > 3 or null");
         assertRewrite("TA > 3 or TA <=> null", "TA > 3 or TA <=> null");
-        assertRewrite("TA > 3 and TA > null", "false");
-        assertRewrite("TA > 3 and TA < null", "false");
-        assertRewrite("TA > 3 and TA = null", "false");
-        assertRewrite("TA > 3 and TA <> null", "TA > 3 and TA <> null");
+        assertRewriteNotNull("TA > 3 and TA > null", "TA > 3 and NULL");
+        assertRewriteNotNull("TA > 3 and TA < null", "TA > 3 and NULL");
+        assertRewriteNotNull("TA > 3 and TA = null", "TA > 3 and NULL");
+        assertRewrite("TA > 3 and TA > null", "TA > 3 and null");
+        assertRewrite("TA > 3 and TA < null", "TA > 3 and null");
+        assertRewrite("TA > 3 and TA = null", "TA > 3 and null");
+        assertRewrite("TA > 3 and TA <> null", "TA > 3 and null");
         assertRewrite("TA > 3 and TA <=> null", "TA > 3 and TA <=> null");
         assertRewrite("(TA >= 1 and TA <=3 ) or (TA > 5 and TA < 7)", "(TA >= 1 and TA <=3 ) or (TA > 5 and TA < 7)");
-        assertRewrite("(TA > 3 and TA < 1) or (TA > 7 and TA < 5)", "FALSE");
-        assertRewrite("TA > 3 and TA < 1", "FALSE");
+        assertRewriteNotNull("(TA > 3 and TA < 1) or (TA > 7 and TA < 5)", "FALSE");
+        assertRewrite("(TA > 3 and TA < 1) or (TA > 7 and TA < 5)", "TA is null and null");
+        assertRewriteNotNull("TA > 3 and TA < 1", "FALSE");
+        assertRewrite("TA > 3 and TA < 1", "TA is null and null");
         assertRewrite("TA >= 3 and TA < 3", "TA >= 3 and TA < 3");
-        assertRewrite("TA = 1 and TA > 10", "FALSE");
+        assertRewriteNotNull("TA = 1 and TA > 10", "FALSE");
+        assertRewrite("TA = 1 and TA > 10", "TA is null and null");
         assertRewrite("TA > 5 or TA < 1", "TA > 5 or TA < 1");
         assertRewrite("TA > 5 or TA > 1 or TA > 10", "TA > 1");
-        assertRewrite("TA > 5 or TA > 1 or TA < 10", "TA IS NOT NULL");
+        assertRewrite("TA > 5 or TA > 1 or TA < 10", "TA is not null or null");
         assertRewriteNotNull("TA > 5 or TA > 1 or TA < 10", "TRUE");
         assertRewrite("TA > 5 and TA > 1 and TA > 10", "TA > 10");
         assertRewrite("TA > 5 and TA > 1 and TA < 10", "TA > 5 and TA < 10");
         assertRewrite("TA > 1 or TA < 1", "TA > 1 or TA < 1");
-        assertRewrite("TA > 1 or TA < 10", "TA IS NOT NULL");
+        assertRewrite("TA > 1 or TA < 10", "TA is not null or null");
         assertRewriteNotNull("TA > 1 or TA < 10", "TRUE");
         assertRewrite("TA > 5 and TA < 10", "TA > 5 and TA < 10");
         assertRewrite("TA > 5 and TA > 10", "TA > 10");
-        assertRewrite("TA > 5 + 1 and TA > 10", "TA > 5 + 1 and TA > 10");
-        assertRewrite("TA > 5 + 1 and TA > 10", "TA > 5 + 1 and TA > 10");
+        assertRewrite("TA > 5 + 1 and TA > 10", "cast(TA as smallint) > 6 and TA > 10");
         assertRewrite("(TA > 1 and TA > 10) or TA > 20", "TA > 10");
         assertRewrite("(TA > 1 or TA > 10) and TA > 20", "TA > 20");
         assertRewrite("(TA + TB > 1 or TA + TB > 10) and TA + TB > 20", "TA + TB > 20");
@@ -98,25 +105,32 @@ public class SimplifyRangeTest {
         assertRewrite("((TB > 30 and TA > 40) and TA > 20) and (TB > 10 and TB > 20)", "TB > 30 and TA > 40");
         assertRewrite("(TA > 10 and TB > 10) or (TB > 10 and TB > 20)", "TA > 10 and TB > 10 or TB > 20");
         assertRewrite("((TA > 10 or TA > 5) and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))", "(TA > 5 and TB > 10) or (TB > 10 and (TB > 20 or TB < 10))");
-        assertRewrite("TA in (1,2,3) and TA > 10", "FALSE");
+        assertRewriteNotNull("TA in (1,2,3) and TA > 10", "FALSE");
+        assertRewrite("TA in (1,2,3) and TA > 10", "TA is null and null");
         assertRewrite("TA in (1,2,3) and TA >= 1", "TA in (1,2,3)");
         assertRewrite("TA in (1,2,3) and TA > 1", "((TA = 2) OR (TA = 3))");
         assertRewrite("TA in (1,2,3) or TA >= 1", "TA >= 1");
         assertRewrite("TA in (1)", "TA in (1)");
         assertRewrite("TA in (1,2,3) and TA < 10", "TA in (1,2,3)");
-        assertRewrite("TA in (1,2,3) and TA < 1", "FALSE");
+        assertRewriteNotNull("TA in (1,2,3) and TA < 1", "FALSE");
+        assertRewrite("TA in (1,2,3) and TA < 1", "TA is null and null");
         assertRewrite("TA in (1,2,3) or TA < 1", "TA in (1,2,3) or TA < 1");
         assertRewrite("TA in (1,2,3) or TA in (2,3,4)", "TA in (1,2,3,4)");
         assertRewrite("TA in (1,2,3) or TA in (4,5,6)", "TA in (1,2,3,4,5,6)");
-        assertRewrite("TA in (1,2,3) and TA in (4,5,6)", "FALSE");
+        assertRewrite("TA in (1,2,3) and TA in (4,5,6)", "TA is null and null");
+        assertRewriteNotNull("TA in (1,2,3) and TA in (4,5,6)", "FALSE");
         assertRewrite("TA in (1,2,3) and TA in (3,4,5)", "TA = 3");
         assertRewrite("TA + TB in (1,2,3) and TA + TB in (3,4,5)", "TA + TB = 3");
         assertRewrite("TA in (1,2,3) and DA > 1.5", "TA in (1,2,3) and DA > 1.5");
-        assertRewrite("TA = 1 and TA = 3", "FALSE");
-        assertRewrite("TA in (1) and TA in (3)", "FALSE");
+        assertRewriteNotNull("TA = 1 and TA = 3", "FALSE");
+        assertRewrite("TA = 1 and TA = 3", "TA is null and null");
+        assertRewriteNotNull("TA in (1) and TA in (3)", "FALSE");
+        assertRewrite("TA in (1) and TA in (3)", "TA is null and null");
         assertRewrite("TA in (1) and TA in (1)", "TA = 1");
-        assertRewrite("(TA > 3 and TA < 1) and TB < 5", "FALSE");
-        assertRewrite("(TA > 3 and TA < 1) or TB < 5", "TB < 5");
+        assertRewriteNotNull("(TA > 3 and TA < 1) and TB < 5", "FALSE");
+        assertRewrite("(TA > 3 and TA < 1) and TB < 5", "TA is null and null and TB < 5");
+        assertRewrite("TA > 3 and TB < 5 and TA < 1", "TA is null and null and TB < 5");
+        assertRewrite("(TA > 3 and TA < 1) or TB < 5", "(TA is null and null) or TB < 5");
         assertRewrite("((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1", "((IA = 1 AND SC ='1') OR SC = '1212') AND IA =1");
     }
 
@@ -133,7 +147,9 @@ public class SimplifyRangeTest {
     private void assertRewriteNotNull(String expression, String expected) {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceNotNullUnboundSlot(PARSER.parseExpression(expression), mem);
+        needRewriteExpression = typeCoercion(needRewriteExpression);
         Expression expectedExpression = replaceNotNullUnboundSlot(PARSER.parseExpression(expected), mem);
+        expectedExpression = typeCoercion(expectedExpression);
         Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
@@ -185,11 +201,15 @@ public class SimplifyRangeTest {
             case 'I':
                 return IntegerType.INSTANCE;
             case 'D':
-                return DoubleType.INSTANCE;
+                return DecimalV3Type.createDecimalV3Type(2, 1);
             case 'S':
                 return StringType.INSTANCE;
             case 'B':
                 return BooleanType.INSTANCE;
+            case 'C':
+                return DateTimeV2Type.SYSTEM_DEFAULT;
+            case 'A':
+                return DateV2Type.INSTANCE;
             default:
                 return BigIntType.INSTANCE;
         }

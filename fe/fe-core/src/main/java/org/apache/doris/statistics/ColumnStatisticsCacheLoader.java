@@ -51,14 +51,6 @@ public class ColumnStatisticsCacheLoader extends BasicAsyncCacheLoader<Statistic
             // it will trigger load function again without cache an empty value.
             return null;
         }
-        if (columnStatistic.isPresent()) {
-            // For non-empty table, return UNKNOWN if we can't collect ndv value.
-            // Because inaccurate ndv is very misleading.
-            ColumnStatistic stats = columnStatistic.get();
-            if (stats.count > 0 && stats.ndv == 0 && stats.count != stats.numNulls) {
-                columnStatistic = Optional.of(ColumnStatistic.UNKNOWN);
-            }
-        }
         return columnStatistic;
     }
 

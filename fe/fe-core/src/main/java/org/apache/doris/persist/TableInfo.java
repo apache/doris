@@ -19,6 +19,9 @@ package org.apache.doris.persist;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -26,13 +29,20 @@ import java.io.IOException;
 
 public class TableInfo implements Writable {
 
+    @SerializedName("db")
     private long dbId;
+    @SerializedName("tb")
     private long tableId;
+    @SerializedName("ind")
     private long indexId;
+    @SerializedName("p")
     private long partitionId;
 
+    @SerializedName("nT")
     private String newTableName;
+    @SerializedName("nR")
     private String newRollupName;
+    @SerializedName("nP")
     private String newPartitionName;
 
     public TableInfo() {
@@ -123,5 +133,13 @@ public class TableInfo implements Writable {
         TableInfo info = new TableInfo();
         info.readFields(in);
         return info;
+    }
+
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    public static TableInfo fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, TableInfo.class);
     }
 }

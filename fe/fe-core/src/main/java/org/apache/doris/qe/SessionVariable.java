@@ -481,6 +481,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
     public static final String ENABLE_FALLBACK_ON_MISSING_INVERTED_INDEX = "enable_fallback_on_missing_inverted_index";
 
+    public static final String REQUIRE_SEQUENCE_IN_INSERT = "require_sequence_in_insert";
+
+    public static final String ENABLE_COOLDOWN_REPLICA_AFFINITY = "enable_cooldown_replica_affinity";
+
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -1500,6 +1504,16 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnableEsShardScroll(boolean enableESShardScroll) {
         this.enableESShardScroll = enableESShardScroll;
     }
+
+    @VariableMgr.VarAttr(name = REQUIRE_SEQUENCE_IN_INSERT, needForward = true, description = {
+            "该变量用于控制，使用了sequence列的unique key表，insert into操作是否要求必须提供每一行的sequence列的值",
+            "This variable controls whether the INSERT INTO operation on unique key tables with a sequence"
+                    + " column requires a sequence column to be provided for each row"
+    })
+    public boolean requireSequenceInInsert = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_COOLDOWN_REPLICA_AFFINITY, needForward = true)
+    public boolean enableCooldownReplicaAffinity = true;
 
     public boolean isEnableESShardScroll() {
         return enableESShardScroll;
@@ -2593,6 +2607,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
     }
 
+    public void setRequireSequenceInInsert(boolean value) {
+        this.requireSequenceInInsert = value;
+    }
+
+    public boolean isRequireSequenceInInsert() {
+        return this.requireSequenceInInsert;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -3051,6 +3073,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getMaxMsgSizeOfResultReceiver() {
         return this.maxMsgSizeOfResultReceiver;
+    }
+
+    public boolean isEnableCooldownReplicaAffinity() {
+        return enableCooldownReplicaAffinity;
     }
 
 }

@@ -89,6 +89,15 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
 
+    bool is_exclusive() const override {
+        for (const auto& col : columns) {
+            if (!col->is_exclusive()) {
+                return false;
+            }
+        }
+        return IColumn::is_exclusive();
+    }
+
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
 

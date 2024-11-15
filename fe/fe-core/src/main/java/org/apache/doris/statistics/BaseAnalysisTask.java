@@ -82,30 +82,6 @@ public abstract class BaseAnalysisTask {
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}";
 
-    protected static final String DUJ1_ANALYZE_STRING_TEMPLATE = "SELECT "
-            + "CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
-            + "${catalogId} AS `catalog_id`, "
-            + "${dbId} AS `db_id`, "
-            + "${tblId} AS `tbl_id`, "
-            + "${idxId} AS `idx_id`, "
-            + "'${colId}' AS `col_id`, "
-            + "NULL AS `part_id`, "
-            + "${rowCount} AS `row_count`, "
-            + "${ndvFunction} as `ndv`, "
-            + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
-            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
-            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
-            + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
-            + "NOW() "
-            + "FROM ( "
-            + "    SELECT t0.`colValue` as `column_key`, COUNT(1) as `count` "
-            + "    FROM "
-            + "    (SELECT SUBSTRING(CAST(`${colName}` AS STRING), 1, 1024) AS `colValue` "
-            + "         FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} "
-            + "    ${sampleHints} ${limit}) as `t0` "
-            + "    GROUP BY `t0`.`colValue` "
-            + ") as `t1` ";
-
     protected static final String DUJ1_ANALYZE_TEMPLATE = "SELECT "
             + "CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
             + "${catalogId} AS `catalog_id`, "
@@ -122,11 +98,11 @@ public abstract class BaseAnalysisTask {
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
             + "FROM ( "
-            + "    SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count` "
+            + "    SELECT t0.`colValue` as `column_key`, COUNT(1) as `count`, SUM(`len`) as `column_length` "
             + "    FROM "
-            + "    (SELECT `${colName}` FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} "
-            + "    ${sampleHints} ${limit}) as `t0` "
-            + "    GROUP BY `t0`.`${colName}` "
+            + "        (SELECT ${subStringColName} AS `colValue`, LENGTH(`${colName}`) as `len` "
+            + "        FROM `${catalogName}`.`${dbName}`.`${tblName}` ${index} ${sampleHints} ${limit}) as `t0` "
+            + "    GROUP BY `t0`.`colValue` "
             + ") as `t1` ";
 
     protected static final String ANALYZE_PARTITION_COLUMN_TEMPLATE = " SELECT "
@@ -230,7 +206,7 @@ public abstract class BaseAnalysisTask {
     protected String getDataSizeFunction(Column column, boolean useDuj1) {
         if (useDuj1) {
             if (column.getType().isStringType()) {
-                return "SUM(LENGTH(`column_key`) * count)";
+                return "SUM(`column_length`)";
             } else {
                 return "SUM(t1.count) * " + column.getType().getSlotSize();
             }
@@ -240,6 +216,14 @@ public abstract class BaseAnalysisTask {
             } else {
                 return "COUNT(1) * " + column.getType().getSlotSize();
             }
+        }
+    }
+
+    protected String getStringTypeColName(Column column) {
+        if (column.getType().isStringType()) {
+            return "murmur_hash3_64(SUBSTRING(CAST(`${colName}` AS STRING), 1, 1024))";
+        } else {
+            return "`${colName}`";
         }
     }
 
@@ -309,6 +293,11 @@ public abstract class BaseAnalysisTask {
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            if (!colStatsData.isValid()) {
+                String message = String.format("ColStatsData is invalid, skip analyzing. %s", colStatsData.toSQL(true));
+                LOG.warn(message);
+                throw new RuntimeException(message);
+            }
             // Update index row count after analyze.
             if (this instanceof OlapAnalysisTask) {
                 AnalysisInfo jobInfo = Env.getCurrentEnv().getAnalysisManager().findJobInfo(job.getJobInfo().jobId);

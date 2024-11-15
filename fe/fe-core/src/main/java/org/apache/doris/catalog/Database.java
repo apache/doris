@@ -282,6 +282,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public void setDbProperties(DatabaseProperty dbProperties) {
         this.dbProperties = dbProperties;
+        if (PropertyAnalyzer.hasBinlogConfig(dbProperties.getProperties())) {
+            binlogConfig = dbProperties.getBinlogConfig();
+        }
     }
 
     public long getUsedDataQuotaWithLock() {

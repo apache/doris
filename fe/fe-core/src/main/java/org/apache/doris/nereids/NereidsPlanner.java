@@ -23,6 +23,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -43,11 +44,13 @@ import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -256,6 +259,17 @@ public class NereidsPlanner extends Planner {
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN) {
                 return rewrittenPlan;
             }
+        }
+
+        // if we cannot get table row count, skip join reorder
+        // except:
+        //   1. user set leading hint
+        //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
+        if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest && cascadesContext.isLeadingJoin()) {
+            List<CatalogRelation> scans = cascadesContext.getRewritePlan()
+                    .collectToList(CatalogRelation.class::isInstance);
+            Optional<String> reason = StatsCalculator.disableJoinReorderIfStatsInvalid(scans, cascadesContext);
+            reason.ifPresent(LOG::info);
         }
 
         optimize();

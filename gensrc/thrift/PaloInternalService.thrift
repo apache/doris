@@ -464,6 +464,8 @@ struct TExecPlanFragmentParams {
   // scan node id -> scan range params, only for external file scan
   24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
 
+  31: optional bool is_nereids = true;
+
   32: optional Types.TNetworkAddress current_connect_fe
 }
 
@@ -680,6 +682,8 @@ struct TPipelineFragmentParams {
   // scan node id -> scan range params, only for external file scan
   29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
   43: optional Types.TNetworkAddress current_connect_fe
+
+  40: optional bool is_nereids = true;
 }
 
 struct TPipelineFragmentParamsList {

@@ -450,6 +450,8 @@ public:
                        : 0;
     }
 
+    bool is_nereids() const;
+
 private:
     Status create_error_log_file();
 

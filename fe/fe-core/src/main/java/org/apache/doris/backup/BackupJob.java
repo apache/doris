@@ -61,8 +61,12 @@ import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.DataOutput;
+import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileVisitOption;
@@ -74,6 +78,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 
 public class BackupJob extends AbstractJob {
@@ -94,7 +100,7 @@ public class BackupJob extends AbstractJob {
     // all objects which need backup
     private List<TableRef> tableRefs = Lists.newArrayList();
 
-    private BackupJobState state;
+    private volatile BackupJobState state;
 
     private long snapshotFinishedTime = -1;
     private long snapshotUploadFinishedTime = -1;
@@ -117,11 +123,13 @@ public class BackupJob extends AbstractJob {
     // backup properties && table commit seq with table id
     private Map<String, String> properties = Maps.newHashMap();
 
-    private byte[] metaInfoBytes = null;
-    private byte[] jobInfoBytes = null;
-
     public BackupJob() {
         super(JobType.BACKUP);
+    }
+
+    public BackupJob(JobType jobType) {
+        super(jobType);
+        assert jobType == JobType.BACKUP || jobType == JobType.BACKUP_COMPRESSED;
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
@@ -198,11 +206,10 @@ public class BackupJob extends AbstractJob {
                     task.getIndexId(), task.getTabletId(),
                     task.getVersion(),
                     task.getSchemaHash(), timeoutMs, false /* not restore task */);
-            AgentBatchTask batchTask = new AgentBatchTask();
-            batchTask.addTask(newTask);
             unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
 
             //send task
+            AgentBatchTask batchTask = new AgentBatchTask(newTask);
             AgentTaskQueue.addTask(newTask);
             AgentTaskExecutor.submit(batchTask);
 
@@ -323,11 +330,7 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public synchronized void replayRun() {
-        LOG.info("replay run backup job: {}", this);
-        if (state == BackupJobState.FINISHED && repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
-            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
-            env.getBackupHandler().addSnapshot(label, snapshot);
-        }
+        // nothing to do
     }
 
     @Override
@@ -343,6 +346,11 @@ public class BackupJob extends AbstractJob {
     @Override
     public boolean isCancelled() {
         return state == BackupJobState.CANCELLED;
+    }
+
+    @Override
+    public boolean isFinished() {
+        return state == BackupJobState.FINISHED;
     }
 
     // Polling the job state and do the right things.
@@ -436,7 +444,7 @@ public class BackupJob extends AbstractJob {
         // copy all related schema at this moment
         List<Table> copiedTables = Lists.newArrayList();
         List<Resource> copiedResources = Lists.newArrayList();
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
             Table tbl = db.getTableNullable(tblName);
@@ -684,7 +692,7 @@ public class BackupJob extends AbstractJob {
             beToSnapshots.put(info.getBeId(), info);
         }
 
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (Long beId : beToSnapshots.keySet()) {
             List<SnapshotInfo> infos = beToSnapshots.get(beId);
             int totalNum = infos.size();
@@ -782,8 +790,6 @@ public class BackupJob extends AbstractJob {
             }
             backupMeta.writeToFile(metaInfoFile);
             localMetaInfoFilePath = metaInfoFile.getAbsolutePath();
-            // read meta info to metaInfoBytes
-            metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
 
             // 3. save job info file
             Map<Long, Long> tableCommitSeqMap = Maps.newHashMap();
@@ -808,8 +814,6 @@ public class BackupJob extends AbstractJob {
             }
             jobInfo.writeToFile(jobInfoFile);
             localJobInfoFilePath = jobInfoFile.getAbsolutePath();
-            // read job info to jobInfoBytes
-            jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
         } catch (Exception e) {
             status = new Status(ErrCode.COMMON_ERROR, "failed to save meta info and job info file: " + e.getMessage());
             return;
@@ -840,7 +844,7 @@ public class BackupJob extends AbstractJob {
         }
         // we do not care about the release snapshot tasks' success or failure,
         // the GC thread on BE will sweep the snapshot, finally.
-        AgentBatchTask batchTask = new AgentBatchTask();
+        AgentBatchTask batchTask = new AgentBatchTask(Config.backup_restore_batch_task_num_per_rpc);
         for (SnapshotInfo info : snapshotInfos.values()) {
             ReleaseSnapshotTask releaseTask = new ReleaseSnapshotTask(null, info.getBeId(), info.getDbId(),
                     info.getTabletId(), info.getPath());
@@ -863,7 +867,6 @@ public class BackupJob extends AbstractJob {
             }
         }
 
-
         finishedTime = System.currentTimeMillis();
         state = BackupJobState.FINISHED;
 
@@ -872,8 +875,7 @@ public class BackupJob extends AbstractJob {
         LOG.info("job is finished. {}", this);
 
         if (repoId == Repository.KEEP_ON_LOCAL_REPO_ID) {
-            Snapshot snapshot = new Snapshot(label, metaInfoBytes, jobInfoBytes);
-            env.getBackupHandler().addSnapshot(label, snapshot);
+            env.getBackupHandler().addSnapshot(label, this);
             return;
         }
     }
@@ -966,7 +968,36 @@ public class BackupJob extends AbstractJob {
         LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
     }
 
-    public List<String> getInfo() {
+    public boolean isLocalSnapshot() {
+        return repoId == Repository.KEEP_ON_LOCAL_REPO_ID;
+    }
+
+    // read meta and job info bytes from disk, and return the snapshot
+    public synchronized Snapshot getSnapshot() {
+        if (state != BackupJobState.FINISHED || repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
+            return null;
+        }
+
+        // Avoid loading expired meta.
+        long expiredAt = createTime + timeoutMs;
+        if (System.currentTimeMillis() >= expiredAt) {
+            return new Snapshot(label, new byte[0], new byte[0], expiredAt);
+        }
+
+        try {
+            File metaInfoFile = new File(localMetaInfoFilePath);
+            File jobInfoFile = new File(localJobInfoFilePath);
+            byte[] metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
+            byte[] jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
+            return new Snapshot(label, metaInfoBytes, jobInfoBytes, expiredAt);
+        } catch (IOException e) {
+            LOG.warn("failed to load meta info and job info file, meta info file {}, job info file {}: ",
+                    localMetaInfoFilePath, localJobInfoFilePath, e);
+            return null;
+        }
+    }
+
+    public synchronized List<String> getInfo() {
         List<String> info = Lists.newArrayList();
         info.add(String.valueOf(jobId));
         info.add(label);
@@ -1001,8 +1032,36 @@ public class BackupJob extends AbstractJob {
 
     @Override
     public void write(DataOutput out) throws IOException {
+        // For a completed job, there's no need to save it with compressed serialization as it has
+        // no snapshot or backup meta info, making it small in size. This helps maintain compatibility
+        // more easily.
+        boolean shouldCompress = !isDone() && Config.backup_job_compressed_serialization;
+        if (shouldCompress) {
+            type = JobType.BACKUP_COMPRESSED;
+        }
         super.write(out);
+        if (shouldCompress) {
+            type = JobType.BACKUP;
 
+            int written = 0;
+            ByteArrayOutputStream byteStream = new ByteArrayOutputStream();
+            try (GZIPOutputStream gzipStream = new GZIPOutputStream(byteStream)) {
+                try (DataOutputStream stream = new DataOutputStream(gzipStream)) {
+                    writeOthers(stream);
+                    written = stream.size();
+                }
+            }
+            Text text = new Text(byteStream.toByteArray());
+            if (LOG.isDebugEnabled() || text.getLength() > (50 << 20)) {
+                LOG.info("backup job written size {}, compressed size {}", written, text.getLength());
+            }
+            text.write(out);
+        } else {
+            writeOthers(out);
+        }
+    }
+
+    public void writeOthers(DataOutput out) throws IOException {
         // table refs
         out.writeInt(tableRefs.size());
         for (TableRef tblRef : tableRefs) {
@@ -1057,7 +1116,27 @@ public class BackupJob extends AbstractJob {
 
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
+        if (type == JobType.BACKUP_COMPRESSED) {
+            type = JobType.BACKUP;
 
+            Text text = new Text();
+            text.readFields(in);
+            if (LOG.isDebugEnabled() || text.getLength() > (50 << 20)) {
+                LOG.info("read backup job, compressed size {}", text.getLength());
+            }
+
+            ByteArrayInputStream byteStream = new ByteArrayInputStream(text.getBytes());
+            try (GZIPInputStream gzipStream = new GZIPInputStream(byteStream)) {
+                try (DataInputStream stream = new DataInputStream(gzipStream)) {
+                    readOthers(stream);
+                }
+            }
+        } else {
+            readOthers(in);
+        }
+    }
+
+    public void readOthers(DataInput in) throws IOException {
         // table refs
         int size = in.readInt();
         tableRefs = Lists.newArrayList();

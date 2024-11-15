@@ -26,7 +26,9 @@ import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Elasticsearch external table.
@@ -34,6 +36,7 @@ import java.util.List;
 public class EsExternalTable extends ExternalTable {
 
     private EsTable esTable;
+    private Map<String, String> column2typeMap = new HashMap<>();
 
     /**
      * Create elasticsearch external table.
@@ -78,8 +81,10 @@ public class EsExternalTable extends ExternalTable {
     @Override
     public List<Column> initSchema() {
         EsRestClient restClient = ((EsExternalCatalog) catalog).getEsRestClient();
-        return EsUtil.genColumnsFromEs(restClient, name, null, ((EsExternalCatalog) catalog).enableMappingEsId());
+        return EsUtil.genColumnsFromEs(restClient, name, null, ((EsExternalCatalog) catalog).enableMappingEsId(),
+                column2typeMap);
     }
+
 
     private EsTable toEsTable() {
         List<Column> schema = getFullSchema();
@@ -98,6 +103,7 @@ public class EsExternalTable extends ExternalTable {
         esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();
         esTable.setIncludeHiddenIndex(esCatalog.enableIncludeHiddenIndex());
+        esTable.setColumn2typeMap(column2typeMap);
         return esTable;
     }
 }

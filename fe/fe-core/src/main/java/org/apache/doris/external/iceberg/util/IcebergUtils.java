@@ -36,6 +36,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -616,15 +617,16 @@ public class IcebergUtils {
                     .getIcebergTable(catalog, dbName, tbName);
             Snapshot snapshot = icebergTable.currentSnapshot();
             if (snapshot == null) {
+                LOG.info("Iceberg table {}.{}.{} is empty, return -1.", catalog.getName(), dbName, tbName);
                 // empty table
-                return 0;
+                return TableIf.UNKNOWN_ROW_COUNT;
             }
             Map<String, String> summary = snapshot.summary();
             return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
         } catch (Exception e) {
             LOG.warn("Fail to collect row count for db {} table {}", dbName, tbName, e);
         }
-        return -1;
+        return TableIf.UNKNOWN_ROW_COUNT;
     }
 
 }
