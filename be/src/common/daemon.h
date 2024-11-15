@@ -27,6 +27,7 @@ namespace doris {
 
 struct StorePath;
 inline bool k_doris_exit = false;
+inline bool k_doris_start = false;
 
 class Daemon {
 public:
