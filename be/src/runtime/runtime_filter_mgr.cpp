@@ -546,6 +546,14 @@ void RuntimeFilterMergeController::remove_entity(UniqueId query_id) {
     _filter_controller_map[shard].erase(query_id);
 }
 
+RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* state) {
+    RuntimeFilterParamsContext* params =
+            state->get_query_ctx()->obj_pool.add(new RuntimeFilterParamsContext());
+    params->_query_ctx = state->get_query_ctx();
+    params->_state = state;
+    return params;
+}
+
 RuntimeFilterMgr* RuntimeFilterParamsContext::global_runtime_filter_mgr() {
     return _query_ctx->runtime_filter_mgr();
 }
