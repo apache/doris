@@ -1273,7 +1273,10 @@ public:
         }
     }
 
+    operator int32_t() const { return to_date_int_val(); }
+    operator uint32_t() const { return to_date_int_val(); }
     operator int64_t() const { return to_int64(); }
+    operator uint64_t() const { return to_int64(); }
 
     int64_t to_int64() const {
         if constexpr (is_datetime) {

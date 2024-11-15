@@ -43,14 +43,15 @@ auto get_convertor() {
         return [](PColumnValue* value, const T& data) {
             value->set_stringval(LargeIntValue::to_string(data));
         };
-    } else if constexpr (std::is_same_v<T, wide::Int256>) {
+    } else if constexpr (std::is_same_v<T, vectorized::Decimal256>) {
         return [](PColumnValue* value, const T& data) {
-            value->set_stringval(wide::to_string(data));
+            value->set_stringval(wide::to_string(wide::Int256(data)));
         };
     } else if constexpr (std::is_same_v<T, std::string>) {
         return [](PColumnValue* value, const T& data) { value->set_stringval(data); };
     } else if constexpr (std::is_same_v<T, StringRef> ||
-                         std::is_same_v<T, vectorized::Decimal128V2>) {
+                         std::is_same_v<T, vectorized::Decimal128V2> ||
+                         std::is_same_v<T, DecimalV2Value>) {
         return [](PColumnValue* value, const T& data) { value->set_stringval(data.to_string()); };
     } else if constexpr (std::is_same_v<T, VecDateTimeValue>) {
         return [](PColumnValue* value, const T& data) {
@@ -58,10 +59,9 @@ auto get_convertor() {
             data.to_string(convert_buffer);
             value->set_stringval(convert_buffer);
         };
-    } else if constexpr (std::is_same_v<T, DecimalV2Value>) {
-        return [](PColumnValue* value, const T& data) { value->set_stringval(data.to_string()); };
     } else {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "minmax meet invalid type {}", typeid(T).name());
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "runtime filter data convertor meet invalid type {}", typeid(T).name());
         return [](PColumnValue* value, const T& data) {};
     }
 }
