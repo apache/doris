@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -36,6 +37,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -49,6 +51,10 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        Optional<CTEId> cteId = jobContext.getCascadesContext().getCurrentTree();
+        if (cteId.isPresent()) {
+            return plan;
+        }
         Map<ExprId, ExprId> replaceMap = new HashMap<>();
         ExprIdRewriter.ReplaceRule replaceRule = new ExprIdRewriter.ReplaceRule(replaceMap);
         exprIdReplacer = new ExprIdRewriter(replaceRule, jobContext);

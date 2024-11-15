@@ -82,23 +82,23 @@ cherry	3
 107	\N
 
 -- !right_join_right_has_filter --
-\N	105
-\N	102
-\N	106
 \N	101
+\N	102
 \N	103
-\N	107
 \N	104
+\N	105
+\N	106
+\N	107
 100	100
 
 -- !right_join_left_has_filter --
-\N	103
-\N	107
-\N	104
-\N	102
-\N	106
-\N	105
 \N	101
+\N	102
+\N	103
+\N	104
+\N	105
+\N	106
+\N	107
 100	100
 
 -- !left_semi_join_right_has_filter --
@@ -154,14 +154,14 @@ cherry	3
 -- !right_anti_join_right_has_where_filter --
 
 -- !cross_join_left_has_filter --
-100	103
-100	107
-100	105
 100	100
-100	102
-100	106
 100	101
+100	102
+100	103
 100	104
+100	105
+100	106
+100	107
 
 -- !cross_join_right_has_filter --
 100	100
@@ -172,4 +172,29 @@ cherry	3
 105	100
 106	100
 107	100
+
+-- !union --
+1	100
+5	105
+
+-- !union_all --
+1	100
+1	100
+5	105
+
+-- !intersect --
+
+-- !except --
+
+-- !set_op_mixed --
+1	100
+
+-- !window --
+
+-- !cte_producer --
+1	1	100
+
+-- !cte_multi_producer --
+
+-- !cte_consumer --
 

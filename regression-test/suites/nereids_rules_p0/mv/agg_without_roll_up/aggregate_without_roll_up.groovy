@@ -387,7 +387,8 @@ suite("aggregate_without_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query13_0_before "${query13_0}"
-    async_mv_rewrite_success(db, mv13_0, query13_0, "mv13_0")
+    // fail because RBO rule EliminateGroupByKeyByUniform
+    async_mv_rewrite_fail(db, mv13_0, query13_0, "mv13_0")
     order_qt_query13_0_after "${query13_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_0"""
 
@@ -586,7 +587,7 @@ suite("aggregate_without_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query17_0_before "${query17_0}"
-    async_mv_rewrite_success(db, mv17_0, query17_0, "mv17_0")
+    async_mv_rewrite_fail(db, mv17_0, query17_0, "mv17_0")
     order_qt_query17_0_after "${query17_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17_0"""
 
@@ -674,7 +675,7 @@ suite("aggregate_without_roll_up") {
             "l_shipdate, " +
             "l_suppkey"
     order_qt_query18_0_before "${query18_0}"
-    async_mv_rewrite_success(db, mv18_0, query18_0, "mv18_0")
+    async_mv_rewrite_fail(db, mv18_0, query18_0, "mv18_0")
     order_qt_query18_0_after "${query18_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18_0"""
 
