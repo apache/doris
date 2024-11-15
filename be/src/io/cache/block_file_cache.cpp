@@ -393,6 +393,9 @@ FileBlocks BlockFileCache::get_impl(const UInt128Wrapper& hash, const CacheConte
 
     auto& file_blocks = it->second;
     DCHECK(!file_blocks.empty());
+    if (file_blocks.empty()) {
+        return {};
+    }
     // change to ttl if the blocks aren't ttl
     if (context.cache_type == FileCacheType::TTL && _key_to_time.find(hash) == _key_to_time.end()) {
         for (auto& [_, cell] : file_blocks) {
