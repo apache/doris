@@ -18,16 +18,15 @@
 import org.junit.Assert;
 
 suite("test_nereids_role", "account") {
-    def role= 'account_role_test'
-    def user = 'acount_role_user_test'
-    def dbName = 'account_role_test_db'
+    def role= 'nereids_account_role_test'
+    def user = 'nereids_acount_role_user_test'
+    def dbName = 'nereids_account_role_test_db'
     def pwd = 'C123_567p'
 
     try_sql("DROP ROLE ${role}")
     try_sql("DROP USER ${user}")
     sql """DROP DATABASE IF EXISTS ${dbName}"""
-    sql """CREATE DATABASE ${dbName}"""
-
+    sql """CREATE DATABASE IF NOT EXISTS ${dbName}"""
     sql """CREATE ROLE ${role}"""
     sql """GRANT SELECT_PRIV ON ${context.config.defaultDb} TO ROLE '${role}'"""
     sql """GRANT SELECT_PRIV ON ${dbName} TO ROLE '${role}'"""
@@ -59,7 +58,7 @@ suite("test_nereids_role", "account") {
     logger.info("roles_alter: " + roles_alter.toString())
     assertTrue(roles_alter.toString().contains("account_p0_account_role_test_comment_alter"))
     // drop role
-    sql """DROP ROLE ${role}"""
+    checkNereidsExecute("""DROP ROLE ${role}""")
     def roles_drop = sql """show roles"""
     logger.info("roles_drop: " + roles_drop.toString())
     assertFalse(roles_drop.toString().contains("account_p0_account_role_test_comment_alter"))
