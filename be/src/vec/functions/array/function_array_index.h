@@ -191,7 +191,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DBUG_EXECUTE_IF("array_func.array_contains", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                     "array_func.array_contains", "req_id", 0);
@@ -348,7 +348,7 @@ private:
         return nullptr;
     }
 
-    Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, size_t result,
+    Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, uint32_t result,
                              size_t input_rows_count) const {
         // extract array offsets and nested data
         auto left_column =

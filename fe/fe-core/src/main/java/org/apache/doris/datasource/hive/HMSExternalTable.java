@@ -253,6 +253,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         if (remoteTable.getSd() == null) {
             throw new NotSupportedException("remote table's storage descriptor is null");
         }
+        // If this is hive view, no need to check file format.
+        if (remoteTable.isSetViewExpandedText() || remoteTable.isSetViewOriginalText()) {
+            return true;
+        }
         String inputFileFormat = remoteTable.getSd().getInputFormat();
         if (inputFileFormat == null) {
             throw new NotSupportedException("remote table's storage input format is null");

@@ -18,7 +18,6 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <vector>
 
 #include "common/status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -36,16 +35,12 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/lambda_function/lambda_function.h"
 #include "vec/exprs/lambda_function/lambda_function_factory.h"
-#include "vec/exprs/vexpr.h"
 #include "vec/utils/util.hpp"
 
-namespace doris {
-namespace vectorized {
-class VExprContext;
-} // namespace vectorized
-} // namespace doris
-
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+class VExprContext;
 
 class ArrayMapFunction : public LambdaFunction {
     ENABLE_FACTORY_CREATOR(ArrayMapFunction);
@@ -80,7 +75,7 @@ public:
                                     0);
         // offset column
         MutableColumnPtr array_column_offset;
-        int nested_array_column_rows = 0;
+        size_t nested_array_column_rows = 0;
         ColumnPtr first_array_offsets = nullptr;
 
         //2. get the result column from executed expr, and the needed is nested column of array
@@ -109,23 +104,23 @@ public:
             }
 
             // here is the array column
-            const ColumnArray& col_array = assert_cast<const ColumnArray&>(*column_array);
+            const auto& col_array = assert_cast<const ColumnArray&>(*column_array);
             const auto& col_type = assert_cast<const DataTypeArray&>(*type_array);
 
             if (i == 0) {
                 nested_array_column_rows = col_array.get_data_ptr()->size();
                 first_array_offsets = col_array.get_offsets_ptr();
-                auto& off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
+                const auto& off_data = assert_cast<const ColumnArray::ColumnOffsets&>(
                         col_array.get_offsets_column());
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
             } else {
                 // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
                 // c_array1: [0,1,2,3,4,5,6,7,8,9]
-                auto& array_offsets =
+                const auto& array_offsets =
                         assert_cast<const ColumnArray::ColumnOffsets&>(*first_array_offsets)
                                 .get_data();
                 if (nested_array_column_rows != col_array.get_data_ptr()->size() ||
-                    (array_offsets.size() > 0 &&
+                    (!array_offsets.empty() &&
                      memcmp(array_offsets.data(), col_array.get_offsets().data(),
                             sizeof(array_offsets[0]) * array_offsets.size()) != 0)) {
                     return Status::InvalidArgument(
@@ -192,4 +187,6 @@ public:
 void register_function_array_map(doris::vectorized::LambdaFunctionFactory& factory) {
     factory.register_function<ArrayMapFunction>();
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

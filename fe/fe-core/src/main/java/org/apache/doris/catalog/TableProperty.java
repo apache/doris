@@ -737,7 +737,6 @@ public class TableProperty implements Writable, GsonPostProcessable {
         buildStoreRowColumn();
         buildRowStoreColumns();
         buildRowStorePageSize();
-        buildStoragePageSize();
         buildSkipWriteIndexOnLoad();
         buildCompactionPolicy();
         buildTimeSeriesCompactionGoalSizeMbytes();

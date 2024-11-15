@@ -194,7 +194,9 @@ public:
     // Skip the rows in block, use in OFFSET, LIMIT operation
     void skip_num_rows(int64_t& offset);
 
-    size_t columns() const { return data.size(); }
+    /// As the assumption we used around, the number of columns won't exceed int16 range. so no need to worry when we
+    ///  assign it to int32.
+    uint32_t columns() const { return static_cast<uint32_t>(data.size()); }
 
     /// Checks that every column in block is not nullptr and has same number of elements.
     void check_number_of_rows(bool allow_null_columns = false) const;

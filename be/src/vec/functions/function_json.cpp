@@ -725,7 +725,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
 
         std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
@@ -977,7 +977,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
 
         std::vector<ColumnPtr> column_ptrs; // prevent converted column destruct
@@ -1007,7 +1007,7 @@ public:
         return make_nullable(std::make_shared<DataTypeString>());
     }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
         std::vector<const ColumnString*> data_columns;
@@ -1049,7 +1049,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -1168,7 +1168,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_json = *(block.get_by_position(arguments[0]).column);
         const IColumn& col_search = *(block.get_by_position(arguments[1]).column);
         const IColumn& col_path = *(block.get_by_position(arguments[2]).column);
@@ -1241,7 +1241,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -1410,7 +1410,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto result_column = ColumnString::create();
         bool is_nullable = false;
         ColumnUInt8::MutablePtr ret_null_map = nullptr;

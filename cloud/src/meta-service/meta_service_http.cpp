@@ -22,6 +22,7 @@
 #include <brpc/uri.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
+#include <glog/logging.h>
 #include <google/protobuf/message.h>
 #include <google/protobuf/service.h>
 #include <google/protobuf/util/json_util.h>
@@ -30,8 +31,14 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <algorithm>
+#include <array>
+#include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <type_traits>
 #include <variant>
 #include <vector>
@@ -42,6 +49,7 @@
 #include "meta-service/txn_kv.h"
 #include "meta-service/txn_kv_error.h"
 #include "meta_service.h"
+#include "rate-limiter/rate_limiter.h"
 
 namespace doris::cloud {
 
@@ -333,6 +341,113 @@ static HttpResponse process_alter_iam(MetaServiceImpl* service, brpc::Controller
     return http_json_reply(resp.status());
 }
 
+static HttpResponse process_adjust_rate_limit(MetaServiceImpl* service, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    auto qps_limit_str = std::string {http_query(uri, "qps_limit")};
+    auto rpc_name = std::string {http_query(uri, "rpc_name")};
+    auto instance_id = std::string {http_query(uri, "instance_id")};
+
+    auto process_set_qps_limit = [&](std::function<bool(int64_t)> cb) -> HttpResponse {
+        DCHECK(!qps_limit_str.empty());
+        int64_t qps_limit = -1;
+        try {
+            qps_limit = std::stoll(qps_limit_str);
+        } catch (const std::exception& ex) {
+            return http_json_reply(
+                    MetaServiceCode::INVALID_ARGUMENT,
+                    fmt::format("param `qps_limit` is not a legal int64 type:{}", ex.what()));
+        }
+        if (qps_limit < 0) {
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   "`qps_limit` should not be less than 0");
+        }
+        if (cb(qps_limit)) {
+            return http_json_reply(MetaServiceCode::OK, "sucess to adjust rate limit");
+        }
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("failed to adjust rate limit for qps_limit={}, "
+                                           "rpc_name={}, instance_id={}, plz ensure correct "
+                                           "rpc/instance name",
+                                           qps_limit_str, rpc_name, instance_id));
+    };
+
+    auto set_global_qps_limit = [process_set_qps_limit, service]() {
+        return process_set_qps_limit([service](int64_t qps_limit) {
+            return service->rate_limiter()->set_rate_limit(qps_limit);
+        });
+    };
+
+    auto set_rpc_qps_limit = [&]() {
+        return process_set_qps_limit([&](int64_t qps_limit) {
+            return service->rate_limiter()->set_rate_limit(qps_limit, rpc_name);
+        });
+    };
+
+    auto set_instance_qps_limit = [&]() {
+        return process_set_qps_limit([&](int64_t qps_limit) {
+            return service->rate_limiter()->set_instance_rate_limit(qps_limit, instance_id);
+        });
+    };
+
+    auto set_instance_rpc_qps_limit = [&]() {
+        return process_set_qps_limit([&](int64_t qps_limit) {
+            return service->rate_limiter()->set_rate_limit(qps_limit, rpc_name, instance_id);
+        });
+    };
+
+    auto process_invalid_arguments = [&]() -> HttpResponse {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               fmt::format("invalid argument: qps_limit(required)={}, "
+                                           "rpc_name(optional)={}, instance_id(optional)={}",
+                                           qps_limit_str, rpc_name, instance_id));
+    };
+
+    // We have 3 optional params and 2^3 combination, and 4 of them are illegal.
+    // We register callbacks for them in porcessors accordings to the level, represented by 3 bits.
+    std::array<std::function<HttpResponse()>, 8> processors;
+    std::fill_n(processors.begin(), 8, std::move(process_invalid_arguments));
+    processors[0b001] = std::move(set_global_qps_limit);
+    processors[0b011] = std::move(set_rpc_qps_limit);
+    processors[0b101] = std::move(set_instance_qps_limit);
+    processors[0b111] = std::move(set_instance_rpc_qps_limit);
+
+    uint8_t level = (0x01 & qps_limit_str.empty()) | ((0x01 & rpc_name.empty()) << 1) |
+                    ((0x01 & instance_id.empty()) << 2);
+
+    DCHECK_LT(level, 8);
+
+    return processors[level]();
+}
+
+static HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Controller* cntl) {
+    auto rate_limiter = service->rate_limiter();
+    rapidjson::Document d;
+    auto get_qps_limit = [&d](std::string_view rpc_name,
+                              std::shared_ptr<RpcRateLimiter> rpc_limiter) {
+        rapidjson::Document node;
+        rapidjson::Document sub;
+        auto get_qps_token_limit = [&](std::string_view instance_id,
+                                       std::shared_ptr<RpcRateLimiter::QpsToken> qps_token) {
+            sub.AddMember(rapidjson::StringRef(instance_id.data(), instance_id.size()),
+                          qps_token->max_qps_limit(), d.GetAllocator());
+        };
+        rpc_limiter->for_each_qps_token(std::move(get_qps_token_limit));
+
+        auto max_qps_limit = std::to_string(rpc_limiter->max_qps_limit());
+        node.AddMember("RPC qps limit",
+                       rapidjson::StringRef(max_qps_limit.data(), max_qps_limit.size()),
+                       d.GetAllocator());
+        node.AddMember("instance specific qps limit", sub, d.GetAllocator());
+        d.AddMember(rapidjson::StringRef(rpc_name.data(), rpc_name.size()), node, d.GetAllocator());
+    };
+    rate_limiter->for_each_rpc_limiter(std::move(get_qps_limit));
+
+    rapidjson::StringBuffer sb;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+    d.Accept(writer);
+    return http_json_reply(MetaServiceCode::OK, sb.GetString());
+}
+
 static HttpResponse process_decode_key(MetaServiceImpl*, brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
     std::string_view key = http_query(uri, "key");
@@ -615,13 +730,17 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"abort_tablet_job", process_abort_tablet_job},
             {"alter_ram_user", process_alter_ram_user},
             {"alter_iam", process_alter_iam},
+            {"adjust_rate_limit", process_adjust_rate_limit},
+            {"list_rate_limit", process_query_rate_limit},
             {"v1/abort_txn", process_abort_txn},
             {"v1/abort_tablet_job", process_abort_tablet_job},
             {"v1/alter_ram_user", process_alter_ram_user},
             {"v1/alter_iam", process_alter_iam},
+            {"v1/adjust_rate_limit", process_adjust_rate_limit},
+            {"v1/list_rate_limit", process_query_rate_limit},
     };
 
-    auto cntl = static_cast<brpc::Controller*>(controller);
+    auto* cntl = static_cast<brpc::Controller*>(controller);
     brpc::ClosureGuard closure_guard(done);
 
     // Prepare input request info

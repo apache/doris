@@ -34,6 +34,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VExplodeSplitTableFunction::VExplodeSplitTableFunction() {
     _fn_name = "vexplode_split";
@@ -156,4 +157,6 @@ int VExplodeSplitTableFunction::get_value(doris::vectorized::MutableColumnPtr& c
     TableFunction::forward(max_step);
     return max_step;
 }
+
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

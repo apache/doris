@@ -189,7 +189,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const IColumn& col_from = *(block.get_by_position(arguments[0]).column);
 
         auto null_map = ColumnUInt8::create(0, 0);
@@ -363,7 +363,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 2);
 
         ColumnPtr jsonb_data_column;
@@ -447,7 +447,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         if (arguments.size() != 1 && arguments.size() != 2) {
             // here has argument param error
@@ -619,7 +619,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
         // prepare jsonb data column
@@ -1353,14 +1353,14 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return false; }
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 
 struct JsonbLengthUtil {
     static Status jsonb_length_execute(FunctionContext* context, Block& block,
-                                       const ColumnNumbers& arguments, size_t result,
+                                       const ColumnNumbers& arguments, uint32_t result,
                                        size_t input_rows_count) {
         DCHECK_GE(arguments.size(), 2);
         ColumnPtr jsonb_data_column;
@@ -1427,7 +1427,7 @@ struct JsonbLengthImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeJsonb>()}; }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto path = ColumnString::create();
         std::string root_path = "$";
@@ -1451,7 +1451,7 @@ struct JsonbLengthAndPathImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         return JsonbLengthUtil::jsonb_length_execute(context, block, arguments, result,
                                                      input_rows_count);
@@ -1478,14 +1478,14 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         return Impl::execute_impl(context, block, arguments, result, input_rows_count);
     }
 };
 
 struct JsonbContainsUtil {
     static Status jsonb_contains_execute(FunctionContext* context, Block& block,
-                                         const ColumnNumbers& arguments, size_t result,
+                                         const ColumnNumbers& arguments, uint32_t result,
                                          size_t input_rows_count) {
         DCHECK_GE(arguments.size(), 3);
 
@@ -1569,7 +1569,7 @@ struct JsonbContainsImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto path = ColumnString::create();
         std::string root_path = "$";
@@ -1594,7 +1594,7 @@ struct JsonbContainsAndPathImpl {
     }
 
     static Status execute_impl(FunctionContext* context, Block& block,
-                               const ColumnNumbers& arguments, size_t result,
+                               const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         return JsonbContainsUtil::jsonb_contains_execute(context, block, arguments, result,
                                                          input_rows_count);
@@ -1828,7 +1828,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         // the json_doc, one_or_all, and search_str must be given.
         // and we require the positions are static.
         if (arguments.size() < 3) {

@@ -75,7 +75,8 @@ ThreadPoolBuilder& ThreadPoolBuilder::set_max_queue_size(int max_queue_size) {
     return *this;
 }
 
-ThreadPoolBuilder& ThreadPoolBuilder::set_cgroup_cpu_ctl(CgroupCpuCtl* cgroup_cpu_ctl) {
+ThreadPoolBuilder& ThreadPoolBuilder::set_cgroup_cpu_ctl(
+        std::weak_ptr<CgroupCpuCtl> cgroup_cpu_ctl) {
     _cgroup_cpu_ctl = cgroup_cpu_ctl;
     return *this;
 }
@@ -476,8 +477,8 @@ void ThreadPool::dispatch_thread() {
     _num_threads++;
     _num_threads_pending_start--;
 
-    if (_cgroup_cpu_ctl != nullptr) {
-        static_cast<void>(_cgroup_cpu_ctl->add_thread_to_cgroup());
+    if (std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_sptr = _cgroup_cpu_ctl.lock()) {
+        static_cast<void>(cg_cpu_ctl_sptr->add_thread_to_cgroup());
     }
 
     // Owned by this worker thread and added/removed from _idle_threads as needed.

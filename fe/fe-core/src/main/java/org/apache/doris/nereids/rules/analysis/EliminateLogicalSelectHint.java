@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
-import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.hint.Hint;
@@ -36,6 +35,7 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -55,11 +55,9 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
                 if (hintName.equalsIgnoreCase("SET_VAR")) {
                     ((SelectHintSetVar) hint).setVarOnceInSql(ctx.statementContext);
                 } else if (hintName.equalsIgnoreCase("ORDERED")) {
-                    try {
-                        ctx.cascadesContext.getConnectContext().getSessionVariable()
-                                .disableNereidsJoinReorderOnce();
-                    } catch (DdlException e) {
-                        throw new RuntimeException(e);
+                    if (!ctx.cascadesContext.getConnectContext().getSessionVariable()
+                                .setVarOnce(SessionVariable.DISABLE_JOIN_REORDER, "true")) {
+                        throw new RuntimeException("set DISABLE_JOIN_REORDER=true once failed");
                     }
                     OrderedHint ordered = new OrderedHint("Ordered");
                     ordered.setStatus(Hint.HintStatus.SUCCESS);

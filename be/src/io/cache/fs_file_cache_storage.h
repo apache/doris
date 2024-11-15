@@ -102,6 +102,9 @@ private:
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
+    [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
+            const std::string& dir, size_t offset);
+
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;
     const std::shared_ptr<LocalFileSystem>& fs = global_local_filesystem();

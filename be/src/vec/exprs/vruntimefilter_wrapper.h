@@ -20,10 +20,8 @@
 #include <atomic>
 #include <cstdint>
 #include <string>
-#include <vector>
 
 #include "common/config.h"
-#include "common/object_pool.h"
 #include "common/status.h"
 #include "udf/udf.h"
 #include "util/runtime_profile.h"
@@ -37,20 +35,19 @@ class TExprNode;
 double get_in_list_ignore_thredhold(size_t list_size);
 double get_comparison_ignore_thredhold();
 double get_bloom_filter_ignore_thredhold();
-
-namespace vectorized {
-class Block;
-class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
+
+class Block;
+class VExprContext;
 
 class VRuntimeFilterWrapper final : public VExpr {
     ENABLE_FACTORY_CREATOR(VRuntimeFilterWrapper);
 
 public:
-    VRuntimeFilterWrapper(const TExprNode& node, const VExprSPtr& impl, double ignore_thredhold,
+    VRuntimeFilterWrapper(const TExprNode& node, VExprSPtr impl, double ignore_thredhold,
                           bool null_aware = false);
     ~VRuntimeFilterWrapper() override = default;
     Status execute(VExprContext* context, Block* block, int* result_column_id) override;
@@ -62,7 +59,7 @@ public:
     const std::string& expr_name() const override;
     const VExprSPtrs& children() const override { return _impl->children(); }
 
-    const VExprSPtr get_impl() const override { return _impl; }
+    VExprSPtr get_impl() const override { return _impl; }
 
     void attach_profile_counter(RuntimeProfile::Counter* expr_filtered_rows_counter,
                                 RuntimeProfile::Counter* expr_input_rows_counter,
@@ -80,12 +77,12 @@ public:
     template <typename T>
     static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
                                   T& always_true) {
-        always_true = filter_rows / (input_rows * 1.0) < ignore_threshold;
+        always_true = filter_rows / (input_rows * 1.0L) < ignore_threshold;
     }
 
     bool is_rf_wrapper() const override { return true; }
 
-    void do_judge_selectivity(int64_t filter_rows, int64_t input_rows) override {
+    void do_judge_selectivity(uint64_t filter_rows, uint64_t input_rows) override {
         update_counters(filter_rows, input_rows);
 
         if (!_always_true) {
@@ -114,8 +111,8 @@ private:
     // without recalculating. At the beginning of the next period,
     // reset_judge_selectivity is used to reset these variables.
     std::atomic_int _judge_counter = 0;
-    std::atomic_int _judge_input_rows = 0;
-    std::atomic_int _judge_filter_rows = 0;
+    std::atomic_uint64_t _judge_input_rows = 0;
+    std::atomic_uint64_t _judge_filter_rows = 0;
     std::atomic_int _always_true = false;
 
     RuntimeProfile::Counter* _expr_filtered_rows_counter = nullptr;
@@ -129,4 +126,5 @@ private:
 
 using VRuntimeFilterPtr = std::shared_ptr<VRuntimeFilterWrapper>;
 
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized

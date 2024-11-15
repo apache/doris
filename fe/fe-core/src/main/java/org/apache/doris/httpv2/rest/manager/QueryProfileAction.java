@@ -27,6 +27,7 @@ import org.apache.doris.common.proc.CurrentQueryStatementsProcNode;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.common.profile.ProfileManager;
 import org.apache.doris.common.profile.ProfileManager.ProfileElement;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -105,6 +106,18 @@ public class QueryProfileAction extends RestBaseController {
             .add(NODE).add(USER).add(DEFAULT_DB).add(SQL_STATEMENT).add(QUERY_TYPE).add(START_TIME).add(END_TIME)
             .add(TOTAL).add(QUERY_STATE).build();
 
+    // As an old http api, query_info's output schema column is established since 1.2,
+    // so it can not be changed for compatibility.
+    // Now query_info api get data from ProfileManager, its column name is different but has the same meaning with
+    // QUERY_TITLE_NAMES.
+    // We should keep PROFILE_TITLE_NAMES and QUERY_TITLE_NAMES has the same meaning, and use PROFILE_TITLE_NAMES
+    //  to get data from profile manager.
+    public static final ImmutableList<String> PROFILE_TITLE_NAMES = new ImmutableList.Builder<String>()
+            .add(SummaryProfile.PROFILE_ID).add(NODE)
+            .add(SummaryProfile.USER).add(SummaryProfile.DEFAULT_DB).add(SummaryProfile.SQL_STATEMENT)
+            .add(SummaryProfile.TASK_TYPE).add(SummaryProfile.START_TIME).add(SummaryProfile.END_TIME)
+            .add(SummaryProfile.TOTAL_TIME).add(SummaryProfile.TASK_STATE).build();
+
     private List<String> requestAllFe(String httpPath, Map<String, String> arguments, String authorization,
             HttpMethod method) {
         List<Pair<String, Integer>> frontends = HttpUtils.getFeList();
@@ -169,14 +182,15 @@ public class QueryProfileAction extends RestBaseController {
             return ResponseEntityBuilder.ok(new NodeAction.NodeInfo(QUERY_TITLE_NAMES, queries));
         }
 
-        Stream<List<String>> queryStream = ProfileManager.getInstance().getAllQueries().stream()
-                .filter(profile -> profile.get(1).equalsIgnoreCase("Query"));
+        Stream<List<String>> queryStream = ProfileManager.getInstance()
+                .getQueryInfoByColumnNameList(PROFILE_TITLE_NAMES).stream()
+                .filter(profile -> profile.get(5).equalsIgnoreCase("Query"));
         queryStream = filterQueriesByUserAndQueryId(queryStream, queryId);
         queries = queryStream.collect(Collectors.toList());
 
         // add node information
         for (List<String> query : queries) {
-            query.add(1, NetUtils.getHostPortInAccessibleFormat(Env.getCurrentEnv().getSelfNode().getHost(),
+            query.set(1, NetUtils.getHostPortInAccessibleFormat(Env.getCurrentEnv().getSelfNode().getHost(),
                     Config.http_port));
         }
 

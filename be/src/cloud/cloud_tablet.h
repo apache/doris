@@ -191,6 +191,9 @@ public:
 
     const auto& rowset_map() const { return _rs_version_map; }
 
+    // Merge all rowset schemas within a CloudTablet
+    Status merge_rowsets_schema();
+
     int64_t last_sync_time_s = 0;
     int64_t last_load_time_ms = 0;
     int64_t last_base_compaction_success_time_ms = 0;
@@ -210,9 +213,6 @@ private:
     static void recycle_cached_data(const std::vector<RowsetSharedPtr>& rowsets);
 
     Status sync_if_not_running();
-
-    // Merge all rowset schemas within a CloudTablet
-    Status merge_rowsets_schema();
 
     CloudStorageEngine& _engine;
 

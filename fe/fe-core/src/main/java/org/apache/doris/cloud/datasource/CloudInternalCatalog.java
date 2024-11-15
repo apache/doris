@@ -267,7 +267,6 @@ public class CloudInternalCatalog extends InternalCatalog {
         builder.setTimeSeriesCompactionTimeThresholdSeconds(timeSeriesCompactionTimeThresholdSeconds);
         builder.setTimeSeriesCompactionEmptyRowsetsThreshold(timeSeriesCompactionEmptyRowsetsThreshold);
         builder.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionLevelThreshold);
-        builder.setStoragePageSize(storagePageSize);
 
         OlapFile.TabletSchemaCloudPB.Builder schemaBuilder = OlapFile.TabletSchemaCloudPB.newBuilder();
         schemaBuilder.setSchemaVersion(schemaVersion);
@@ -360,6 +359,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         }
         schemaBuilder.setRowStorePageSize(pageSize);
+        schemaBuilder.setStoragePageSize(storagePageSize);
         schemaBuilder.setEnableVariantFlattenNested(variantEnableFlattenNested);
         if (!CollectionUtils.isEmpty(clusterKeyIdxes)) {
             schemaBuilder.addAllClusterKeyIdxes(clusterKeyIdxes);

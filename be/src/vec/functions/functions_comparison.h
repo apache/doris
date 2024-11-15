@@ -273,7 +273,7 @@ public:
 
 private:
     template <typename T0, typename T1>
-    bool execute_num_right_type(Block& block, size_t result, const ColumnVector<T0>* col_left,
+    bool execute_num_right_type(Block& block, uint32_t result, const ColumnVector<T0>* col_left,
                                 const IColumn* col_right_untyped) const {
         if (const ColumnVector<T1>* col_right =
                     check_and_get_column<ColumnVector<T1>>(col_right_untyped)) {
@@ -303,7 +303,7 @@ private:
     }
 
     template <typename T0, typename T1>
-    bool execute_num_const_right_type(Block& block, size_t result, const ColumnConst* col_left,
+    bool execute_num_const_right_type(Block& block, uint32_t result, const ColumnConst* col_left,
                                       const IColumn* col_right_untyped) const {
         if (const ColumnVector<T1>* col_right =
                     check_and_get_column<ColumnVector<T1>>(col_right_untyped)) {
@@ -332,7 +332,7 @@ private:
     }
 
     template <typename T0>
-    bool execute_num_left_type(Block& block, size_t result, const IColumn* col_left_untyped,
+    bool execute_num_left_type(Block& block, uint32_t result, const IColumn* col_left_untyped,
                                const IColumn* col_right_untyped) const {
         if (const ColumnVector<T0>* col_left =
                     check_and_get_column<ColumnVector<T0>>(col_left_untyped)) {
@@ -392,7 +392,7 @@ private:
         return false;
     }
 
-    Status execute_decimal(Block& block, size_t result, const ColumnWithTypeAndName& col_left,
+    Status execute_decimal(Block& block, uint32_t result, const ColumnWithTypeAndName& col_left,
                            const ColumnWithTypeAndName& col_right) const {
         TypeIndex left_number = col_left.type->get_type_id();
         TypeIndex right_number = col_right.type->get_type_id();
@@ -414,7 +414,8 @@ private:
         return Status::OK();
     }
 
-    Status execute_string(Block& block, size_t result, const IColumn* c0, const IColumn* c1) const {
+    Status execute_string(Block& block, uint32_t result, const IColumn* c0,
+                          const IColumn* c1) const {
         const ColumnString* c0_string = check_and_get_column<ColumnString>(c0);
         const ColumnString* c1_string = check_and_get_column<ColumnString>(c1);
         const ColumnConst* c0_const = check_and_get_column_const_string_or_fixedstring(c0);
@@ -485,7 +486,7 @@ private:
         return Status::OK();
     }
 
-    void execute_generic_identical_types(Block& block, size_t result, const IColumn* c0,
+    void execute_generic_identical_types(Block& block, uint32_t result, const IColumn* c0,
                                          const IColumn* c1) const {
         bool c0_const = is_column_const(*c0);
         bool c1_const = is_column_const(*c1);
@@ -512,7 +513,7 @@ private:
         }
     }
 
-    Status execute_generic(Block& block, size_t result, const ColumnWithTypeAndName& c0,
+    Status execute_generic(Block& block, uint32_t result, const ColumnWithTypeAndName& c0,
                            const ColumnWithTypeAndName& c1) const {
         execute_generic_identical_types(block, result, c0.column.get(), c1.column.get());
         return Status::OK();
@@ -600,7 +601,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const auto& col_with_type_and_name_left = block.get_by_position(arguments[0]);
         const auto& col_with_type_and_name_right = block.get_by_position(arguments[1]);
         const IColumn* col_left_untyped = col_with_type_and_name_left.column.get();

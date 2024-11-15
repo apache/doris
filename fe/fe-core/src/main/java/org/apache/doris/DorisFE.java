@@ -231,7 +231,9 @@ public class DorisFE {
             // Some exception may thrown before LOG is inited.
             // So need to print to stdout
             e.printStackTrace();
-            LOG.warn("", e);
+            LOG.error("", e);
+            // to avoid nonDaemon Thread block main Thread, we need to force exit
+            System.exit(-1);
         }
     }
 
