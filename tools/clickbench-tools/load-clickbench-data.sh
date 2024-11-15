@@ -213,8 +213,7 @@ echo "load cost time: $((end - start)) seconds"
 
 run_sql() {
   printf "%s\n" "$@"
-  if ! output=$(mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$*") 2>&1; then
-    printf "%s/n" "${output}" >&2
+  if ! mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$*" 2>&1; then
     printf "Error: Failed to execute the SQL command: %s\n" "$*" >&2
     exit 1
   fi

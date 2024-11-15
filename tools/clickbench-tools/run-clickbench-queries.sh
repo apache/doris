@@ -97,10 +97,9 @@ echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
 run_sql() {
-  printf "%s\n" "$@"
-  if ! output=$(mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$*") 2>&1; then
-    printf "%s/n" "${output}" >&2
-    printf "Error: Failed to execute the SQL command: %s\n" "$*" >&2
+  echo $@
+  if ! mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$*" 2>&1; then
+    echo "Error: Failed to execute the SQL command: $*" >&2
     exit 1
   fi
 }
@@ -170,19 +169,8 @@ cat ${QUERIES_FILE} | while read query; do
     fi
 
     if ! grep_output=$(grep " Value: " <<< "$output" 2>&1); then
-          grep_status=$?
-      
-      if [ $grep_status -eq 2 ]; then
-        printf "%s\n" "${grep_output}" >&2
-        printf "Error: grep command failed while processing SQL output.\n" >&2
-        exit 1
-      elif [ $grep_status -eq 1 ]; then
         printf "Warning: 'Value: ' not found in the output of the query.\n" >&2
         continue
-      fi
-
-      # printf "Warning: 'Value: ' not found in the output of the query.\n" >&2
-      # continue
     fi
 
     if [ -z "$grep_output" ]; then
