@@ -52,11 +52,10 @@ Status JniMetrics::_init() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     RETURN_IF_ERROR(JniUtil::get_jni_scanner_class(env, "org/apache/doris/jdbc/JdbcDataSource",
-                                        &_jdbc_data_source_clz));
+                                                   &_jdbc_data_source_clz));
     JNI_CALL_METHOD_CHECK_EXCEPTION(
-         , _get_connection_percent_id, env,
-         GetStaticMethodID(_jdbc_data_source_clz, "getConnectionPercent",
-                           "()Ljava/util/Map;"));
+            , _get_connection_percent_id, env,
+            GetStaticMethodID(_jdbc_data_source_clz, "getConnectionPercent", "()Ljava/util/Map;"));
     _is_init = true;
     _server_entity->register_hook(_s_hook_name,
                                   std::bind(&JniMetrics::update_jdbc_connection_metrics, this));
@@ -68,8 +67,8 @@ Status JniMetrics::update_jdbc_connection_metrics() {
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(JniUtil::GetJNIEnv(&env));
     JNI_CALL_METHOD_CHECK_EXCEPTION_DELETE_REF(
-         jobject, metrics, env,
-         CallStaticObjectMethod(_jdbc_data_source_clz, _get_connection_percent_id));
+            jobject, metrics, env,
+            CallStaticObjectMethod(_jdbc_data_source_clz, _get_connection_percent_id));
     std::map<std::string, std::string> result = JniUtil::convert_to_cpp_map(env, metrics);
     for (auto item : result) {
         std::string catalog_id = item.first;
