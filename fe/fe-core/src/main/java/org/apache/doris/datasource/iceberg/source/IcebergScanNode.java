@@ -52,7 +52,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CombinedScanTask;
-import org.apache.iceberg.DataOperations;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
@@ -386,22 +385,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         Map<String, String> summary = snapshot.summary();
-        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
+        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")
+                || !summary.get(IcebergUtils.TOTAL_POSITION_DELETES).equals("0")) {
             return -1;
         }
-
-        if (snapshot.operation().equals(DataOperations.REPLACE)) {
-            // prevent 'dangling delete' problem after `rewrite_data_files`
-            // ref: https://iceberg.apache.org/docs/nightly/spark-procedures/#rewrite_position_delete_files
-            if (summary.get(IcebergUtils.TOTAL_POSITION_DELETES).equals("0")) {
-                return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
-            } else {
-                return -1;
-            }
-        } else {
-            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS))
-                - Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
-        }
+        return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
     }
 
     @Override
