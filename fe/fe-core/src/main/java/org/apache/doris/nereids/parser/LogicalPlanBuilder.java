@@ -161,6 +161,7 @@ import org.apache.doris.nereids.DorisParser.QualifyClauseContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.QueryTermContext;
+import org.apache.doris.nereids.DorisParser.RecoverDatabaseContext;
 import org.apache.doris.nereids.DorisParser.RefreshCatalogContext;
 import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
 import org.apache.doris.nereids.DorisParser.RefreshMethodContext;
@@ -201,6 +202,7 @@ import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.ShowProcContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
+import org.apache.doris.nereids.DorisParser.ShowRepositoriesContext;
 import org.apache.doris.nereids.DorisParser.ShowRolesContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
 import org.apache.doris.nereids.DorisParser.ShowViewContext;
@@ -422,6 +424,7 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -437,6 +440,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewC
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
@@ -4082,6 +4086,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitShowRepositories(ShowRepositoriesContext ctx) {
+        return new ShowRepositoriesCommand();
+    }
+
+    @Override
     public LogicalPlan visitShowRoles(ShowRolesContext ctx) {
         return new ShowRolesCommand();
     }
@@ -4102,5 +4111,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitAlterRole(AlterRoleContext ctx) {
         String comment = visitCommentSpec(ctx.commentSpec());
         return new AlterRoleCommand(ctx.role.getText(), comment);
+    }
+
+    @Override
+    public LogicalPlan visitRecoverDatabase(RecoverDatabaseContext ctx) {
+        String dbName = ctx.name.getText();
+        long dbId = (ctx.id != null) ? Long.parseLong(ctx.id.getText()) : -1;
+        String newDbName = (ctx.alias != null) ? ctx.alias.getText() : null;
+        return new RecoverDatabaseCommand(dbName, dbId, newDbName);
     }
 }
