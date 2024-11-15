@@ -77,7 +77,8 @@ public class MetaService extends RestBaseController {
         String clientHost = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
         String clientPort = request.getHeader(Env.CLIENT_NODE_PORT_KEY);
         if (!isFromValidFe(clientHost, clientPort)) {
-            throw new InvalidClientException("invalid client host: " + clientHost + ":" + clientPort);
+            throw new InvalidClientException("invalid client host: " + clientHost + ":" + clientPort
+                + ", request from " + request.getRemoteHost());
         }
     }
 
