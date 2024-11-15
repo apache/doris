@@ -83,6 +83,11 @@ public:
     int do_inverted_check();
 
     // Return 0 if success.
+    // Return 1 if some delete bitmaps are not pruned expectedly
+    // Return negative if a temporary error occurred during the check process.
+    int do_delete_bitmap_check();
+
+    // Return 0 if success.
     // Return 1 if data loss is identified.
     // Return negative if a temporary error occurred during the check process.
     int do_check();

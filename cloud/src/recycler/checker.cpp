@@ -176,6 +176,12 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_delete_bitmap_check) {
+                if (ret == 0) {
+                    ret = checker->do_delete_bitmap_check();
+                }
+            }
+
             if (ret < 0) {
                 // If ret < 0, it means that a temporary error occurred during the check process.
                 // The check job should not be considered finished, and the next round of check job
@@ -748,4 +754,97 @@ int InstanceChecker::do_inverted_check() {
     return num_file_leak > 0 ? 1 : check_ret;
 }
 
+int InstanceChecker::do_delete_bitmap_check() {
+    struct RowsetDigest {
+        std::string rowset_id;
+        std::pair<int64_t, int64_t> version;
+    };
+
+    struct TabletRowsets {
+        int64_t tablet_id {0};
+        std::vector<RowsetDigest> rowsets;
+    };
+    TabletRowsets tablet_rowsets_cache;
+
+    auto check_delete_bitmap = [&](int64_t tablet_id) {
+        // Get all rowset id of this tablet
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to create txn";
+            return -1;
+        }
+        std::unique_ptr<RangeGetIterator> it;
+        auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
+        auto end = meta_rowset_key({instance_id_, tablet_id + 1, 0});
+        do {
+            TxnErrorCode err = txn->get(begin, end, &it);
+            if (err != TxnErrorCode::TXN_OK) {
+                LOG(WARNING) << "failed to get rowset kv, err=" << err;
+                return -1;
+            }
+            if (!it->has_next()) {
+                break;
+            }
+            while (it->has_next()) {
+                // recycle corresponding resources
+                auto [k, v] = it->next();
+                doris::RowsetMetaCloudPB rowset;
+                if (!rowset.ParseFromArray(v.data(), v.size())) {
+                    LOG(WARNING) << "malformed rowset meta value, key=" << hex(k);
+                    return -1;
+                }
+                tablet_rowsets_cache.rowsets.emplace_back(
+                        rowset.rowset_id_v2(),
+                        std::make_pair<int64_t, int64_t>(rowset.start_version(),
+                                                         rowset.end_version()));
+                if (!it->has_next()) {
+                    begin = k;
+                    begin.push_back('\x00'); // Update to next smallest key for iteration
+                    break;
+                }
+            }
+        } while (it->more() && !stopped());
+
+        return 0;
+    };
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to create txn";
+        return -1;
+    }
+    std::unique_ptr<RangeGetIterator> it;
+    // scan all tablets in this instance and do delete bitmap check for
+    // tablets which belongs to MOW table
+    auto begin = meta_rowset_key({instance_id_, 0, 0});
+    auto end = meta_rowset_key({instance_id_, INT64_MAX, 0});
+    do {
+        TxnErrorCode err = txn->get(begin, end, &it);
+        if (err != TxnErrorCode::TXN_OK) {
+            LOG(WARNING) << "failed to get rowset kv, err=" << err;
+            return -1;
+        }
+        if (!it->has_next()) {
+            break;
+        }
+        while (it->has_next()) {
+            auto [k, v] = it->next();
+            std::string_view k1 = k;
+            k1.remove_prefix(1);
+            std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+            decode_key(&k1, &out);
+            // 0x01 "meta" ${instance_id} "rowset" tablet_id version
+            auto tablet_id = std::get<int64_t>(std::get<0>(out[3]));
+            check_delete_bitmap(tablet_id);
+
+            if (!it->has_next()) {
+                // Update to next smallest key for iteration
+                begin = meta_rowset_key({instance_id_, tablet_id + 1, 0});
+                break;
+            }
+        }
+    } while (it->more() && !stopped());
+}
 } // namespace doris::cloud
