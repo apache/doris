@@ -17,6 +17,7 @@
 
 #include "data_type_bitmap_serde.h"
 
+#include <arrow/array/builder_binary.h>
 #include <gen_cpp/types.pb.h>
 
 #include <string>
@@ -96,6 +97,26 @@ void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
     result.writeEndBinary();
 }
 
+void DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+                                                arrow::ArrayBuilder* array_builder, int start,
+                                                int end, const cctz::time_zone& ctz) const {
+    const auto& col = assert_cast<const ColumnBitmap&>(column);
+    auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
+    for (size_t string_i = start; string_i < end; ++string_i) {
+        if (null_map && (*null_map)[string_i]) {
+            checkArrowStatus(builder.AppendNull(), column.get_name(),
+                             array_builder->type()->name());
+        } else {
+            auto& bitmap_value = const_cast<BitmapValue&>(col.get_element(string_i));
+            std::string memory_buffer(bitmap_value.getSizeInBytes(), '0');
+            bitmap_value.write_to(memory_buffer.data());
+            checkArrowStatus(
+                    builder.Append(memory_buffer.data(), static_cast<int>(memory_buffer.size())),
+                    column.get_name(), array_builder->type()->name());
+        }
+    }
+}
+
 void DataTypeBitMapSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnBitmap&>(column);
     auto blob = static_cast<const JsonbBlobVal*>(arg);
@@ -148,11 +169,28 @@ Status DataTypeBitMapSerDe::write_column_to_orc(const std::string& timezone, con
     auto& col_data = assert_cast<const ColumnBitmap&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory error when write largeint column data to orc file.");
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = BUFFER_UNIT_SIZE;
+    size_t offset = 0;
+    buffer_list.emplace_back(bufferRef);
+
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            const auto& ele = col_data.get_data_at(row_id);
-            cur_batch->data[row_id] = const_cast<char*>(ele.data);
-            cur_batch->length[row_id] = ele.size;
+            auto bitmap_value = const_cast<BitmapValue&>(col_data.get_element(row_id));
+            size_t len = bitmap_value.getSizeInBytes();
+
+            REALLOC_MEMORY_FOR_ORC_WRITER()
+
+            bitmap_value.write_to(const_cast<char*>(bufferRef.data) + offset);
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+            cur_batch->length[row_id] = len;
+            offset += len;
         }
     }
 

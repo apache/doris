@@ -21,6 +21,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <memory>
 #include <string>
 
 #include "arrow/array/builder_binary.h"
@@ -139,7 +140,7 @@ void DataTypeHLLSerDe::write_column_to_arrow(const IColumn& column, const NullMa
                                              arrow::ArrayBuilder* array_builder, int64_t start,
                                              int64_t end, const cctz::time_zone& ctz) const {
     const auto& col = assert_cast<const ColumnHLL&>(column);
-    auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
+    auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
             checkArrowStatus(builder.AppendNull(), column.get_name(),
@@ -198,11 +199,28 @@ Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const 
     auto& col_data = assert_cast<const ColumnHLL&>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory error when write largeint column data to orc file.");
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = BUFFER_UNIT_SIZE;
+    size_t offset = 0;
+    buffer_list.emplace_back(bufferRef);
+
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            const auto& ele = col_data.get_data_at(row_id);
-            cur_batch->data[row_id] = const_cast<char*>(ele.data);
-            cur_batch->length[row_id] = ele.size;
+            auto hll_value = const_cast<HyperLogLog&>(col_data.get_element(row_id));
+            size_t len = hll_value.max_serialized_size();
+
+            REALLOC_MEMORY_FOR_ORC_WRITER()
+
+            hll_value.serialize((uint8_t*)(bufferRef.data) + offset);
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
+            cur_batch->length[row_id] = len;
+            offset += len;
         }
     }
 

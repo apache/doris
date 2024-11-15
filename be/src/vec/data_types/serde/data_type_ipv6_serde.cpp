@@ -197,6 +197,7 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
     bufferRef.size = BUFFER_UNIT_SIZE;
     size_t offset = 0;
     const size_t begin_off = offset;
+    buffer_list.emplace_back(bufferRef);
 
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 0) {
@@ -218,7 +219,6 @@ Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const
             data_off += cur_batch->length[row_id];
         }
     }
-    buffer_list.emplace_back(bufferRef);
     cur_batch->numElements = end - start;
     return Status::OK();
 }
