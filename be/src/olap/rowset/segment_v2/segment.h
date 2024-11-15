@@ -222,7 +222,7 @@ private:
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer(SegmentFooterPB* footer);
-    Status _create_column_readers(const SegmentFooterPB& footer);
+    Status _create_column_readers();
     Status _load_pk_bloom_filter();
     ColumnReader* _get_column_reader(const TabletColumn& col);
 
@@ -238,7 +238,8 @@ private:
 
     Status _create_column_readers_once();
 
-private:
+    Status _cache_columns_meta(const SegmentFooterPB& footer);
+
     friend class SegmentIterator;
     io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
@@ -285,7 +286,10 @@ private:
 
     DorisCallOnce<Status> _create_column_readers_once_call;
 
-    std::unique_ptr<SegmentFooterPB> _footer_pb;
+    std::unordered_map<uint32_t, ColumnMetaPB> _columns_meta;
+    std::unordered_map<vectorized::PathInData, ColumnMetaPB, vectorized::PathInData::Hash>
+            _columns_meta_by_path;
+    size_t _footer_bytes = 0;
 
     // used to hold short key index page in memory
     PageHandle _sk_index_handle;

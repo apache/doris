@@ -148,7 +148,7 @@ TEST_F(DateBloomFilterTest, query_index_test) {
 
     segment_v2::SegmentSharedPtr segment;
     EXPECT_TRUE(((BetaRowset*)rowset.get())->load_segment(0, &segment).ok());
-    auto st = segment->_create_column_readers(*(segment->_footer_pb));
+    auto st = segment->_create_column_readers();
     EXPECT_TRUE(st.ok());
 
     // date

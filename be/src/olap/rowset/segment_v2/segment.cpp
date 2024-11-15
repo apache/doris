@@ -170,23 +170,25 @@ io::UInt128Wrapper Segment::file_cache_key(std::string_view rowset_id, uint32_t 
 }
 
 int64_t Segment::get_metadata_size() const {
-    return sizeof(Segment) + (_footer_pb ? _footer_pb->ByteSizeLong() : 0) +
-           (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
+    return sizeof(Segment) + _footer_bytes + (_pk_index_meta ? _pk_index_meta->ByteSizeLong() : 0);
 }
 
 Status Segment::_open() {
-    _footer_pb = std::make_unique<SegmentFooterPB>();
-    RETURN_IF_ERROR(_parse_footer(_footer_pb.get()));
-    _pk_index_meta.reset(_footer_pb->has_primary_key_index_meta()
-                                 ? new PrimaryKeyIndexMetaPB(_footer_pb->primary_key_index_meta())
+    SegmentFooterPB footer_pb;
+    RETURN_IF_ERROR(_parse_footer(&footer_pb));
+    _pk_index_meta.reset(footer_pb.has_primary_key_index_meta()
+                                 ? new PrimaryKeyIndexMetaPB(footer_pb.primary_key_index_meta())
                                  : nullptr);
     // delete_bitmap_calculator_test.cpp
     // DCHECK(footer.has_short_key_index_page());
-    _sk_index_page = _footer_pb->short_key_index_page();
-    _num_rows = _footer_pb->num_rows();
+    _sk_index_page = footer_pb.short_key_index_page();
+    _num_rows = footer_pb.num_rows();
+    _footer_bytes = footer_pb.ByteSizeLong();
+
+    RETURN_IF_ERROR(_cache_columns_meta(footer_pb));
 
     // An estimated memory usage of a segment
-    _meta_mem_usage += _footer_pb->ByteSizeLong();
+    _meta_mem_usage += _footer_bytes;
     if (_pk_index_meta != nullptr) {
         _meta_mem_usage += _pk_index_meta->ByteSizeLong();
     }
@@ -584,14 +586,10 @@ vectorized::DataTypePtr Segment::get_data_type_of(const ColumnIdentifier& identi
 }
 
 Status Segment::_create_column_readers_once() {
-    return _create_column_readers_once_call.call([&] {
-        DCHECK(_footer_pb);
-        Defer defer([&]() { _footer_pb.reset(); });
-        return _create_column_readers(*_footer_pb);
-    });
+    return _create_column_readers_once_call.call([&] { return _create_column_readers(); });
 }
 
-Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
+Status Segment::_cache_columns_meta(const SegmentFooterPB& footer) {
     std::unordered_map<uint32_t, uint32_t> column_id_to_footer_ordinal;
     std::unordered_map<vectorized::PathInData, uint32_t, vectorized::PathInData::Hash>
             column_path_to_footer_ordinal;
@@ -609,11 +607,34 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
             column_id_to_footer_ordinal.emplace(column_pb.unique_id(), ordinal);
         }
     }
-    // init by unique_id
+
     for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
         const auto& column = _tablet_schema->column(ordinal);
         auto iter = column_id_to_footer_ordinal.find(column.unique_id());
-        if (iter == column_id_to_footer_ordinal.end()) {
+        if (iter != column_id_to_footer_ordinal.end()) {
+            _columns_meta[ordinal] = footer.columns(iter->second);
+        }
+
+        if (!column.has_path_info()) {
+            continue;
+        }
+
+        const auto& path = *column.path_info_ptr();
+        auto path_iter = column_path_to_footer_ordinal.find(path);
+        if (path_iter == column_path_to_footer_ordinal.end()) {
+            continue;
+        }
+
+        _columns_meta_by_path[path] = footer.columns(path_iter->second);
+    }
+    return Status::OK();
+}
+
+Status Segment::_create_column_readers() {
+    // init by unique_id
+    for (uint32_t ordinal = 0; ordinal < _tablet_schema->num_columns(); ++ordinal) {
+        const auto& column = _tablet_schema->column(ordinal);
+        if (!_columns_meta.contains(ordinal)) {
             continue;
         }
 
@@ -622,8 +643,8 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
                 .be_exec_version = _be_exec_version,
         };
         std::unique_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(ColumnReader::create(opts, footer.columns(iter->second), footer.num_rows(),
-                                             _file_reader, &reader));
+        RETURN_IF_ERROR(ColumnReader::create(opts, _columns_meta[ordinal], _num_rows, _file_reader,
+                                             &reader));
         _column_readers.emplace(column.unique_id(), std::move(reader));
     }
 
@@ -633,20 +654,19 @@ Status Segment::_create_column_readers(const SegmentFooterPB& footer) {
         if (!column.has_path_info()) {
             continue;
         }
-        auto path = column.has_path_info() ? *column.path_info_ptr()
-                                           : vectorized::PathInData(column.name_lower_case());
-        auto iter = column_path_to_footer_ordinal.find(path);
-        if (iter == column_path_to_footer_ordinal.end()) {
+        const auto& path = *column.path_info_ptr();
+
+        if (!_columns_meta_by_path.contains(path)) {
             continue;
         }
-        const ColumnMetaPB& column_pb = footer.columns(iter->second);
+
+        const ColumnMetaPB& column_pb = _columns_meta_by_path[path];
         ColumnReaderOptions opts {
                 .kept_in_memory = _tablet_schema->is_in_memory(),
                 .be_exec_version = _be_exec_version,
         };
         std::unique_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(
-                ColumnReader::create(opts, column_pb, footer.num_rows(), _file_reader, &reader));
+        RETURN_IF_ERROR(ColumnReader::create(opts, column_pb, _num_rows, _file_reader, &reader));
         // root column use unique id, leaf column use parent_unique_id
         int32_t unique_id =
                 column.parent_unique_id() > 0 ? column.parent_unique_id() : column.unique_id();
