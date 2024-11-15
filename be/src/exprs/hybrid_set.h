@@ -553,9 +553,13 @@ public:
 
     ContainerType* get_inner_set() { return &_set; }
 
-    void to_pb(PInFilter* filter) override {
-        throw Exception(ErrorCode::INTERNAL_ERROR, "StringSet do not support to_pb");
+    void set_pb(PInFilter* filter, auto f) {
+        for (auto v : _set) {
+            f(filter->add_values(), v);
+        }
     }
+
+    void to_pb(PInFilter* filter) override { set_pb(filter, get_convertor<StringRef>()); }
 
 private:
     ContainerType _set;
@@ -723,13 +727,9 @@ public:
 
     ContainerType* get_inner_set() { return &_set; }
 
-    void set_pb(PInFilter* filter, auto f) {
-        for (auto v : _set) {
-            f(filter->add_values(), v);
-        }
+    void to_pb(PInFilter* filter) override {
+        throw Exception(ErrorCode::INTERNAL_ERROR, "StringValueSet do not support to_pb");
     }
-
-    void to_pb(PInFilter* filter) override { set_pb(filter, get_convertor<StringRef>()); }
 
 private:
     ContainerType _set;
