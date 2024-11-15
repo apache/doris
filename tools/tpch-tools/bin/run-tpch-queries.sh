@@ -133,16 +133,8 @@ get_session_variable() {
     fi
 
     if ! grep_output=$(grep " Value: " <<<"${output}" 2>&1); then
-        grep_status=$?
-        # shellcheck disable=SC2292
-        if [ "${grep_status}" -eq 2 ]; then
-            printf "%s\n" "${grep_output}" >&2
-            printf "Error: grep command failed with status %d while processing SQL output for variable '%s'.\n" "${grep_status}" "${k}" >&2
-            exit 1
-        elif [ "${grep_status}" -eq 1 ]; then
-            printf "Warning: No match for 'Value: ' found in the output of the query for variable '%s'.\n" "${k}" >&2
-            return 1
-        fi
+        printf "Warning: No match for 'Value: ' found in the output of the query for variable '%s'.\n" "${k}" >&2
+        return 1
     fi
 
     if ! v=$(awk '{print $2}' <<<"${grep_output}" 2>&1); then

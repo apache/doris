@@ -106,19 +106,18 @@ echo "DB: $DB"
 
 function check_doris_conf() {
     if ! output=$(mysql -h"$FE_HOST" -P"$FE_QUERY_PORT" -u"$USER" -e 'admin show frontend config' 2>&1); then
-        printf "%s\n" "$output" >&2
+        printf "%s\n" "${output}" >&2
         printf "Error: Failed to execute 'admin show frontend config' on MySQL server.\n" >&2
         exit 1
     fi
 
     if ! grep_output=$(grep 'stream_load_default_timeout_second' <<< "$output" 2>&1); then
-        printf "%s\n" "$grep_output" >&2
-        printf "Error: grep command failed while processing the MySQL output.\n" >&2
+        printf "Warning: No match for 'stream_load_default_timeout_second' found in the output.\n" >&2
         exit 1
     fi
 
     if ! cv=$(awk '{print $2}' <<< "$grep_output" 2>&1); then
-        printf "%s\n" "$cv" >&2
+        printf "%s\n" "${cv}" >&2
         printf "Error: awk command failed while processing the grep output.\n" >&2
         exit 1
     fi
@@ -133,19 +132,17 @@ function check_doris_conf() {
     fi
 
     if ! output=$(curl -s "${BE_HOST}:${BE_WEBSERVER_PORT}/varz" 2>&1); then
-        printf "%s\n" "$output" >&2
+        printf "Curl failed with the following output:\n%s\n" "${output}" >&2
         printf "Error: Failed to execute curl to fetch BE's configuration.\n" >&2
         exit 1
     fi
 
     if ! grep_output=$(grep 'streaming_load_max_mb' <<< "$output" 2>&1); then
-        printf "%s\n" "$grep_output" >&2
-        printf "Error: grep command failed while processing the curl output.\n" >&2
+        printf "Warning: No match found for 'streaming_load_max_mb' in the output.\n" >&2
         exit 1
     fi
-
     if ! cv=$(awk -F'=' '{print $2}' <<< "$grep_output" 2>&1); then
-        printf "%s\n" "$cv" >&2
+        printf "%s\n" "${cv}" >&2
         printf "Error: awk command failed while processing the grep output.\n" >&2
         exit 1
     fi
@@ -216,7 +213,8 @@ echo "load cost time: $((end - start)) seconds"
 
 run_sql() {
   printf "%s\n" "$@"
-  if ! mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$*" 2>&1; then
+  if ! output=$(mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$*") 2>&1; then
+    printf "%s/n" "${output}" >&2
     printf "Error: Failed to execute the SQL command: %s\n" "$*" >&2
     exit 1
   fi

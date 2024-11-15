@@ -112,7 +112,8 @@ check_prerequest() {
 run_sql() {
     sql="$*"
     printf "%s\n" "${sql}"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$@" 2>&1; then
+    if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$@") 2>&1; then
+        printf "MySQL Error Output:\n%s\n" "${output}" >&2
         printf "Error: Failed to execute SQL command.\n" >&2
         exit 1
     fi
