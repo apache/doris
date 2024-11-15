@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <memory>
+#include <mutex>
 
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
@@ -332,9 +333,12 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
         if (spill_context) {
             spill_context->on_task_finished();
         }
+
+        std::lock_guard<std::mutex> lock(_spill_mutex);
         _spill_dependency->set_ready();
         return status;
     };
+
     for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
         auto& mutable_block = _shared_state->partitioned_build_blocks[i];
@@ -390,9 +394,15 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(
         }
     }
 
-    if (_spilling_task_count > 0) {
-        _spill_dependency->block();
-    } else if (_child_eos) {
+    if (_spilling_task_count.load() > 0) {
+        std::lock_guard<std::mutex> lock(_spill_mutex);
+        if (_spilling_task_count.load() > 0) {
+            _spill_dependency->block();
+            return Status::OK();
+        }
+    }
+
+    if (_child_eos) {
         VLOG_DEBUG << "query:" << print_id(state->query_id()) << ", hash join sink "
                    << _parent->node_id() << " set_ready_to_read"
                    << ", task id: " << state->task_id();
