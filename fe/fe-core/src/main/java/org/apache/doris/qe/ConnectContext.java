@@ -80,6 +80,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import io.netty.util.concurrent.FastThreadLocal;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.JSONObject;
@@ -1048,9 +1049,11 @@ public class ConnectContext {
         return resourceTags;
     }
 
-    public void setResourceTags(Set<Tag> resourceTags) {
-        this.resourceTags = resourceTags;
-        this.isResourceTagsSet = !this.resourceTags.isEmpty();
+    public void resetResourceTags() {
+        if (!StringUtils.isEmpty(this.qualifiedUser)) {
+            this.resourceTags = Env.getCurrentEnv().getAuth().getResourceTags(this.qualifiedUser);
+            this.isResourceTagsSet = !this.resourceTags.isEmpty();
+        }
     }
 
     public void setCurrentConnectedFEIp(String ip) {

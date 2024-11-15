@@ -765,6 +765,7 @@ public class OlapScanNode extends ScanNode {
         boolean skipMissingVersion = false;
         ConnectContext context = ConnectContext.get();
         if (context != null) {
+            context.resetResourceTags();
             allowedTags = context.getResourceTags();
             needCheckTags = context.isResourceTagsSet();
             useFixReplica = context.getSessionVariable().useFixReplica;
