@@ -427,11 +427,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
                 continue;
             }
             if (tbl.getType() != TableType.OLAP) {
-                if (abstractBackupTableRefClause == null || abstractBackupTableRefClause.isExclude()) {
-                    // If there is no table ref clause or is exclude ref cause, skip the tables not supported.
-                    tblRefsNotSupport.add(tblRef);
-                    continue;
-                } else if (Config.ignore_backup_not_support_table_type) {
+                if (Config.ignore_backup_not_support_table_type) {
                     LOG.warn("Table '{}' is a {} table, can not backup and ignore it."
                             + "Only OLAP(Doris)/ODBC/VIEW table can be backed up",
                             tblName, tbl.getType().toString());
