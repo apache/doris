@@ -103,6 +103,7 @@ Status LzopDecompressor::decompress(uint8_t* input, size_t input_len, size_t* in
     ptr = get_uint32(ptr, &uncompressed_size);
     left_input_len -= sizeof(uint32_t);
     if (uncompressed_size == 0) {
+        *input_bytes_read += sizeof(uint32_t);
         *stream_end = true;
         return Status::OK();
     }
