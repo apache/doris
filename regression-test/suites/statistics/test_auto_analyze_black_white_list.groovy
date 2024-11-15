@@ -68,8 +68,9 @@ suite("test_auto_analyze_black_white_list") {
         )
     """
 
+    sql """insert into test_bw values (1, 1, 1, 1, 1)"""
     try {
-        wait_row_count_reported("test_auto_analyze_black_white_list", "test_bw", 0, 4, "0")
+        wait_row_count_reported("test_auto_analyze_black_white_list", "test_bw", 0, 4, "1")
     } catch (Exception e) {
         logger.info(e.getMessage());
         return;
