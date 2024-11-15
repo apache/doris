@@ -65,7 +65,9 @@ private:
     uint16_t evaluate(const vectorized::IColumn& column, const uint8_t* null_map, uint16_t* sel,
                       uint16_t size) const {
         if constexpr (is_nullable) {
-            DCHECK(null_map);
+            if (!null_map) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "null_map is nullptr");
+            }
         }
 
         uint16_t new_size = 0;
@@ -91,7 +93,9 @@ private:
 
     int get_filter_id() const override {
         int filter_id = _filter->get_filter_id();
-        DCHECK(filter_id != -1);
+        if (filter_id == 1) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "filter_id is -1");
+        }
         return filter_id;
     }
 
