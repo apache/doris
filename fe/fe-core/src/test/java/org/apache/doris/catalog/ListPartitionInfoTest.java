@@ -17,9 +17,12 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
+import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
@@ -222,5 +225,27 @@ public class ListPartitionInfoTest {
 
         Assert.assertEquals("beijing", ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(0).getRealValue());
         Assert.assertEquals(100, ((ListPartitionItem) partitionItem).getItems().get(0).getKeys().get(1).getLongValue());
+    }
+
+    @Test
+    public void testMultiAutotoSql() throws AnalysisException, DdlException {
+        Column k1 = new Column("k1", new ScalarType(PrimitiveType.VARCHAR), true, null, "", "");
+        Column k2 = new Column("k2", new ScalarType(PrimitiveType.INT), true, null, "", "");
+        partitionColumns.add(k1);
+        partitionColumns.add(k2);
+
+        ArrayList<Expr> partitionExprs = new ArrayList<>();
+        SlotRef s1 = new SlotRef(new TableName("tbl"), "k1");
+        SlotRef s2 = new SlotRef(new TableName("tbl"), "k2");
+        partitionExprs.add(s1);
+        partitionExprs.add(s2);
+
+        partitionInfo = new ListPartitionInfo(true, partitionExprs, partitionColumns);
+        OlapTable table = new OlapTable();
+
+        String sql = partitionInfo.toSql(table, null);
+
+        String expected = "AUTO PARTITION BY LIST (`k1`, `k2`)";
+        Assert.assertTrue("got: " + sql + ", should have: " + expected, sql.contains(expected));
     }
 }
