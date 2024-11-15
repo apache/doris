@@ -208,7 +208,7 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
         }
 
         if (eos) [[unlikely]] {
-            _local_recvr->remove_sender(sender_id, _be_number, Status::OK());
+            _local_recvr->remove_sender(sender_id, Status::OK());
             _parent->on_channel_finished(_fragment_instance_id.lo);
         }
         return Status::OK();

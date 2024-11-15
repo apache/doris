@@ -141,15 +141,15 @@ Status VDataStreamMgr::transmit_block(const PTransmitDataParams* request,
 
     bool eos = request->eos();
     if (request->has_block()) {
-        RETURN_IF_ERROR(recvr->add_block(
-                request->block(), request->sender_id(), request->be_number(), request->packet_seq(),
-                eos ? nullptr : done, wait_for_worker, cpu_time_stop_watch.elapsed_time()));
+        RETURN_IF_ERROR(recvr->add_block(request->block(), request->sender_id(),
+                                         request->packet_seq(), eos ? nullptr : done,
+                                         wait_for_worker, cpu_time_stop_watch.elapsed_time()));
     }
 
     if (eos) {
         Status exec_status =
                 request->has_exec_status() ? Status::create(request->exec_status()) : Status::OK();
-        recvr->remove_sender(request->sender_id(), request->be_number(), exec_status);
+        recvr->remove_sender(request->sender_id(), exec_status);
     }
     return Status::OK();
 }

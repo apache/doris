@@ -36,7 +36,7 @@ message PTransmitDataParams {
     required int32 node_id = 2;
     // Id of this fragment in its role as a sender.
     required int32 sender_id = 3;
-    required int32 be_number = 4;
+    required int32 be_number = 4; // Deprecated
 
     // if set to true, indicates that no more row batches will be sent
     // for this dest_node_id

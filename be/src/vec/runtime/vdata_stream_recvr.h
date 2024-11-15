@@ -84,7 +84,7 @@ public:
 
     std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
 
-    Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
+    Status add_block(const PBlock& pblock, int sender_id, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);
 
@@ -98,7 +98,7 @@ public:
 
     // Indicate that a particular sender is done. Delegated to the appropriate
     // sender queue. Called from DataStreamMgr.
-    void remove_sender(int sender_id, int be_number, Status exec_status);
+    void remove_sender(int sender_id, Status exec_status);
 
     void cancel_stream(Status exec_status);
 
@@ -181,7 +181,7 @@ public:
 
     Status get_batch(Block* next_block, bool* eos);
 
-    Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
+    Status add_block(const PBlock& pblock, int sender_id, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);
 
@@ -262,9 +262,13 @@ protected:
     std::unique_ptr<MemTracker> _queue_mem_tracker;
     std::list<std::pair<BlockUPtr, size_t>> _block_queue;
 
-    // sender_id
+    // sender_id indicates which instance within a fragment, while be_number indicates which instance
+    // across all fragments. For example, with 3 BEs and 8 instances, the range of sender_id would be 0 to 24,
+    // and the range of be_number would be from n + 0 to n + 24.
+    // In theory, we only need sender_id to distinguish all senders.
+    // sender_id => eos
     std::unordered_set<int> _sender_eos_set;
-    // be_number => packet_seq
+    // sender_id => packet_seq
     std::unordered_map<int, int64_t> _packet_seq_map;
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
 

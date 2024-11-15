@@ -133,7 +133,7 @@ void VDataStreamRecvr::SenderQueue::try_set_dep_ready_without_lock() {
     }
 }
 
-Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_number,
+Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int sender_id,
                                                 int64_t packet_seq,
                                                 ::google::protobuf::Closure** done,
                                                 const int64_t wait_for_worker,
@@ -143,7 +143,7 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
         if (_is_cancelled) {
             return Status::OK();
         }
-        auto iter = _packet_seq_map.find(be_number);
+        auto iter = _packet_seq_map.find(sender_id);
         if (iter != _packet_seq_map.end()) {
             if (iter->second >= packet_seq) {
                 LOG(WARNING) << fmt::format(
@@ -153,12 +153,12 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
             }
             iter->second = packet_seq;
         } else {
-            _packet_seq_map.emplace(be_number, packet_seq);
+            _packet_seq_map.emplace(sender_id, packet_seq);
         }
 
         DCHECK(_num_remaining_senders >= 0);
         if (_num_remaining_senders == 0) {
-            DCHECK(_sender_eos_set.end() != _sender_eos_set.find(be_number));
+            DCHECK(_sender_eos_set.end() != _sender_eos_set.find(sender_id));
             return Status::OK();
         }
     }
@@ -257,12 +257,12 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     }
 }
 
-void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
+void VDataStreamRecvr::SenderQueue::decrement_senders(int sender_id) {
     std::lock_guard<std::mutex> l(_lock);
-    if (_sender_eos_set.end() != _sender_eos_set.find(be_number)) {
+    if (_sender_eos_set.end() != _sender_eos_set.find(sender_id)) {
         return;
     }
-    _sender_eos_set.insert(be_number);
+    _sender_eos_set.insert(sender_id);
     DCHECK_GT(_num_remaining_senders, 0);
     _num_remaining_senders--;
     _record_debug_info();
@@ -401,13 +401,13 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
     return Status::OK();
 }
 
-Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_number,
-                                   int64_t packet_seq, ::google::protobuf::Closure** done,
+Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int64_t packet_seq,
+                                   ::google::protobuf::Closure** done,
                                    const int64_t wait_for_worker,
                                    const uint64_t time_to_find_recvr) {
     SCOPED_ATTACH_TASK(_query_thread_context);
     int use_sender_id = _is_merging ? sender_id : 0;
-    return _sender_queues[use_sender_id]->add_block(pblock, be_number, packet_seq, done,
+    return _sender_queues[use_sender_id]->add_block(pblock, sender_id, packet_seq, done,
                                                     wait_for_worker, time_to_find_recvr);
 }
 
@@ -431,13 +431,13 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     }
 }
 
-void VDataStreamRecvr::remove_sender(int sender_id, int be_number, Status exec_status) {
+void VDataStreamRecvr::remove_sender(int sender_id, Status exec_status) {
     if (!exec_status.ok()) {
         cancel_stream(exec_status);
         return;
     }
     int use_sender_id = _is_merging ? sender_id : 0;
-    _sender_queues[use_sender_id]->decrement_senders(be_number);
+    _sender_queues[use_sender_id]->decrement_senders(sender_id);
 }
 
 void VDataStreamRecvr::cancel_stream(Status exec_status) {
