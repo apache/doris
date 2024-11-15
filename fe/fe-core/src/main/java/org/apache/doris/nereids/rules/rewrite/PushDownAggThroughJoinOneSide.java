@@ -113,7 +113,6 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
         );
     }
 
-
     /**
      * Push down Min/Max/Sum through join.
      */
@@ -121,8 +120,6 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
             LogicalJoin<Plan, Plan> join, List<NamedExpression> projects) {
         List<Slot> leftOutput = join.left().getOutput();
         List<Slot> rightOutput = join.right().getOutput();
-
-
         Set<Slot> leftGroupBy = new HashSet<>();
         Set<Slot> rightGroupBy = new HashSet<>();
         for (Expression e : agg.getGroupByExpressions()) {
