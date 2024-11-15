@@ -87,16 +87,13 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
 } // namespace vectorized
 
 namespace pipeline {
-ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id,
-                                       int be_number, RuntimeState* state,
-                                       ExchangeSinkLocalState* parent)
+ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
+                                       RuntimeState* state, ExchangeSinkLocalState* parent)
         : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_finishing(false),
           _query_id(std::move(query_id)),
           _dest_node_id(dest_node_id),
-          _sender_id(send_id),
-          _be_number(be_number),
           _state(state),
           _context(state->get_query_ctx()),
           _parent(parent) {}
@@ -139,10 +136,10 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
     if (_is_finishing) {
         return Status::OK();
     }
-    auto ins_id = request.channel->_fragment_instance_id.lo;
+    auto ins_id = request.channel->_dest_fragment_instance_id.lo;
     if (!_instance_to_package_queue_mutex.contains(ins_id)) {
         return Status::InternalError("fragment_instance_id {} not do register_sink",
-                                     print_id(request.channel->_fragment_instance_id));
+                                     print_id(request.channel->_dest_fragment_instance_id));
     }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
@@ -158,9 +155,10 @@ Status ExchangeSinkBuffer::add_block(TransmitInfo&& request) {
         if (request.block) {
             RETURN_IF_ERROR(
                     BeExecVersionManager::check_be_exec_version(request.block->be_exec_version()));
-            COUNTER_UPDATE(_parent->memory_used_counter(), request.block->ByteSizeLong());
-            COUNTER_SET(_parent->peak_memory_usage_counter(),
-                        _parent->memory_used_counter()->value());
+            auto* parent = request.channel->_parent;
+            COUNTER_UPDATE(parent->memory_used_counter(), request.block->ByteSizeLong());
+            COUNTER_SET(parent->peak_memory_usage_counter(),
+                        parent->memory_used_counter()->value());
         }
         _instance_to_package_queue[ins_id].emplace(std::move(request));
         _total_queue_size++;
@@ -179,10 +177,10 @@ Status ExchangeSinkBuffer::add_block(BroadcastTransmitInfo&& request) {
     if (_is_finishing) {
         return Status::OK();
     }
-    auto ins_id = request.channel->_fragment_instance_id.lo;
+    auto ins_id = request.channel->_dest_fragment_instance_id.lo;
     if (!_instance_to_package_queue_mutex.contains(ins_id)) {
         return Status::InternalError("fragment_instance_id {} not do register_sink",
-                                     print_id(request.channel->_fragment_instance_id));
+                                     print_id(request.channel->_dest_fragment_instance_id));
     }
     if (_is_receiver_eof(ins_id)) {
         return Status::EndOfFile("receiver eof");
@@ -228,6 +226,8 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        brpc_request->set_sender_id(request.channel->_parent->sender_id());
+        brpc_request->set_be_number(request.channel->_parent->be_number());
         if (request.block && !request.block->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block.get());
         }
@@ -298,7 +298,8 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
             }
         }
         if (request.block) {
-            COUNTER_UPDATE(_parent->memory_used_counter(), -request.block->ByteSizeLong());
+            COUNTER_UPDATE(request.channel->_parent->memory_used_counter(),
+                           -request.block->ByteSizeLong());
             static_cast<void>(brpc_request->release_block());
         }
         q.pop();
@@ -312,6 +313,8 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto& brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
+        brpc_request->set_sender_id(request.channel->_parent->sender_id());
+        brpc_request->set_be_number(request.channel->_parent->be_number());
         if (request.block_holder->get_block() &&
             !request.block_holder->get_block()->column_metas().empty()) {
             brpc_request->set_allocated_block(request.block_holder->get_block());
@@ -395,8 +398,6 @@ void ExchangeSinkBuffer::_construct_request(InstanceLoId id, PUniqueId finst_id)
     _instance_to_request[id]->mutable_query_id()->CopyFrom(_query_id);
 
     _instance_to_request[id]->set_node_id(_dest_node_id);
-    _instance_to_request[id]->set_sender_id(_sender_id);
-    _instance_to_request[id]->set_be_number(_be_number);
 }
 
 void ExchangeSinkBuffer::_ended(InstanceLoId id) {
@@ -430,7 +431,7 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
             _instance_to_broadcast_package_queue[id];
     for (; !broadcast_q.empty(); broadcast_q.pop()) {
         if (broadcast_q.front().block_holder->get_block()) {
-            COUNTER_UPDATE(_parent->memory_used_counter(),
+            COUNTER_UPDATE(broadcast_q.front().channel->_parent->memory_used_counter(),
                            -broadcast_q.front().block_holder->get_block()->ByteSizeLong());
         }
     }
@@ -442,7 +443,8 @@ void ExchangeSinkBuffer::_set_receiver_eof(InstanceLoId id) {
     std::queue<TransmitInfo, std::list<TransmitInfo>>& q = _instance_to_package_queue[id];
     for (; !q.empty(); q.pop()) {
         if (q.front().block) {
-            COUNTER_UPDATE(_parent->memory_used_counter(), -q.front().block->ByteSizeLong());
+            COUNTER_UPDATE(q.front().channel->_parent->memory_used_counter(),
+                           -q.front().block->ByteSizeLong());
         }
     }
 

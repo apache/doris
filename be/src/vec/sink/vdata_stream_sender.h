@@ -105,9 +105,9 @@ public:
     // how much tuple data is getting accumulated before being sent; it only applies
     // when data is added via add_row() and not sent directly via send_batch().
     Channel(pipeline::ExchangeSinkLocalState* parent, TNetworkAddress brpc_dest,
-            TUniqueId fragment_instance_id, PlanNodeId dest_node_id)
+            TUniqueId _dest_fragment_instance_id, PlanNodeId dest_node_id)
             : _parent(parent),
-              _fragment_instance_id(std::move(fragment_instance_id)),
+              _dest_fragment_instance_id(std::move(_dest_fragment_instance_id)),
               _dest_node_id(dest_node_id),
               _brpc_dest_addr(std::move(brpc_dest)),
               _is_local((_brpc_dest_addr.hostname == BackendOptions::get_localhost()) &&
@@ -129,7 +129,7 @@ public:
     Status close(RuntimeState* state);
 
     std::string get_fragment_instance_id_str() {
-        UniqueId uid(_fragment_instance_id);
+        UniqueId uid(_dest_fragment_instance_id);
         return uid.to_string();
     }
 
@@ -149,7 +149,7 @@ public:
     Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block, bool eos = false);
 
     Status add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) {
-        if (_fragment_instance_id.lo == -1) {
+        if (_dest_fragment_instance_id.lo == -1) {
             return Status::OK();
         }
 
@@ -168,7 +168,7 @@ public:
 
     void register_exchange_buffer(pipeline::ExchangeSinkBuffer* buffer) {
         _buffer = buffer;
-        _buffer->register_sink(_fragment_instance_id);
+        _buffer->register_sink(_dest_fragment_instance_id);
     }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
@@ -198,7 +198,7 @@ protected:
 
     pipeline::ExchangeSinkLocalState* _parent = nullptr;
 
-    const TUniqueId _fragment_instance_id;
+    const TUniqueId _dest_fragment_instance_id;
     PlanNodeId _dest_node_id;
     bool _closed {false};
     bool _need_close {false};

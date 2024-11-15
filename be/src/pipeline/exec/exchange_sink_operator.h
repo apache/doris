@@ -89,6 +89,7 @@ public:
     void set_reach_limit() { _reach_limit = true; };
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
+    [[nodiscard]] int be_number() const { return _state->be_number(); }
 
     std::string name_suffix() override;
     segment_v2::CompressionTypePB compression_type() const;

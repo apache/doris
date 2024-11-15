@@ -172,8 +172,8 @@ private:
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state, ExchangeSinkLocalState* parent);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state,
+                       ExchangeSinkLocalState* parent);
     ~ExchangeSinkBuffer() override = default;
     void register_sink(TUniqueId);
 
@@ -183,14 +183,8 @@ public:
     void update_rpc_time(InstanceLoId id, int64_t start_rpc_time, int64_t receive_rpc_time);
     void update_profile(RuntimeProfile* profile);
 
-    void set_dependency(std::shared_ptr<Dependency> queue_dependency,
-                        std::shared_ptr<Dependency> finish_dependency) {
+    void set_dependency(std::shared_ptr<Dependency> queue_dependency) {
         _queue_dependency = queue_dependency;
-        _finish_dependency = finish_dependency;
-    }
-
-    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
-        _broadcast_dependency = broadcast_dependency;
     }
 
 private:
@@ -229,9 +223,6 @@ private:
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;
     PlanNodeId _dest_node_id;
-    // Sender instance id, unique within a fragment. StreamSender save the variable
-    int _sender_id;
-    int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
@@ -249,8 +240,8 @@ private:
 
     std::atomic<int> _total_queue_size = 0;
     std::shared_ptr<Dependency> _queue_dependency = nullptr;
-    std::shared_ptr<Dependency> _finish_dependency = nullptr;
-    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
+
+    // // only use in _turn_off_channel
     ExchangeSinkLocalState* _parent = nullptr;
 };
 

@@ -97,7 +97,7 @@ Status Channel::init(RuntimeState* state) {
 Status Channel::open(RuntimeState* state) {
     if (_is_local) {
         auto st = _parent->state()->exec_env()->vstream_mgr()->find_recvr(
-                _fragment_instance_id, _dest_node_id, &_local_recvr);
+                _dest_fragment_instance_id, _dest_node_id, &_local_recvr);
         if (!st.ok()) {
             // Recvr not found. Maybe downstream task is finished already.
             LOG(INFO) << "Recvr is not found : " << st.to_string();
@@ -112,7 +112,7 @@ Status Channel::open(RuntimeState* state) {
     // In bucket shuffle join will set fragment_instance_id (-1, -1)
     // to build a camouflaged empty channel. the ip and port is '0.0.0.0:0"
     // so the empty channel not need call function close_internal()
-    _need_close = (_fragment_instance_id.hi != -1 && _fragment_instance_id.lo != -1);
+    _need_close = (_dest_fragment_instance_id.hi != -1 && _dest_fragment_instance_id.lo != -1);
 
     _state = state;
     return Status::OK();
@@ -209,12 +209,12 @@ Status Channel::send_local_block(Block* block, bool eos, bool can_be_moved) {
 
         if (eos) [[unlikely]] {
             _local_recvr->remove_sender(sender_id, _be_number, Status::OK());
-            _parent->on_channel_finished(_fragment_instance_id.lo);
+            _parent->on_channel_finished(_dest_fragment_instance_id.lo);
         }
         return Status::OK();
     } else {
         _receiver_status = std::move(receiver_status);
-        _parent->on_channel_finished(_fragment_instance_id.lo);
+        _parent->on_channel_finished(_dest_fragment_instance_id.lo);
         return _receiver_status;
     }
 }
