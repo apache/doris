@@ -559,7 +559,7 @@ public:
         }
     }
 
-    void to_pb(PInFilter* filter) override { set_pb(filter, get_convertor<StringRef>()); }
+    void to_pb(PInFilter* filter) override { set_pb(filter, get_convertor<std::string>()); }
 
 private:
     ContainerType _set;
