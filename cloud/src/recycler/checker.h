@@ -85,7 +85,7 @@ public:
     // Return 0 if success.
     // Return 1 if some delete bitmaps are not pruned expectedly
     // Return negative if a temporary error occurred during the check process.
-    int do_delete_bitmap_check();
+    int do_delete_bitmap_integrity_check();
 
     // Return 0 if success.
     // Return 1 if data loss is identified.
@@ -104,6 +104,13 @@ private:
 
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
+
+    struct RowsetDigest {
+        std::string rowset_id;
+        std::pair<int64_t, int64_t> version;
+    };
+
+    int check_delete_bitmap_integrity(int64_t tablet_id);
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
