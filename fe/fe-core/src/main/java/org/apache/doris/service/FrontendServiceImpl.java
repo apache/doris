@@ -1245,7 +1245,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private TLoadTxnBeginResult loadTxnBeginImpl(TLoadTxnBeginRequest request, String clientIp) throws UserException {
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(),
@@ -1479,7 +1479,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private void loadTxnPreCommitImpl(TLoadTxnCommitRequest request) throws UserException {
         if (request.isSetAuthCode()) {
-            // CHECKSTYLE IGNORE THIS LINE
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             if (!checkToken(request.getToken())) {
                 throw new AuthenticationException("Invalid token: " + request.getToken());
@@ -1665,7 +1665,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // timeout
     private boolean loadTxnCommitImpl(TLoadTxnCommitRequest request) throws UserException {
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
@@ -1806,7 +1806,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
@@ -1886,7 +1886,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private void loadTxnRollbackImpl(TLoadTxnRollbackRequest request) throws UserException {
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
@@ -2009,7 +2009,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // Step 3: check auth
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
@@ -2174,7 +2174,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ConnectContext ctx = ConnectContext.get();
 
         if (request.isSetAuthCode()) {
-            // TODO(cmy): find a way to check
+            // TODO: deprecated, removed in 3.1, use token instead.
         } else if (Strings.isNullOrEmpty(request.getToken())) {
             checkSingleTablePasswordAndPrivs(request.getUser(), request.getPasswd(), request.getDb(),
                     request.getTbl(),
@@ -2263,6 +2263,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 result.setMsg("invalid cluster id: " + Env.getCurrentEnv().getClusterId());
             }
 
+            if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
+                // If the version of FE is too old, we need to ensure compatibility.
+                if (request.getDeployMode() == null) {
+                    LOG.warn("Couldn't find deployMode in heartbeat info, "
+                            + "maybe you need upgrade FE master.");
+                } else if (!request.getDeployMode().equals(Env.getCurrentEnv().getDeployMode())) {
+                    result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
+                    result.setMsg("expected deployMode: "
+                            + request.getDeployMode()
+                            + ", but found deployMode: "
+                            + Env.getCurrentEnv().getDeployMode());
+                }
+            }
             if (result.getStatus() == TFrontendPingFrontendStatusCode.OK) {
                 if (!request.getToken().equals(Env.getCurrentEnv().getToken())) {
                     result.setStatus(TFrontendPingFrontendStatusCode.FAILED);
@@ -2405,7 +2418,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
             result.setToken(token);
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
@@ -2424,7 +2437,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.debug("receive check token request from client: {}", clientAddr);
         }
         try {
-            return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token);
+            return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);
             return false;
@@ -2932,12 +2945,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (snapshot == null) {
             result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_NOT_EXIST);
             result.getStatus().addToErrorMsgs(String.format("snapshot %s not exist", label));
+        } else if (snapshot.isExpired()) {
+            result.getStatus().setStatusCode(TStatusCode.SNAPSHOT_EXPIRED);
+            result.getStatus().addToErrorMsgs(String.format("snapshot %s is expired", label));
         } else {
             byte[] meta = snapshot.getMeta();
             byte[] jobInfo = snapshot.getJobInfo();
+            long expiredAt = snapshot.getExpiredAt();
 
-            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}",
-                    label, meta.length, jobInfo.length);
+            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, expired at: {}",
+                    label, meta.length, jobInfo.length, expiredAt);
             if (request.isEnableCompress()) {
                 meta = GZIPUtils.compress(meta);
                 jobInfo = GZIPUtils.compress(jobInfo);
@@ -2949,6 +2966,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             result.setMeta(meta);
             result.setJobInfo(jobInfo);
+            result.setExpiredAt(expiredAt);
         }
 
         return result;

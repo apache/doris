@@ -197,7 +197,7 @@ public:
         bool create_index = true;
         bool close_dir_on_shutdown = true;
         auto index_writer = std::make_unique<lucene::index::IndexWriter>(
-                _dir, _analyzer.get(), create_index, close_dir_on_shutdown);
+                _dir.get(), _analyzer.get(), create_index, close_dir_on_shutdown);
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_index_writer_setRAMBufferSizeMB_error",
                         { index_writer->setRAMBufferSizeMB(-100); })
         DBUG_EXECUTE_IF("InvertedIndexColumnWriter::create_index_writer_setMaxBufferedDocs_error",
@@ -708,7 +708,7 @@ private:
     std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
     std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
     InvertedIndexCtxSPtr _inverted_index_ctx = nullptr;
-    DorisFSDirectory* _dir = nullptr;
+    std::shared_ptr<DorisFSDirectory> _dir = nullptr;
     const KeyCoder* _value_key_coder;
     const TabletIndex* _index_meta;
     InvertedIndexParserType _parser_type;

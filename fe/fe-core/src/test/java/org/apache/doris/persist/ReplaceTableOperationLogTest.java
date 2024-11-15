@@ -34,7 +34,7 @@ public class ReplaceTableOperationLogTest {
         file.createNewFile();
         DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
 
-        ReplaceTableOperationLog log = new ReplaceTableOperationLog(1, 2, 3, true);
+        ReplaceTableOperationLog log = new ReplaceTableOperationLog(1, 2, 3, true, true);
         log.write(dos);
 
         dos.flush();

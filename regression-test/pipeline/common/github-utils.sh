@@ -262,6 +262,7 @@ file_changed_be_ut() {
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'contrib'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
             [[ "${af}" == 'bin/start_be.sh' ]] ||
@@ -280,6 +281,7 @@ file_changed_cloud_ut() {
     if [[ -z ${all_files} ]]; then echo "return need" && return 0; fi
     for af in ${all_files}; do
         if [[ "${af}" == 'cloud/src/'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'cloud/test/'* ]]; then
             echo "cloud-ut related file changed, return need" && return 0
         fi

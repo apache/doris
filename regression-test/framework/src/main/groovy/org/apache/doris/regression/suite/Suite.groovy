@@ -730,6 +730,26 @@ class Suite implements GroovyInterceptable {
         profileAction.run()
     }
 
+    String checkNereidsExecuteWithResult(String sqlString) {
+        String tag = UUID.randomUUID().toString();
+        String result = null;
+        log.info("start check" + tag)
+        String finalSqlString = "--" + tag + "\n" + sqlString
+        ProfileAction profileAction = new ProfileAction(context, tag)
+        profileAction.run {
+            log.info("start profile run" + tag)
+            result = sql (finalSqlString)
+        }
+        profileAction.check {
+            profileString, exception ->
+                log.info("start profile check" + tag)
+                log.info(profileString)
+                Assertions.assertTrue(profileString.contains("-  Is  Nereids:  Yes"))
+        }
+        profileAction.run()
+        return result;
+    }
+
     void createMV(String sql) {
         (new CreateMVAction(context, sql)).run()
     }
@@ -756,6 +776,26 @@ class Suite implements GroovyInterceptable {
             quickTest("", """ SELECT * FROM ${tbName}  """, true)
             sql """ DROP TABLE  ${tbName} """
         }
+    }
+
+    void waitForBrokerLoadDone(String label, int timeoutInSecond = 60) {
+        if (timeoutInSecond < 0 || label == null) {
+            return
+        }
+        var start = System.currentTimeMillis()
+        var timeout = timeoutInSecond * 1000
+        while (System.currentTimeMillis() - start < timeout) {
+            def lists = sql "show load where label = '${label}'"
+            if (lists.isEmpty()) {
+                return
+            }
+            def state = lists[0][2]
+            if ("FINISHED".equals(state) || "CANCELLED".equals(state)) {
+                return
+            }
+            sleep(300)
+        }
+        logger.warn("broker load with label `${label}` didn't finish in ${timeoutInSecond} second, please check it!")
     }
 
 
@@ -1640,7 +1680,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void setFeConfig(String key, Object value) {
-        sql "ADMIN SET FRONTEND CONFIG ('${key}' = '${value}')"
+        sql "ADMIN SET ALL FRONTEND CONFIG ('${key}' = '${value}')"
     }
 
     void setFeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {

@@ -104,6 +104,7 @@ DECLARE_Int32(arrow_flight_sql_port);
 // For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
 // If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
 DECLARE_mString(public_access_ip);
+DECLARE_Int32(public_access_port);
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -571,6 +572,8 @@ DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
+DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
+DECLARE_Int32(brpc_arrow_flight_work_pool_max_queue_size);
 
 // The maximum amount of data that can be processed by a stream load
 DECLARE_mInt64(streaming_load_max_mb);
@@ -677,6 +680,9 @@ DECLARE_mInt32(result_buffer_cancelled_interval_time);
 
 // arrow flight result sink buffer rows size, default 4096 * 8
 DECLARE_mInt32(arrow_flight_result_sink_buffer_size_rows);
+// The timeout for ADBC Client to wait for data using arrow flight reader.
+// If the query is very complex and no result is generated after this time, consider increasing this timeout.
+DECLARE_mInt32(arrow_flight_reader_brpc_controller_timeout_ms);
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
@@ -991,12 +997,16 @@ DECLARE_Int64(file_cache_recycle_keys_size);
 
 DECLARE_Bool(enable_brpc_builtin_services);
 
+DECLARE_Bool(enable_brpc_connection_check);
+
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
 // This parameter is usually only used when the FE loses connection,
 // and the BE can automatically cancel the relevant fragment after the timeout,
 // so as to avoid occupying the execution thread for a long time.
 DECLARE_mInt32(max_fragment_start_wait_time_seconds);
+
+DECLARE_Int32(fragment_mgr_cancel_worker_interval_seconds);
 
 // Node role tag for backend. Mix role is the default role, and computation role have no
 // any tablet.
@@ -1040,7 +1050,7 @@ DECLARE_Int32(pipeline_executor_size);
 DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
-// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}]
 // format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
 // Note1: storage is "disk" by default
 // Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
@@ -1372,8 +1382,6 @@ DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
 DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
 DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
-// The max ratio for ttl cache's size
-DECLARE_mInt64(max_ttl_cache_ratio);
 // The maximum jvm heap usage ratio for hdfs write workload
 DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1440,6 +1448,7 @@ DECLARE_mInt32(check_score_rounds_num);
 
 // MB
 DECLARE_Int32(query_cache_size);
+DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
 
 DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 // Enable validation to check the correctness of table size.

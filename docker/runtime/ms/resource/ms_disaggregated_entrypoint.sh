@@ -41,4 +41,4 @@ if [[ -d $CONFIGMAP_PATH ]]; then
        done
 fi
 
-$DORIS_HOME/ms/bin/start.sh
+$DORIS_HOME/ms/bin/start.sh --console

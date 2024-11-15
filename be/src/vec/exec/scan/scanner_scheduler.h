@@ -114,11 +114,8 @@ struct SimplifiedScanTask {
 
 class SimplifiedScanScheduler {
 public:
-    SimplifiedScanScheduler(std::string sched_name, CgroupCpuCtl* cgroup_cpu_ctl) {
-        _is_stop.store(false);
-        _cgroup_cpu_ctl = cgroup_cpu_ctl;
-        _sched_name = sched_name;
-    }
+    SimplifiedScanScheduler(std::string sched_name, std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
+            : _is_stop(false), _cgroup_cpu_ctl(cgroup_cpu_ctl), _sched_name(sched_name) {}
 
     ~SimplifiedScanScheduler() {
         stop();
@@ -217,7 +214,7 @@ public:
 private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::atomic<bool> _is_stop;
-    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
+    std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
     std::string _sched_name;
 };
 

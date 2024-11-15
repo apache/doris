@@ -276,11 +276,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _workload_group_manager = new WorkloadGroupMgr();
+    _workload_group_manager->init_internal_workload_group();
     _scanner_scheduler = new doris::vectorized::ScannerScheduler();
     _fragment_mgr = new FragmentMgr(this);
     _result_cache = new ResultCache(config::query_cache_max_size_mb,
                                     config::query_cache_elasticity_size_mb);
-    _master_info = new TMasterInfo();
+    _cluster_info = new ClusterInfo();
     _load_path_mgr = new LoadPathMgr(this);
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
@@ -348,6 +349,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     options.store_paths = store_paths;
     options.broken_paths = broken_paths;
     options.backend_uid = doris::UniqueId::gen_uid();
+    // Check if the startup mode has been modified
+    RETURN_IF_ERROR(_check_deploy_mode());
     if (config::is_cloud_mode()) {
         std::cout << "start BE in cloud mode, cloud_unique_id: " << config::cloud_unique_id
                   << ", meta_service_endpoint: " << config::meta_service_endpoint << std::endl;
@@ -362,7 +365,8 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         return st;
     }
     _storage_engine->set_heartbeat_flags(this->heartbeat_flags());
-    if (st = _storage_engine->start_bg_threads(); !st.ok()) {
+    WorkloadGroupPtr internal_wg = _workload_group_manager->get_internal_wg();
+    if (st = _storage_engine->start_bg_threads(internal_wg); !st.ok()) {
         LOG(ERROR) << "Failed to starge bg threads of storage engine, res=" << st;
         return st;
     }
@@ -628,6 +632,49 @@ void ExecEnv::init_mem_tracker() {
             MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::LOAD, "StreamLoadPipe");
 }
 
+Status ExecEnv::_check_deploy_mode() {
+    for (auto _path : _store_paths) {
+        auto deploy_mode_path = fmt::format("{}/{}", _path.path, DEPLOY_MODE_PREFIX);
+        std::string expected_mode = doris::config::is_cloud_mode() ? "cloud" : "local";
+        bool exists = false;
+        RETURN_IF_ERROR(io::global_local_filesystem()->exists(deploy_mode_path, &exists));
+        if (exists) {
+            // check if is ok
+            io::FileReaderSPtr reader;
+            RETURN_IF_ERROR(io::global_local_filesystem()->open_file(deploy_mode_path, &reader));
+            size_t fsize = reader->size();
+            if (fsize > 0) {
+                std::string actual_mode;
+                actual_mode.resize(fsize, '\0');
+                size_t bytes_read = 0;
+                RETURN_IF_ERROR(reader->read_at(0, {actual_mode.data(), fsize}, &bytes_read));
+                DCHECK_EQ(fsize, bytes_read);
+                if (expected_mode != actual_mode) {
+                    return Status::InternalError(
+                            "You can't switch deploy mode from {} to {}, "
+                            "maybe you need to check be.conf\n",
+                            actual_mode.c_str(), expected_mode.c_str());
+                }
+                LOG(INFO) << "The current deployment mode is " << expected_mode << ".";
+            }
+        } else {
+            io::FileWriterPtr file_writer;
+            RETURN_IF_ERROR(
+                    io::global_local_filesystem()->create_file(deploy_mode_path, &file_writer));
+            RETURN_IF_ERROR(file_writer->append(expected_mode));
+            RETURN_IF_ERROR(file_writer->close());
+            LOG(INFO) << "The file deploy_mode doesn't exist, create it.";
+            auto cluster_id_path = fmt::format("{}/{}", _path.path, CLUSTER_ID_PREFIX);
+            RETURN_IF_ERROR(io::global_local_filesystem()->exists(cluster_id_path, &exists));
+            if (exists) {
+                LOG(WARNING) << "This may be an upgrade from old version,"
+                             << "or the deploy_mode file has been manually deleted";
+            }
+        }
+    }
+    return Status::OK();
+}
+
 void ExecEnv::_register_metrics() {
     REGISTER_HOOK_METRIC(send_batch_thread_pool_thread_num,
                          [this]() { return _send_batch_thread_pool->num_threads(); });
@@ -765,9 +812,9 @@ void ExecEnv::destroy() {
 
     // Master Info is a thrift object, it could be the last one to deconstruct.
     // Master info should be deconstruct later than fragment manager, because fragment will
-    // access master_info.backend id to access some info. If there is a running query and master
+    // access cluster_info.backend_id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
-    SAFE_DELETE(_master_info);
+    SAFE_DELETE(_cluster_info);
 
     // NOTE: runtime query statistics mgr could be visited by query and daemon thread
     // so it should be created before all query begin and deleted after all query and daemon thread stoppped

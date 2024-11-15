@@ -74,7 +74,7 @@ void read_binary(Array& x, BufferReadable& buf) {
         case Field::Types::String: {
             std::string value;
             doris::vectorized::read_string_binary(value, buf);
-            x.push_back(value);
+            x.push_back(Field(value));
             break;
         }
         case Field::Types::JSONB: {

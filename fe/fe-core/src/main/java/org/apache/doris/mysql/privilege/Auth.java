@@ -1019,6 +1019,10 @@ public class Auth implements Writable {
         alterRoleInternal(stmt.getRole(), stmt.getComment(), false);
     }
 
+    public void alterRole(String role, String comment) throws DdlException {
+        alterRoleInternal(role, comment, false);
+    }
+
     public void replayCreateRole(PrivInfo info) {
         try {
             createRoleInternal(info.getRole(), false, info.getComment(), true);

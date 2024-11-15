@@ -204,7 +204,9 @@ public:
     }
 
     bool contain_null() const {
-        DCHECK(_bloom_filter);
+        if (!_bloom_filter) {
+            throw Status::InternalError("_bloom_filter is nullptr");
+        }
         return _bloom_filter->contain_null();
     }
 

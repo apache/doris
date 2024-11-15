@@ -327,6 +327,10 @@ struct TPublishTopicResult {
     1: required Status.TStatus status
 }
 
+enum TWorkloadType {
+    INTERNAL = 2
+}
+
 struct TGetRealtimeExecStatusRequest {
     // maybe query id or other unique id
     1: optional Types.TUniqueId id
