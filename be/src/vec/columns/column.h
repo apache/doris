@@ -503,13 +503,17 @@ public:
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
-      * For default implementation, see scatter_impl.
+      * For default implementation, see column_impl.h
       */
     using ColumnIndex = UInt64;
     using Selector = PaddedPODArray<ColumnIndex>;
 
+    // The append_data_by_selector function requires the column to implement the insert_from function.
+    // In fact, this function is just calling insert_from but without the overhead of a virtual function.
+
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
 
+    // Here, begin and end represent the range of the Selector.
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector, size_t begin,
                                          size_t end) const = 0;
 

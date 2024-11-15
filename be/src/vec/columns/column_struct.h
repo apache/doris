@@ -137,13 +137,6 @@ public:
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
-    void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
-        return append_data_by_selector_impl<ColumnStruct>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const Selector& selector, size_t begin,
-                                 size_t end) const override {
-        return append_data_by_selector_impl<ColumnStruct>(res, selector, begin, end);
-    }
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Method replace_column_data is not supported for " + get_name());

@@ -423,19 +423,6 @@ public:
         __builtin_unreachable();
     }
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in PredicateColumnType!");
-        __builtin_unreachable();
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in PredicateColumnType!");
-        __builtin_unreachable();
-    }
-
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         ColumnType* column = assert_cast<ColumnType*>(col_ptr);
         if constexpr (std::is_same_v<T, StringRef>) {

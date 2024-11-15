@@ -199,20 +199,6 @@ public:
         __builtin_unreachable();
     }
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in ColumnDictionary!");
-        __builtin_unreachable();
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in ColumnDictionary!");
-        __builtin_unreachable();
-    }
-
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = assert_cast<vectorized::ColumnString*>(col_ptr);
         _strings.resize(sel_size);

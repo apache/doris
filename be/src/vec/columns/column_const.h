@@ -252,15 +252,6 @@ public:
         }
     }
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        assert_cast<Self&>(*res).resize(selector.size());
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        assert_cast<Self&>(*res).resize(end - begin);
-    }
-
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
     bool structure_equals(const IColumn& rhs) const override {

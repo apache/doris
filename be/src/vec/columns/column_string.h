@@ -511,16 +511,6 @@ public:
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector, begin, end);
-    }
-
     void reserve(size_t n) override;
 
     void resize(size_t n) override;
