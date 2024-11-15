@@ -422,7 +422,7 @@ void ExecEnv::init_file_cache_factory(std::vector<doris::CachePath>& cache_paths
     Status rest = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
     if (!rest) {
         LOG(FATAL) << "parse config file cache path failed, path="
-                   << doris::config::file_cache_path;
+                   << doris::config::file_cache_path << ", reason=" << rest.msg();
         exit(-1);
     }
     std::vector<std::thread> file_cache_init_threads;
