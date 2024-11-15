@@ -3269,6 +3269,10 @@ public class Env {
         getInternalCatalog().recoverDatabase(recoverStmt);
     }
 
+    public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
+        getInternalCatalog().recoverDatabase(dbName, dbId, newDbName);
+    }
+
     public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverTable(recoverStmt);
     }
