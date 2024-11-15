@@ -666,9 +666,11 @@ Status Compaction::do_inverted_index_compaction() {
                         DORIS_TRY(inverted_index_file_readers[src_segment_id]->open(index_meta));
             }
             for (int dest_segment_id = 0; dest_segment_id < dest_segment_num; dest_segment_id++) {
-                auto* dest_dir =
+                auto dest_dir =
                         DORIS_TRY(inverted_index_file_writers[dest_segment_id]->open(index_meta));
-                dest_index_dirs[dest_segment_id] = dest_dir;
+                // Destination directories in dest_index_dirs do not need to be deconstructed,
+                // but their lifecycle must be managed by inverted_index_file_writers.
+                dest_index_dirs[dest_segment_id] = dest_dir.get();
             }
             auto st = compact_column(index_meta->index_id(), src_idx_dirs, dest_index_dirs,
                                      index_tmp_path.native(), trans_vec, dest_segment_num_rows);
@@ -1126,6 +1128,18 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
               << ", output_version=" << _output_version << ", permits: " << permits;
 
     RETURN_IF_ERROR(merge_input_rowsets());
+
+    DBUG_EXECUTE_IF("CloudFullCompaction::modify_rowsets.wrong_rowset_id", {
+        DCHECK(compaction_type() == ReaderType::READER_FULL_COMPACTION);
+        RowsetId id;
+        id.version = 2;
+        id.hi = _output_rowset->rowset_meta()->rowset_id().hi + ((int64_t)(1) << 56);
+        id.mi = _output_rowset->rowset_meta()->rowset_id().mi;
+        id.lo = _output_rowset->rowset_meta()->rowset_id().lo;
+        _output_rowset->rowset_meta()->set_rowset_id(id);
+        LOG(INFO) << "[Debug wrong rowset id]:"
+                  << _output_rowset->rowset_meta()->rowset_id().to_string();
+    })
 
     RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get()));
 

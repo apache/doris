@@ -516,23 +516,20 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                                   local_state._matched_rows_done
                         : local_state._matched_rows_done);
 
+        size_t join_block_column_size = local_state._join_block.columns();
         {
-            vectorized::Block tmp_block = local_state._join_block;
-
-            // Here make _join_block release the columns' ptr
-            local_state._join_block.set_columns(local_state._join_block.clone_empty_columns());
-
-            local_state.add_tuple_is_null_column(&tmp_block);
+            local_state.add_tuple_is_null_column(&local_state._join_block);
             {
                 SCOPED_TIMER(local_state._join_filter_timer);
                 RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                        local_state._conjuncts, &tmp_block, tmp_block.columns()));
+                        local_state._conjuncts, &local_state._join_block,
+                        local_state._join_block.columns()));
             }
-            RETURN_IF_ERROR(local_state._build_output_block(&tmp_block, block, false));
+            RETURN_IF_ERROR(
+                    local_state._build_output_block(&local_state._join_block, block, false));
             local_state._reset_tuple_is_null_column();
         }
-        local_state._join_block.clear_column_data();
-
+        local_state._join_block.clear_column_data(join_block_column_size);
         if (!(*eos) and !local_state._need_more_input_data) {
             auto func = [&](auto&& join_op_variants, auto set_build_side_flag,
                             auto set_probe_side_flag) {

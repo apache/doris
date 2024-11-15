@@ -29,6 +29,7 @@ inline static constexpr size_t FILE_CACHE_MAX_FILE_BLOCK_SIZE = 1 * 1024 * 1024;
 inline static constexpr size_t DEFAULT_NORMAL_PERCENT = 40;
 inline static constexpr size_t DEFAULT_DISPOSABLE_PERCENT = 5;
 inline static constexpr size_t DEFAULT_INDEX_PERCENT = 5;
+inline static constexpr size_t DEFAULT_TTL_PERCENT = 50;
 
 using uint128_t = vectorized::UInt128;
 
@@ -107,6 +108,7 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
                                           size_t normal_percent = DEFAULT_NORMAL_PERCENT,
                                           size_t disposable_percent = DEFAULT_DISPOSABLE_PERCENT,
                                           size_t index_percent = DEFAULT_INDEX_PERCENT,
+                                          size_t ttl_percent = DEFAULT_TTL_PERCENT,
                                           const std::string& storage = "disk");
 
 struct CacheContext {
