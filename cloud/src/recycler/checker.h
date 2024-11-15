@@ -23,6 +23,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <deque>
+#include <functional>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
@@ -83,14 +84,20 @@ public:
     int do_inverted_check();
 
     // Return 0 if success.
-    // Return 1 if some delete bitmaps are not pruned expectedly
+    // Return 1 if data loss is identified.
+    // Return negative if a temporary error occurred during the check process.
+    int do_check();
+
+    // Return 0 if success.
+    // Return 1 if delete bitmap loss is identified.
     // Return negative if a temporary error occurred during the check process.
     int do_delete_bitmap_integrity_check();
 
     // Return 0 if success.
-    // Return 1 if data loss is identified.
+    // Return 1 if delete bitmap leak is identified.
     // Return negative if a temporary error occurred during the check process.
-    int do_check();
+    int do_delete_bitmap_inverted_check();
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
@@ -110,6 +117,9 @@ private:
         std::pair<int64_t, int64_t> version;
     };
 
+    int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
+
+    // check if all the visible rowsets have a corresponding delete bitmap
     int check_delete_bitmap_integrity(int64_t tablet_id);
 
     std::atomic_bool stopped_ {false};
