@@ -204,6 +204,7 @@ supportedShowStatement
         ((FROM | IN) database=identifier)?                                          #showView
     | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ROLES                                                                    #showRoles        
+    | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId
     | SHOW PROC path=STRING_LITERAL                                                 #showProc        
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
@@ -291,7 +292,6 @@ unsupportedShowStatement
     | SHOW DATA (FROM tableName=multipartIdentifier)? sortClause? propertyClause?   #showData
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW TABLETS BELONG
         tabletIds+=INTEGER_VALUE (COMMA tabletIds+=INTEGER_VALUE)*                  #showTabletBelong
