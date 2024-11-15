@@ -17,31 +17,32 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/lakehouse/database/mysql.md", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("docs/lakehouse/database/clickhouse.md", "p0,external,clickhouse,external_docker,external_docker_clickhouse") {
     try {
         String enable = context.config.otherConfigs.get("enableJdbcTest")
         if(enable == null || !enable.equalsIgnoreCase("true")) {
             return
         }
+
         def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        def mysql_port = context.config.otherConfigs.get("mysql_57_port")
+        def ch_port = context.config.otherConfigs.get("clickhouse_22_port")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
-        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-        String driver_class = "com.mysql.cj.jdbc.Driver"
+        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/clickhouse-jdbc-0.4.2-all.jar"
+        String driver_class = "com.clickhouse.jdbc.ClickHouseDriver"
 
-        sql """ DROP CATALOG IF EXISTS mysql; """
+        sql """ DROP CATALOG IF EXISTS clickhouse; """
         sql """
-            CREATE CATALOG mysql PROPERTIES (
+            CREATE CATALOG clickhouse PROPERTIES (
                 "type"="jdbc",
-                "user"="root",
+                "user"="default",
                 "password"="123456",
-                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "jdbc_url" = "jdbc:clickhouse://${externalEnvIp}:${ch_port}/",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "${driver_class}"
             )
         """
     } catch (Throwable t) {
-        Assertions.fail("examples in docs/lakehouse/database/mysql.md failed to exec, please fix it", t)
+        Assertions.fail("examples in docs/lakehouse/database/clickhouse.md failed to exec, please fix it", t)
     }
 }

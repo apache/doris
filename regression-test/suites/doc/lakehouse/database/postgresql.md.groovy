@@ -17,7 +17,7 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/lakehouse/database/postgresql.md") {
+suite("docs/lakehouse/database/postgresql.md", "p0,external,pg,external_docker,external_docker_pg") {
     try {
         String enable = context.config.otherConfigs.get("enableJdbcTest")
         if(enable == null || !enable.equalsIgnoreCase("true")) {

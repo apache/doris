@@ -17,31 +17,33 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/lakehouse/database/mysql.md", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("docs/lakehouse/database/oceanbase.md", "p0,external,oceanbase,external_docker,external_docker_oceanbase") {
     try {
         String enable = context.config.otherConfigs.get("enableJdbcTest")
         if(enable == null || !enable.equalsIgnoreCase("true")) {
             return
         }
+
         def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        def mysql_port = context.config.otherConfigs.get("mysql_57_port")
+        def ob_port = context.config.otherConfigs.get("oceanbase_port")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
-        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-        String driver_class = "com.mysql.cj.jdbc.Driver"
+        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/oceanbase-client-2.4.8.jar"
+        String driver_class = "com.oceanbase.jdbc.Driver"
+        String database = "doris_test"
 
-        sql """ DROP CATALOG IF EXISTS mysql; """
+        sql """ DROP CATALOG IF EXISTS oceanbase; """
         sql """
-            CREATE CATALOG mysql PROPERTIES (
+            CREATE CATALOG oceanbase PROPERTIES (
                 "type"="jdbc",
-                "user"="root",
-                "password"="123456",
-                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "user"="root@test",
+                "password"="",
+                "jdbc_url" = "jdbc:oceanbase://${externalEnvIp}:${ob_port}/${database}",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "${driver_class}"
             )
         """
     } catch (Throwable t) {
-        Assertions.fail("examples in docs/lakehouse/database/mysql.md failed to exec, please fix it", t)
+        Assertions.fail("examples in docs/lakehouse/database/oceanbase.md failed to exec, please fix it", t)
     }
 }

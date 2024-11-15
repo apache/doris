@@ -17,31 +17,33 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/lakehouse/database/mysql.md", "p0,external,mysql,external_docker,external_docker_mysql") {
+suite("docs/lakehouse/database/ibm-db2.md", "p0,external,db2,external_docker,external_docker_db2") {
     try {
         String enable = context.config.otherConfigs.get("enableJdbcTest")
         if(enable == null || !enable.equalsIgnoreCase("true")) {
             return
         }
+
         def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        def mysql_port = context.config.otherConfigs.get("mysql_57_port")
+        def db2_port = context.config.otherConfigs.get("db2_11_port")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
-        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-java-8.0.25.jar"
-        String driver_class = "com.mysql.cj.jdbc.Driver"
+        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/jcc-11.5.8.0.jar"
+        String driver_class = "com.ibm.db2.jcc.DB2Driver"
+        String database = "doris"
 
-        sql """ DROP CATALOG IF EXISTS mysql; """
+        sql """ DROP CATALOG IF EXISTS db2; """
         sql """
-            CREATE CATALOG mysql PROPERTIES (
+            CREATE CATALOG db2 PROPERTIES (
                 "type"="jdbc",
-                "user"="root",
+                "user"="db2inst1",
                 "password"="123456",
-                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "jdbc_url" = "jdbc:db2://${externalEnvIp}:${db2_port}/${database}",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "${driver_class}"
             )
         """
     } catch (Throwable t) {
-        Assertions.fail("examples in docs/lakehouse/database/mysql.md failed to exec, please fix it", t)
+        Assertions.fail("examples in docs/lakehouse/database/ibm-db2.md failed to exec, please fix it", t)
     }
 }

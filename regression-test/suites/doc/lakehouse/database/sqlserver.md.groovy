@@ -17,7 +17,7 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/lakehouse/database/sqlserver.md") {
+suite("docs/lakehouse/database/sqlserver.md", "p0,external,sqlserver,external_docker,external_docker_sqlserver") {
     try {
         String enable = context.config.otherConfigs.get("enableJdbcTest")
         if(enable == null || !enable.equalsIgnoreCase("true")) {
@@ -25,20 +25,20 @@ suite("docs/lakehouse/database/sqlserver.md") {
         }
 
         def externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-        def oracle_port = context.config.otherConfigs.get("oracle_11_port")
+        def sqlserver_port = context.config.otherConfigs.get("sqlserver_2022_port")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
-        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/ojdbc8.jar"
-        String driver_class = "oracle.jdbc.driver.OracleDriver"
-        String sid = "XE"
+        String driver_url = "http://${bucket}.${s3_endpoint}/regression/jdbc_driver/mssql-jdbc-11.2.3.jre8.jar"
+        String driver_class = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+        String databaseName = "doris_test"
 
-        sql """ DROP CATALOG IF EXISTS oracle; """
+        sql """ DROP CATALOG IF EXISTS sqlserver; """
         sql """
-            CREATE CATALOG oracle PROPERTIES (
+            CREATE CATALOG sqlserver PROPERTIES (
                 "type"="jdbc",
-                "user"="doris_test",
-                "password"="123456",
-                "jdbc_url" = "jdbc:oracle:thin:@${externalEnvIp}:${oracle_port}:${sid}",
+                "user"="sa",
+                "password"="Doris123456",
+                "jdbc_url" = "jdbc:sqlserver://${externalEnvIp}:${sqlserver_port};databaseName=${databaseName};encrypt=false",
                 "driver_url" = "${driver_url}",
                 "driver_class" = "${driver_class}"
             )

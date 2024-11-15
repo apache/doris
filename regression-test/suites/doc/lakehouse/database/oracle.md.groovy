@@ -17,7 +17,7 @@
 
 import org.junit.jupiter.api.Assertions;
 
-suite("docs/lakehouse/database/oracle.md") {
+suite("docs/lakehouse/database/oracle.md", "p0,external,oracle,external_docker,external_docker_oracle") {
     try {
         String enable = context.config.otherConfigs.get("enableJdbcTest")
         if(enable == null || !enable.equalsIgnoreCase("true")) {
