@@ -77,7 +77,6 @@ done
 if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
-
 TPCH_QUERIES_DIR="${CURDIR}/../queries"
 if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Running tpch sf 1 queries"
