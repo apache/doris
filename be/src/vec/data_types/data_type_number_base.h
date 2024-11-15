@@ -189,7 +189,8 @@ protected:
         for (int row_num = 0; row_num < size; row_num++) {
             auto num = is_const ? col_vec.get_element(0) : col_vec.get_element(row_num);
             static_cast<const Derived*>(this)->push_number(chars, num);
-            offsets[row_num] = cast_set<UInt32>(chars.size());
+            // push_number can check the chars is over uint32 so use static_cast here.
+            offsets[row_num] = static_cast<UInt32>(chars.size());
         }
     }
 

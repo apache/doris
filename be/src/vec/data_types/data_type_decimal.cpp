@@ -238,7 +238,7 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
         buf = deserialize_const_flag_and_row_num(buf, column, &real_have_saved_num);
 
         // column data
-        UInt64 mem_size = real_have_saved_num * sizeof(T);
+        UInt32 mem_size = cast_set<UInt32>(real_have_saved_num * sizeof(T));
         auto& container = assert_cast<ColumnDecimal<T>*>(origin_column)->get_data();
         container.resize(real_have_saved_num);
         if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
@@ -248,7 +248,7 @@ const char* DataTypeDecimal<T>::deserialize(const char* buf, MutableColumnPtr* c
             size_t encode_size = *reinterpret_cast<const size_t*>(buf);
             buf += sizeof(size_t);
             streamvbyte_decode((const uint8_t*)buf, (uint32_t*)(container.data()),
-                               cast_set<UInt32>(upper_int32(mem_size)));
+                               upper_int32(mem_size));
             buf = buf + encode_size;
         }
         return buf;
