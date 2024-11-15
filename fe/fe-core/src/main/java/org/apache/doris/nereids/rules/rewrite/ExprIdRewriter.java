@@ -64,7 +64,6 @@ public class ExprIdRewriter extends ExpressionRewrite {
         builder.addAll(super.buildRules());
         builder.addAll(ImmutableList.of(
                 new LogicalPartitionTopNExpressionRewrite().build(),
-                new LogicalQualifyExpressionRewrite().build(),
                 new LogicalTopNExpressionRewrite().build(),
                 new LogicalSetOperationRewrite().build(),
                 new LogicalWindowRewrite().build(),
