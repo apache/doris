@@ -239,22 +239,22 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                 break;
             }
         }
-#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)                                           \
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
-        opts.need_zone_map = false;                                                            \
-        opts.need_bloom_filter = false;                                                        \
-        opts.need_bitmap_index = false;                                                        \
+#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
+        opts.need_zone_map = false;                           \
+        opts.need_bloom_filter = false;                       \
+        opts.need_bitmap_index = false;                       \
     }
 
-    DISABLE_INDEX_IF_FIELD_TYPE(STRUCT, "struct")
-    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
-    DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
-    DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
-    DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
-    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
-    DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
-    DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
-    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
+        DISABLE_INDEX_IF_FIELD_TYPE(STRUCT, "struct")
+        DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
+        DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
+        DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
+        DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
+        DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+        DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
+        DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+        DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
 
 #undef DISABLE_INDEX_IF_FIELD_TYPE
 

@@ -78,16 +78,16 @@ TEST_F(SchemaUtilTest, inherit_column_attributes) {
     for (const auto& col : subcolumns) {
         switch (col._parent_col_unique_id) {
         case 1:
-            EXPECT_TRUE(tablet_schema->inverted_index(col) != nullptr);
+            EXPECT_TRUE(tablet_schema->get_inverted_index(col) != nullptr);
             break;
         case 3:
-            EXPECT_TRUE(tablet_schema->inverted_index(col) == nullptr);
+            EXPECT_TRUE(tablet_schema->get_inverted_index(col) == nullptr);
             break;
         default:
             EXPECT_TRUE(false);
         }
     }
-    EXPECT_EQ(tablet_schema->inverted_indexes().size(), 7);
+    EXPECT_EQ(tablet_schema->indexes().size(), 7);
 
     for (const auto& col : tablet_schema->_cols) {
         if (!col->is_extracted_column()) {
