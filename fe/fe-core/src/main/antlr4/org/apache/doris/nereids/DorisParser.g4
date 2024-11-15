@@ -207,6 +207,7 @@ supportedShowStatement
     | SHOW PROC path=STRING_LITERAL                                                 #showProc        
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
+    | SHOW FRONTENDS name=identifier?                                               #showFrontends 
     ;
 
 unsupportedOtherStatement
@@ -305,7 +306,6 @@ unsupportedShowStatement
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
-    | SHOW FRONTENDS name=identifier?                                               #showFrontends
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
