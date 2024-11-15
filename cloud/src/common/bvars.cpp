@@ -102,6 +102,8 @@ bvar::LatencyRecorder g_bvar_txn_kv_get_read_version("txn_kv", "get_read_version
 bvar::LatencyRecorder g_bvar_txn_kv_get_committed_version("txn_kv", "get_committed_version");
 bvar::LatencyRecorder g_bvar_txn_kv_batch_get("txn_kv", "batch_get");
 
+bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized("txn_kv", "get_count_normalized");
+
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute(
         "txn_kv", "commit_error", &g_bvar_txn_kv_commit_error_counter, 60);
