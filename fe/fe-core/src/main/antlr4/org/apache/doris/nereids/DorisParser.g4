@@ -202,15 +202,26 @@ supportedCreateStatement
 
 supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
-        AS query                                                          #alterView
-    | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause   #alterStorageVault
-    | ALTER ROLE role=identifier commentSpec                                        #alterRole
+        AS query                                                                            #alterView
+    | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause                #alterStorageVault
+    | ALTER ROLE role=identifier commentSpec                                                #alterRole
     | ALTER WORKLOAD GROUP name=identifierOrText
-        properties=propertyClause?                                                  #alterWorkloadGroup
+        properties=propertyClause?                                                          #alterWorkloadGroup
     | ALTER WORKLOAD POLICY name=identifierOrText
-        properties=propertyClause?                                                  #alterWorkloadPolicy
-    | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?               #alterSqlBlockRule
-    | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL           #alterCatalogComment
+        properties=propertyClause?                                                          #alterWorkloadPolicy
+    | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?                       #alterSqlBlockRule
+    | ALTER CATALOG name=identifier MODIFY COMMENT comment=STRING_LITERAL                   #alterCatalogComment
+    | ALTER SQL_BLOCK_RULE name=identifier properties=propertyClause?               
+        properties=propertyClause?                                                          #alterSqlBlockRule
+    | ALTER ROLE role=identifier commentSpec                                                #alterRole
+    | ALTER TABLE tableName=multipartIdentifier
+        alterTableClause (COMMA alterTableClause)*                                          #alterTable
+    | ALTER TABLE tableName=multipartIdentifier ADD ROLLUP
+        addRollupClause (COMMA addRollupClause)*                                            #alterTableAddRollup
+    | ALTER TABLE tableName=multipartIdentifier DROP ROLLUP
+        dropRollupClause (COMMA dropRollupClause)*                                          #alterTableDropRollup
+    | ALTER TABLE name=multipartIdentifier
+        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                         #alterTableProperties
     ;
 
 supportedDropStatement
@@ -573,13 +584,7 @@ privilegeList
     ;
 
 unsupportedAlterStatement
-    : ALTER TABLE tableName=multipartIdentifier
-        alterTableClause (COMMA alterTableClause)*                                  #alterTable
-    | ALTER TABLE tableName=multipartIdentifier ADD ROLLUP
-        addRollupClause (COMMA addRollupClause)*                                    #alterTableAddRollup
-    | ALTER TABLE tableName=multipartIdentifier DROP ROLLUP
-        dropRollupClause (COMMA dropRollupClause)*                                  #alterTableDropRollup
-    | ALTER SYSTEM alterSystemClause                                                #alterSystem
+    : ALTER SYSTEM alterSystemClause                                                #alterSystem
     | ALTER DATABASE name=identifier SET (DATA |REPLICA | TRANSACTION)
         QUOTA INTEGER_VALUE identifier?                                             #alterDatabaseSetQuota
     | ALTER DATABASE name=identifier RENAME newName=identifier                      #alterDatabaseRename
@@ -593,8 +598,6 @@ unsupportedAlterStatement
         SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterColocateGroup
     | ALTER ROUTINE LOAD FOR name=multipartIdentifier properties=propertyClause?
             (FROM type=identifier LEFT_PAREN propertyItemList RIGHT_PAREN)?         #alterRoutineLoad
-    | ALTER TABLE name=multipartIdentifier
-        SET LEFT_PAREN propertyItemList RIGHT_PAREN                                 #alterTableProperties
     | ALTER STORAGE POLICY name=identifierOrText
         properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
@@ -638,20 +641,19 @@ addRollupClause
 
 alterTableClause
     : ADD COLUMN columnDef columnPosition? toRollup? properties=propertyClause?     #addColumnClause
-    | ADD COLUMN LEFT_PAREN columnDef (COMMA columnDef)* RIGHT_PAREN
+    | ADD COLUMN LEFT_PAREN columnDefs RIGHT_PAREN
         toRollup? properties=propertyClause?                                        #addColumnsClause
     | DROP COLUMN name=identifier fromRollup? properties=propertyClause?            #dropColumnClause
     | MODIFY COLUMN columnDef columnPosition? fromRollup?
     properties=propertyClause?                                                      #modifyColumnClause
     | ORDER BY identifierList fromRollup? properties=propertyClause?                #reorderColumnsClause
-    | ADD TEMPORARY? (lessThanPartitionDef | fixedPartitionDef | inPartitionDef)
-        (LEFT_PAREN partitionProperties=propertyItemList RIGHT_PAREN)?
+    | ADD TEMPORARY? partitionDef
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM)
             (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
         properties=propertyClause?                                                  #addPartitionClause
     | DROP TEMPORARY? PARTITION (IF EXISTS)? partitionName=identifier FORCE?
         (FROM INDEX indexName=identifier)?                                          #dropPartitionClause
-    | MODIFY TEMPORARY? PARTITION (IF EXISTS)?
+    | MODIFY TEMPORARY? PARTITION
         (partitionName=identifier | partitionNames=identifierList
             | LEFT_PAREN ASTERISK RIGHT_PAREN)
         SET LEFT_PAREN partitionProperties=propertyItemList RIGHT_PAREN             #modifyPartitionClause
@@ -1379,7 +1381,7 @@ indexDefs
     ;
     
 indexDef
-    : INDEX (IF NOT EXISTS)? indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
+    : INDEX (ifNotExists=IF NOT EXISTS)? indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
     ;
     
 partitionsDef

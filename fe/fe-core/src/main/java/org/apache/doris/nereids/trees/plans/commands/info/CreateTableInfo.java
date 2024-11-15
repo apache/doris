@@ -613,7 +613,6 @@ public class CreateTableInfo {
                     throw new AnalysisException(engineName + " catalog doesn't support column with 'NOT NULL'.");
                 }
                 columnDef.setIsKey(true);
-                columnDef.setAggType(AggregateType.NONE);
             }
             // TODO: support iceberg partition check
             if (engineName.equalsIgnoreCase(ENGINE_HIVE)) {

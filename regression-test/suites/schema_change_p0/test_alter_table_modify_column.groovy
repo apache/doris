@@ -99,7 +99,7 @@ suite("test_alter_table_modify_column") {
     test {
         sql """alter table ${aggTableName} modify COLUMN siteid INT key SUM DEFAULT '0';"""
         // check exception message contains
-        exception "Key column can not set aggregation type"
+        exception "Key column siteid can not set aggregation type"
     }
 
     test {

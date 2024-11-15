@@ -41,7 +41,6 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -69,6 +68,7 @@ public class ColumnDefinition {
     private int clusterKeyId = -1;
     private Optional<GeneratedColumnDesc> generatedColumnDesc = Optional.empty();
     private Set<String> generatedColumnsThatReferToThis = new HashSet<>();
+    private KeysType keysType;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment) {
@@ -176,6 +176,48 @@ public class ColumnDefinition {
         this.clusterKeyId = clusterKeyId;
     }
 
+    public void setKeysType(KeysType keysType) {
+        this.keysType = keysType;
+    }
+
+    public boolean hasDefaultValue() {
+        return defaultValue.isPresent();
+    }
+
+    /**
+     * toSql
+     */
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("`").append(name).append("` ");
+        sb.append(type.toSql()).append(" ");
+
+        if (aggType != null) {
+            sb.append(aggType.name()).append(" ");
+        }
+
+        if (!isNullable) {
+            sb.append("NOT NULL ");
+        } else {
+            // should append NULL to make result can be executed right.
+            sb.append("NULL ");
+        }
+
+        if (autoIncInitValue != -1) {
+            sb.append("AUTO_INCREMENT ");
+            sb.append("(");
+            sb.append(autoIncInitValue);
+            sb.append(")");
+        }
+
+        if (defaultValue.isPresent()) {
+            sb.append(defaultValue.get()).append(" ");
+        }
+        sb.append("COMMENT \"").append(comment).append("\"");
+
+        return sb.toString();
+    }
+
     private DataType updateCharacterTypeLength(DataType dataType) {
         if (dataType instanceof ArrayType) {
             return ArrayType.of(updateCharacterTypeLength(((ArrayType) dataType).getItemType()));
@@ -250,37 +292,27 @@ public class ColumnDefinition {
             }
         }
         if (type.isHllType() || type.isQuantileStateType() || type.isBitmapType()) {
-            if (isNullable) {
-                throw new AnalysisException("complex type column must be not nullable, column:" + name);
+            if (isKey) {
+                throw new AnalysisException("Key column can not set complex type:" + name);
             }
+            if (keysType.equals(KeysType.AGG_KEYS)) {
+                if (aggType == null) {
+                    throw new AnalysisException("complex type have to use aggregate function: " + name);
+                }
+            }
+            isNullable = false;
         }
 
         // check keys type
-        if (keysSet.contains(name)) {
-            isKey = true;
-            if (aggType != null) {
-                throw new AnalysisException(
-                        String.format("Key column %s can not set aggregation type", name));
-            }
-            checkKeyColumnType(isOlap);
-        } else if (aggType == null && isOlap) {
-            Preconditions.checkState(keysType != null, "keysType is null");
-            if (keysType.equals(KeysType.DUP_KEYS)) {
-                aggType = AggregateType.NONE;
-            } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
-                aggType = AggregateType.NONE;
-            } else if (!keysType.equals(KeysType.AGG_KEYS)) {
-                aggType = AggregateType.REPLACE;
-            } else {
-                throw new AnalysisException("should set aggregation type to non-key column when in aggregate key");
-            }
-        }
-
-        if (clusterKeySet.contains(name)) {
+        if (isKey || clusterKeySet.contains(name)) {
             checkKeyColumnType(isOlap);
         }
 
         if (aggType != null) {
+            if (isKey) {
+                throw new AnalysisException(
+                        String.format("Key column %s can not set aggregation type", name));
+            }
             // check if aggregate type is valid
             if (aggType != AggregateType.GENERIC
                     && !aggType.checkCompatibility(type.toCatalogDataType().getPrimitiveType())) {

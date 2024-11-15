@@ -119,4 +119,18 @@ public class DefaultValue {
     public DefaultValueExprDef getDefaultValueExprDef() {
         return defaultValueExprDef;
     }
+
+    /**
+     * toSql
+     */
+    public String toSql() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("DEFAULT ");
+        if (value != null) {
+            sb.append('"').append(value).append('"');
+        } else {
+            sb.append("NULL");
+        }
+        return sb.toString();
+    }
 }

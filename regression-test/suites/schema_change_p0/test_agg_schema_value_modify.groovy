@@ -142,7 +142,7 @@ suite("test_agg_schema_value_modify","p0") {
 
 
      //TODO Test the agg model by modify a value type from BOOLEAN to DECIMAL
-     errorMessagge="errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL32"
+     errorMessagge="errCode = 2, detailMessage = Can not change BOOLEAN to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -505,8 +505,8 @@ suite("test_agg_schema_value_modify","p0") {
      checkTableData("${tbName1}","${tbName2}","is_student")
      sql """ DROP TABLE IF EXISTS ${tbName1} """
 
-     //TODO Test the agg model by modify a value type from TINYINT  to DECIMAL32
-     errorMessagge="errCode = 2, detailMessage = Can not change TINYINT to DECIMAL32"
+     //TODO Test the agg model by modify a value type from TINYINT  to DECIMAL128
+     errorMessagge="errCode = 2, detailMessage = Can not change TINYINT to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
@@ -898,7 +898,7 @@ suite("test_agg_schema_value_modify","p0") {
 
 
      //TODO Test the AGGREGATE model by modify a value type from SMALLINT  to DECIMAL
-     errorMessagge = "errCode = 2, detailMessage = Can not change SMALLINT to DECIMAL32"
+     errorMessagge = "errCode = 2, detailMessage = Can not change SMALLINT to DECIMAL128"
      expectException({
           sql initTable
           sql initTableData
