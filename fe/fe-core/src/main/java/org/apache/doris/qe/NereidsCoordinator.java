@@ -199,7 +199,11 @@ public class NereidsCoordinator extends Coordinator {
 
     @Override
     public long getJobId() {
-        return coordinatorContext.asLoadProcessor().jobId;
+        JobProcessor jobProcessor = coordinatorContext.getJobProcessor();
+        if (jobProcessor instanceof LoadProcessor) {
+            return ((LoadProcessor) jobProcessor).jobId;
+        }
+        return -1L;
     }
 
     /*

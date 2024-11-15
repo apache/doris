@@ -114,8 +114,7 @@ public:
                int64_t time_series_compaction_empty_rowsets_threshold = 5,
                int64_t time_series_compaction_level_threshold = 1,
                TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
-                       TInvertedIndexFileStorageFormat::V2,
-               int64_t storage_page_size = 65536);
+                       TInvertedIndexFileStorageFormat::V2);
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
@@ -294,11 +293,6 @@ public:
 
     int64_t avg_rs_meta_serialize_size() const { return _avg_rs_meta_serialize_size; }
 
-    void set_storage_page_size(int64_t storage_page_size) {
-        _storage_page_size = storage_page_size;
-    }
-    int64_t storage_page_size() const { return _storage_page_size; }
-
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -358,8 +352,6 @@ private:
 
     // cloud
     int64_t _ttl_seconds = 0;
-
-    int64_t _storage_page_size = segment_v2::STORAGE_PAGE_SIZE_DEFAULT_VALUE;
 
     mutable std::shared_mutex _meta_lock;
 };

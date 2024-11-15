@@ -81,10 +81,10 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         if (node.__isset.string_literal) {
-            return node.string_literal.value;
+            return Field(node.string_literal.value);
         }
         if (node.node_type == TExprNodeType::NULL_LITERAL) {
-            return Field();
+            return {};
         }
         std::stringstream error_string;
         node.printTo(error_string);

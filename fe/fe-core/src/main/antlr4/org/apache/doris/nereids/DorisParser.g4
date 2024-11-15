@@ -57,7 +57,10 @@ statementBase
     | supportedUnsetStatement           #supportedUnsetStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
     | unsupportedStatement              #unsupported
+    | supportedRecoverStatement         #supportedRecoverStatementAlias
     ;
+
+
 
 unsupportedStatement
     : unsupportedUseStatement
@@ -184,17 +187,26 @@ supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         AS query                                                          #alterView
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause   #alterStorageVault
+    | ALTER ROLE role=identifier commentSpec                                        #alterRole
     ;
 
 supportedDropStatement
-    : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
+    : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE  #dropCatalogRecycleBin
+    | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
     ;
 
 supportedShowStatement
     : SHOW (GLOBAL | SESSION | LOCAL)? VARIABLES wildWhere?                         #showVariables
+    | SHOW AUTHORS                                                                  #showAuthors
+    | SHOW LAST INSERT                                                              #showLastInsert    
     | SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
+    | SHOW REPOSITORIES                                                             #showRepositories
+    | SHOW ROLES                                                                    #showRoles        
+    | SHOW PROC path=STRING_LITERAL                                                 #showProc        
+    | SHOW CREATE MATERIALIZED VIEW mvName=identifier
+        ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
     ;
 
 unsupportedOtherStatement
@@ -224,6 +236,7 @@ lockTable
         (READ (LOCAL)? | (LOW_PRIORITY)? WRITE)
     ;
 
+
 unsupportedShowStatement
     : SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW ROW POLICY (FOR (userIdentify | (ROLE role=identifier)))?                #showRowPolicy
@@ -243,7 +256,6 @@ unsupportedShowStatement
     | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
     | SHOW PLUGINS                                                                  #showPlugins
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
-    | SHOW AUTHORS                                                                  #showAuthors
     | SHOW BRIEF? CREATE TABLE name=multipartIdentifier                             #showCreateTable
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
@@ -262,7 +274,6 @@ unsupportedShowStatement
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showColumns
     | SHOW COLLATION wildWhere?                                                     #showCollation
     | SHOW ((CHAR SET) | CHARSET) wildWhere?                                        #showCharset
-    | SHOW PROC path=STRING_LITERAL                                                 #showProc
     | SHOW COUNT LEFT_PAREN ASTERISK RIGHT_PAREN (WARNINGS | ERRORS)                #showWaringErrorCount
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWaringErrors
     | SHOW LOAD WARNINGS ((((FROM | IN) database=multipartIdentifier)?
@@ -295,11 +306,9 @@ unsupportedShowStatement
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
     | SHOW FRONTENDS name=identifier?                                               #showFrontends
-    | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
-    | SHOW ROLES                                                                    #showRoles
     | SHOW PRIVILEGES                                                               #showPrivileges
     | SHOW FULL? BUILTIN? FUNCTIONS
         ((FROM | IN) database=multipartIdentifier)? wildWhere?                      #showFunctions
@@ -316,9 +325,6 @@ unsupportedShowStatement
     | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showEncryptKeys
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTableCreation
-    | SHOW LAST INSERT                                                              #showLastInsert
-    | SHOW CREATE MATERIALIZED VIEW mvName=identifier
-        ON tableName=multipartIdentifier                                            #showCreateMaterializedView
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
@@ -451,9 +457,12 @@ unsupportedCancelStatement
     | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUp
     ;
 
-unsupportedRecoverStatement
+supportedRecoverStatement
     : RECOVER DATABASE name=identifier id=INTEGER_VALUE? (AS alias=identifier)?     #recoverDatabase
-    | RECOVER TABLE name=multipartIdentifier
+    ;
+
+unsupportedRecoverStatement
+    :RECOVER TABLE name=multipartIdentifier
         id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
     | RECOVER PARTITION name=identifier id=INTEGER_VALUE? (AS alias=identifier)?
         FROM tableName=multipartIdentifier                                          #recoverPartition
@@ -557,7 +566,6 @@ unsupportedAlterStatement
         properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
-    | ALTER ROLE role=identifier commentSpec                                        #alterRole
     | ALTER REPOSITORY name=identifier properties=propertyClause?                   #alterRepository
     ;
 
@@ -656,7 +664,6 @@ unsupportedDropStatement
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     | DROP REPOSITORY name=identifier                                           #dropRepository
-    | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
     | DROP FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex
@@ -1436,11 +1443,12 @@ lambdaExpression
     ;
 
 booleanExpression
-    : (LOGICALNOT | NOT) booleanExpression                                         #logicalNot
+    : LOGICALNOT booleanExpression                                                  #logicalNot
     | EXISTS LEFT_PAREN query RIGHT_PAREN                                           #exist
     | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN                #isnull
     | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
     | valueExpression predicate?                                                    #predicated
+    | NOT booleanExpression                                                         #logicalNot
     | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
     | left=booleanExpression operator=XOR right=booleanExpression                   #logicalBinary
     | left=booleanExpression operator=OR right=booleanExpression                    #logicalBinary
@@ -1468,12 +1476,13 @@ predicate
 valueExpression
     : primaryExpression                                                                      #valueExpressionDefault
     | operator=(SUBTRACT | PLUS | TILDE) valueExpression                                     #arithmeticUnary
+    // split arithmeticBinary from 1 to 5 due to they have different operator precedence
+    | left=valueExpression operator=HAT right=valueExpression                                #arithmeticBinary
     | left=valueExpression operator=(ASTERISK | SLASH | MOD | DIV) right=valueExpression     #arithmeticBinary
-    | left=valueExpression operator=(PLUS | SUBTRACT | HAT | PIPE | AMPERSAND)
-                           right=valueExpression                                             #arithmeticBinary
+    | left=valueExpression operator=(PLUS | SUBTRACT) right=valueExpression                  #arithmeticBinary
+    | left=valueExpression operator=AMPERSAND right=valueExpression                          #arithmeticBinary
+    | left=valueExpression operator=PIPE right=valueExpression                               #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
-    | operator=(BITAND | BITOR | BITXOR) LEFT_PAREN left = valueExpression
-                COMMA right = valueExpression RIGHT_PAREN                                    #bitOperation
     ;
 
 datetimeUnit
@@ -1483,7 +1492,9 @@ datetimeUnit
     ;
 
 primaryExpression
-    : name=(TIMESTAMPDIFF | DATEDIFF)
+    : operator=(BITAND | BITOR | BITXOR) LEFT_PAREN left = valueExpression
+            COMMA right = valueExpression RIGHT_PAREN                                          #bitOperation
+    | name=(TIMESTAMPDIFF | DATEDIFF)
             LEFT_PAREN
                 unit=datetimeUnit COMMA
                 startTimestamp=valueExpression COMMA

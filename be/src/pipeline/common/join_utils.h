@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "vec/common/hash_table/hash_map_util.h"
+#include "vec/common/hash_table/join_hash_table.h"
 
 namespace doris {
 using JoinOpVariants =

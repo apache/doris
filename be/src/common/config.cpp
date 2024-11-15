@@ -64,6 +64,7 @@ DEFINE_Int32(brpc_port, "8060");
 DEFINE_Int32(arrow_flight_sql_port, "-1");
 
 DEFINE_mString(public_access_ip, "");
+DEFINE_Int32(public_access_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -520,10 +521,15 @@ DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
+DEFINE_Int32(brpc_arrow_flight_work_pool_threads, "-1");
+DEFINE_Int32(brpc_arrow_flight_work_pool_max_queue_size, "-1");
 
 //Enable brpc builtin services, see:
 //https://brpc.apache.org/docs/server/basics/#disable-built-in-services-completely
 DEFINE_Bool(enable_brpc_builtin_services, "true");
+
+// Enable brpc connection check
+DEFINE_Bool(enable_brpc_connection_check, "false");
 
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "102400");
@@ -625,7 +631,11 @@ DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 
+// arrow flight result sink buffer rows size, default 4096 * 8
 DEFINE_mInt32(arrow_flight_result_sink_buffer_size_rows, "32768");
+// The timeout for ADBC Client to wait for data using arrow flight reader.
+// If the query is very complex and no result is generated after this time, consider increasing this timeout.
+DEFINE_mInt32(arrow_flight_reader_brpc_controller_timeout_ms, "300000");
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
@@ -942,6 +952,8 @@ DEFINE_mInt64(brpc_streaming_client_batch_bytes, "262144");
 // so as to avoid occupying the execution thread for a long time.
 DEFINE_mInt32(max_fragment_start_wait_time_seconds, "30");
 
+DEFINE_mInt32(fragment_mgr_cancel_worker_interval_seconds, "1");
+
 // Node role tag for backend. Mix role is the default role, and computation role have no
 // any tablet.
 DEFINE_String(be_node_role, "mix");
@@ -992,7 +1004,7 @@ DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
-// format: {"path": "/path/to/file_cache", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
+// format: {"path": "/path/to/file_cache", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
 // format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
 // Note1: storage is "disk" by default
 // Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
@@ -1008,7 +1020,7 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
-DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
+DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
@@ -1289,8 +1301,6 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
-// The max ratio for ttl cache's size
-DEFINE_mInt64(max_ttl_cache_ratio, "50");
 // The maximum jvm heap usage ratio for hdfs write workload
 DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1358,6 +1368,7 @@ DEFINE_Int32(query_cache_size, "512");
 DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
+DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 
 // clang-format off
 #ifdef BE_TEST

@@ -312,6 +312,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_VIEW_DEF: {
                     AlterViewInfo info = (AlterViewInfo) journal.getData();
                     env.getAlterInstance().replayModifyViewDef(info);
+                    env.getBinlogManager().addModifyViewDef(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_PARTITION: {
@@ -876,6 +877,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_COMMENT: {
                     ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
                     env.getAlterInstance().replayModifyComment(operation);
+                    env.getBinlogManager().addModifyComment(operation, logId);
                     break;
                 }
                 case OperationType.OP_SET_PARTITION_VERSION: {
@@ -1576,7 +1578,11 @@ public class EditLog {
     }
 
     public void logModifyViewDef(AlterViewInfo alterViewInfo) {
-        logEdit(OperationType.OP_MODIFY_VIEW_DEF, alterViewInfo);
+        long logId = logEdit(OperationType.OP_MODIFY_VIEW_DEF, alterViewInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("log modify view, logId : {}, infos: {}", logId, alterViewInfo);
+        }
+        Env.getCurrentEnv().getBinlogManager().addModifyViewDef(alterViewInfo, logId);
     }
 
     public void logRollupRename(TableInfo tableInfo) {

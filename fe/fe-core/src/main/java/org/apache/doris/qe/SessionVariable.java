@@ -97,6 +97,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MAX_EXECUTION_TIME = "max_execution_time";
     public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
+    public static final String ENABLE_VERBOSE_PROFILE = "enable_verbose_profile";
+    public static final String RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT = "rpc_verbose_profile_max_instance_count";
     public static final String AUTO_PROFILE_THRESHOLD_MS = "auto_profile_threshold_ms";
     public static final String SQL_MODE = "sql_mode";
     public static final String WORKLOAD_VARIABLE = "workload_group";
@@ -663,6 +665,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String MAX_FETCH_REMOTE_TABLET_COUNT = "max_fetch_remote_schema_tablet_count";
 
+    public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
+
     // CLOUD_VARIABLES_BEGIN
     public static final String CLOUD_CLUSTER = "cloud_cluster";
     public static final String DISABLE_EMPTY_PARTITION_PRUNE = "disable_empty_partition_prune";
@@ -788,7 +792,13 @@ public class SessionVariable implements Serializable, Writable {
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
-    public boolean enableProfile = false;
+    public boolean enableProfile = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_VERBOSE_PROFILE, needForward = true)
+    public boolean enableVerboseProfile = false;
+
+    @VariableMgr.VarAttr(name = RPC_VERBOSE_PROFILE_MAX_INSTANCE_COUNT, needForward = true)
+    public int rpcVerboseProfileMaxInstanceCount = 5;
 
     // When enable_profile is true, profile of queries that costs more than autoProfileThresholdMs
     // will be stored to disk.
@@ -1215,6 +1225,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = WAIT_FULL_BLOCK_SCHEDULE_TIMES)
     public int waitFullBlockScheduleTimes = 2;
+
+    @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT)
+    private boolean disableInvertedIndexV1ForVaraint = true;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -2171,6 +2184,15 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is false."},
             needForward = true, fuzzy = true)
     public boolean enableSortSpill = false;
+
+    @VariableMgr.VarAttr(
+            name = "ENABLE_COMPRESS_MATERIALIZE",
+            description = {"控制是否启用compress materialize。",
+                    "enable compress-materialize. "},
+            needForward = true, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL
+    )
+    public boolean enableCompressMaterialize = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_AGG_SPILL,
@@ -3811,6 +3833,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setEnableProfile(enableProfile);
+        tResult.setEnableVerboseProfile(enableVerboseProfile);
+        tResult.setRpcVerboseProfileMaxInstanceCount(rpcVerboseProfileMaxInstanceCount);
         if (enableProfile) {
             // If enable profile == true, then also set report success to true
             // be need report success to start report thread. But it is very tricky
@@ -4541,5 +4565,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isUseSerialExchange() {
         return useSerialExchange && getEnableLocalExchange();
+    }
+
+    public void setDisableInvertedIndexV1ForVaraint(boolean disableInvertedIndexV1ForVaraint) {
+        this.disableInvertedIndexV1ForVaraint = disableInvertedIndexV1ForVaraint;
+    }
+
+    public boolean getDisableInvertedIndexV1ForVaraint() {
+        return disableInvertedIndexV1ForVaraint;
     }
 }

@@ -136,7 +136,7 @@ public class CanalSyncChannel extends SyncChannel {
                                     FrontendOptions.getLocalHostAddress(),
                                     ExecuteEnv.getInstance().getStartupTime()),
                             sourceType, timeoutSecond);
-                    String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+                    String token = Env.getCurrentEnv().getTokenManager().acquireToken();
                     request = new TStreamLoadPutRequest()
                         .setTxnId(txnId).setDb(txnConf.getDb()).setTbl(txnConf.getTbl())
                         .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)

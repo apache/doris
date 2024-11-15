@@ -910,13 +910,16 @@ void TabletSchema::append_index(TabletIndex&& index) {
     _indexes.push_back(std::move(index));
 }
 
-void TabletSchema::update_index(const TabletColumn& col, TabletIndex index) {
-    int32_t col_unique_id = col.unique_id();
+void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_type,
+                                TabletIndex&& index) {
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path = escape_for_path_name(col.suffix_path());
     for (size_t i = 0; i < _indexes.size(); i++) {
         for (int32_t id : _indexes[i].col_unique_ids()) {
-            if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
-                _indexes[i] = index;
+            if (_indexes[i].index_type() == index_type && id == col_unique_id &&
+                _indexes[i].get_index_suffix() == suffix_path) {
+                _indexes[i] = std::move(index);
+                break;
             }
         }
     }
@@ -1040,6 +1043,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
     _row_store_page_size = schema.row_store_page_size();
+    _storage_page_size = schema.storage_page_size();
     _schema_version = schema.schema_version();
     // Default to V1 inverted index storage format for backward compatibility if not specified in schema.
     if (!schema.has_inverted_index_storage_format()) {
@@ -1104,6 +1108,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
+    _storage_page_size = ori_tablet_schema.storage_page_size();
     _variant_enable_flatten_nested = ori_tablet_schema.variant_flatten_nested();
 
     // copy from table_schema_param
@@ -1263,6 +1268,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_row_store_page_size(_row_store_page_size);
+    tablet_schema_pb->set_storage_page_size(_storage_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
@@ -1434,7 +1440,6 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
             }
         }
     }
-
     return nullptr;
 }
 
@@ -1531,6 +1536,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._enable_single_replica_compaction != b._enable_single_replica_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
+    if (a._storage_page_size != b._storage_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
     if (a._variant_enable_flatten_nested != b._variant_enable_flatten_nested) return false;
     return true;

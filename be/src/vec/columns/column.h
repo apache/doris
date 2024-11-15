@@ -228,8 +228,11 @@ public:
         }
     }
 
-    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
-                                          std::vector<size_t> positions);
+    // insert the data of target columns into self column according to positions
+    // positions[i] means index of srcs whitch need to insert_from
+    // the virtual function overhead of multiple calls to insert_from can be reduced to once
+    void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                  std::vector<size_t> positions);
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
@@ -668,8 +671,11 @@ public:
 
     // only used in agg value replace
     // ColumnString should replace according to 0,1,2... ,size,0,1,2...
+    // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
-
+    // replace data to default value if null, used to avoid null data output decimal check failure
+    // usage: nested_column.replace_column_null_data(nested_null_map.data())
+    // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
     virtual bool is_date_type() const { return is_date; }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.qe.ConnectContext;
@@ -26,7 +27,7 @@ import org.apache.doris.qe.StmtExecutor;
 /**
  * base class for all show commands
  */
-public abstract class ShowCommand extends Command implements NoForward {
+public abstract class ShowCommand extends Command implements Redirect {
     public ShowCommand(PlanType type) {
         super(type);
     }
@@ -46,6 +47,11 @@ public abstract class ShowCommand extends Command implements NoForward {
                 executor.sendResultSet(resultSet);
             }
         }
+    }
+
+    @Override
+    public RedirectStatus toRedirectStatus() {
+        return RedirectStatus.NO_FORWARD;
     }
 
     public abstract ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception;

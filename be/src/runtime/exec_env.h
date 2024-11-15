@@ -33,6 +33,7 @@
 #include "olap/rowset/segment_v2/inverted_index_writer.h"
 #include "olap/tablet_fwd.h"
 #include "pipeline/pipeline_tracing.h"
+#include "runtime/cluster_info.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
@@ -83,7 +84,6 @@ class BaseStorageEngine;
 class ResultBufferMgr;
 class ResultQueueMgr;
 class RuntimeQueryStatisticsMgr;
-class TMasterInfo;
 class LoadChannelMgr;
 class LoadStreamMgr;
 class LoadStreamMapPool;
@@ -221,7 +221,7 @@ public:
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
     ResultCache* result_cache() { return _result_cache; }
-    TMasterInfo* master_info() { return _master_info; }
+    ClusterInfo* cluster_info() { return _cluster_info; }
     LoadPathMgr* load_path_mgr() { return _load_path_mgr; }
     BfdParser* bfd_parser() const { return _bfd_parser; }
     BrokerMgr* broker_mgr() const { return _broker_mgr; }
@@ -264,7 +264,7 @@ public:
     void set_memtable_memory_limiter(MemTableMemoryLimiter* limiter) {
         _memtable_memory_limiter.reset(limiter);
     }
-    void set_master_info(TMasterInfo* master_info) { this->_master_info = master_info; }
+    void set_cluster_info(ClusterInfo* cluster_info) { this->_cluster_info = cluster_info; }
     void set_new_load_stream_mgr(std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr) {
         this->_new_load_stream_mgr = new_load_stream_mgr;
     }
@@ -302,7 +302,7 @@ public:
     void wait_for_all_tasks_done();
 
     void update_frontends(const std::vector<TFrontendInfo>& new_infos);
-    std::map<TNetworkAddress, FrontendInfo> get_frontends();
+    std::vector<TFrontendInfo> get_frontends();
     std::map<TNetworkAddress, FrontendInfo> get_running_frontends();
 
     TabletSchemaCache* get_tablet_schema_cache() { return _tablet_schema_cache; }
@@ -338,6 +338,8 @@ public:
     orc::MemoryPool* orc_memory_pool() { return _orc_memory_pool; }
     arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
 
+    bool check_auth_token(const std::string& auth_token);
+
 private:
     ExecEnv();
 
@@ -347,6 +349,7 @@ private:
     void _destroy();
 
     Status _init_mem_env();
+    Status _check_deploy_mode();
 
     void _register_metrics();
     void _deregister_metrics();
@@ -408,7 +411,7 @@ private:
     WorkloadGroupMgr* _workload_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
-    TMasterInfo* _master_info = nullptr;
+    ClusterInfo* _cluster_info = nullptr;
     LoadPathMgr* _load_path_mgr = nullptr;
 
     BfdParser* _bfd_parser = nullptr;
