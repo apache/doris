@@ -22,6 +22,7 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
+
 import org.junit.jupiter.api.Test;
 
 class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchSupported {
@@ -687,7 +688,6 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                                 )
                         ).when(join -> join.getJoinType() == JoinType.LEFT_OUTER_JOIN)
                 );
-    
     }
 
     @Test
@@ -702,7 +702,7 @@ class InferPredicatesTest extends TestWithFeService implements MemoPatternMatchS
                         && ExpressionUtils.isInferred(filter.getPredicate())
                         && filter.getPredicate().toSql().contains("(sid > 1)")
                         && filter.getPredicate().toSql().contains("(sid < 10)"))
-        );
+                );
     }
 
     @Test
