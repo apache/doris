@@ -115,7 +115,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
                 state->fragment_instance_id(), p._buf_size, &_sender, state->enable_pipeline_exec(),
-                state->execution_timeout()));
+                state));
         // create writer
         _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
                 p._file_opts.get(), p._storage_type, state->fragment_instance_id(),

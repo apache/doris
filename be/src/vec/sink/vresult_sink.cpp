@@ -90,7 +90,7 @@ Status VResultSink::prepare(RuntimeState* state) {
     // create sender
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
             state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
-            state->execution_timeout()));
+            state));
 
     // create writer based on sink type
     switch (_sink_type) {
@@ -106,12 +106,11 @@ Status VResultSink::prepare(RuntimeState* state) {
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;
-        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema,
-                                                       state->timezone()));
-        state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
-                                                               arrow_schema);
+        RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
+                                                        state->timezone()));
+        _sender->register_arrow_schema(arrow_schema);
         _writer.reset(new (std::nothrow) VArrowFlightResultWriter(_sender.get(), _output_vexpr_ctxs,
-                                                                  _profile, arrow_schema));
+                                                                  _profile));
         break;
     }
     default:
