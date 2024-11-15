@@ -30,10 +30,10 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import inet.ipaddr.IPAddressString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import inet.ipaddr.IPAddressString;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
@@ -44,8 +44,6 @@ import java.util.List;
  * SHOW PROC /frontends/
  */
 public class FrontendsProcNode implements ProcNodeInterface {
-    private static final Logger LOG = LogManager.getLogger(FrontendsProcNode.class);
-
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("Host").add("EditLogPort").add("HttpPort").add("QueryPort").add("RpcPort")
             .add("ArrowFlightSqlPort").add("Role").add("IsMaster").add("ClusterId").add("Join").add("Alive")
@@ -53,32 +51,15 @@ public class FrontendsProcNode implements ProcNodeInterface {
             .add("IsHelper").add("ErrMsg").add("Version")
             .add("CurrentConnected")
             .build();
-
     public static final ImmutableList<String> DISK_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Name").add("Host").add("DirType").add("Dir").add("Filesystem")
             .add("Capacity").add("Used").add("Available").add("UseRate").add("MountOn")
             .build();
-
+    private static final Logger LOG = LogManager.getLogger(FrontendsProcNode.class);
     private Env env;
 
     public FrontendsProcNode(Env env) {
         this.env = env;
-    }
-
-    @Override
-    public ProcResult fetchResult() {
-        BaseProcResult result = new BaseProcResult();
-        result.setNames(TITLE_NAMES);
-
-        List<List<String>> infos = Lists.newArrayList();
-
-        getFrontendsInfo(env, infos);
-
-        for (List<String> info : infos) {
-            result.addRow(info);
-        }
-
-        return result;
     }
 
     public static void getFrontendsInfo(Env env, String detailType, List<List<String>> infos) {
@@ -100,8 +81,8 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
         String finalSelfNode = selfNode;
         frontends.stream()
-            .filter(fe -> (!fe.getHost().equals(finalSelfNode) || includeSelf))
-            .map(fe -> Pair.of(fe.getHost(), fe.getRpcPort()))
+                .filter(fe -> (!fe.getHost().equals(finalSelfNode) || includeSelf))
+                .map(fe -> Pair.of(fe.getHost(), fe.getRpcPort()))
                 .forEach(allFe::add);
         return allFe;
     }
@@ -146,8 +127,8 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
             info.add(fe.getRole().name());
             InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
-            //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
-            //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
+            // An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
+            // e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
             info.add(String.valueOf(socketAddress.equals(master)));
 
             info.add(Integer.toString(env.getClusterId()));
@@ -193,7 +174,6 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
     }
 
-
     private static boolean isHelperNode(List<HostInfo> helperNodes, Frontend fe) {
         return helperNodes.stream().anyMatch(p -> fe.toHostInfo().isSame(p));
     }
@@ -228,5 +208,21 @@ public class FrontendsProcNode implements ProcNodeInterface {
     private static String formatIp(String str) {
         // Use IPAddressString to format the IP address
         return new IPAddressString(str).getAddress().toCanonicalString();
+    }
+
+    @Override
+    public ProcResult fetchResult() {
+        BaseProcResult result = new BaseProcResult();
+        result.setNames(TITLE_NAMES);
+
+        List<List<String>> infos = Lists.newArrayList();
+
+        getFrontendsInfo(env, infos);
+
+        for (List<String> info : infos) {
+            result.addRow(info);
+        }
+
+        return result;
     }
 }
