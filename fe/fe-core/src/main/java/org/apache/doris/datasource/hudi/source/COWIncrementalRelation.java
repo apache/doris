@@ -79,7 +79,7 @@ public class COWIncrementalRelation implements IncrementalRelation {
         if (!metaClient.getTableConfig().populateMetaFields()) {
             throw new HoodieException("Incremental queries are not supported when meta fields are disabled");
         }
-        HoodieInstant lastInstant = commitTimeline.lastInstant().get();
+
         String startInstantTime = optParams.get("hoodie.datasource.read.begin.instanttime");
         if (startInstantTime == null) {
             throw new HoodieException("Specify the begin instant time to pull from using "
@@ -89,16 +89,18 @@ public class COWIncrementalRelation implements IncrementalRelation {
             startInstantTime = "000";
         }
         String endInstantTime = optParams.getOrDefault("hoodie.datasource.read.end.instanttime",
-                lastInstant.getTimestamp());
+                hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME
+                        ? commitTimeline.lastInstant().get().getStateTransitionTime()
+                        : commitTimeline.lastInstant().get().getTimestamp());
         startInstantArchived = commitTimeline.isBeforeTimelineStarts(startInstantTime);
         endInstantArchived = commitTimeline.isBeforeTimelineStarts(endInstantTime);
 
         HoodieTimeline commitsTimelineToReturn;
         if (hollowCommitHandling == HollowCommitHandling.USE_TRANSITION_TIME) {
             commitsTimelineToReturn = commitTimeline.findInstantsInRangeByStateTransitionTime(startInstantTime,
-                    lastInstant.getStateTransitionTime());
+                    endInstantTime);
         } else {
-            commitsTimelineToReturn = commitTimeline.findInstantsInRange(startInstantTime, lastInstant.getTimestamp());
+            commitsTimelineToReturn = commitTimeline.findInstantsInRange(startInstantTime, endInstantTime);
         }
         List<HoodieInstant> commitsToReturn = commitsTimelineToReturn.getInstants();
 
