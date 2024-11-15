@@ -31,7 +31,6 @@ import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
@@ -55,7 +54,6 @@ import com.github.benmanes.caffeine.cache.CacheLoader;
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 import com.google.common.collect.Iterables;
@@ -66,26 +64,30 @@ import com.google.common.collect.RangeMap;
 import com.google.common.collect.Streams;
 import com.google.common.collect.TreeRangeMap;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
+import lombok.NonNull;
+import lombok.ToString;
 import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
+import org.apache.hadoop.hive.common.ValidWriteIdList.RangeResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.utils.FileUtils;
-import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.mapred.FileInputFormat;
 import org.apache.hadoop.mapred.JobConf;
-import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.net.URI;
-import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -742,73 +744,263 @@ public class HiveMetaStoreCache {
         return partitionCache;
     }
 
+
+    @Getter
+    @ToString
+    @EqualsAndHashCode
+    public static class ParsedBase {
+        private final long writeId;
+        private final long visibilityId;
+
+        public ParsedBase(long writeId, long visibilityId) {
+            this.writeId = writeId;
+            this.visibilityId = visibilityId;
+        }
+    }
+
+    static ParsedBase parseBase(String name) {
+        name = name.substring("base_".length());
+        int index = name.indexOf("_v");
+        if (index == -1) {
+            return new ParsedBase(Long.parseLong(name), 0);
+        }
+        return new ParsedBase(
+                Long.parseLong(name.substring(0, index)),
+                Long.parseLong(name.substring(index + 2)));
+    }
+
+    @Getter
+    @ToString
+    @EqualsAndHashCode
+    public static class ParsedDelta implements Comparable<ParsedDelta> {
+        private final long min;
+        private final long max;
+        private final String path;
+        private final int statementId;
+        private final boolean deleteDelta;
+        private final long visibilityId;
+
+        public ParsedDelta(long min, long max, @NonNull String path, int statementId,
+                boolean deleteDelta, long visibilityId) {
+            this.min = min;
+            this.max = max;
+            this.path = path;
+            this.statementId = statementId;
+            this.deleteDelta = deleteDelta;
+            this.visibilityId = visibilityId;
+        }
+
+        @Override
+        public int compareTo(ParsedDelta other) {
+            return Long.compare(min, other.min) != 0 ? Long.compare(min, other.min) :
+                    Long.compare(other.max, max) != 0 ? Long.compare(other.max, max) :
+                            Integer.compare(statementId, other.statementId) != 0
+                                    ? Integer.compare(statementId, other.statementId) :
+                                    path.compareTo(other.path);
+        }
+    }
+
+    private static boolean isValidBase(ParsedBase base, ValidWriteIdList writeIdList) {
+        if (base.writeId == Long.MIN_VALUE) {
+            return true;
+        }
+
+        // hive 4 : just check "_v" suffix
+        // before hive 4 : check _metadata_acid in baseDir
+        if ((base.visibilityId > 0)) {
+            // || isCompacted(fileSystem, baseDir) need check
+            return writeIdList.isValidBase(base.writeId);
+        }
+
+        return writeIdList.isWriteIdValid(base.writeId);
+    }
+
+    static ParsedDelta parseDelta(String fileName, String deltaPrefix, String path) {
+        /*
+        format1:
+            delta_min_max_statementId_visibilityId
+            delete_delta_min_max_statementId_visibilityId
+
+            _visibilityId maybe not exists.
+            detail: https://issues.apache.org/jira/browse/HIVE-20823
+
+        format2:
+            delta_min_max_visibilityId
+            delete_delta_min_visibilityId
+
+            when minor compaction runs, we collapse per statement delta files inside a single
+            transaction so we no longer need a statementId in the file name
+         */
+        // String fileName = fileName.substring(name.lastIndexOf('/') + 1);
+        // checkArgument(fileName.startsWith(deltaPrefix), "File does not start with '%s': %s", deltaPrefix, path);
+
+        long visibilityId = 0;
+        int visibilityIdx = fileName.indexOf("_v");
+        if (visibilityIdx != -1) {
+            visibilityId = Long.parseLong(fileName.substring(visibilityIdx + 2));
+            fileName = fileName.substring(0, visibilityIdx);
+        }
+
+        boolean deleteDelta = deltaPrefix.equals("delete_delta_");
+
+        String rest = fileName.substring(deltaPrefix.length());
+        int split = rest.indexOf('_');
+        int split2 = rest.indexOf('_', split + 1);
+        long min = Long.parseLong(rest.substring(0, split));
+
+        if (split2 == -1) {
+            long max = Long.parseLong(rest.substring(split + 1));
+            return new ParsedDelta(min, max, fileName, -1, deleteDelta, visibilityId);
+        }
+
+        long max = Long.parseLong(rest.substring(split + 1, split2));
+        int statementId = Integer.parseInt(rest.substring(split2 + 1));
+        return new ParsedDelta(min, max, path, statementId, deleteDelta, visibilityId);
+    }
+
     public List<FileCacheValue> getFilesByTransaction(List<HivePartition> partitions, ValidWriteIdList validWriteIds,
+            ValidTxnList validTxnList,
             boolean isFullAcid, boolean skipCheckingAcidVersionFile, long tableId, String bindBrokerName) {
         List<FileCacheValue> fileCacheValues = Lists.newArrayList();
-        String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
+        // String remoteUser = jobConf.get(AuthenticationConfig.HADOOP_USER_NAME);
+
         try {
+
             for (HivePartition partition : partitions) {
-                FileCacheValue fileCacheValue = new FileCacheValue();
-                AcidUtils.Directory directory;
-                if (!Strings.isNullOrEmpty(remoteUser)) {
-                    UserGroupInformation ugi = UserGroupInformation.createRemoteUser(remoteUser);
-                    directory = ugi.doAs((PrivilegedExceptionAction<AcidUtils.Directory>) () -> AcidUtils.getAcidState(
-                            new Path(partition.getPath()), jobConf, validWriteIds, false, true));
-                } else {
-                    directory = AcidUtils.getAcidState(new Path(partition.getPath()), jobConf, validWriteIds, false,
-                            true);
-                }
-                if (directory == null) {
-                    return Collections.emptyList();
-                }
-                if (!directory.getOriginalFiles().isEmpty()) {
-                    throw new Exception("Original non-ACID files in transactional tables are not supported");
+                RemoteFileSystem fsPar = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
+                        new FileSystemCache.FileSystemCacheKey(
+                                LocationPath.getFSIdentity(partition.getPath(), bindBrokerName),
+                                catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
+
+                Set<String> acidResult = new HashSet<>();
+                fsPar.listDirectories(partition.getPath(), acidResult);
+
+
+                List<String> originalFiles = new ArrayList<>();
+                List<ParsedDelta> workingDeltas = new ArrayList<>();
+                String oldestBase = null;
+                long oldestBaseWriteId = Long.MAX_VALUE;
+                String bestBasePath = null;
+                long bestBaseWriteId = 0;
+
+                for (String fileDirectory : acidResult) {
+                    // checkArgument(fileDirectory.startsWith(partition.getPath()),
+                    //         "file '%s' does not start with directory '%s'",
+                    //         fileDirectory, partition.getPath());
+                    String suffix = fileDirectory.substring(partition.getPath().length() + 1);
+                    int slash = suffix.indexOf('/');
+                    String name = (slash == -1) ? "" : suffix.substring(0, slash);
+
+
+                    if (name.startsWith("base_")) {
+                        ParsedBase base = parseBase(name);
+                        if (!validTxnList.isTxnValid(base.visibilityId)) {
+                            //checks visibilityTxnId to see if it is committed in current snapshot
+                            continue;
+                        }
+
+                        long writeId = base.writeId;
+                        if (oldestBaseWriteId > writeId) {
+                            oldestBase = fileDirectory;
+                            oldestBaseWriteId = writeId;
+                        }
+
+                        if (((bestBasePath == null) || (bestBaseWriteId < writeId))
+                                && isValidBase(base, validWriteIds)) {
+
+                            bestBasePath = fileDirectory;
+                            bestBaseWriteId = writeId;
+                        }
+                    } else if (name.startsWith("delta_") || name.startsWith("delete_delta_")) {
+                        String deltaPrefix = name.startsWith("delta_") ? "delta_" : "delete_delta_";
+                        ParsedDelta delta = parseDelta(name, deltaPrefix, fileDirectory);
+                        if (validWriteIds.isWriteIdRangeValid(delta.min, delta.max) != RangeResponse.NONE) {
+                            workingDeltas.add(delta);
+                        }
+                    } else {
+                        originalFiles.add(fileDirectory);
+                    }
                 }
 
-                if (isFullAcid) {
-                    int acidVersion = 2;
-                    /**
-                     * From Hive version >= 3.0, delta/base files will always have file '_orc_acid_version'
-                     * with value >= '2'.
-                     */
-                    Path baseOrDeltaPath = directory.getBaseDirectory() != null ? directory.getBaseDirectory() :
-                            !directory.getCurrentDirectories().isEmpty() ? directory.getCurrentDirectories().get(0)
-                                    .getPath() : null;
-                    if (baseOrDeltaPath == null) {
-                        return Collections.emptyList();
-                    }
-                    if (!skipCheckingAcidVersionFile) {
-                        String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
-                        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
-                                new FileSystemCache.FileSystemCacheKey(
-                                        LocationPath.getFSIdentity(baseOrDeltaPath.toUri().toString(),
-                                                bindBrokerName),
-                                        catalog.getCatalogProperty().getProperties(),
-                                        bindBrokerName, jobConf));
-                        Status status = fs.exists(acidVersionPath);
-                        if (status != Status.OK) {
-                            if (status.getErrCode() == ErrCode.NOT_FOUND) {
-                                acidVersion = 0;
-                            } else {
-                                throw new Exception(String.format("Failed to check remote path {} exists.",
-                                        acidVersionPath));
-                            }
+                if (bestBasePath == null && !originalFiles.isEmpty()) {
+                    throw new Exception("For no acid table convert to acid, please COMPACT 'major'.");
+                }
+                originalFiles.clear();
+
+                if ((oldestBase != null) && (bestBasePath == null)) {
+                    /*
+                     * If here, it means there was a base_x (> 1 perhaps) but none were suitable for given
+                     * {@link writeIdList}.  Note that 'original' files are logically a base_Long.MIN_VALUE and thus
+                     * cannot have any data for an open txn.  We could check {@link deltas} has files to cover
+                     * [1,n] w/o gaps but this would almost never happen...
+                     *
+                     * We only throw for base_x produced by Compactor since that base erases all history and
+                     * cannot be used for a client that has a snapshot in which something inside this base is
+                     * open.  (Nor can we ignore this base of course)  But base_x which is a result of IOW,
+                     * contains all history so we treat it just like delta wrt visibility.  Imagine, IOW which
+                     * aborts. It creates a base_x, which can and should just be ignored.*/
+
+                    long[] exceptions = validWriteIds.getInvalidWriteIds();
+                    String minOpenWriteId = ((exceptions != null)
+                            && (exceptions.length > 0)) ? String.valueOf(exceptions[0]) : "x";
+                    throw new IOException(
+                            String.format("Not enough history available for ({},{}). Oldest available base: {}",
+                                    validWriteIds.getHighWatermark(), minOpenWriteId, oldestBase));
+                }
+
+                workingDeltas.sort(null);
+
+                List<ParsedDelta> deltas = new ArrayList<>();
+                long current = bestBaseWriteId;
+                int lastStatementId = -1;
+                ParsedDelta prev = null;
+                // find need read delta/delete_delta file.
+                for (ParsedDelta next : workingDeltas) {
+                    if (next.max > current) {
+                        if (validWriteIds.isWriteIdRangeValid(current + 1, next.max) != RangeResponse.NONE) {
+                            deltas.add(next);
+                            current = next.max;
+                            lastStatementId = next.statementId;
+                            prev = next;
                         }
-                        if (acidVersion == 0 && !directory.getCurrentDirectories().isEmpty()) {
-                            throw new Exception(
-                                    "Hive 2.x versioned full-acid tables need to run major compaction.");
-                        }
+                    } else if ((next.max == current) && (lastStatementId >= 0)) {
+                        //make sure to get all deltas within a single transaction;  multi-statement txn
+                        //generate multiple delta files with the same txnId range
+                        //of course, if maxWriteId has already been minor compacted,
+                        // all per statement deltas are obsolete
+
+                        deltas.add(next);
+                        prev = next;
+                    } else if ((prev != null)
+                            && (next.max == prev.max)
+                            && (next.min == prev.min)
+                            && (next.statementId == prev.statementId)) {
+                        // The 'next' parsedDelta may have everything equal to the 'prev' parsedDelta, except
+                        // the path. This may happen when we have split update and we have two types of delta
+                        // directories- 'delta_x_y' and 'delete_delta_x_y' for the SAME txn range.
+
+                        // Also note that any delete_deltas in between a given delta_x_y range would be made
+                        // obsolete. For example, a delta_30_50 would make delete_delta_40_40 obsolete.
+                        // This is valid because minor compaction always compacts the normal deltas and the delete
+                        // deltas for the same range. That is, if we had 3 directories, delta_30_30,
+                        // delete_delta_40_40 and delta_50_50, then running minor compaction would produce
+                        // delta_30_50 and delete_delta_30_50.
+                        deltas.add(next);
+                        prev = next;
                     }
                 }
+
+
+                FileCacheValue fileCacheValue = new FileCacheValue();
 
                 // delta directories
                 List<DeleteDeltaInfo> deleteDeltas = new ArrayList<>();
-                for (AcidUtils.ParsedDelta delta : directory.getCurrentDirectories()) {
-                    String location = delta.getPath().toString();
+                for (ParsedDelta  delta : deltas) {
+                    String location = delta.getPath();
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
                                     LocationPath.getFSIdentity(location, bindBrokerName),
-                                            catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
+                                    catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
                     List<RemoteFile> remoteFiles = new ArrayList<>();
                     Status status = fs.listFiles(location, false, remoteFiles);
                     if (status.ok()) {
@@ -831,14 +1023,13 @@ public class HiveMetaStoreCache {
                 }
 
                 // base
-                if (directory.getBaseDirectory() != null) {
-                    String location = directory.getBaseDirectory().toString();
+                if (bestBasePath != null) {
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
-                                    LocationPath.getFSIdentity(location, bindBrokerName),
-                                            catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
+                                    LocationPath.getFSIdentity(bestBasePath, bindBrokerName),
+                                    catalog.getCatalogProperty().getProperties(), bindBrokerName, jobConf));
                     List<RemoteFile> remoteFiles = new ArrayList<>();
-                    Status status = fs.listFiles(location, false, remoteFiles);
+                    Status status = fs.listFiles(bestBasePath, false, remoteFiles);
                     if (status.ok()) {
                         remoteFiles.stream().filter(
                                         f -> f.getName().startsWith(HIVE_TRANSACTIONAL_ORC_BUCKET_PREFIX))

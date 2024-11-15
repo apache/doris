@@ -58,6 +58,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Setter;
+import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -369,8 +370,11 @@ public class HiveScanNode extends FileQueryScanNode {
         }
         ValidWriteIdList validWriteIds = hiveTransaction.getValidWriteIds(
                 ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
-        return cache.getFilesByTransaction(partitions, validWriteIds,
-            hiveTransaction.isFullAcid(), skipCheckingAcidVersionFile, hmsTable.getId(), bindBrokerName);
+        ValidTxnList validTxnList = hiveTransaction.getValidTxns(
+                ((HMSExternalCatalog) hmsTable.getCatalog()).getClient());
+
+        return cache.getFilesByTransaction(partitions, validWriteIds, validTxnList,
+            hiveTransaction.isFullAcid(),  skipCheckingAcidVersionFile, hmsTable.getId(), bindBrokerName);
     }
 
     @Override

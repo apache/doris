@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
+import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 
 import java.util.List;
@@ -59,6 +60,10 @@ public class HiveTransaction {
 
     public boolean isFullAcid() {
         return isFullAcid;
+    }
+
+    public ValidTxnList getValidTxns(HMSCachedClient client) {
+        return client.getValidTxns();
     }
 
     public ValidWriteIdList getValidWriteIds(HMSCachedClient client) {

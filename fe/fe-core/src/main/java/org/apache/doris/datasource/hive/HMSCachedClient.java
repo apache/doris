@@ -23,6 +23,7 @@ import org.apache.doris.datasource.DatabaseMetadata;
 import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
+import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -83,6 +84,8 @@ public interface HMSCachedClient {
     void commitTxn(long txnId);
 
     ValidWriteIdList getValidWriteIds(String fullTableName, long currentTransactionId);
+
+    ValidTxnList getValidTxns();
 
     void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
             List<String> partitionNames, long timeoutMs);

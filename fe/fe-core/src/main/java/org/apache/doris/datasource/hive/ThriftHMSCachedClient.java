@@ -595,6 +595,21 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
     }
 
+    @Override
+    public ValidTxnList getValidTxns() {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                return ugiDoAs(client.client::getValidTxns);
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("Catalog Get the transactions that "
+                    + "are currently valid fail. Exception = {}", e);
+        }
+    }
+
     private LockResponse checkLock(long lockId) {
         try (ThriftHMSClient client = getClient()) {
             try {
