@@ -647,9 +647,10 @@ struct DateTimeAddIntervalImpl {
                                         col_to->get_data(), null_map->get_data(),
                                         delta_vec_column->get_data());
                 } else {
-                    Op::constant_vector(sources_const->template get_value<FromType1>(),
-                                        col_to->get_data(), null_map->get_data(),
-                                        *not_nullable_column_ptr_arg1);
+                    return Status::RuntimeError(
+                            "Illegal column {} of first argument of function {}",
+                            block.get_by_position(arguments[0]).column->get_name(),
+                            Transform::name);
                 }
                 if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
                             block.get_by_position(arguments[0]).column.get())) {
@@ -677,9 +678,10 @@ struct DateTimeAddIntervalImpl {
                     Op::constant_vector(sources_const->template get_value<FromType1>(),
                                         col_to->get_data(), delta_vec_column->get_data());
                 } else {
-                    Op::constant_vector(sources_const->template get_value<FromType1>(),
-                                        col_to->get_data(),
-                                        *block.get_by_position(arguments[1]).column);
+                    return Status::RuntimeError(
+                            "Illegal column {} of first argument of function {}",
+                            block.get_by_position(arguments[0]).column->get_name(),
+                            Transform::name);
                 }
                 block.replace_by_position(result, std::move(col_to));
             }
