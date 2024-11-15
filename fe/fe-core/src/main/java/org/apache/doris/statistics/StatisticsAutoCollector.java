@@ -144,7 +144,6 @@ public class StatisticsAutoCollector extends StatisticsCollector {
             } catch (Throwable t) {
                 LOG.warn("Failed to analyze table {}.{}.{}",
                         db.getCatalog().getName(), db.getFullName(), table.getName(), t);
-                continue;
             }
         }
         return analysisInfos;
@@ -186,7 +185,19 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 return;
             }
         }
-        long rowCount = StatisticsUtil.isEmptyTable(table, analysisMethod) ? 0 : table.getRowCount();
+        // We don't auto analyze empty table to avoid all 0 stats.
+        // Because all 0 is more dangerous than unknown stats when row count report is delayed.
+        AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
+        TableStatsMeta tableStatsStatus = manager.findTableStatsStatus(table.getId());
+        long rowCount = table.getRowCount();
+        if (rowCount <= 0) {
+            LOG.info("Table {} is empty, remove its old stats and skip auto analyze it.", table.getName());
+            // Remove the table's old stats if exists.
+            if (tableStatsStatus != null && !tableStatsStatus.isColumnsStatsEmpty()) {
+                manager.dropStats(table);
+            }
+            return;
+        }
         AnalysisInfo jobInfo = new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
                 .setCatalogId(db.getCatalog().getId())
