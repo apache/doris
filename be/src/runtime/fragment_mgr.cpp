@@ -828,10 +828,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     DBUG_EXECUTE_IF("FragmentMgr.exec_plan_fragment.failed",
                     { return Status::Aborted("FragmentMgr.exec_plan_fragment.failed"); });
 
+    auto* rf_ctx = RuntimeFilterParamsContext::create(query_ctx.get());
+    rf_ctx->set_state(context->get_runtime_state());
     std::shared_ptr<RuntimeFilterMergeControllerEntity> handler;
-    RETURN_IF_ERROR(_runtimefilter_controller.add_entity(
-            params.local_params[0], params.query_id, params.query_options, &handler,
-            RuntimeFilterParamsContext::create(context->get_runtime_state())));
+    RETURN_IF_ERROR(_runtimefilter_controller.add_entity(params.local_params[0], params.query_id,
+                                                         params.query_options, &handler, rf_ctx));
     if (handler) {
         query_ctx->set_merge_controller_handler(handler);
     }
