@@ -95,8 +95,9 @@ public:
     Block(Block&& block) = default;
     Block& operator=(Block&& other) = default;
 
+    /// Reserve memory for internal containers
     void reserve(size_t count);
-    // Make sure the nammes is useless when use block
+    /// Make sure the names is useless when use block
     void clear_names();
 
     /// insert the column at the specified position
@@ -123,6 +124,7 @@ public:
         std::swap(data, new_data);
     }
 
+    /// Initialize the index by name map
     void initialize_index_by_name();
 
     /// References are invalidated after calling functions above.
@@ -133,28 +135,34 @@ public:
     }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
 
+    /// Replace column at position with rvalue column pointer
     void replace_by_position(size_t position, ColumnPtr&& res) {
         this->get_by_position(position).column = std::move(res);
     }
 
+    /// Replace column at position with lvalue column pointer 
     void replace_by_position(size_t position, const ColumnPtr& res) {
         this->get_by_position(position).column = res;
     }
 
+    /// Convert const column at position to full column if it is const
     void replace_by_position_if_const(size_t position) {
         auto& element = this->get_by_position(position);
         element.column = element.column->convert_to_full_column_if_const();
     }
 
+    /// Convert all columns to new columns if they overflow
     void replace_if_overflow() {
         for (auto& ele : data) {
             ele.column = std::move(*ele.column).mutate()->convert_column_if_overflow();
         }
     }
 
+    // get column by position, throw exception when position is invalid
     ColumnWithTypeAndName& safe_get_by_position(size_t position);
     const ColumnWithTypeAndName& safe_get_by_position(size_t position) const;
 
+    // get column by name, throw exception when no such column name
     ColumnWithTypeAndName& get_by_name(const std::string& name);
     const ColumnWithTypeAndName& get_by_name(const std::string& name) const;
 
@@ -162,22 +170,33 @@ public:
     ColumnWithTypeAndName* try_get_by_name(const std::string& name);
     const ColumnWithTypeAndName* try_get_by_name(const std::string& name) const;
 
+    /// Get an iterator to the beginning of the data container
     Container::iterator begin() { return data.begin(); }
+    /// Get an iterator to the end of the data container
     Container::iterator end() { return data.end(); }
+    /// Get a constant iterator to the beginning of the data container
     Container::const_iterator begin() const { return data.begin(); }
+    /// Get a constant iterator to the end of the data container
     Container::const_iterator end() const { return data.end(); }
+    /// Get a constant iterator to the beginning of the data container
     Container::const_iterator cbegin() const { return data.cbegin(); }
+    /// Get a constant iterator to the end of the data container
     Container::const_iterator cend() const { return data.cend(); }
 
+    // check if the column name exists
     bool has(const std::string& name) const;
 
+    // get the position of the column by name
     size_t get_position_by_name(const std::string& name) const;
 
+    // get the columns with type and name
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
 
+    // get the names of the columns
     std::vector<std::string> get_names() const;
     DataTypes get_data_types() const;
 
+    // get the data type of the column by index
     DataTypePtr get_data_type(size_t index) const {
         CHECK(index < data.size());
         return data[index].type;
@@ -186,6 +205,7 @@ public:
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
+    // Get a string with the size of each column in bytes.
     std::string each_col_size() const;
 
     // Cut the rows in block, use in LIMIT operation
@@ -204,6 +224,7 @@ public:
     /// Approximate number of bytes in memory - for profiling and limits.
     size_t bytes() const;
 
+    /// Get a string with the size of each column in bytes.
     std::string columns_bytes() const;
 
     /// Approximate number of allocated bytes in memory - for profiling and limits.
@@ -212,6 +233,7 @@ public:
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
 
+    /** Get a list of column types separated by commas. */
     std::string dump_types() const;
 
     /** List of names, types and lengths of columns. Designed for debugging. */
@@ -220,11 +242,16 @@ public:
     /** Get the same block, but empty. */
     Block clone_empty() const;
 
+    /// Get a list of columns.
     Columns get_columns() const;
+    /// Get a list of columns and convert them to full columns.
     Columns get_columns_and_convert();
 
+    /// Set the columns of the block.
     void set_columns(const Columns& columns);
+    /// Clone the block with the specified columns.
     Block clone_with_columns(const Columns& columns) const;
+    /// Clone the block without the specified columns.
     Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
     /** Get empty columns with the same types as in block. */
@@ -251,10 +278,14 @@ public:
     // Else clear column [0, column_size) delete column [column_size, data.size)
     void clear_column_data(int64_t column_size = -1) noexcept;
 
+    // Check if the block is not empty.
     bool mem_reuse() { return !data.empty(); }
 
+    // Check if the block has no columns
     bool is_empty_column() { return data.empty(); }
 
+    // Check if the block has no rows (i.e. all columns have 0 rows)
+    // This is different from is_empty_column() which checks for absence of columns
     bool empty() const { return rows() == 0; }
 
     /** 
@@ -284,6 +315,7 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
+    // append to block by selector
     Status append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     // need exception safety
@@ -295,11 +327,14 @@ public:
     // need exception safety
     static void filter_block_internal(Block* block, const IColumn::Filter& filter);
 
+    // Filter block by specified columns using filter column
     static Status filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                size_t filter_column_id, size_t column_to_keep);
 
+    // Filter block using filter column
     static Status filter_block(Block* block, size_t filter_column_id, size_t column_to_keep);
 
+    // Remove columns after column_to_keep
     static void erase_useless_column(Block* block, size_t column_to_keep) {
         block->erase_tail(column_to_keep);
     }
@@ -309,8 +344,10 @@ public:
                      size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
+    // Deserialize from PBlock format
     Status deserialize(const PBlock& pblock);
 
+    // Create empty block with same schema
     std::unique_ptr<Block> create_same_struct_block(size_t size, bool is_reserve = false) const;
 
     /** Compares (*this) n-th row and rhs m-th row.
@@ -329,6 +366,7 @@ public:
         return compare_at(n, m, columns(), rhs, nan_direction_hint);
     }
 
+    // Compare rows by first num_columns columns in sequential order (from index 0 to num_columns - 1)
     int compare_at(size_t n, size_t m, size_t num_columns, const Block& rhs,
                    int nan_direction_hint) const {
         DCHECK_GE(columns(), num_columns);
@@ -347,6 +385,7 @@ public:
         return 0;
     }
 
+    // Compare rows by specified columns in compare_columns
     int compare_at(size_t n, size_t m, const std::vector<uint32_t>* compare_columns,
                    const Block& rhs, int nan_direction_hint) const {
         DCHECK_GE(columns(), compare_columns->size());
@@ -377,10 +416,14 @@ public:
     // for String type or Array<String> type
     void shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx);
 
+    // Get time spent on decompression in nanoseconds
     int64_t get_decompress_time() const { return _decompress_time_ns; }
+    // Get total bytes after decompression
     int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
+    // Get time spent on compression in nanoseconds 
     int64_t get_compress_time() const { return _compress_time_ns; }
 
+    // Set same bit flags for rows in block
     void set_same_bit(std::vector<bool>::const_iterator begin,
                       std::vector<bool>::const_iterator end) {
         row_same_bit.insert(row_same_bit.end(), begin, end);
@@ -388,6 +431,7 @@ public:
         DCHECK_EQ(row_same_bit.size(), rows());
     }
 
+    // Get same bit flag for specified row position
     bool get_same_bit(size_t position) {
         if (position >= row_same_bit.size()) {
             return false;
@@ -395,6 +439,7 @@ public:
         return row_same_bit[position];
     }
 
+    // Clear all same bit flags
     void clear_same_bit() { row_same_bit.clear(); }
 
     // return string contains use_count() of each columns
@@ -406,6 +451,7 @@ public:
     // we built some temporary columns into block
     void erase_tmp_columns() noexcept;
 
+    // Clear columns not marked for keeping
     void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
                                    bool need_keep_first);
 
@@ -480,6 +526,7 @@ public:
         return _data_types[position];
     }
 
+    // Compare rows by specified column
     int compare_one_column(size_t n, size_t m, size_t column_id, int nan_direction_hint) const {
         DCHECK_LE(column_id, columns());
         DCHECK_LE(n, rows());
@@ -488,6 +535,7 @@ public:
         return column->compare_at(n, m, *column, nan_direction_hint);
     }
 
+    // Compare rows by first num_columns columns in sequential order (from index 0 to num_columns - 1)
     int compare_at(size_t n, size_t m, size_t num_columns, const MutableBlock& rhs,
                    int nan_direction_hint) const {
         DCHECK_GE(columns(), num_columns);
@@ -506,6 +554,7 @@ public:
         return 0;
     }
 
+    // Compare rows by specified columns in compare_columns
     int compare_at(size_t n, size_t m, const std::vector<uint32_t>* compare_columns,
                    const MutableBlock& rhs, int nan_direction_hint) const {
         DCHECK_GE(columns(), compare_columns->size());
@@ -524,6 +573,7 @@ public:
         return 0;
     }
 
+    // Get a string representation of the block's data types
     std::string dump_types() const {
         std::string res;
         for (auto type : _data_types) {
@@ -565,6 +615,7 @@ public:
         return Status::OK();
     }
 
+    // Merge another block into current block with strict type check and overflow handling.
     template <typename T>
     [[nodiscard]] Status merge_impl(T&& block) {
         // merge is not supported in dynamic block
@@ -613,12 +664,14 @@ public:
         return Status::OK();
     }
 
-    // move to columns' data to a Block. this will invalidate
+    // Move the data of columns to a block. This will invalidate the MutableBlock.
     Block to_block(int start_column = 0);
     Block to_block(int start_column, int end_column);
 
+    // Swap the contents of two MutableBlocks
     void swap(MutableBlock& other) noexcept;
 
+    // Move-swap the contents of two MutableBlocks
     void swap(MutableBlock&& other) noexcept;
 
     void add_row(const Block* block, int row);
@@ -628,11 +681,13 @@ public:
     Status add_rows(const Block* block, size_t row_begin, size_t length);
     Status add_rows(const Block* block, const std::vector<int64_t>& rows);
 
-    /// remove the column with the specified name
+    /// Remove the column with the specified name
     void erase(const String& name);
 
+    // Get a string representation of the block's data, limited to the specified number of rows
     std::string dump_data(size_t row_limit = 100) const;
 
+    // Clear the block's data
     void clear() {
         _columns.clear();
         _data_types.clear();
@@ -644,8 +699,10 @@ public:
     // reset columns by types and names.
     void reset_column_data() noexcept;
 
+    // Returns the total number of bytes allocated by all columns in the block
     size_t allocated_bytes() const;
 
+    // Returns the approximate number of bytes in memory used by the block
     size_t bytes() const {
         size_t res = 0;
         for (const auto& elem : _columns) {
@@ -655,16 +712,20 @@ public:
         return res;
     }
 
+    // Get the names of the columns in the block
     std::vector<std::string>& get_names() { return _names; }
 
+    // Check if the block contains a column with the specified name
     bool has(const std::string& name) const;
 
+    // Get the position of the column with the specified name
     size_t get_position_by_name(const std::string& name) const;
 
     /** Get a list of column names separated by commas. */
     std::string dump_names() const;
 
 private:
+    // Initialize the index by name map
     void initialize_index_by_name();
 };
 
@@ -673,11 +734,13 @@ struct IteratorRowRef {
     int row_pos;
     bool is_same;
 
+    // Compare rows by specified arguments
     template <typename T>
     int compare(const IteratorRowRef& rhs, const T& compare_arguments) const {
         return block->compare_at(row_pos, rhs.row_pos, compare_arguments, *rhs.block, -1);
     }
 
+    // Reset the IteratorRowRef to default values
     void reset() {
         block = nullptr;
         row_pos = -1;
