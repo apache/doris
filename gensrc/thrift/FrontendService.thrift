@@ -1364,6 +1364,7 @@ struct TGetSnapshotResult {
     4: optional Types.TNetworkAddress master_address
     5: optional bool compressed;
     6: optional i64 expiredAt;  // in millis
+    7: optional i64 commit_seq;
 }
 
 struct TTableRef {

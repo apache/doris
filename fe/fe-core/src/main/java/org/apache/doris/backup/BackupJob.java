@@ -37,9 +37,11 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.S3ClientBEProperties;
 import org.apache.doris.persist.BarrierLog;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -80,9 +82,10 @@ import java.util.stream.Collectors;
 import java.util.zip.GZIPInputStream;
 
 
-public class BackupJob extends AbstractJob {
+public class BackupJob extends AbstractJob implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(BackupJob.class);
     private static final String TABLE_COMMIT_SEQ_PREFIX = "table_commit_seq:";
+    private static final String SNAPSHOT_COMMIT_SEQ = "commit_seq";
 
     public enum BackupJobState {
         PENDING, // Job is newly created. Send snapshot tasks and save copied meta info, then transfer to SNAPSHOTING
@@ -130,6 +133,8 @@ public class BackupJob extends AbstractJob {
     @SerializedName("prop")
     private Map<String, String> properties = Maps.newHashMap();
 
+    private long commitSeq = 0;
+
     public BackupJob() {
         super(JobType.BACKUP);
     }
@@ -140,11 +145,13 @@ public class BackupJob extends AbstractJob {
     }
 
     public BackupJob(String label, long dbId, String dbName, List<TableRef> tableRefs, long timeoutMs,
-                     BackupContent content, Env env, long repoId) {
+                     BackupContent content, Env env, long repoId, long commitSeq) {
         super(JobType.BACKUP, label, dbId, dbName, timeoutMs, env, repoId);
         this.tableRefs = tableRefs;
         this.state = BackupJobState.PENDING;
+        this.commitSeq = commitSeq;
         properties.put(BackupStmt.PROP_CONTENT, content.name());
+        properties.put(SNAPSHOT_COMMIT_SEQ, String.valueOf(commitSeq));
     }
 
     public BackupJobState getState() {
@@ -244,7 +251,7 @@ public class BackupJob extends AbstractJob {
             if (request.getTaskStatus().getStatusCode() == TStatusCode.TABLET_MISSING
                     && !tryNewTabletSnapshotTask(task)) {
                 status = new Status(ErrCode.NOT_FOUND,
-                        "make snapshot failed, failed to ge tablet, table will be droped or truncated");
+                        "make snapshot failed, failed to ge tablet, table will be dropped or truncated");
                 cancelInternal();
             }
 
@@ -414,6 +421,14 @@ public class BackupJob extends AbstractJob {
             LOG.debug("run backup job: {}", this);
         }
 
+        if (state == BackupJobState.PENDING) {
+            String pausedLabel = DebugPointUtil.getDebugParamOrDefault("FE.PAUSE_PENDING_BACKUP_JOB", "");
+            if (!pausedLabel.isEmpty() && label.startsWith(pausedLabel)) {
+                LOG.info("pause pending backup job by debug point: {}", this);
+                return;
+            }
+        }
+
         // run job base on current state
         switch (state) {
             case PENDING:
@@ -568,7 +583,7 @@ public class BackupJob extends AbstractJob {
 
     private void prepareSnapshotTaskForOlapTableWithoutLock(Database db, OlapTable olapTable,
             TableRef backupTableRef, AgentBatchTask batchTask) {
-        // Add barrier editolog for barrier commit seq
+        // Add barrier editlog for barrier commit seq
         long dbId = db.getId();
         String dbName = db.getFullName();
         long tableId = olapTable.getId();
@@ -698,12 +713,10 @@ public class BackupJob extends AbstractJob {
 
     private void waitingAllSnapshotsFinished() {
         if (unfinishedTaskIds.isEmpty()) {
-
             if (env.getEditLog().exceedMaxJournalSize(this)) {
                 status = new Status(ErrCode.COMMON_ERROR, "backupJob is too large ");
                 return;
             }
-
 
             snapshotFinishedTime = System.currentTimeMillis();
             state = BackupJobState.UPLOAD_SNAPSHOT;
@@ -1021,6 +1034,10 @@ public class BackupJob extends AbstractJob {
         return repoId == Repository.KEEP_ON_LOCAL_REPO_ID;
     }
 
+    public long getCommitSeq() {
+        return commitSeq;
+    }
+
     // read meta and job info bytes from disk, and return the snapshot
     public synchronized Snapshot getSnapshot() {
         if (state != BackupJobState.FINISHED || repoId != Repository.KEEP_ON_LOCAL_REPO_ID) {
@@ -1030,7 +1047,7 @@ public class BackupJob extends AbstractJob {
         // Avoid loading expired meta.
         long expiredAt = createTime + timeoutMs;
         if (System.currentTimeMillis() >= expiredAt) {
-            return new Snapshot(label, new byte[0], new byte[0], expiredAt);
+            return new Snapshot(label, new byte[0], new byte[0], expiredAt, commitSeq);
         }
 
         try {
@@ -1038,7 +1055,7 @@ public class BackupJob extends AbstractJob {
             File jobInfoFile = new File(localJobInfoFilePath);
             byte[] metaInfoBytes = Files.readAllBytes(metaInfoFile.toPath());
             byte[] jobInfoBytes = Files.readAllBytes(jobInfoFile.toPath());
-            return new Snapshot(label, metaInfoBytes, jobInfoBytes, expiredAt);
+            return new Snapshot(label, metaInfoBytes, jobInfoBytes, expiredAt, commitSeq);
         } catch (IOException e) {
             LOG.warn("failed to load meta info and job info file, meta info file {}, job info file {}: ",
                     localMetaInfoFilePath, localJobInfoFilePath, e);
@@ -1150,6 +1167,14 @@ public class BackupJob extends AbstractJob {
             String key = Text.readString(in);
             String value = Text.readString(in);
             properties.put(key, value);
+        }
+
+        gsonPostProcess();
+    }
+
+    public void gsonPostProcess() throws IOException {
+        if (properties.containsKey(SNAPSHOT_COMMIT_SEQ)) {
+            commitSeq = Long.parseLong(properties.get(SNAPSHOT_COMMIT_SEQ));
         }
     }
 
