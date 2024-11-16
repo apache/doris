@@ -242,4 +242,8 @@ public class TableStatsMeta implements Writable, GsonPostProcessable {
     protected void addIndexRowForTest(long indexId, long rowCount) {
         indexesRowCount.put(indexId, rowCount);
     }
+
+    public boolean isColumnsStatsEmpty() {
+        return colNameToColStatsMeta == null || colNameToColStatsMeta.isEmpty();
+    }
 }

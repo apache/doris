@@ -219,6 +219,9 @@ public class AnalysisManager implements Writable {
             }
             List<AnalysisInfo> jobs = new ArrayList<>();
             autoCollector.createAnalyzeJobForTbl(stmt.getDb(), jobs, stmt.getTable());
+            if (jobs.isEmpty()) {
+                return;
+            }
             AnalysisInfo job = autoCollector.getReAnalyzeRequiredPart(jobs.get(0));
             if (job != null) {
                 Env.getCurrentEnv().getStatisticsAutoCollector().createSystemAnalysisJob(job);
