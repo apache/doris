@@ -200,6 +200,7 @@ import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
+import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowLastInsertContext;
 import org.apache.doris.nereids.DorisParser.ShowProcContext;
 import org.apache.doris.nereids.DorisParser.ShowProcedureStatusContext;
@@ -441,6 +442,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
@@ -4116,6 +4118,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new AlterRoleCommand(ctx.role.getText(), comment);
     }
 
+    public LogicalPlan visitShowFrontends(ShowFrontendsContext ctx) {
+        String detail = (ctx.name != null) ? ctx.name.getText() : null;
+        return new ShowFrontendsCommand(detail);
+    }
+
     @Override
     public LogicalPlan visitRecoverDatabase(RecoverDatabaseContext ctx) {
         String dbName = ctx.name.getText();
@@ -4124,6 +4131,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new RecoverDatabaseCommand(dbName, dbId, newDbName);
     }
 
+    @Override
     public LogicalPlan visitDropRole(DropRoleContext ctx) {
         return new DropRoleCommand(ctx.name.getText(), ctx.EXISTS() != null);
     }
