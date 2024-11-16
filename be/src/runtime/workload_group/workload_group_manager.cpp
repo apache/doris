@@ -259,8 +259,8 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
     // if hard limit is enabled, then not need enable other queries hard limit.
     if (inserted) {
         query_ctx->set_memory_sufficient(false);
-        LOG(INFO) << "workload group " << wg->debug_string()
-                  << " insert one new paused query: " << query_ctx->debug_string();
+        LOG(INFO) << "Insert one new paused query: " << query_ctx->debug_string()
+                  << ", workload group: " << wg->debug_string()
     }
 }
 
@@ -659,6 +659,10 @@ bool WorkloadGroupMgr::handle_single_query_(std::shared_ptr<QueryContext> query_
                 query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(msg1));
             }
         } else {
+            // Should not consider about process memory. For example, the query's limit is 100g, workload
+            // group's memlimit is 10g, process memory is 20g. The query reserve will always failed in wg
+            // limit, and process is always have memory, so that it will resume and failed reserve again.
+            /*
             if (!GlobalMemoryArbitrator::is_exceed_hard_mem_limit()) {
                 LOG(INFO) << "query: " << query_id
                           << ", process limit not exceeded now, resume this query"
@@ -677,6 +681,12 @@ bool WorkloadGroupMgr::handle_single_query_(std::shared_ptr<QueryContext> query_
                     "there is no cache now. And could not find task to spill. Maybe you should "
                     "set "
                     "the workload group's limit to a lower value.",
+                    query_id));
+            */
+            query_ctx->cancel(doris::Status::Error<ErrorCode::MEM_LIMIT_EXCEEDED>(
+                    "The query({}) reserved memory failed and could not find task to spill. Maybe "
+                    "you should "
+                    "set the query's memlimit or workload group's limit to a lower value.",
                     query_id));
         }
     } else {
