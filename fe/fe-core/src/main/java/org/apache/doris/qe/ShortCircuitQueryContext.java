@@ -28,12 +28,14 @@ import org.apache.doris.thrift.TExprList;
 import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -56,19 +58,16 @@ public class ShortCircuitQueryContext {
     public final Queriable analzyedQuery;
     // Serialized mysql Field, this could avoid serialize mysql field each time sendFields.
     // Since, serialize fields is too heavy when table is wide
-    List<byte[]> serializedFields = new ArrayList();
+    Map<Integer, byte[]> serializedFields = Maps.newHashMap();
 
     List<Type> returnTypes = null;
 
     public byte[] getSerializedField(int idx) {
-        if (idx < serializedFields.size()) {
-            return serializedFields.get(idx);
-        }
-        return null;
+        return serializedFields.getOrDefault(idx, null);
     }
 
-    public void addSerializedField(byte[] serializedField) {
-        serializedFields.add(serializedField);
+    public void addSerializedField(int idx, byte[] serializedField) {
+        serializedFields.put(idx, serializedField);
     }
 
     List<Type> getReturnTypes() {

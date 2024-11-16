@@ -2871,7 +2871,7 @@ public class StmtExecutor {
                         serializer.writeField(colNames.get(i), types.get(i));
                     }
                     serializedField = serializer.toArray();
-                    ctx.addSerializedField(serializedField);
+                    ctx.addSerializedField(i, serializedField);
                 }
                 context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
             } else {

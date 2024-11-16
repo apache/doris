@@ -260,11 +260,10 @@ public class PointQueryExecutor implements CoordInterface {
             InternalService.PTabletKeyLookupRequest.Builder requestBuilder
                     = InternalService.PTabletKeyLookupRequest.newBuilder()
                     .setTabletId(tabletID)
-                    .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
-                    .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE)
                     .setDescTbl(shortCircuitQueryContext.serializedDescTable)
-                    .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr);
-
+                    .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
+                    .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
+                    .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
             if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
                 requestBuilder.setVersion(snapshotVisibleVersions.get(0));
             }
