@@ -260,7 +260,7 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<QueryContext>& que
     if (inserted) {
         query_ctx->set_memory_sufficient(false);
         LOG(INFO) << "Insert one new paused query: " << query_ctx->debug_string()
-                  << ", workload group: " << wg->debug_string()
+                  << ", workload group: " << wg->debug_string();
     }
 }
 
