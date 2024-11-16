@@ -21,52 +21,53 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.base.Strings;
-
 /**
- * recover database command
+ * recover table command
  */
-public class RecoverDatabaseCommand extends RecoverCommand {
-    private final String dbName;
-    private final long dbId;
-    private final String newDbName;
+public class RecoverTableCommand extends RecoverCommand {
+    private final TableNameInfo dbTblName;
+    private final long tableId;
+    private final String newTableName;
 
     /**
      * constructor
      */
-
-    public RecoverDatabaseCommand(String dbName, long dbId, String newDbName) {
-        super(PlanType.RECOVER_DATABASE_COMMAND);
-        this.dbName = dbName;
-        this.dbId = dbId;
-        this.newDbName = newDbName;
+    public RecoverTableCommand(TableNameInfo dbTblName, long tableId, String newTableName) {
+        super(PlanType.RECOVER_TABLE_COMMAND);
+        this.dbTblName = dbTblName;
+        this.tableId = tableId;
+        this.newTableName = newTableName;
     }
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws UserException {
-        if (Strings.isNullOrEmpty(dbName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
+        dbTblName.analyze(ctx);
+
+        // disallow external catalog
+        Util.prohibitExternalCatalog(dbTblName.getCtl(), this.getClass().getSimpleName());
+
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
+                ConnectContext.get(), dbTblName.getCtl(), dbTblName.getDb(), dbTblName.getTbl(),
+                PrivPredicate.ALTER_CREATE)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "RECOVERY",
+                    ConnectContext.get().getQualifiedUser(),
+                    ConnectContext.get().getRemoteIP(),
+                    dbTblName.getDb() + ": " + dbTblName.getTbl());
         }
 
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                        PrivPredicate.ALTER_CREATE)) {
-            ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), dbName);
-        }
-
-        Env.getCurrentEnv().recoverDatabase(dbName, dbId, newDbName);
+        Env.getCurrentEnv().recoverTable(dbTblName.getDb(), dbTblName.getTbl(), newTableName, tableId);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitRecoverDatabaseCommand(this, context);
+        return visitor.visitRecoverTableCommand(this, context);
     }
 }

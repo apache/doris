@@ -56,8 +56,8 @@ statementBase
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
-    | unsupportedStatement              #unsupported
     | supportedRecoverStatement         #supportedRecoverStatementAlias
+    | unsupportedStatement              #unsupported
     ;
 
 
@@ -74,7 +74,6 @@ unsupportedStatement
     | unsupportedGrantRevokeStatement
     | unsupportedAdminStatement
     | unsupportedTransactionStatement
-    | unsupportedRecoverStatement
     | unsupportedCancelStatement
     | unsupportedJobStatement
     | unsupportedCleanStatement
@@ -459,10 +458,7 @@ unsupportedCancelStatement
 
 supportedRecoverStatement
     : RECOVER DATABASE name=identifier id=INTEGER_VALUE? (AS alias=identifier)?     #recoverDatabase
-    ;
-
-unsupportedRecoverStatement
-    :RECOVER TABLE name=multipartIdentifier
+    | RECOVER TABLE name=multipartIdentifier
         id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
     | RECOVER PARTITION name=identifier id=INTEGER_VALUE? (AS alias=identifier)?
         FROM tableName=multipartIdentifier                                          #recoverPartition
