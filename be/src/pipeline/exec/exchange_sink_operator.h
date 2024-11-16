@@ -96,7 +96,7 @@ public:
     static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
         return Status::OK();
     }
-    Status _send_new_partition_batch();
+    Status _send_new_partition_batch(vectorized::Block* input_block);
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool only_local_exchange {false};

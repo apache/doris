@@ -275,20 +275,17 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ExchangeSinkLocalState::_send_new_partition_batch() {
+Status ExchangeSinkLocalState::_send_new_partition_batch(vectorized::Block* input_block) {
     if (_row_distribution.need_deal_batching()) { // maybe try_close more than 1 time
         RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
-        vectorized::Block tmp_block =
-                _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
         auto& p = _parent->cast<ExchangeSinkOperatorX>();
         // these order is unique.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
-        RETURN_IF_ERROR(p.sink(_state, &tmp_block, false));
+        RETURN_IF_ERROR(p.sink(_state, input_block, false));
         // Recovery back
-        _row_distribution._batching_block->set_mutable_columns(tmp_block.mutate_columns());
         _row_distribution._batching_block->clear_column_data();
         _row_distribution._deal_batched = false;
     }
@@ -521,7 +518,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             old_channel_mem_usage += channel->mem_usage();
         }
         // check out of limit
-        RETURN_IF_ERROR(local_state._send_new_partition_batch());
+        RETURN_IF_ERROR(local_state._send_new_partition_batch(block));
         std::shared_ptr<vectorized::Block> convert_block = std::make_shared<vectorized::Block>();
         const auto& num_channels = local_state._partition_count;
         std::vector<std::vector<uint32>> channel2rows;
@@ -549,7 +546,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
 
         if (eos) {
             local_state._row_distribution._deal_batched = true;
-            RETURN_IF_ERROR(local_state._send_new_partition_batch());
+            RETURN_IF_ERROR(local_state._send_new_partition_batch(block));
         }
         {
             SCOPED_TIMER(local_state._distribute_rows_into_channels_timer);
