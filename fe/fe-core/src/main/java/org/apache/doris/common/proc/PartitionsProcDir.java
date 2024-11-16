@@ -241,6 +241,16 @@ public class PartitionsProcDir implements ProcDirInterface {
 
         // get info
         List<Pair<List<Comparable>, TRow>> partitionInfos = new ArrayList<Pair<List<Comparable>, TRow>>();
+        Map<Long, List<String>> partitionsUnSyncTables = null;
+        String mtmvPartitionSyncErrorMsg = null;
+        if (olapTable instanceof MTMV) {
+            try {
+                partitionsUnSyncTables = MTMVPartitionUtil
+                        .getPartitionsUnSyncTables((MTMV) olapTable);
+            } catch (AnalysisException e) {
+                mtmvPartitionSyncErrorMsg = e.getMessage();
+            }
+        }
         olapTable.readLock();
         try {
             List<Long> partitionIds;
@@ -258,16 +268,6 @@ public class PartitionsProcDir implements ProcDirInterface {
             }
 
             Joiner joiner = Joiner.on(", ");
-            Map<Long, List<String>> partitionsUnSyncTables = null;
-            String mtmvPartitionSyncErrorMsg = null;
-            if (olapTable instanceof MTMV) {
-                try {
-                    partitionsUnSyncTables = MTMVPartitionUtil
-                            .getPartitionsUnSyncTables((MTMV) olapTable, partitionIds);
-                } catch (AnalysisException e) {
-                    mtmvPartitionSyncErrorMsg = e.getMessage();
-                }
-            }
             for (Long partitionId : partitionIds) {
                 Partition partition = olapTable.getPartition(partitionId);
 
@@ -363,11 +363,16 @@ public class PartitionsProcDir implements ProcDirInterface {
                     if (StringUtils.isEmpty(mtmvPartitionSyncErrorMsg)) {
                         List<String> partitionUnSyncTables = partitionsUnSyncTables.getOrDefault(partitionId,
                                 Lists.newArrayList());
-                        boolean isSync = CollectionUtils.isEmpty(partitionUnSyncTables);
+                        boolean isSync = partitionsUnSyncTables.containsKey(partitionId) && CollectionUtils.isEmpty(
+                                partitionUnSyncTables);
                         partitionInfo.add(isSync);
                         trow.addToColumnValue(new TCell().setBoolVal(isSync));
-                        partitionInfo.add(partitionUnSyncTables.toString());
-                        trow.addToColumnValue(new TCell().setStringVal(partitionUnSyncTables.toString()));
+                        // The calculation logic of partitionsUnSyncTables is not protected in the current lock,
+                        // so the obtained partition list may not be consistent with here
+                        String unSyncTables = partitionsUnSyncTables.containsKey(partitionId)
+                                ? partitionUnSyncTables.toString() : "not sure, please try again";
+                        partitionInfo.add(unSyncTables);
+                        trow.addToColumnValue(new TCell().setStringVal(unSyncTables));
                     } else {
                         partitionInfo.add(false);
                         trow.addToColumnValue(new TCell().setBoolVal(false));

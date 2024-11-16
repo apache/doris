@@ -231,12 +231,12 @@ public class MTMVPartitionUtil {
      * getPartitionsUnSyncTables
      *
      * @param mtmv
-     * @param partitionIds
      * @return partitionName ==> UnSyncTableNames
      * @throws AnalysisException
      */
-    public static Map<Long, List<String>> getPartitionsUnSyncTables(MTMV mtmv, List<Long> partitionIds)
+    public static Map<Long, List<String>> getPartitionsUnSyncTables(MTMV mtmv)
             throws AnalysisException {
+        List<Long> partitionIds = mtmv.getPartitionIds();
         Map<Long, List<String>> res = Maps.newHashMap();
         MTMVRefreshContext context = MTMVRefreshContext.buildContext(mtmv);
         for (Long partitionId : partitionIds) {
