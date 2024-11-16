@@ -414,7 +414,7 @@ public interface CommandVisitor<R, C> {
     default R visitShowLastInsertCommand(ShowLastInsertCommand showLastInsertCommand, C context) {
         return visitCommand(showLastInsertCommand, context);
     }
-    
+
     default R visitAlterTableCommand(AlterTableCommand alterTableCommand, C context) {
         return visitCommand(alterTableCommand, context);
     }
