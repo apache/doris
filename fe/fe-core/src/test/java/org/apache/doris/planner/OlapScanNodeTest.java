@@ -63,7 +63,7 @@ public class OlapScanNodeTest {
         PartitionColumnFilter  columnFilter = new PartitionColumnFilter();
         columnFilter.setInPredicate(inPredicate);
         Map<String, PartitionColumnFilter> filterMap = Maps.newHashMap();
-        filterMap.put("columnA", columnFilter);
+        filterMap.put("COLUMNA", columnFilter);
 
         DistributionPruner partitionPruner  = new HashDistributionPruner(
                 partitions,

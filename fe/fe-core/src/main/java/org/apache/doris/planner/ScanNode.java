@@ -185,7 +185,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         // only create `columnFilters` when `partition_prune_algorithm_version` is 1.
         PartitionColumnFilter keyFilter = createPartitionFilter(slotDesc, conjuncts, partitionsInfo);
         if (null != keyFilter) {
-            columnFilters.put(column.getName(), keyFilter);
+            columnFilters.put(column.getName().toUpperCase(), keyFilter);
         }
 
         ColumnRange columnRange = createColumnRange(slotDesc, conjuncts, partitionsInfo);
