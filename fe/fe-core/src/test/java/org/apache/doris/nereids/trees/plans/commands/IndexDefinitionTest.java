@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
 public class IndexDefinitionTest {
     @Test
     void testVariantIndexFormatV1() throws AnalysisException {
-        IndexDefinition def = new IndexDefinition("variant_index", Lists.newArrayList("col1"), "INVERTED",
+        IndexDefinition def = new IndexDefinition("variant_index", false, Lists.newArrayList("col1"), "INVERTED",
                                         null, "comment");
         try {
             boolean isIndexFormatV1 = true;
