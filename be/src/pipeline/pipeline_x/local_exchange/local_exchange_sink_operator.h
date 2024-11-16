@@ -40,6 +40,8 @@ public:
     Status open(RuntimeState* state) override;
     std::string debug_string(int indentation_level) const override;
 
+    Status close(RuntimeState* state, Status exec_status) override;
+
 private:
     friend class LocalExchangeSinkOperatorX;
     friend class ShuffleExchanger;
