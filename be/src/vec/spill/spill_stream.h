@@ -67,7 +67,11 @@ public:
 
     void update_shared_profiles(RuntimeProfile* source_op_profile);
 
+    SpillReaderUPtr create_separate_reader() const;
+
     const TUniqueId& query_id() const;
+
+    bool ready_for_reading() const { return _ready_for_reading; }
 
 private:
     friend class SpillStreamManager;
@@ -86,6 +90,7 @@ private:
     size_t batch_bytes_;
     int64_t total_written_bytes_ = 0;
 
+    std::atomic_bool _ready_for_reading = false;
     std::atomic_bool _is_reading = false;
 
     SpillWriterUPtr writer_;

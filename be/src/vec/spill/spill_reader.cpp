@@ -17,6 +17,8 @@
 
 #include "vec/spill/spill_reader.h"
 
+#include <glog/logging.h>
+
 #include <algorithm>
 
 #include "common/cast_set.h"
@@ -97,6 +99,11 @@ Status SpillReader::open() {
     block_start_offsets_[block_count_] = file_size - (block_count_ + 2) * sizeof(size_t);
 
     return Status::OK();
+}
+
+void SpillReader::seek(size_t block_index) {
+    DCHECK_LT(block_index, block_count_);
+    read_block_index_ = block_index;
 }
 
 Status SpillReader::read(Block* block, bool* eos) {

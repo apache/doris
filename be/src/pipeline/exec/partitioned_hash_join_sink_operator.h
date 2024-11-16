@@ -68,6 +68,7 @@ protected:
 
     friend class PartitionedHashJoinSinkOperatorX;
 
+    std::mutex _spill_mutex;
     std::atomic<bool> _spilling_finished {false};
     std::atomic_int32_t _spilling_task_count {0};
 

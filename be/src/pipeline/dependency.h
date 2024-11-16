@@ -570,10 +570,14 @@ public:
 
 class MultiCastDataStreamer;
 
-struct MultiCastSharedState : public BasicSharedState {
-public:
-    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count);
+struct MultiCastSharedState : public BasicSharedState,
+                              public BasicSpillSharedState,
+                              public std::enable_shared_from_this<MultiCastSharedState> {
+    MultiCastSharedState(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count,
+                         int node_id);
     std::unique_ptr<pipeline::MultiCastDataStreamer> multi_cast_data_streamer;
+
+    void update_spill_stream_profiles(RuntimeProfile* source_profile) override;
 };
 
 struct BlockRowPos {

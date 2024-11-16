@@ -115,6 +115,10 @@ Status SpillStream::prepare() {
     return writer_->open();
 }
 
+SpillReaderUPtr SpillStream::create_separate_reader() const {
+    return std::make_unique<SpillReader>(stream_id_, writer_->get_file_path());
+}
+
 const TUniqueId& SpillStream::query_id() const {
     return query_id_;
 }
@@ -144,6 +148,10 @@ Status SpillStream::spill_eof() {
     auto status = writer_->close();
     total_written_bytes_ = writer_->get_written_bytes();
     writer_.reset();
+
+    if (status.ok()) {
+        _ready_for_reading = true;
+    }
     return status;
 }
 
