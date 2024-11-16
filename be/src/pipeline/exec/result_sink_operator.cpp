@@ -69,8 +69,7 @@ Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info)
     // create sender
     auto& p = _parent->cast<ResultSinkOperatorX>();
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), p._result_sink_buffer_size_rows, &_sender, true,
-            state->execution_timeout()));
+            state->fragment_instance_id(), p._result_sink_buffer_size_rows, &_sender, true, state));
     ((PipBufferControlBlock*)_sender.get())->set_dependency(_dependency->shared_from_this());
     return Status::OK();
 }
@@ -98,12 +97,11 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCAL: {
         std::shared_ptr<arrow::Schema> arrow_schema;
-        RETURN_IF_ERROR(convert_expr_ctxs_arrow_schema(_output_vexpr_ctxs, &arrow_schema,
-                                                       state->timezone()));
-        state->exec_env()->result_mgr()->register_arrow_schema(state->fragment_instance_id(),
-                                                               arrow_schema);
+        RETURN_IF_ERROR(get_arrow_schema_from_expr_ctxs(_output_vexpr_ctxs, &arrow_schema,
+                                                        state->timezone()));
+        _sender->register_arrow_schema(arrow_schema);
         _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
-                _sender.get(), _output_vexpr_ctxs, _profile, arrow_schema));
+                _sender.get(), _output_vexpr_ctxs, _profile));
         break;
     }
     default:
