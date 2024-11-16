@@ -102,6 +102,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     private int paimonSplitNum = 0;
     private List<SplitStat> splitStats = new ArrayList<>();
     private SessionVariable sessionVariable;
+    private String serializedTable;
 
     public PaimonScanNode(PlanNodeId id,
                           TupleDescriptor desc,
@@ -115,6 +116,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     protected void doInitialize() throws UserException {
         super.doInitialize();
         source = new PaimonSource(desc);
+        serializedTable = encodeObjectToString(source.getPaimonTable());
         Preconditions.checkNotNull(source);
     }
 
@@ -142,6 +144,11 @@ public class PaimonScanNode extends FileQueryScanNode {
         if (split instanceof PaimonSplit) {
             setPaimonParams(rangeDesc, (PaimonSplit) split);
         }
+    }
+
+    @Override
+    protected Optional<String> getSerializedTable() {
+        return Optional.of(serializedTable);
     }
 
     private void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {

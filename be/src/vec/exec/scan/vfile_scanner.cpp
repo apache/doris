@@ -794,7 +794,7 @@ Status VFileScanner::_get_next_reader() {
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
                 _cur_reader =
-                        PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range);
+                        PaimonJniReader::create_unique(_file_slot_descs, _state, _profile, range, _params);
                 init_status = ((PaimonJniReader*)(_cur_reader.get()))
                                       ->init_reader(_colname_to_value_range);
             } else if (range.__isset.table_format_params &&
