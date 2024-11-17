@@ -538,6 +538,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         }
     }
 
+    public Set<String> getTableNames() {
+        return new HashSet<>(this.nameToTable.keySet());
+    }
+
     /**
      * This is a thread-safe method when nameToTable is a concurrent hash map
      */
