@@ -1680,7 +1680,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void setFeConfig(String key, Object value) {
-        sql "ADMIN SET ALL FRONTEND CONFIG ('${key}' = '${value}')"
+        sql "ADMIN SET ALL FRONTENDS CONFIG ('${key}' = '${value}')"
     }
 
     void setFeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
