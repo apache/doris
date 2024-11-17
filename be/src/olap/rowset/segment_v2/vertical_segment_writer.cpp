@@ -248,10 +248,10 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         opts.data_page_size = storage_page_size;
     }
     DBUG_EXECUTE_IF("VerticalSegmentWriter._create_column_writer.storage_page_size", {
-        auto table_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+        auto table_id = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
                 "VerticalSegmentWriter._create_column_writer.storage_page_size", "table_id",
                 INT_MIN);
-        auto target_data_page_size = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+        auto target_data_page_size = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
                 "VerticalSegmentWriter._create_column_writer.storage_page_size",
                 "storage_page_size", INT_MIN);
         if (table_id == INT_MIN || target_data_page_size == INT_MIN) {
