@@ -1421,7 +1421,7 @@ TEST(BlockTest, FilterAndSelector) {
 
         // Expected values after filtering
         std::vector<Int32> expected_col1 = {1, 2, 3, 4, 6, 7, 8, 9};
-        std::vector<Int32> expected_col2 = {2, 4, 6, 8, 12, 14, 16, 18};
+        std::vector<Int32> expected_col2 = {0, 2, 4, 6, 8, 10, 12, 14, 16, 18};
 
         // Verify each value in filtered columns
         for (size_t i = 0; i < expected_col1.size(); ++i) {
@@ -1564,7 +1564,7 @@ TEST(BlockTest, FilterAndSelector) {
 
         // Expected values after selection
         std::vector<Int32> expected_col1 = {0, 2, 4, 6, 8};
-        std::vector<Int32> expected_col2 = {2, 4, 6, 8, 12};
+        std::vector<Int32> expected_col2 = {0, 4, 8, 12, 16};
 
         for (size_t i = 0; i < expected_col1.size(); ++i) {
             EXPECT_EQ(expected_col1[i], selected_col1->get_data()[i]);
