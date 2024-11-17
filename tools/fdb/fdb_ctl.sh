@@ -353,12 +353,14 @@ function start_fdb() {
 }
 
 function stop_fdb() {
-    if [[ -f "${FDB_HOME}/fdbmonitor.pid" ]]; then
+    fdb_pid_file="${FDB_HOME}/fdbmonitor.pid"
+    if [[ -f "${fdb_pid_file}" ]]; then
         local fdb_pid
-        fdb_pid=$(cat "${FDB_HOME}/fdbmonitor.pid")
+        fdb_pid=$(cat "${fdb_pid_file}")
         if ps -p "${fdb_pid}" >/dev/null; then
             echo "Stop fdbmonitor with pid ${fdb_pid}"
             kill -9 "${fdb_pid}"
+            rm -f "${fdb_pid_file}"
         fi
     fi
 }
