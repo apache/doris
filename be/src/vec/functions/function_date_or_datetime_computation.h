@@ -479,34 +479,6 @@ struct DateTimeOp {
         }
     }
 
-    // use for (const DateTime, ColumnNumber) -> other_type
-    static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
-                                NullMap& null_map, const IColumn& delta) {
-        size_t size = delta.size();
-        vec_to.resize(size);
-        null_map.resize_fill(size, false);
-
-        for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(from, delta.get_int(i),
-                                           reinterpret_cast<bool&>(null_map[i]));
-        }
-    }
-    static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
-                                const IColumn& delta) {
-        size_t size = delta.size();
-        vec_to.resize(size);
-        bool invalid = true;
-
-        for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(from, delta.get_int(i), invalid);
-
-            if (UNLIKELY(invalid)) {
-                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
-                                Transform::name, from, delta.get_int(i));
-            }
-        }
-    }
-
     static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
                                 NullMap& null_map, const PaddedPODArray<FromType2>& delta) {
         size_t size = delta.size();
