@@ -279,15 +279,11 @@ Status ExchangeSinkLocalState::_send_new_partition_batch(vectorized::Block* inpu
     if (_row_distribution.batching_rows() > 0) { // maybe try_close more than 1 time
         RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
         auto& p = _parent->cast<ExchangeSinkOperatorX>();
-        // these order is unique.
-        //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
-        //  2. deal batched block
-        //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
+        // Recovery back
         _row_distribution.clear_batching_stats();
         _row_distribution._batching_block->clear_column_data();
-        RETURN_IF_ERROR(p.sink(_state, input_block, false));
-        // Recovery back
         _row_distribution._deal_batched = false;
+        RETURN_IF_ERROR(p.sink(_state, input_block, false));
     }
     return Status::OK();
 }
