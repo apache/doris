@@ -240,7 +240,7 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
 }
 
 Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_column,
-                                        DataTypePtr& type, ColumnSelectVector& select_vector,
+                                        DataTypePtr& type, FilterMap& filter_map,
                                         bool is_dict_filter) {
     if (num_values == 0) {
         return Status::OK();
@@ -303,9 +303,12 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
         }
         null_map.emplace_back((u_short)remaining);
     }
+    ColumnSelectVector select_vector;
     {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        select_vector.set_run_length_null_map(null_map, num_values, map_data_column);
+        RETURN_IF_ERROR(select_vector.init(null_map, num_values, map_data_column, &filter_map,
+                                           _filter_map_index));
+        _filter_map_index += num_values;
     }
     return _chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter);
 }
@@ -316,9 +319,15 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
  * whether the reader should read the remaining value of the last row in previous page.
  */
 Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
-                                               ColumnSelectVector& select_vector, size_t batch_size,
+                                               FilterMap& filter_map, size_t batch_size,
                                                size_t* read_rows, bool* eof, bool is_dict_filter,
-                                               bool align_rows = false) {
+                                               bool align_rows) {
+    std::unique_ptr<FilterMap> nested_filter_map;
+    std::unique_ptr<std::vector<uint8_t>> nested_filter_map_data;
+
+    size_t current_row;
+
+    FilterMap* current_filter_map = &filter_map;
     size_t origin_size = 0;
     if (align_rows) {
         origin_size = _rep_levels.size();
@@ -348,13 +357,25 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             _rep_levels.emplace_back(rep_level);
             remaining_values--;
         }
+
+        if (filter_map.has_filter()) {
+            nested_filter_map_data = std::make_unique<std::vector<uint8_t>>();
+            nested_filter_map_data->resize(_rep_levels.size());
+            current_row = _orig_filter_map_index;
+            RETURN_IF_ERROR(filter_map.generate_nested_filter_map(
+                    _rep_levels, *nested_filter_map_data, &nested_filter_map, &current_row, false,
+                    0));
+            current_filter_map = nested_filter_map.get();
+        }
     } else if (!align_rows) {
         // case : required child columns in struct type
         parsed_rows = std::min(remaining_values, batch_size);
         remaining_values -= parsed_rows;
         _rep_levels.resize(parsed_rows, 0);
     }
+
     size_t parsed_values = _chunk_reader->remaining_num_values() - remaining_values;
+
     _def_levels.resize(origin_size + parsed_values);
     if (has_def_level) {
         _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
@@ -377,10 +398,14 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         }
         data_column = doris_column->assume_mutable();
     }
+
     size_t has_read = origin_size;
     size_t ancestor_nulls = 0;
+    size_t null_size = 0;
+    size_t nonnull_size = 0;
     null_map.emplace_back(0);
     bool prev_is_null = false;
+
     while (has_read < origin_size + parsed_values) {
         level_t def_level = _def_levels[has_read++];
         size_t loop_read = 1;
@@ -388,16 +413,20 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             has_read++;
             loop_read++;
         }
+
         if (def_level < _field_schema->repeated_parent_def_level) {
-            // when def_level is less than repeated_parent_def_level, it means that level
-            // will affect its ancestor.
             ancestor_nulls += loop_read;
             continue;
         }
+
         bool is_null = def_level < _field_schema->definition_level;
+        if (is_null) {
+            null_size += loop_read;
+        } else {
+            nonnull_size += loop_read;
+        }
+
         if (prev_is_null == is_null && (USHRT_MAX - null_map.back() >= loop_read)) {
-            // If whether the values are nullable in current loop is the same the previous values,
-            // we can save the memory usage in null map
             null_map.back() += loop_read;
         } else {
             if (!(prev_is_null ^ is_null)) {
@@ -415,29 +444,74 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
 
     size_t num_values = parsed_values - ancestor_nulls;
-    {
-        SCOPED_RAW_TIMER(&_decode_null_map_time);
-        select_vector.set_run_length_null_map(null_map, num_values, map_data_column);
-    }
-    RETURN_IF_ERROR(_chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter));
-    if (ancestor_nulls != 0) {
-        RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_nulls, false));
+
+    if (current_filter_map->filter_all()) {
+        if (null_size > 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(null_size, false));
+        }
+        if (nonnull_size > 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(nonnull_size, true));
+        }
+        if (ancestor_nulls != 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_nulls, false));
+        }
+    } else {
+        ColumnSelectVector select_vector;
+        {
+            SCOPED_RAW_TIMER(&_decode_null_map_time);
+            RETURN_IF_ERROR(
+                    select_vector.init(null_map, num_values, map_data_column, current_filter_map,
+                                       nested_filter_map_data ? origin_size : _filter_map_index));
+        }
+
+        RETURN_IF_ERROR(
+                _chunk_reader->decode_values(data_column, type, select_vector, is_dict_filter));
+        if (ancestor_nulls != 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_nulls, false));
+        }
     }
 
     if (!align_rows) {
         *read_rows = parsed_rows;
     }
+    _filter_map_index += parsed_values;
     if (_chunk_reader->remaining_num_values() == 0) {
         if (_chunk_reader->has_next_page()) {
             RETURN_IF_ERROR(_chunk_reader->next_page());
             RETURN_IF_ERROR(_chunk_reader->load_page_data());
-            select_vector.reset();
-            return _read_nested_column(doris_column, type, select_vector, 0, read_rows, eof,
+            return _read_nested_column(doris_column, type, filter_map, 0, read_rows, eof,
                                        is_dict_filter, true);
         } else {
             *eof = true;
         }
     }
+
+    if (current_filter_map->has_filter()) {
+        if (current_filter_map->filter_all()) {
+            _rep_levels.resize(0);
+            _def_levels.resize(0);
+        } else {
+            std::vector<level_t> filtered_rep_levels;
+            std::vector<level_t> filtered_def_levels;
+            filtered_rep_levels.reserve(_rep_levels.size());
+            filtered_def_levels.reserve(_def_levels.size());
+
+            const uint8_t* filter_map_data = current_filter_map->filter_map_data();
+
+            for (size_t i = 0; i < _rep_levels.size(); i++) {
+                if (filter_map_data[i]) {
+                    filtered_rep_levels.push_back(_rep_levels[i]);
+                    filtered_def_levels.push_back(_def_levels[i]);
+                }
+            }
+
+            _rep_levels = std::move(filtered_rep_levels);
+            _def_levels = std::move(filtered_def_levels);
+        }
+    }
+
+    _orig_filter_map_index = current_row + 1;
+
     if (_rep_levels.size() > 0) {
         // make sure the rows of complex type are aligned correctly,
         // so the repetition level of first element should be 0, meaning a new row is started.
@@ -445,6 +519,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
     return Status::OK();
 }
+
 Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_column,
                                                       bool* has_dict) {
     bool loaded;
@@ -476,7 +551,7 @@ Status ScalarColumnReader::_try_load_dict_page(bool* loaded, bool* has_dict) {
 }
 
 Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                            ColumnSelectVector& select_vector, size_t batch_size,
+                                            FilterMap& filter_map, size_t batch_size,
                                             size_t* read_rows, bool* eof, bool is_dict_filter) {
     if (_converter == nullptr) {
         _converter = parquet::PhysicalToLogicalConverter::get_converter(
@@ -501,8 +576,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         }
         if (_nested_column) {
             RETURN_IF_ERROR(_chunk_reader->load_page_data_idempotent());
-            RETURN_IF_ERROR(_read_nested_column(resolved_column, resolved_type, select_vector,
-                                                batch_size, read_rows, eof, is_dict_filter));
+            RETURN_IF_ERROR(_read_nested_column(resolved_column, resolved_type, filter_map,
+                                                batch_size, read_rows, eof, is_dict_filter, false));
             break;
         }
 
@@ -520,16 +595,16 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
             bool skip_whole_batch = false;
             // Determining whether to skip page or batch will increase the calculation time.
             // When the filtering effect is greater than 60%, it is possible to skip the page or batch.
-            if (select_vector.has_filter() && select_vector.filter_ratio() > 0.6) {
+            if (filter_map.has_filter() && filter_map.filter_ratio() > 0.6) {
                 // lazy read
                 size_t remaining_num_values = 0;
                 for (auto& range : read_ranges) {
                     remaining_num_values += range.last_row - range.first_row;
                 }
                 if (batch_size >= remaining_num_values &&
-                    select_vector.can_filter_all(remaining_num_values)) {
+                    filter_map.can_filter_all(remaining_num_values, _filter_map_index)) {
                     // We can skip the whole page if the remaining values is filtered by predicate columns
-                    select_vector.skip(remaining_num_values);
+                    _filter_map_index += remaining_num_values;
                     _current_row_index += _chunk_reader->remaining_num_values();
                     RETURN_IF_ERROR(_chunk_reader->skip_page());
                     *read_rows = remaining_num_values;
@@ -539,9 +614,9 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                     break;
                 }
                 skip_whole_batch = batch_size <= remaining_num_values &&
-                                   select_vector.can_filter_all(batch_size);
+                                   filter_map.can_filter_all(batch_size, _filter_map_index);
                 if (skip_whole_batch) {
-                    select_vector.skip(batch_size);
+                    _filter_map_index += batch_size;
                 }
             }
             // load page data to decode or skip values
@@ -559,7 +634,7 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                     RETURN_IF_ERROR(_skip_values(read_values));
                 } else {
                     RETURN_IF_ERROR(_read_values(read_values, resolved_column, resolved_type,
-                                                 select_vector, is_dict_filter));
+                                                 filter_map, is_dict_filter));
                 }
                 has_read += read_values;
                 _current_row_index += read_values;
@@ -587,7 +662,7 @@ Status ArrayColumnReader::init(std::unique_ptr<ParquetColumnReader> element_read
 }
 
 Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                           ColumnSelectVector& select_vector, size_t batch_size,
+                                           FilterMap& filter_map, size_t batch_size,
                                            size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
@@ -613,7 +688,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
             (reinterpret_cast<const DataTypeArray*>(remove_nullable(type).get()))
                     ->get_nested_type());
     // read nested column
-    RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type, select_vector,
+    RETURN_IF_ERROR(_element_reader->read_column_data(element_column, element_type, filter_map,
                                                       batch_size, read_rows, eof, is_dict_filter));
     if (*read_rows == 0) {
         return Status::OK();
@@ -638,7 +713,7 @@ Status MapColumnReader::init(std::unique_ptr<ParquetColumnReader> key_reader,
 }
 
 Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                         ColumnSelectVector& select_vector, size_t batch_size,
+                                         FilterMap& filter_map, size_t batch_size,
                                          size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
@@ -671,12 +746,12 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
     size_t value_rows = 0;
     bool key_eof = false;
     bool value_eof = false;
-    RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, select_vector, batch_size,
+    RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, filter_map, batch_size,
                                                   &key_rows, &key_eof, is_dict_filter));
+
     while (value_rows < key_rows && !value_eof) {
         size_t loop_rows = 0;
-        select_vector.reset();
-        RETURN_IF_ERROR(_value_reader->read_column_data(value_column, value_type, select_vector,
+        RETURN_IF_ERROR(_value_reader->read_column_data(value_column, value_type, filter_map,
                                                         key_rows - value_rows, &loop_rows,
                                                         &value_eof, is_dict_filter));
         value_rows += loop_rows;
@@ -707,7 +782,7 @@ Status StructColumnReader::init(
     return Status::OK();
 }
 Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
-                                            ColumnSelectVector& select_vector, size_t batch_size,
+                                            FilterMap& filter_map, size_t batch_size,
                                             size_t* read_rows, bool* eof, bool is_dict_filter) {
     MutableColumnPtr data_column;
     NullMap* null_map_ptr = nullptr;
@@ -750,22 +825,21 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
 
         _read_column_names.insert(doris_name);
 
-        select_vector.reset();
+        //        select_vector.reset();
         size_t field_rows = 0;
         bool field_eof = false;
         if (not_missing_column_id == -1) {
             not_missing_column_id = i;
             RETURN_IF_ERROR(_child_readers[doris_name]->read_column_data(
-                    doris_field, doris_type, select_vector, batch_size, &field_rows, &field_eof,
+                    doris_field, doris_type, filter_map, batch_size, &field_rows, &field_eof,
                     is_dict_filter));
             *read_rows = field_rows;
             *eof = field_eof;
         } else {
             while (field_rows < *read_rows && !field_eof) {
                 size_t loop_rows = 0;
-                select_vector.reset();
                 RETURN_IF_ERROR(_child_readers[doris_name]->read_column_data(
-                        doris_field, doris_type, select_vector, *read_rows - field_rows, &loop_rows,
+                        doris_field, doris_type, filter_map, *read_rows - field_rows, &loop_rows,
                         &field_eof, is_dict_filter));
                 field_rows += loop_rows;
             }
