@@ -2115,7 +2115,7 @@ TEST(BlockTest, BlockOperations) {
             auto col2 = vectorized::ColumnVector<Int32>::create();
             col2->insert_value(2);
             block.insert({std::move(col2), type,
-                        std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "col"});
+                          std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "col"});
         }
 
         // Add another temporary column
@@ -2123,7 +2123,7 @@ TEST(BlockTest, BlockOperations) {
             auto col3 = vectorized::ColumnVector<Int32>::create();
             col3->insert_value(3);
             block.insert({std::move(col3), type,
-                        std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "another_col"});
+                          std::string(BeConsts::BLOCK_TEMP_COLUMN_PREFIX) + "another_col"});
         }
 
         EXPECT_EQ(3, block.columns());
