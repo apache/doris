@@ -90,9 +90,13 @@ Status Channel<Parent>::init(RuntimeState* state) {
                               _fragment_instance_id, _dest_node_id, &_local_recvr),
                       "");
     } else {
+        auto network_address = _brpc_dest_addr;
         if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
             _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
                     "127.0.0.1", _brpc_dest_addr.port);
+            if (config::enable_brpc_connection_check) {
+                network_address.hostname = "127.0.0.1";
+            }
         } else {
             _brpc_stub =
                     state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
@@ -103,6 +107,10 @@ Status Channel<Parent>::init(RuntimeState* state) {
                                           _brpc_dest_addr.hostname, _brpc_dest_addr.port);
             LOG(WARNING) << msg;
             return Status::InternalError(msg);
+        }
+
+        if (config::enable_brpc_connection_check) {
+            state->get_query_ctx()->add_using_brpc_stub(network_address, _brpc_stub);
         }
     }
 
@@ -129,19 +137,16 @@ Status Channel<Parent>::init_stub(RuntimeState* state) {
     if (_is_local) {
         return Status::OK();
     }
+
+    auto network_address = _brpc_dest_addr;
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
                 "127.0.0.1", _brpc_dest_addr.port);
         if (config::enable_brpc_connection_check) {
-            auto network_address = _brpc_dest_addr;
             network_address.hostname = "127.0.0.1";
-            state->get_query_ctx()->add_using_brpc_stub(network_address, _brpc_stub);
         }
     } else {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(_brpc_dest_addr);
-        if (config::enable_brpc_connection_check) {
-            state->get_query_ctx()->add_using_brpc_stub(_brpc_dest_addr, _brpc_stub);
-        }
     }
 
     if (!_brpc_stub) {
@@ -149,6 +154,10 @@ Status Channel<Parent>::init_stub(RuntimeState* state) {
                                       _brpc_dest_addr.hostname, _brpc_dest_addr.port);
         LOG(WARNING) << msg;
         return Status::InternalError(msg);
+    }
+
+    if (config::enable_brpc_connection_check) {
+        state->get_query_ctx()->add_using_brpc_stub(network_address, _brpc_stub);
     }
     return Status::OK();
 }
