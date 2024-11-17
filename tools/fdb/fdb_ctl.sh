@@ -467,7 +467,7 @@ function usage() {
     echo -e "\t clean  \t clean fdb data"
     echo -e "\t start  \t start fdb"
     echo -e "\t stop   \t stop fdb"
-    echo -e "\t fdbcli \t stop fdb"
+    echo -e "\t fdbcli \t execute fdbcli"
     echo -e ""
     exit 1
 }
