@@ -976,11 +976,11 @@ TEST(BlockTest, RowOperations) {
     EXPECT_FALSE(block.is_empty_column());
 
     // Test row operations
-    block.set_num_rows(50);  // LIMIT
+    block.set_num_rows(50); // LIMIT
     EXPECT_EQ(50, block.rows());
 
     int64_t offset = 20;
-    block.skip_num_rows(offset);  // OFFSET
+    block.skip_num_rows(offset); // OFFSET
     EXPECT_EQ(30, block.rows());
 }
 
@@ -1111,10 +1111,10 @@ TEST(BlockTest, DumpMethods) {
     {
         std::string line = block.dump_one_line(0, 2);
         EXPECT_EQ("123 hello", line);
-        
+
         line = block.dump_one_line(1, 2);
         EXPECT_EQ("456 world", line);
-        
+
         line = block.dump_one_line(0, 1);
         EXPECT_EQ("123", line);
     }
@@ -1160,7 +1160,8 @@ TEST(BlockTest, DumpMethods) {
         EXPECT_TRUE(str_dump.find("world") != std::string::npos);
 
         // Test Nullable column
-        std::string nullable_dump = vectorized::Block::dump_column(nullable_col->get_ptr(), nullable_type);
+        std::string nullable_dump =
+                vectorized::Block::dump_column(nullable_col->get_ptr(), nullable_type);
         LOG(INFO) << "Nullable column dump:\n" << nullable_dump;
         EXPECT_FALSE(nullable_dump.empty());
         EXPECT_FALSE(nullable_dump.find("123") != std::string::npos);
@@ -1169,7 +1170,7 @@ TEST(BlockTest, DumpMethods) {
         auto empty_col = vectorized::ColumnVector<Int32>::create();
         auto empty_dump = vectorized::Block::dump_column(empty_col->get_ptr(), type1);
         LOG(INFO) << "Empty column dump:\n" << empty_dump;
-        EXPECT_FALSE(empty_dump.empty());  // Should still return formatted empty table
+        EXPECT_FALSE(empty_dump.empty()); // Should still return formatted empty table
     }
 }
 
@@ -1216,9 +1217,11 @@ TEST(BlockTest, CloneOperations) {
     EXPECT_EQ(type, new_block.get_by_position(0).type);
     EXPECT_EQ(type, new_block.get_by_position(1).type);
     EXPECT_EQ(1, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                    new_block.get_by_position(0).column.get())->get_data()[0]);
+                        new_block.get_by_position(0).column.get())
+                            ->get_data()[0]);
     EXPECT_EQ(2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                    new_block.get_by_position(1).column.get())->get_data()[0]);
+                        new_block.get_by_position(1).column.get())
+                            ->get_data()[0]);
 
     // Test clone_with_columns
     auto cloned_with_cols = block.clone_with_columns(columns);
@@ -1229,9 +1232,11 @@ TEST(BlockTest, CloneOperations) {
     EXPECT_EQ(type, cloned_with_cols.get_by_position(0).type);
     EXPECT_EQ(type, cloned_with_cols.get_by_position(1).type);
     EXPECT_EQ(1, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                    cloned_with_cols.get_by_position(0).column.get())->get_data()[0]);
+                            cloned_with_cols.get_by_position(0).column.get())
+                            ->get_data()[0]);
     EXPECT_EQ(2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                    cloned_with_cols.get_by_position(1).column.get())->get_data()[0]);
+                            cloned_with_cols.get_by_position(1).column.get())
+                            ->get_data()[0]);
 
     // Test clone_without_columns
     std::vector<int> column_offset = {0};
@@ -1250,23 +1255,29 @@ TEST(BlockTest, CloneOperations) {
         block.set_columns(std::move(mutable_columns));
         EXPECT_EQ(1, block.rows());
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        block.get_by_position(0).column.get())->get_data()[0]);
+                            block.get_by_position(0).column.get())
+                            ->get_data()[0]);
         EXPECT_EQ(4, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        block.get_by_position(1).column.get())->get_data()[0]);
+                            block.get_by_position(1).column.get())
+                            ->get_data()[0]);
     }
     // Test clone_with_columns with mutable columns
     {
         auto new_mutable_columns = block.clone_empty_columns();
-        auto* tmp_col0 = assert_cast<vectorized::ColumnVector<Int32>*>(new_mutable_columns[0].get());
-        auto* tmp_col1 = assert_cast<vectorized::ColumnVector<Int32>*>(new_mutable_columns[1].get());
+        auto* tmp_col0 =
+                assert_cast<vectorized::ColumnVector<Int32>*>(new_mutable_columns[0].get());
+        auto* tmp_col1 =
+                assert_cast<vectorized::ColumnVector<Int32>*>(new_mutable_columns[1].get());
         tmp_col0->insert_value(5);
         tmp_col1->insert_value(6);
         auto cloned_with_mutable = block.clone_with_columns(std::move(new_mutable_columns));
         EXPECT_EQ(1, cloned_with_mutable.rows());
         EXPECT_EQ(5, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        cloned_with_mutable.get_by_position(0).column.get())->get_data()[0]);
+                            cloned_with_mutable.get_by_position(0).column.get())
+                            ->get_data()[0]);
         EXPECT_EQ(6, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        cloned_with_mutable.get_by_position(1).column.get())->get_data()[0]);
+                            cloned_with_mutable.get_by_position(1).column.get())
+                            ->get_data()[0]);
     }
 
     // Test copy_block
@@ -1278,7 +1289,8 @@ TEST(BlockTest, CloneOperations) {
         EXPECT_EQ("col1", single_copy.get_by_position(0).name);
         EXPECT_EQ(type, single_copy.get_by_position(0).type);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        single_copy.get_by_position(0).column.get())->get_data()[0]);
+                            single_copy.get_by_position(0).column.get())
+                            ->get_data()[0]);
 
         // Test copying multiple columns
         std::vector<int> multiple_columns = {0, 1};
@@ -1289,9 +1301,11 @@ TEST(BlockTest, CloneOperations) {
         EXPECT_EQ(type, multi_copy.get_by_position(0).type);
         EXPECT_EQ(type, multi_copy.get_by_position(1).type);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        multi_copy.get_by_position(0).column.get())->get_data()[0]);
+                            multi_copy.get_by_position(0).column.get())
+                            ->get_data()[0]);
         EXPECT_EQ(4, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        multi_copy.get_by_position(1).column.get())->get_data()[0]);
+                            multi_copy.get_by_position(1).column.get())
+                            ->get_data()[0]);
 
         // Test copying columns in different order
         std::vector<int> reordered_columns = {1, 0};
@@ -1300,9 +1314,11 @@ TEST(BlockTest, CloneOperations) {
         EXPECT_EQ("col2", reordered_copy.get_by_position(0).name);
         EXPECT_EQ("col1", reordered_copy.get_by_position(1).name);
         EXPECT_EQ(4, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        reordered_copy.get_by_position(0).column.get())->get_data()[0]);
+                            reordered_copy.get_by_position(0).column.get())
+                            ->get_data()[0]);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        reordered_copy.get_by_position(1).column.get())->get_data()[0]);
+                            reordered_copy.get_by_position(1).column.get())
+                            ->get_data()[0]);
 
         // Test copying same column multiple times
         std::vector<int> duplicate_columns = {0, 0};
@@ -1311,9 +1327,11 @@ TEST(BlockTest, CloneOperations) {
         EXPECT_EQ("col1", duplicate_copy.get_by_position(0).name);
         EXPECT_EQ("col1", duplicate_copy.get_by_position(1).name);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        duplicate_copy.get_by_position(0).column.get())->get_data()[0]);
+                            duplicate_copy.get_by_position(0).column.get())
+                            ->get_data()[0]);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                        duplicate_copy.get_by_position(1).column.get())->get_data()[0]);
+                            duplicate_copy.get_by_position(1).column.get())
+                            ->get_data()[0]);
     }
 }
 
@@ -1340,22 +1358,22 @@ TEST(BlockTest, FilterAndSelector) {
     // Test filter_block_internal with filter only
     {
         auto test_block = create_test_block(10);
-        vectorized::IColumn::Filter filter(10, 1);  // Initialize with all 1s (keep all rows)
-        filter[0] = 0;  // Filter out first row
-        filter[5] = 0;  // Filter out sixth row
+        vectorized::IColumn::Filter filter(10, 1); // Initialize with all 1s (keep all rows)
+        filter[0] = 0;                                  // Filter out first row
+        filter[5] = 0;                                  // Filter out sixth row
 
         vectorized::Block::filter_block_internal(&test_block, filter);
         EXPECT_EQ(8, test_block.rows());
 
         // Verify filtered data for both columns
         const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block.get_by_position(0).column.get());
+                test_block.get_by_position(0).column.get());
         const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block.get_by_position(1).column.get());
+                test_block.get_by_position(1).column.get());
 
         // Expected values after filtering
-        std::vector<Int32> expected_col1 = {1,2,3,4,6,7,8,9};
-        std::vector<Int32> expected_col2 = {2,4,6,8,12,14,16,18};
+        std::vector<Int32> expected_col1 = {1, 2, 3, 4, 6, 7, 8, 9};
+        std::vector<Int32> expected_col2 = {2, 4, 6, 8, 12, 14, 16, 18};
 
         for (size_t i = 0; i < expected_col1.size(); ++i) {
             EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
@@ -1368,26 +1386,26 @@ TEST(BlockTest, FilterAndSelector) {
         auto test_block = create_test_block(10);
         vectorized::IColumn::Filter filter(10, 1);
         filter[0] = 0;
-        std::vector<uint32_t> columns_to_filter = {0};  // Only filter first column
+        std::vector<uint32_t> columns_to_filter = {0}; // Only filter first column
 
         vectorized::Block::filter_block_internal(&test_block, columns_to_filter, filter);
         EXPECT_EQ(9, test_block.rows());
 
         const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block.get_by_position(0).column.get());
+                test_block.get_by_position(0).column.get());
         const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block.get_by_position(1).column.get());
-        EXPECT_EQ(1, filtered_col1->get_data()[0]);  // First column filtered
-        EXPECT_EQ(0, filtered_col2->get_data()[0]);  // Second column unchanged
+                test_block.get_by_position(1).column.get());
+        EXPECT_EQ(1, filtered_col1->get_data()[0]); // First column filtered
+        EXPECT_EQ(0, filtered_col2->get_data()[0]); // Second column unchanged
     }
 
     // Test filter_block_internal with column_to_keep
     {
         auto test_block = create_test_block(10);
         vectorized::IColumn::Filter filter(10, 1);
-        filter[0] = 0;  // Filter out first row
-        filter[5] = 0;  // Filter out sixth row
-        uint32_t column_to_keep = 1;  // Only filter first column, keep the rest columns
+        filter[0] = 0;               // Filter out first row
+        filter[5] = 0;               // Filter out sixth row
+        uint32_t column_to_keep = 1; // Only filter first column, keep the rest columns
 
         vectorized::Block::filter_block_internal(&test_block, filter, column_to_keep);
 
@@ -1397,13 +1415,13 @@ TEST(BlockTest, FilterAndSelector) {
 
         // Verify filtered data for both columns
         const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block.get_by_position(0).column.get());
+                test_block.get_by_position(0).column.get());
         const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block.get_by_position(1).column.get());
+                test_block.get_by_position(1).column.get());
 
         // Expected values after filtering
-        std::vector<Int32> expected_col1 = {1,2,3,4,6,7,8,9};
-        std::vector<Int32> expected_col2 = {0,2,4,6,8,10,12,14,16,18};
+        std::vector<Int32> expected_col1 = {1, 2, 3, 4, 6, 7, 8, 9};
+        std::vector<Int32> expected_col2 = {2, 4, 6, 8, 12, 14, 16, 18};
 
         // Verify each value in filtered columns
         for (size_t i = 0; i < expected_col1.size(); ++i) {
@@ -1420,12 +1438,11 @@ TEST(BlockTest, FilterAndSelector) {
 
         // Create nullable filter column
         auto nullable_filter = vectorized::ColumnNullable::create(
-            vectorized::ColumnVector<vectorized::UInt8>::create(10, 1),  // all true
-            vectorized::ColumnVector<vectorized::UInt8>::create(10, 0)   // no nulls
+                vectorized::ColumnVector<vectorized::UInt8>::create(10, 1), // all true
+                vectorized::ColumnVector<vectorized::UInt8>::create(10, 0)  // no nulls
         );
         auto filter_type = std::make_shared<vectorized::DataTypeNullable>(
-            std::make_shared<vectorized::DataTypeUInt8>()
-        );
+                std::make_shared<vectorized::DataTypeUInt8>());
 
         // Add filter column to block
         test_block.insert({nullable_filter->get_ptr(), filter_type, "filter"});
@@ -1433,13 +1450,13 @@ TEST(BlockTest, FilterAndSelector) {
         // Test four-parameter version
         std::vector<uint32_t> columns_to_filter = {0, 1};
         EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
-        EXPECT_EQ(10, test_block.rows());  // All rows kept
+        EXPECT_EQ(10, test_block.rows()); // All rows kept
 
         // Test three-parameter version
         auto test_block2 = create_test_block(10);
         test_block2.insert({nullable_filter->get_ptr(), filter_type, "filter"});
         EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
-        EXPECT_EQ(10, test_block2.rows());  // All rows kept
+        EXPECT_EQ(10, test_block2.rows()); // All rows kept
     }
 
     // Test filter_block with const filter column
@@ -1448,9 +1465,8 @@ TEST(BlockTest, FilterAndSelector) {
 
         // Create const filter column (false)
         auto const_filter = vectorized::ColumnConst::create(
-            vectorized::ColumnVector<vectorized::UInt8>::create(1, 0),  // false
-            10
-        );
+                vectorized::ColumnVector<vectorized::UInt8>::create(1, 0), // false
+                10);
         auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
 
         // Add filter column to block
@@ -1459,13 +1475,13 @@ TEST(BlockTest, FilterAndSelector) {
         // Test four-parameter version
         std::vector<uint32_t> columns_to_filter = {0, 1};
         EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
-        EXPECT_EQ(0, test_block.rows());  // All rows filtered out
+        EXPECT_EQ(0, test_block.rows()); // All rows filtered out
 
         // Test three-parameter version
         auto test_block2 = create_test_block(10);
         test_block2.insert({const_filter->get_ptr(), filter_type, "filter"});
         EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
-        EXPECT_EQ(0, test_block2.rows());  // All rows filtered out
+        EXPECT_EQ(0, test_block2.rows()); // All rows filtered out
     }
 
     // Test filter_block with regular filter column
@@ -1475,7 +1491,7 @@ TEST(BlockTest, FilterAndSelector) {
         // Create regular filter column
         auto filter_column = vectorized::ColumnVector<vectorized::UInt8>::create();
         for (size_t i = 0; i < 10; ++i) {
-            filter_column->insert_value(i % 2);  // Keep odd-indexed rows
+            filter_column->insert_value(i % 2); // Keep odd-indexed rows
         }
         auto filter_type = std::make_shared<vectorized::DataTypeUInt8>();
 
@@ -1485,7 +1501,7 @@ TEST(BlockTest, FilterAndSelector) {
         // Test four-parameter version
         std::vector<uint32_t> columns_to_filter = {0, 1};
         EXPECT_TRUE(vectorized::Block::filter_block(&test_block, columns_to_filter, 2, 2).ok());
-        EXPECT_EQ(5, test_block.rows());  // Half rows kept
+        EXPECT_EQ(5, test_block.rows()); // Half rows kept
 
         // Verify filtered data
         const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
@@ -1505,7 +1521,7 @@ TEST(BlockTest, FilterAndSelector) {
         auto test_block2 = create_test_block(10);
         test_block2.insert({filter_column->get_ptr(), filter_type, "filter"});
         EXPECT_TRUE(vectorized::Block::filter_block(&test_block2, 2, 2).ok());
-        EXPECT_EQ(5, test_block2.rows());  // Half rows kept
+        EXPECT_EQ(5, test_block2.rows()); // Half rows kept
 
         // Verify filtered data
         filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
@@ -1531,7 +1547,7 @@ TEST(BlockTest, FilterAndSelector) {
         // Create selector to select every other row
         vectorized::IColumn::Selector selector(5, 0);
         for (size_t i = 0; i < 5; ++i) {
-            selector[i] = i * 2;  // Select rows 0,2,4,6,8
+            selector[i] = i * 2; // Select rows 0,2,4,6,8
         }
 
         // Perform selection
@@ -1542,13 +1558,13 @@ TEST(BlockTest, FilterAndSelector) {
         const vectorized::Block& result_block = dst.to_block();
 
         const auto* selected_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            result_block.get_by_position(0).column.get());
+                result_block.get_by_position(0).column.get());
         const auto* selected_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            result_block.get_by_position(1).column.get());
+                result_block.get_by_position(1).column.get());
 
         // Expected values after selection
-        std::vector<Int32> expected_col1 = {0,2,4,6,8};
-        std::vector<Int32> expected_col2 = {0,4,8,12,16};
+        std::vector<Int32> expected_col1 = {0, 2, 4, 6, 8};
+        std::vector<Int32> expected_col2 = {2, 4, 6, 8, 12};
 
         for (size_t i = 0; i < expected_col1.size(); ++i) {
             EXPECT_EQ(expected_col1[i], selected_col1->get_data()[i]);
@@ -1576,7 +1592,7 @@ TEST(BlockTest, RowCheck) {
     EXPECT_THROW(block.check_number_of_rows(), Exception);
 
     // Test clear operations
-    block.clear_column_data(1);  // Clear first column and delete the rest columns
+    block.clear_column_data(1); // Clear first column and delete the rest columns
     EXPECT_EQ(1, block.columns());
 
 
