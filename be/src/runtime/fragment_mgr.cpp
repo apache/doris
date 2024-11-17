@@ -1017,8 +1017,14 @@ void FragmentMgr::cancel_worker() {
             }
         }
 
-        for (auto it : brpc_stub_with_queries) {
-            _check_brpc_available(it.first, it.second);
+        if (config::enable_brpc_connection_check) {
+            for (auto it : brpc_stub_with_queries) {
+                if (!it.first) {
+                    LOG(WARNING) << "brpc stub is nullptr, skip it.";
+                    continue;
+                }
+                _check_brpc_available(it.first, it.second);
+            }
         }
 
         if (!queries_lost_coordinator.empty()) {
