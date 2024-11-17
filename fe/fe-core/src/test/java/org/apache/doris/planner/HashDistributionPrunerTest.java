@@ -26,8 +26,8 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -84,7 +84,7 @@ public class HashDistributionPrunerTest {
         inList4.add(new StringLiteral("2"));
         shopTypeFilter.setInPredicate(new InPredicate(new SlotRef(null, "shop_type"), inList4, false));
 
-        Map<String, PartitionColumnFilter> filters = Maps.newHashMap();
+        Map<String, PartitionColumnFilter> filters = new CaseInsensitiveMap();
         filters.put("DEALDATE", dealDatefilter);
         filters.put("MAIN_BRAND_ID", mainBrandFilter);
         filters.put("ITEM_THIRD_CATE_ID", itemThirdFilter);

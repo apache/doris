@@ -115,7 +115,7 @@ public class ExpressionColumnFilterConverter
     }
 
     private void setOrUpdateFilter(String columnName) {
-        PartitionColumnFilter filter = columnFilterMap.computeIfAbsent(columnName.toUpperCase(),
+        PartitionColumnFilter filter = columnFilterMap.computeIfAbsent(columnName,
                 k -> new PartitionColumnFilter());
         if (param.lowerBound != null) {
             filter.setLowerBound(param.lowerBound, param.lowerBoundInclusive);

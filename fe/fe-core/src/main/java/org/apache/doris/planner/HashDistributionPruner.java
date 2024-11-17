@@ -83,7 +83,7 @@ public class HashDistributionPruner implements DistributionPruner {
                 : org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule
                         .normalizeName(
                                 CreateMaterializedViewStmt.mvColumnBuilder(keyColumn.getName()));
-        PartitionColumnFilter filter = distributionColumnFilters.get(columnName.toUpperCase());
+        PartitionColumnFilter filter = distributionColumnFilters.get(columnName);
         if (null == filter) {
             // no filter in this column, no partition Key
             // return all subPartition
