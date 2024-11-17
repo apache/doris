@@ -35,6 +35,8 @@ user3	[{"activity_date":"2024-08-01", "activities":{"cooking":{"details":"Made v
 user4	[{"activity_date":"2024-08-01", "activities":{"cooking":{"details":"Made vegan meal", "metrics":{"time_spent":1.5, "calories":500}}, "movie":{"details":"Watched action movie", "metrics":{"duration":2, "rating":8.5}}}}, {"activity_date":"2024-08-02", "activities":{"gym":{"details":"Strength training", "metrics":{"duration":1, "calories":300}}, "shopping":{"details":"Bought groceries", "metrics":{"items":10, "cost":100}}}}]
 
 -- !q8 --
+\N	\N	\N	\N
+\N	\N	\N	\N
 1	10	{"col2a":10, "col2b":"string1"}	{1:"string10"}
 2	20	{"col2a":20, "col2b":"string2"}	{2:"string2"}
 3	30	{"col2a":30, "col2b":"string3"}	\N
@@ -42,6 +44,17 @@ user4	[{"activity_date":"2024-08-01", "activities":{"cooking":{"details":"Made v
 5	\N	\N	\N
 6	60	{"col2a":60, "col2b":"600"}	{6:"600"}
 7	70	{"col2a":70, "col2b":"string7"}	{7:"string7"}
+
+-- !q9 --
+\N	\N
+\N	\N
+\N	5
+10	1
+20	2
+30	3
+40	4
+60	6
+70	7
 
 -- !q1 --
 1	true	127	32767	2147483647	9223372036854775807	123.45	123456.789	123456789	1234.5678	123456.789012	123456789.012345678901	string_value	binary_value	2024-03-20	2024-03-20T12:00	2024-03-20T12:00:00.123457	2024-03-20T12:00:00.123457	char_value1                                       	char_value2                                                                                         	char_value3                                                                                                                                                                                                                                                    	varchar_value1	varchar_value2	varchar_value3	{"key1":"value1"}	{"key1":"value1"}	{"a         ":"b         "}	{1:10}	{1:100000000000}	{1.1:10.1}	{1.1:10.1}	{1:0}	{1.1:1.1}	{1.23:1.23}	{1.2345:1.2345}	{1.23456789:1.23456789}	{1.23456789:1.23456789}	{1.2345678901234568:1.2345678901234568}	["string1", "string2"]	[1, 2, 3]	[100000000000, 200000000000]	[1.1, 2.2]	[1.123456789, 2.123456789]	[1, 0]	["varchar1", "varchar2"]	["char1     ", "char2     "]	[1.1, 2.2]	[1.23, 2.34]	[1.2345, 2.3456]	[1.23456789, 2.34567891]	[1.23456789, 2.34567891]	[1.2345678901234568, 2.3456789012345679]	{"s_bigint":1234567890}	{"key":[{"s_int":123}]}	{"struct_field":["value1", "value2"]}	{"struct_field_null":null, "struct_field_null2":null}	{"struct_non_nulls_after_nulls1":123, "struct_non_nulls_after_nulls2":"value"}	{"struct_field1":123, "struct_field2":"value", "strict_field3":{"nested_struct_field1":123, "nested_struct_field2":"nested_value"}}	{"null_key":null}	[null, "value1", "value2"]	["value1", null, "value2"]	["value1", "value2", null]	[null, null, null]	dt1
@@ -79,6 +92,8 @@ user3	[{"activity_date":"2024-08-01", "activities":{"cooking":{"details":"Made v
 user4	[{"activity_date":"2024-08-01", "activities":{"cooking":{"details":"Made vegan meal", "metrics":{"time_spent":1.5, "calories":500}}, "movie":{"details":"Watched action movie", "metrics":{"duration":2, "rating":8.5}}}}, {"activity_date":"2024-08-02", "activities":{"gym":{"details":"Strength training", "metrics":{"duration":1, "calories":300}}, "shopping":{"details":"Bought groceries", "metrics":{"items":10, "cost":100}}}}]
 
 -- !q8 --
+\N	\N	\N	\N
+\N	\N	\N	\N
 1	10	{"col2a":10, "col2b":"string1"}	{1:"string10"}
 2	20	{"col2a":20, "col2b":"string2"}	{2:"string2"}
 3	30	{"col2a":30, "col2b":"string3"}	\N
@@ -86,4 +101,15 @@ user4	[{"activity_date":"2024-08-01", "activities":{"cooking":{"details":"Made v
 5	\N	\N	\N
 6	60	{"col2a":60, "col2b":"600"}	{6:"600"}
 7	70	{"col2a":70, "col2b":"string7"}	{7:"string7"}
+
+-- !q9 --
+\N	\N
+\N	\N
+\N	5
+10	1
+20	2
+30	3
+40	4
+60	6
+70	7
 

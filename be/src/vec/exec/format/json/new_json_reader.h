@@ -200,8 +200,8 @@ private:
             const std::unordered_map<std::string, vectorized::VExprContextSPtr>&
                     col_default_value_ctx);
 
-    Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
-                                bool* valid);
+    Status _fill_missing_column(SlotDescriptor* slot_desc, DataTypeSerDeSPtr serde,
+                                vectorized::IColumn* column_ptr, bool* valid);
 
     // fe will add skip_bitmap_col to _file_slot_descs iff the target olap table has skip_bitmap_col
     // and the current load is a flexible partial update

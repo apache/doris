@@ -434,9 +434,10 @@ public class HiveScanNode extends FileQueryScanNode {
 
             fileAttributes.setJsonpaths("");
             fileAttributes.setJsonRoot("");
-            fileAttributes.setNumAsString(false);
+            fileAttributes.setNumAsString(true);
             fileAttributes.setFuzzyParse(false);
             fileAttributes.setReadJsonByLine(true);
+            fileAttributes.setStripOuterArray(false);
             fileAttributes.setHeaderType("");
         } else {
             throw new UserException(

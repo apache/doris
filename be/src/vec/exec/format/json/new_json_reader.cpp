@@ -491,8 +491,8 @@ Status NewJsonReader::_vhandle_simple_json(RuntimeState* /*state*/, Block& block
         bool valid = false;
         if (_next_row >= _total_rows) { // parse json and generic document
             Status st = _parse_json(is_empty_row, eof);
-            if (st.is<DATA_QUALITY_ERROR>()) {
-                continue; // continue to read next
+            if (_is_load && st.is<DATA_QUALITY_ERROR>()) {
+                continue; // continue to read next (for load, after this , already append error to file.)
             }
             RETURN_IF_ERROR(st);
             if (*is_empty_row) {
@@ -842,14 +842,15 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
                 column_ptr->insert_default();
             } else {
                 // not found, filling with default value
-                RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+                RETURN_IF_ERROR(
+                        _fill_missing_column(slot_desc, _serdes[slot_idx], column_ptr, valid));
                 if (!(*valid)) {
                     return Status::OK();
                 }
             }
         }
     }
-    if (!has_valid_value) {
+    if (!has_valid_value && _is_load) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
         string col_names;
@@ -1094,13 +1095,13 @@ Status NewJsonReader::_write_columns_by_jsonpath(rapidjson::Value& objectValue,
             has_valid_value = true;
         } else {
             // not found, filling with default value
-            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+            RETURN_IF_ERROR(_fill_missing_column(slot_desc, _serdes[i], column_ptr, valid));
             if (!(*valid)) {
                 return Status::OK();
             }
         }
     }
-    if (!has_valid_value) {
+    if (!has_valid_value && _is_load) {
         // there is no valid value in json line but has filled with default value before
         // so remove this line in block
         for (int i = 0; i < block.columns(); ++i) {
@@ -1250,7 +1251,7 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
 
         // step2: get json value by json doc
         Status st = _get_json_value(&size, eof, &error, is_empty_row);
-        if (st.is<DATA_QUALITY_ERROR>()) {
+        if (_is_load && st.is<DATA_QUALITY_ERROR>()) {
             return Status::OK();
         }
         RETURN_IF_ERROR(st);
@@ -1558,7 +1559,8 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         _seen_columns[column_index] = true;
         has_valid_value = true;
     }
-    if (!has_valid_value) {
+
+    if (!has_valid_value && _is_load) {
         string col_names;
         for (auto* slot_desc : slot_descs) {
             col_names.append(slot_desc->col_name() + ", ");
@@ -1623,7 +1625,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
                 _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
                 column_ptr->insert_default();
             } else {
-                RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+                RETURN_IF_ERROR(_fill_missing_column(slot_desc, _serdes[i], column_ptr, valid));
                 if (!(*valid)) {
                     return Status::OK();
                 }
@@ -2021,7 +2023,7 @@ Status NewJsonReader::_simdjson_write_columns_by_jsonpath(
             has_valid_value = true;
         } else if (i >= _parsed_jsonpaths.size() || st.is<NOT_FOUND>()) {
             // not match in jsondata, filling with default value
-            RETURN_IF_ERROR(_fill_missing_column(slot_desc, column_ptr, valid));
+            RETURN_IF_ERROR(_fill_missing_column(slot_desc, _serdes[i], column_ptr, valid));
             if (!(*valid)) {
                 return Status::OK();
             }
@@ -2086,25 +2088,30 @@ Status NewJsonReader::_get_column_default_value(
     return Status::OK();
 }
 
-Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, IColumn* column_ptr,
-                                           bool* valid) {
-    if (slot_desc->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<ColumnNullable*>(column_ptr);
-        column_ptr = &nullable_column->get_nested_column();
-        auto col_value = _col_default_value_map.find(slot_desc->col_name());
-        if (col_value == _col_default_value_map.end()) {
+Status NewJsonReader::_fill_missing_column(SlotDescriptor* slot_desc, DataTypeSerDeSPtr serde,
+                                           IColumn* column_ptr, bool* valid) {
+    auto col_value = _col_default_value_map.find(slot_desc->col_name());
+    if (col_value == _col_default_value_map.end()) {
+        if (slot_desc->is_nullable()) {
+            auto* nullable_column = static_cast<ColumnNullable*>(column_ptr);
             nullable_column->insert_default();
         } else {
-            const std::string& v_str = col_value->second;
-            nullable_column->get_null_map_data().push_back(0);
-            assert_cast<ColumnString*>(column_ptr)->insert_data(v_str.c_str(), v_str.size());
+            if (_is_load) {
+                RETURN_IF_ERROR(_append_error_msg(
+                        nullptr, "The column `{}` is not nullable, but it's not found in jsondata.",
+                        slot_desc->col_name(), valid));
+            } else {
+                return Status::DataQualityError(
+                        "The column `{}` is not nullable, but it's not found in jsondata.",
+                        slot_desc->col_name());
+            }
         }
     } else {
-        RETURN_IF_ERROR(_append_error_msg(
-                nullptr, "The column `{}` is not nullable, but it's not found in jsondata.",
-                slot_desc->col_name(), valid));
+        const std::string& v_str = col_value->second;
+        Slice column_default_value {v_str};
+        RETURN_IF_ERROR(serde->deserialize_one_cell_from_json(*column_ptr, column_default_value,
+                                                              _serde_options));
     }
-
     *valid = true;
     return Status::OK();
 }

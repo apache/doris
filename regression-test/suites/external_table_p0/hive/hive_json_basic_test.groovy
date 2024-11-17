@@ -57,8 +57,10 @@ suite("hive_json_basic_test",  "p0,external,hive,external_docker,external_docker
             qt_q7 """ select user_id,activity_log from  ${tb2} order by user_id"""
 
 
-            qt_q8 """ select * from ${tb3} order by id """
-
+            order_qt_q8 """ select * from ${tb3} order by id """
+            
+            order_qt_q9 """ select col1,id from ${tb3} order by id """ 
+            
 
 
 
