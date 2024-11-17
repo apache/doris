@@ -43,7 +43,7 @@ class IDataType;
 
 struct AggregateFunctionAttr {
     bool enable_decimal256 {false};
-    std::vector<std::pair<std::string, bool>> column_infos;
+    std::vector<std::string> column_names;
 };
 
 template <bool nullable, typename ColVecType>
