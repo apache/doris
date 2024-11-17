@@ -33,13 +33,19 @@ public class RecoverPartitionStmt extends DdlStmt implements NotFallbackInParser
     private String partitionName;
     private long partitionId = -1;
     private String newPartitionName = "";
+    private String newTableName = "";
 
-    public RecoverPartitionStmt(TableName dbTblName, String partitionName, long partitionId, String newPartitionName) {
+
+    public RecoverPartitionStmt(TableName dbTblName, String partitionName, long partitionId, String newPartitionName,
+            String newTableName) {
         this.dbTblName = dbTblName;
         this.partitionName = partitionName;
         this.partitionId = partitionId;
         if (newPartitionName != null) {
             this.newPartitionName = newPartitionName;
+        }
+        if (newTableName != null) {
+            this.newTableName = newTableName;
         }
     }
 
@@ -61,6 +67,10 @@ public class RecoverPartitionStmt extends DdlStmt implements NotFallbackInParser
 
     public String getNewPartitionName() {
         return newPartitionName;
+    }
+
+    public String getNewTableName() {
+        return newTableName;
     }
 
     @Override
@@ -95,7 +105,12 @@ public class RecoverPartitionStmt extends DdlStmt implements NotFallbackInParser
             sb.append(getDbName()).append(".");
         }
         sb.append(getTableName());
+        if (!Strings.isNullOrEmpty(newTableName)) {
+            sb.append(" AS ");
+            sb.append(this.newTableName);
+        }
         return sb.toString();
+
     }
 
     @Override
