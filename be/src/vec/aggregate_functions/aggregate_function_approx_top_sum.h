@@ -39,7 +39,6 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_ipv4.h"
-#include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/io/io_helper.h"
 
@@ -51,21 +50,26 @@ struct AggregateFunctionTopKGenericData {
     Set value;
 };
 
-class AggregateFunctionApproxTopK final
-        : public IAggregateFunctionDataHelper<AggregateFunctionTopKGenericData,
-                                              AggregateFunctionApproxTopK>,
+template <typename T, typename TResult, typename Data>
+class AggregateFunctionApproxTopSum final
+        : public IAggregateFunctionDataHelper<Data,
+                                              AggregateFunctionApproxTopSum<T, TResult, Data>>,
           AggregateFunctionApproxTop {
 private:
     using State = AggregateFunctionTopKGenericData;
 
+    using ResultDataType = DataTypeNumber<TResult>;
+    using ColVecType = ColumnVector<T>;
+    using ColVecResult = ColumnVector<TResult>;
+
 public:
-    AggregateFunctionApproxTopK(const std::vector<std::string>& column_names,
-                                const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<AggregateFunctionTopKGenericData,
-                                           AggregateFunctionApproxTopK>(argument_types_),
+    AggregateFunctionApproxTopSum(const std::vector<std::string>& column_names,
+                                  const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionApproxTopSum<T, TResult, Data>>(
+                      argument_types_),
               AggregateFunctionApproxTop(column_names) {}
 
-    String get_name() const override { return "approx_top_k"; }
+    String get_name() const override { return "approx_top_sum"; }
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeString>(); }
 
@@ -160,7 +164,9 @@ public:
 
         StringRef str_serialized =
                 all_serialize_value_into_arena(row_num, _column_names.size(), columns, arena);
-        set.insert(str_serialized);
+        const auto& column = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                *columns[_column_names.size() - 1]);
+        set.insert(str_serialized, TResult(column.get_data()[row_num]));
         arena->rollback(str_serialized.size);
     }
 
@@ -215,7 +221,7 @@ public:
                 sub_writer.Key(_column_names[i].data(), _column_names[i].size());
                 sub_writer.String(row_str.data(), row_str.size());
             }
-            sub_writer.Key("count");
+            sub_writer.Key("sum");
             sub_writer.String(std::to_string(result.count).c_str());
             sub_writer.EndObject();
             writer.RawValue(sub_buffer.GetString(), sub_buffer.GetSize(), rapidjson::kObjectType);
@@ -225,5 +231,15 @@ public:
         data_to.insert_data(res.data(), res.size());
     }
 };
+
+template <typename T>
+struct TopSumSimple {
+    using ResultType = T;
+    using AggregateDataType = AggregateFunctionTopKGenericData;
+    using Function = AggregateFunctionApproxTopSum<T, ResultType, AggregateDataType>;
+};
+
+template <typename T>
+using AggregateFunctionApproxTopSumSimple = typename TopSumSimple<T>::Function;
 
 } // namespace doris::vectorized

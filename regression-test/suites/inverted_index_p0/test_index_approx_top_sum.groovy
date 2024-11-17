@@ -16,8 +16,8 @@
 // under the License.
 
 
-suite("test_index_approx_top_k", "p0"){
-    def tableName = "test_index_approx_top_k"
+suite("test_index_approx_top_sum", "p0"){
+    def tableName = "test_index_approx_top_sum"
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -80,26 +80,26 @@ suite("test_index_approx_top_k", "p0"){
     try {
         create_table(tableName)
 
-        load_httplogs_data.call(tableName, 'test_index_approx_top_k', 'true', 'json', 'documents-1000.json')
+        load_httplogs_data.call(tableName, 'test_index_approx_top_sum', 'true', 'json', 'documents-1000.json')
 
         sql "sync"
 
         sql """ set enable_common_expr_pushdown = true """
 
         sql """ set debug_skip_fold_constant = true; """
-        qt_sql """ select clientip, count(*) as count from ${tableName} group by clientip order by count desc, clientip asc limit 10; """
-        qt_sql """ select approx_top_k(clientip, 10, 300) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, 5 + 5, 300) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, abs(-10), 300) from ${tableName}; """
+        qt_sql """ select size, sum(size) as sum from ${tableName} group by size order by sum desc, size asc limit 10; """
+        qt_sql """ select approx_top_sum(size, 10, 300) from ${tableName}; """
+        qt_sql """ select approx_top_sum(size, 5 + 5, 300) from ${tableName}; """
+        qt_sql """ select approx_top_sum(size, abs(-10), 300) from ${tableName}; """
 
-        qt_sql """ select clientip, status, size, count(*) as count from ${tableName} group by clientip, status, size order by count desc, clientip asc limit 10; """
-        qt_sql """ select approx_top_k(clientip, status, size, 10, 300) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, status, size, 5 + 5, 300) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, status, size, abs(-10), 300) from ${tableName}; """
+        qt_sql """ select clientip, status, size, sum(size) as sum from ${tableName} group by clientip, status, size order by sum desc, clientip asc limit 10; """
+        qt_sql """ select approx_top_sum(clientip, status, size, 10, 300) from ${tableName}; """
+        qt_sql """ select approx_top_sum(clientip, status, size, 5 + 5, 300) from ${tableName}; """
+        qt_sql """ select approx_top_sum(clientip, status, size, abs(-10), 300) from ${tableName}; """
 
         def result1 = "fail"
         try {
-            drop_result = sql " select approx_top_k(clientip, -10, 300) from ${tableName}; "
+            drop_result = sql " select approx_top_sum(size, -10, 300) from ${tableName}; "
             result1 = 'success'
         } catch(Exception ex) {
             logger.info("error msg: " + ex)
@@ -108,7 +108,7 @@ suite("test_index_approx_top_k", "p0"){
 
         qt_sql """
             WITH tmp AS (
-                SELECT approx_top_k(clientip, status, size, 10, 300) AS json_output FROM ${tableName}
+                SELECT approx_top_sum(clientip, status, size, 10, 300) AS json_output FROM ${tableName}
             )
             SELECT 
                 e1
@@ -118,19 +118,19 @@ suite("test_index_approx_top_k", "p0"){
         """
 
         sql """ set debug_skip_fold_constant = true; """
-        qt_sql """ select clientip, count(*) as count from ${tableName} group by clientip order by count desc, clientip asc limit 10; """
-        qt_sql """ select approx_top_k(clientip, 10, 300) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, 5 + 5, 300) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, abs(-10), 300) from ${tableName}; """
+        qt_sql """ select size, sum(size) as sum from ${tableName} group by size order by sum desc, size asc limit 10; """
+        qt_sql """ select approx_top_sum(size, 10, 300) from ${tableName}; """
+        qt_sql """ select approx_top_sum(size, 5 + 5, 300) from ${tableName}; """
+        qt_sql """ select approx_top_sum(size, abs(-10), 300) from ${tableName}; """
 
-        qt_sql """ select clientip, status, size, count(*) as count from ${tableName} group by clientip, status, size order by count desc, clientip asc limit 10; """
-        qt_sql """ select approx_top_k(clientip, status, size, 10, 300) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, status, size, 5 + 5, 300) from ${tableName}; """
-        qt_sql """ select approx_top_k(clientip, status, size, abs(-10), 300) from ${tableName}; """
+        qt_sql """ select clientip, status, size, sum(size) as sum from ${tableName} group by clientip, status, size order by sum desc, clientip asc limit 10; """
+        qt_sql """ select approx_top_sum(clientip, status, size, 10, 300) from ${tableName}; """
+        qt_sql """ select approx_top_sum(clientip, status, size, 5 + 5, 300) from ${tableName}; """
+        qt_sql """ select approx_top_sum(clientip, status, size, abs(-10), 300) from ${tableName}; """
 
         def result2 = "fail"
         try {
-            drop_result = sql " select approx_top_k(clientip, -10, 300) from ${tableName}; "
+            drop_result = sql " select approx_top_sum(size, -10, 300) from ${tableName}; "
             result2 = 'success'
         } catch(Exception ex) {
             logger.info("error msg: " + ex)
@@ -139,7 +139,7 @@ suite("test_index_approx_top_k", "p0"){
 
         qt_sql """
             WITH tmp AS (
-                SELECT approx_top_k(clientip, status, size, 10, 300) AS json_output FROM ${tableName}
+                SELECT approx_top_sum(clientip, status, size, 10, 300) AS json_output FROM ${tableName}
             )
             SELECT 
                 e1
