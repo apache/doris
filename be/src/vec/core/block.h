@@ -97,7 +97,7 @@ public:
 
     /// Reserve memory for internal containers
     void reserve(size_t count);
-    /// Make sure the names is useless when use block
+    /// Clear all column names and name index mappings in the block
     void clear_names();
 
     /// insert the column at the specified position
@@ -192,11 +192,12 @@ public:
     // get the columns with type and name
     const ColumnsWithTypeAndName& get_columns_with_type_and_name() const;
 
-    // get the names of the columns
+    // Returns a vector containing all column names in the block
     std::vector<std::string> get_names() const;
+    // Returns a vector containing all column data types in the block
     DataTypes get_data_types() const;
 
-    // get the data type of the column by index
+    // Returns the data type of the column at the specified index
     DataTypePtr get_data_type(size_t index) const {
         CHECK(index < data.size());
         return data[index].type;
@@ -205,7 +206,8 @@ public:
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
-    // Get a string with the size of each column in bytes.
+    // Returns a string showing the size of each column, separated by ' | '
+    // Returns -1 for null columns
     std::string each_col_size() const;
 
     // Cut the rows in block, use in LIMIT operation
@@ -242,16 +244,16 @@ public:
     /** Get the same block, but empty. */
     Block clone_empty() const;
 
-    /// Get a list of columns.
+    /// Returns a copy of all columns, converting const columns to full columns
     Columns get_columns() const;
-    /// Get a list of columns and convert them to full columns.
+    /// Returns all columns and converts const columns to full columns in place
     Columns get_columns_and_convert();
 
     /// Set the columns of the block.
     void set_columns(const Columns& columns);
     /// Clone the block with the specified columns.
     Block clone_with_columns(const Columns& columns) const;
-    /// Clone the block without the specified columns.
+    /// Clone the block with the specified column offset but without data.
     Block clone_without_columns(const std::vector<int>* column_offset = nullptr) const;
 
     /** Get empty columns with the same types as in block. */
@@ -315,7 +317,8 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    // append to block by selector
+    // appends selected rows from this block to destination block based on selector
+    // skips const columns during append operation
     Status append_to_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     // need exception safety
@@ -344,7 +347,7 @@ public:
                      size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
                      bool allow_transfer_large_data = false) const;
 
-    // Deserialize from PBlock format
+    // deserialize block from PBlock
     Status deserialize(const PBlock& pblock);
 
     // Create empty block with same schema

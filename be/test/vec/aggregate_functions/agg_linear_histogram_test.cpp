@@ -205,7 +205,8 @@ public:
 
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
         auto agg_function =
-                factory.get("linear_histogram", data_types, false, -1, {.enable_decimal256 = true});
+                factory.get("linear_histogram", data_types, false, -1,
+                           {.enable_decimal256 = true, .column_infos = {}});
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
