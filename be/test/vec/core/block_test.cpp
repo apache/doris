@@ -1218,10 +1218,10 @@ TEST(BlockTest, CloneOperations) {
     EXPECT_EQ(type, new_block.get_by_position(1).type);
     EXPECT_EQ(1, assert_cast<const vectorized::ColumnVector<Int32>*>(
                         new_block.get_by_position(0).column.get())
-                            ->get_data()[0]);
+                        ->get_data()[0]);
     EXPECT_EQ(2, assert_cast<const vectorized::ColumnVector<Int32>*>(
                         new_block.get_by_position(1).column.get())
-                            ->get_data()[0]);
+                        ->get_data()[0]);
 
     // Test clone_with_columns
     auto cloned_with_cols = block.clone_with_columns(columns);
@@ -1232,11 +1232,11 @@ TEST(BlockTest, CloneOperations) {
     EXPECT_EQ(type, cloned_with_cols.get_by_position(0).type);
     EXPECT_EQ(type, cloned_with_cols.get_by_position(1).type);
     EXPECT_EQ(1, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            cloned_with_cols.get_by_position(0).column.get())
-                            ->get_data()[0]);
+                        cloned_with_cols.get_by_position(0).column.get())
+                        ->get_data()[0]);
     EXPECT_EQ(2, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            cloned_with_cols.get_by_position(1).column.get())
-                            ->get_data()[0]);
+                        cloned_with_cols.get_by_position(1).column.get())
+                        ->get_data()[0]);
 
     // Test clone_without_columns
     std::vector<int> column_offset = {0};
@@ -1255,11 +1255,11 @@ TEST(BlockTest, CloneOperations) {
         block.set_columns(std::move(mutable_columns));
         EXPECT_EQ(1, block.rows());
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            block.get_by_position(0).column.get())
-                            ->get_data()[0]);
+                             block.get_by_position(0).column.get())
+                             ->get_data()[0]);
         EXPECT_EQ(4, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            block.get_by_position(1).column.get())
-                            ->get_data()[0]);
+                             block.get_by_position(1).column.get())
+                             ->get_data()[0]);
     }
     // Test clone_with_columns with mutable columns
     {
@@ -1273,11 +1273,11 @@ TEST(BlockTest, CloneOperations) {
         auto cloned_with_mutable = block.clone_with_columns(std::move(new_mutable_columns));
         EXPECT_EQ(1, cloned_with_mutable.rows());
         EXPECT_EQ(5, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            cloned_with_mutable.get_by_position(0).column.get())
-                            ->get_data()[0]);
+                             cloned_with_mutable.get_by_position(0).column.get())
+                             ->get_data()[0]);
         EXPECT_EQ(6, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            cloned_with_mutable.get_by_position(1).column.get())
-                            ->get_data()[0]);
+                             cloned_with_mutable.get_by_position(1).column.get())
+                             ->get_data()[0]);
     }
 
     // Test copy_block
@@ -1289,8 +1289,8 @@ TEST(BlockTest, CloneOperations) {
         EXPECT_EQ("col1", single_copy.get_by_position(0).name);
         EXPECT_EQ(type, single_copy.get_by_position(0).type);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            single_copy.get_by_position(0).column.get())
-                            ->get_data()[0]);
+                             single_copy.get_by_position(0).column.get())
+                             ->get_data()[0]);
 
         // Test copying multiple columns
         std::vector<int> multiple_columns = {0, 1};
@@ -1301,11 +1301,11 @@ TEST(BlockTest, CloneOperations) {
         EXPECT_EQ(type, multi_copy.get_by_position(0).type);
         EXPECT_EQ(type, multi_copy.get_by_position(1).type);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            multi_copy.get_by_position(0).column.get())
-                            ->get_data()[0]);
+                             multi_copy.get_by_position(0).column.get())
+                             ->get_data()[0]);
         EXPECT_EQ(4, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            multi_copy.get_by_position(1).column.get())
-                            ->get_data()[0]);
+                             multi_copy.get_by_position(1).column.get())
+                             ->get_data()[0]);
 
         // Test copying columns in different order
         std::vector<int> reordered_columns = {1, 0};
@@ -1314,11 +1314,11 @@ TEST(BlockTest, CloneOperations) {
         EXPECT_EQ("col2", reordered_copy.get_by_position(0).name);
         EXPECT_EQ("col1", reordered_copy.get_by_position(1).name);
         EXPECT_EQ(4, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            reordered_copy.get_by_position(0).column.get())
-                            ->get_data()[0]);
+                             reordered_copy.get_by_position(0).column.get())
+                             ->get_data()[0]);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            reordered_copy.get_by_position(1).column.get())
-                            ->get_data()[0]);
+                             reordered_copy.get_by_position(1).column.get())
+                             ->get_data()[0]);
 
         // Test copying same column multiple times
         std::vector<int> duplicate_columns = {0, 0};
@@ -1327,11 +1327,11 @@ TEST(BlockTest, CloneOperations) {
         EXPECT_EQ("col1", duplicate_copy.get_by_position(0).name);
         EXPECT_EQ("col1", duplicate_copy.get_by_position(1).name);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            duplicate_copy.get_by_position(0).column.get())
-                            ->get_data()[0]);
+                             duplicate_copy.get_by_position(0).column.get())
+                             ->get_data()[0]);
         EXPECT_EQ(3, assert_cast<const vectorized::ColumnVector<Int32>*>(
-                            duplicate_copy.get_by_position(1).column.get())
-                            ->get_data()[0]);
+                             duplicate_copy.get_by_position(1).column.get())
+                             ->get_data()[0]);
     }
 }
 
@@ -1359,8 +1359,8 @@ TEST(BlockTest, FilterAndSelector) {
     {
         auto test_block = create_test_block(10);
         vectorized::IColumn::Filter filter(10, 1); // Initialize with all 1s (keep all rows)
-        filter[0] = 0;                                  // Filter out first row
-        filter[5] = 0;                                  // Filter out sixth row
+        filter[0] = 0;                          // Filter out first row
+        filter[5] = 0;                          // Filter out sixth row
 
         vectorized::Block::filter_block_internal(&test_block, filter);
         EXPECT_EQ(8, test_block.rows());
@@ -1505,12 +1505,12 @@ TEST(BlockTest, FilterAndSelector) {
 
         // Verify filtered data
         const auto* filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block.get_by_position(0).column.get());
+                test_block.get_by_position(0).column.get());
         const auto* filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block.get_by_position(1).column.get());
+                test_block.get_by_position(1).column.get());
 
-        std::vector<Int32> expected_col1 = {1,3,5,7,9};
-        std::vector<Int32> expected_col2 = {2,6,10,14,18};
+        std::vector<Int32> expected_col1 = {1, 3, 5, 7, 9};
+        std::vector<Int32> expected_col2 = {2, 6, 10, 14, 18};
 
         for (size_t i = 0; i < expected_col1.size(); ++i) {
             EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
@@ -1525,9 +1525,9 @@ TEST(BlockTest, FilterAndSelector) {
 
         // Verify filtered data
         filtered_col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block2.get_by_position(0).column.get());
+                test_block2.get_by_position(0).column.get());
         filtered_col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-            test_block2.get_by_position(1).column.get());
+                test_block2.get_by_position(1).column.get());
             
         for (size_t i = 0; i < expected_col1.size(); ++i) {
             EXPECT_EQ(expected_col1[i], filtered_col1->get_data()[i]);
@@ -1771,11 +1771,11 @@ TEST(BlockTest, IndexByName) {
     EXPECT_EQ(nullptr, block.try_get_by_name("non_existent"));
 
     // Test after modifying block structure
-    block.erase(2); // Remove last "col1"
+    block.erase(2);                 // Remove last "col1"
     block.initialize_index_by_name(); // Re-initialize index
 
     // Now the first "col1" should be found
-    EXPECT_EQ(0, block.get_position_by_name("col1")); 
+    EXPECT_EQ(0, block.get_position_by_name("col1"));
 
     // Test with empty block
     block.clear();
@@ -1825,21 +1825,21 @@ TEST(BlockTest, ColumnTransformations) {
     EXPECT_EQ("col2", block.get_by_position(1).name);
 
     // Test shuffle_columns
-    std::vector<int> positions = {1, 0};  // change the order of columns
+    std::vector<int> positions = {1, 0}; // change the order of columns
     block.shuffle_columns(positions);
 
     // Verify shuffled order
-    EXPECT_EQ("col2", block.get_by_position(0).name);  // col2 is now in the first position
-    EXPECT_EQ("col1", block.get_by_position(1).name);  // col1 is now in the second position
+    EXPECT_EQ("col2", block.get_by_position(0).name); // col2 is now in the first position
+    EXPECT_EQ("col1", block.get_by_position(1).name); // col1 is now in the second position
 
     // Verify column data is also correctly shuffled
     const auto* col1 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-        block.get_by_position(1).column.get());  // col1 is now in position 1
+            block.get_by_position(1).column.get()); // col1 is now in position 1
     const auto* col2 = assert_cast<const vectorized::ColumnVector<Int32>*>(
-        block.get_by_position(0).column.get());  // col2 is now in position 0
+            block.get_by_position(0).column.get()); // col2 is now in position 0
 
-    EXPECT_EQ(1, col1->get_data()[0]);  // the value of col1 should be 1
-    EXPECT_EQ(2, col2->get_data()[0]);  // the value of col2 should be 2
+    EXPECT_EQ(1, col1->get_data()[0]); // the value of col1 should be 1
+    EXPECT_EQ(2, col2->get_data()[0]); // the value of col2 should be 2
 }
 
 TEST(BlockTest, HashUpdate) {
@@ -2003,15 +2003,15 @@ TEST(BlockTest, BlockOperations) {
         {
             auto new_block = original_block.create_same_struct_block(5, false);
             EXPECT_EQ(original_block.columns(), new_block->columns());
-            EXPECT_EQ(5, new_block->rows());  // Should have 5 default values
+            EXPECT_EQ(5, new_block->rows()); // Should have 5 default values
             EXPECT_EQ("col1", new_block->get_by_position(0).name);
             EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
 
             // Verify default values are inserted
             const auto* col = assert_cast<const vectorized::ColumnVector<Int32>*>(
-                new_block->get_by_position(0).column.get());
+                    new_block->get_by_position(0).column.get());
             for (size_t i = 0; i < 5; ++i) {
-                EXPECT_EQ(0, col->get_data()[i]);  // Default value for Int32 is 0
+                EXPECT_EQ(0, col->get_data()[i]); // Default value for Int32 is 0
             }
         }
 
@@ -2019,7 +2019,7 @@ TEST(BlockTest, BlockOperations) {
         {
             auto new_block = original_block.create_same_struct_block(5, true);
             EXPECT_EQ(original_block.columns(), new_block->columns());
-            EXPECT_EQ(0, new_block->rows());  // Should be empty but with reserved space
+            EXPECT_EQ(0, new_block->rows()); // Should be empty but with reserved space
             EXPECT_EQ("col1", new_block->get_by_position(0).name);
             EXPECT_TRUE(new_block->get_by_position(0).type->equals(*type));
         }
@@ -2064,7 +2064,7 @@ TEST(BlockTest, BlockOperations) {
         EXPECT_EQ(0, block1.compare_at(0, 0, 1, block2, 1));  // Compare only first column
 
         // Test compare_at with specific columns
-        std::vector<uint32_t> compare_cols = {1};  // Compare only second column
+        std::vector<uint32_t> compare_cols = {1}; // Compare only second column
         EXPECT_EQ(0, block1.compare_at(0, 0, &compare_cols, block2, 1));
 
         // Test compare_column_at
@@ -2092,11 +2092,11 @@ TEST(BlockTest, BlockOperations) {
         EXPECT_TRUE(block.get_same_bit(0));
         EXPECT_FALSE(block.get_same_bit(1));
         EXPECT_TRUE(block.get_same_bit(2));
-        EXPECT_FALSE(block.get_same_bit(3));  // Out of range
+        EXPECT_FALSE(block.get_same_bit(3)); // Out of range
 
         // Test clear_same_bit
         block.clear_same_bit();
-        EXPECT_FALSE(block.get_same_bit(0));  // After clear, all bits should be false
+        EXPECT_FALSE(block.get_same_bit(0)); // After clear, all bits should be false
     }
 
     // Test erase_tmp_columns
@@ -2154,9 +2154,9 @@ TEST(BlockTest, BlockOperations) {
 
         // Verify columns are kept but data is cleared for non-kept columns
         EXPECT_EQ(3, block.columns());
-        EXPECT_EQ(1, block.get_by_position(0).column->size());  // Kept
-        EXPECT_EQ(0, block.get_by_position(1).column->size());  // Cleared
-        EXPECT_EQ(1, block.get_by_position(2).column->size());  // Kept
+        EXPECT_EQ(1, block.get_by_position(0).column->size()); // Kept
+        EXPECT_EQ(0, block.get_by_position(1).column->size()); // Cleared
+        EXPECT_EQ(1, block.get_by_position(2).column->size()); // Kept
     }
 }
 
@@ -2170,8 +2170,8 @@ TEST(BlockTest, StringOperations) {
         {
             auto col = vectorized::ColumnString::create();
             // Add string with trailing zeros
-            std::string str1 = "hello\0\0\0"s;  // 8bytes, contains 3 trailing zeros
-            std::string str2 = "world\0\0"s;    // 7bytes, contains 2 trailing zeros
+            std::string str1 = "hello\0\0\0"s; // 8bytes, contains 3 trailing zeros
+            std::string str2 = "world\0\0"s;   // 7bytes, contains 2 trailing zeros
             col->insert_data(str1.c_str(), str1.size());
             col->insert_data(str2.c_str(), str2.size());
 
@@ -2189,7 +2189,7 @@ TEST(BlockTest, StringOperations) {
         }
 
         // Test shrinking string column
-        std::vector<size_t> char_type_idx = {0};  // Index of string column
+        std::vector<size_t> char_type_idx = {0}; // Index of string column
         block.shrink_char_type_column_suffix_zero(char_type_idx);
 
         // Verify string column is shrunk
@@ -2198,12 +2198,12 @@ TEST(BlockTest, StringOperations) {
 
         // Verify first string
         StringRef ref1 = str_col->get_data_at(0);
-        EXPECT_EQ(5, ref1.size);  // "hello" without zeros
+        EXPECT_EQ(5, ref1.size); // "hello" without zeros
         EXPECT_EQ(0, memcmp(ref1.data, "hello", 5));
 
         // Verify second string
         StringRef ref2 = str_col->get_data_at(1);
-        EXPECT_EQ(5, ref2.size);  // "world" without zeros
+        EXPECT_EQ(5, ref2.size); // "world" without zeros
         EXPECT_EQ(0, memcmp(ref2.data, "world", 5));
 
         // Verify non-string column remains unchanged
@@ -2230,7 +2230,7 @@ TEST(BlockTest, StringOperations) {
 
         // Create array offsets column
         auto array_offsets = vectorized::ColumnArray::ColumnOffsets::create();
-        array_offsets->get_data().push_back(2);  // First array has 2 elements
+        array_offsets->get_data().push_back(2); // First array has 2 elements
 
         // Create array column
         auto array_col = vectorized::ColumnArray::create(
@@ -2251,12 +2251,12 @@ TEST(BlockTest, StringOperations) {
 
         // Verify first string in array
         StringRef ref1 = string_col_result->get_data_at(0);
-        EXPECT_EQ(5, ref1.size);  // "hello" without zeros
+        EXPECT_EQ(5, ref1.size); // "hello" without zeros
         EXPECT_EQ(0, memcmp(ref1.data, "hello", 5));
 
         // Verify second string in array
         StringRef ref2 = string_col_result->get_data_at(1);
-        EXPECT_EQ(5, ref2.size);  // "world" without zeros
+        EXPECT_EQ(5, ref2.size); // "world" without zeros
         EXPECT_EQ(0, memcmp(ref2.data, "world", 5));
     }
 }
