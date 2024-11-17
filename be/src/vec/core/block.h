@@ -140,7 +140,7 @@ public:
         this->get_by_position(position).column = std::move(res);
     }
 
-    /// Replace column at position with lvalue column pointer 
+    /// Replace column at position with lvalue column pointer
     void replace_by_position(size_t position, const ColumnPtr& res) {
         this->get_by_position(position).column = res;
     }
@@ -423,7 +423,7 @@ public:
     int64_t get_decompress_time() const { return _decompress_time_ns; }
     // Get total bytes after decompression
     int64_t get_decompressed_bytes() const { return _decompressed_bytes; }
-    // Get time spent on compression in nanoseconds 
+    // Get time spent on compression in nanoseconds
     int64_t get_compress_time() const { return _compress_time_ns; }
 
     // Set same bit flags for rows in block
