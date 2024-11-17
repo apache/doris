@@ -110,39 +110,6 @@ ColumnPtr ColumnConst::permute(const Permutation& perm, size_t limit) const {
     return ColumnConst::create(data, limit);
 }
 
-void ColumnConst::update_crcs_with_value(uint32_t* __restrict hashes, doris::PrimitiveType type,
-                                         uint32_t rows, uint32_t offset,
-                                         const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    DCHECK(rows == size());
-    auto real_data = data->get_data_at(0);
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = HashUtil::zlib_crc_hash_null(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < rows; ++i) {
-            hashes[i] = RawValue::zlib_crc32(real_data.data, real_data.size, type, hashes[i]);
-        }
-    }
-}
-
-void ColumnConst::update_hashes_with_value(uint64_t* __restrict hashes,
-                                           const uint8_t* __restrict null_data) const {
-    DCHECK(null_data == nullptr);
-    auto real_data = data->get_data_at(0);
-    auto real_size = size();
-    if (real_data.data == nullptr) {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64NullWithSeed(hashes[i]);
-        }
-    } else {
-        for (int i = 0; i < real_size; ++i) {
-            hashes[i] = HashUtil::xxHash64WithSeed(real_data.data, real_data.size, hashes[i]);
-        }
-    }
-}
-
 void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_direction_hint*/,
                                   Permutation& res) const {
     res.resize(s);
