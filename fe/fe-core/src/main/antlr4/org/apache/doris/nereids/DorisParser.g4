@@ -209,6 +209,7 @@ supportedShowStatement
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
     | SHOW FRONTENDS name=identifier?                                               #showFrontends 
+    | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     ;
 
 unsupportedOtherStatement
@@ -266,7 +267,6 @@ unsupportedShowStatement
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
-    | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
     | SHOW DATA TYPES                                                               #showDataTypes
     | SHOW CATALOGS wildWhere?                                                      #showCatalogs
     | SHOW CATALOG name=identifier                                                  #showCatalog
