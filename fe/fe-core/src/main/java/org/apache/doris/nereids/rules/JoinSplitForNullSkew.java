@@ -20,12 +20,15 @@ package org.apache.doris.nereids.rules;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.PullUpPredicates;
+import org.apache.doris.nereids.trees.copier.DeepCopierContext;
+import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -87,23 +90,25 @@ public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
         if (leftChildPredicates.contains(new Not(new IsNull(leftSlot)))) {
             return null;
         }
-        // Plan deepCopyLeft = new LogicalPlanDeepCopier().deepCopy((LogicalPlan) left, new DeepCopierContext());
         // 创建isnull侧的
         LogicalFilter<Plan> isNullFilter = new LogicalFilter<>(ImmutableSet.of(new IsNull(leftSlot)), left);
+        Plan deepCopyLeft = LogicalPlanDeepCopier.INSTANCE.deepCopy(isNullFilter, new DeepCopierContext());
         List<NamedExpression> newPrjects = new ArrayList<>();
-        newPrjects.addAll(isNullFilter.getOutput());
-        for (int i = 0; i < right.getOutput().size(); ++i) {
-            newPrjects.add(new Alias(NullLiteral.INSTANCE));
+        newPrjects.addAll(deepCopyLeft.getOutput());
+        for (Slot slot : right.getOutput()) {
+            newPrjects.add(new Alias(new NullLiteral(slot.getDataType())));
         }
-        LogicalProject<Plan> isNullProject = new LogicalProject<>(newPrjects, isNullFilter);
+        LogicalProject<Plan> isNullProject = new LogicalProject<>(newPrjects, deepCopyLeft);
         // 创建is not null 侧的
         LogicalFilter<Plan> newJoinLeftChild = new LogicalFilter<>(
                 ImmutableSet.of(new Not(new IsNull(leftSlot))), left);
         LogicalJoin<Plan, Plan> newJoin = join.withChildren(ImmutableList.of(newJoinLeftChild, right));
         List<List<SlotReference>> regularChildrenOutputs = new ArrayList<>();
         regularChildrenOutputs.add((List) isNullProject.getOutput());
-        regularChildrenOutputs.add((List) newJoin.getOutput());
+        Plan deepCopyJoin = LogicalPlanDeepCopier.INSTANCE.deepCopy(newJoin, new DeepCopierContext());
+        regularChildrenOutputs.add((List) deepCopyJoin.getOutput());
+        List<NamedExpression> newUnionOutput = new ArrayList<>();
         return new LogicalUnion(Qualifier.ALL, (List) join.getOutput(), regularChildrenOutputs,
-                ImmutableList.of(), false, ImmutableList.of(isNullProject, newJoin));
+                ImmutableList.of(), false, ImmutableList.of(isNullProject, deepCopyJoin));
     }
 }
