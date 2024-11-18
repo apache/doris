@@ -331,21 +331,21 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
 
     // 4 cpu_share
     uint64_t cpu_share = CgroupCpuCtl::cpu_soft_limit_default_value();
-    if (tworkload_group_info.__isset.cpu_share) {
+    if (tworkload_group_info.__isset.cpu_share && tworkload_group_info.cpu_share > 0) {
         cpu_share = tworkload_group_info.cpu_share;
     }
     workload_group_info->cpu_share = cpu_share;
 
     // 5 cpu hard limit
     int cpu_hard_limit = CPU_HARD_LIMIT_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.cpu_hard_limit) {
+    if (tworkload_group_info.__isset.cpu_hard_limit && tworkload_group_info.cpu_hard_limit > 0) {
         cpu_hard_limit = tworkload_group_info.cpu_hard_limit;
     }
     workload_group_info->cpu_hard_limit = cpu_hard_limit;
 
     // 6 mem_limit
     std::string mem_limit_str = MEMORY_LIMIT_DEFAULT_VALUE;
-    if (tworkload_group_info.__isset.mem_limit) {
+    if (tworkload_group_info.__isset.mem_limit && tworkload_group_info.mem_limit != "-1") {
         mem_limit_str = tworkload_group_info.mem_limit;
     }
     bool is_percent = true;
@@ -407,14 +407,16 @@ Status WorkloadGroupInfo::parse_topic_info(const TWorkloadGroupInfo& tworkload_g
 
     // 14 scan io
     int read_bytes_per_second = -1;
-    if (tworkload_group_info.__isset.read_bytes_per_second) {
+    if (tworkload_group_info.__isset.read_bytes_per_second &&
+        tworkload_group_info.read_bytes_per_second > 0) {
         read_bytes_per_second = tworkload_group_info.read_bytes_per_second;
     }
     workload_group_info->read_bytes_per_second = read_bytes_per_second;
 
     // 15 remote scan io
     int remote_read_bytes_per_second = -1;
-    if (tworkload_group_info.__isset.remote_read_bytes_per_second) {
+    if (tworkload_group_info.__isset.remote_read_bytes_per_second &&
+        tworkload_group_info.remote_read_bytes_per_second > 0) {
         remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
     }
     workload_group_info->remote_read_bytes_per_second = remote_read_bytes_per_second;

@@ -426,17 +426,17 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                     continue;
                 }
 
-                if (wg.getCpuHardLimit() > 0) {
-                    sumOfAllCpuHardLimit += wg.getCpuHardLimit();
+                if (wg.getCpuHardLimitWhenCalSum() > 0) {
+                    sumOfAllCpuHardLimit += wg.getCpuHardLimitWhenCalSum();
                 }
-                if (wg.getMemoryLimitPercent() > 0) {
-                    sumOfAllMemLimit += wg.getMemoryLimitPercent();
+                if (wg.getMemoryLimitPercentWhenCalSum() > 0) {
+                    sumOfAllMemLimit += wg.getMemoryLimitPercentWhenCalSum();
                 }
             }
 
             // 2 sum current wg value
-            sumOfAllMemLimit += newWg.getMemoryLimitPercent();
-            sumOfAllCpuHardLimit += newWg.getCpuHardLimit();
+            sumOfAllMemLimit += newWg.getMemoryLimitPercentWhenCalSum();
+            sumOfAllCpuHardLimit += newWg.getCpuHardLimitWhenCalSum();
 
             // 3 check total sum
             if (sumOfAllMemLimit > 100.0 + 1e-6) {
