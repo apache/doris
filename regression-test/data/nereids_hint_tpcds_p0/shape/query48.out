@@ -15,10 +15,10 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 ------------------------PhysicalProject
---------------------------filter(cd_education_status IN ('2 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('D', 'M', 'S'))
+--------------------------filter(((((customer_demographics.cd_marital_status = 'S') AND (customer_demographics.cd_education_status = 'Secondary')) OR ((customer_demographics.cd_marital_status = 'M') AND (customer_demographics.cd_education_status = '2 yr Degree'))) OR ((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Advanced Degree'))) and cd_education_status IN ('2 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('D', 'M', 'S'))
 ----------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalProject
-----------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('CO', 'GA', 'KS', 'MD', 'MN', 'NC', 'ND', 'NY', 'SD'))
+----------------------filter(((((customer_address.ca_country = 'United States') AND ca_state IN ('ND', 'NY', 'SD')) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('GA', 'KS', 'MD'))) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('CO', 'MN', 'NC'))) and (customer_address.ca_country = 'United States') and ca_state IN ('CO', 'GA', 'KS', 'MD', 'MN', 'NC', 'ND', 'NY', 'SD'))
 ------------------------PhysicalOlapScan[customer_address]
 ----------------PhysicalProject
 ------------------filter((date_dim.d_year = 2001))

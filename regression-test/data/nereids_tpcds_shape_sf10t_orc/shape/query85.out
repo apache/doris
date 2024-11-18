@@ -21,7 +21,7 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF2 wp_web_page_sk->[ws_web_page_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF0 wr_item_sk->[ws_item_sk];RF1 wr_order_number->[ws_order_number]
+------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF0 wr_order_number->[ws_order_number];RF1 wr_item_sk->[ws_item_sk]
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF8
 --------------------------------------------PhysicalProject
@@ -29,13 +29,13 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[web_page]
 ------------------------------------PhysicalProject
---------------------------------------filter(cd_education_status IN ('4 yr Degree', 'College', 'Secondary') and cd_marital_status IN ('D', 'M', 'S'))
+--------------------------------------filter(((((cd1.cd_marital_status = 'M') AND (cd1.cd_education_status = '4 yr Degree')) OR ((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'College'))) OR ((cd1.cd_marital_status = 'D') AND (cd1.cd_education_status = 'Secondary'))) and cd_education_status IN ('4 yr Degree', 'College', 'Secondary') and cd_marital_status IN ('D', 'M', 'S'))
 ----------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5 RF6
 --------------------------------PhysicalProject
 ----------------------------------filter(cd_education_status IN ('4 yr Degree', 'College', 'Secondary') and cd_marital_status IN ('D', 'M', 'S'))
 ------------------------------------PhysicalOlapScan[customer_demographics]
 ----------------------------PhysicalProject
-------------------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('AR', 'CA', 'IA', 'MO', 'MS', 'NE', 'TX', 'VA', 'WA'))
+------------------------------filter(((((customer_address.ca_country = 'United States') AND ca_state IN ('CA', 'TX', 'VA')) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('AR', 'MO', 'NE'))) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('IA', 'MS', 'WA'))) and (customer_address.ca_country = 'United States') and ca_state IN ('AR', 'CA', 'IA', 'MO', 'MS', 'NE', 'TX', 'VA', 'WA'))
 --------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalProject
 --------------------------filter((date_dim.d_year = 2001))

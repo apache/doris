@@ -19,13 +19,13 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------PhysicalOlapScan[store]
 ------------------------PhysicalProject
---------------------------filter(cd_education_status IN ('College', 'Primary', 'Secondary') and cd_marital_status IN ('D', 'U', 'W'))
+--------------------------filter(((((customer_demographics.cd_marital_status = 'U') AND (customer_demographics.cd_education_status = 'Secondary')) OR ((customer_demographics.cd_marital_status = 'W') AND (customer_demographics.cd_education_status = 'College'))) OR ((customer_demographics.cd_marital_status = 'D') AND (customer_demographics.cd_education_status = 'Primary'))) and cd_education_status IN ('College', 'Primary', 'Secondary') and cd_marital_status IN ('D', 'U', 'W'))
 ----------------------------PhysicalOlapScan[customer_demographics]
 --------------------PhysicalProject
 ----------------------filter(hd_dep_count IN (1, 3))
 ------------------------PhysicalOlapScan[household_demographics]
 ----------------PhysicalProject
-------------------filter((customer_address.ca_country = 'United States') and ca_state IN ('FL', 'GA', 'MI', 'MT', 'NC', 'OH', 'OK', 'TX', 'WA'))
+------------------filter(((((customer_address.ca_country = 'United States') AND ca_state IN ('MI', 'OK', 'TX')) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('NC', 'OH', 'WA'))) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('FL', 'GA', 'MT'))) and (customer_address.ca_country = 'United States') and ca_state IN ('FL', 'GA', 'MI', 'MT', 'NC', 'OH', 'OK', 'TX', 'WA'))
 --------------------PhysicalOlapScan[customer_address]
 ------------PhysicalProject
 --------------filter((date_dim.d_year = 2001))
