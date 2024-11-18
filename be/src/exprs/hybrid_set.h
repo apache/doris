@@ -554,7 +554,7 @@ public:
     ContainerType* get_inner_set() { return &_set; }
 
     void set_pb(PInFilter* filter, auto f) {
-        for (auto v : _set) {
+        for (const auto& v : _set) {
             f(filter->add_values(), v);
         }
     }
