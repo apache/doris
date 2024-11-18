@@ -75,8 +75,8 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                             Set<AggregateFunction> funcs = agg.getAggregateFunctions();
                             return !funcs.isEmpty() && funcs.stream()
                                     .allMatch(f -> (f instanceof Min || f instanceof Max || f instanceof Sum
-                                            || (f instanceof Count && !((Count) f).isCountStar())) && !f.isDistinct()
-                                            && f.child(0) instanceof Slot);
+                                            || f instanceof Count && !f.isDistinct()
+                                            && f.child(0) instanceof Slot));
                         })
                         .thenApply(ctx -> {
                             Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
@@ -135,21 +135,15 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 } else {
                     for (NamedExpression proj : projects) {
                         if (proj instanceof Alias && proj.toSlot().equals(slot)) {
-                            Set<Slot> inputForAlias = proj.getInputSlots();
-                            if (leftOutput.containsAll(inputForAlias)) {
-                                leftGroupBy.addAll(inputForAlias);
-                            } else if (rightOutput.containsAll(inputForAlias)) {
-                                rightGroupBy.addAll(inputForAlias);
-                            } else {
-                                /*
-                                groupBy(X)
-                                  +---> project( a + b as X)
-                                      --> join(output: T1.a, T2.b)
-                                          --> T1(a)
-                                          --> T2(b)
-                                X can not be pushed
-                                 */
-                                return null;
+                            Set<Slot> inputForAliasSet = proj.getInputSlots();
+                            for (Slot aliasInputSlot : inputForAliasSet) {
+                                if (leftOutput.contains(aliasInputSlot)) {
+                                    leftGroupBy.add(aliasInputSlot);
+                                } else if (rightOutput.contains(aliasInputSlot)) {
+                                    rightGroupBy.add(aliasInputSlot);
+                                } else {
+                                    return null;
+                                }
                             }
                             break;
                         }
@@ -161,6 +155,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
         List<AggregateFunction> leftFuncs = new ArrayList<>();
         List<AggregateFunction> rightFuncs = new ArrayList<>();
         Count countStar = null;
+        Count rewrittenCountStar = null;
         for (AggregateFunction func : agg.getAggregateFunctions()) {
             if (func instanceof Count && ((Count) func).isCountStar()) {
                 countStar = (Count) func;
@@ -175,14 +170,14 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 }
             }
         }
-        // determine count(*)
+        // rewrite count(*) to count(A), where A is slot from left/right group by key
         if (countStar != null) {
             if (!leftGroupBy.isEmpty()) {
-                countStar = (Count) countStar.withChildren(leftGroupBy.iterator().next());
-                leftFuncs.add(countStar);
+                rewrittenCountStar = (Count) countStar.withChildren(leftGroupBy.iterator().next());
+                leftFuncs.add(rewrittenCountStar);
             } else if (!rightGroupBy.isEmpty()) {
-                countStar = (Count) countStar.withChildren(rightGroupBy.iterator().next());
-                rightFuncs.add(countStar);
+                rewrittenCountStar = (Count) countStar.withChildren(rightGroupBy.iterator().next());
+                rightFuncs.add(rewrittenCountStar);
             } else {
                 return null;
             }
@@ -241,7 +236,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
                 AggregateFunction func = (AggregateFunction) ((Alias) ne).child();
                 if (func instanceof Count && ((Count) func).isCountStar()) {
                     // countStar is already rewritten as count(left_slot) or count(right_slot)
-                    func = countStar;
+                    func = rewrittenCountStar;
                 }
                 Slot slot = (Slot) func.child(0);
                 if (leftSlotToOutput.containsKey(slot)) {
@@ -268,7 +263,6 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
             Set<NamedExpression> rightDifference = new HashSet<NamedExpression>(right.getOutput());
             rightDifference.removeAll(project.getProjects());
             newProjections.addAll(rightDifference);
-
             newAggChild = ((LogicalProject) agg.child()).withProjectsAndChild(newProjections, newJoin);
         }
         // TODO: column prune project
