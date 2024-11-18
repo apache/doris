@@ -142,7 +142,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }
     SCOPED_TIMER(_publish_runtime_filter_timer);
-    RETURN_IF_ERROR(_runtime_filter_slots->publish(!_should_build_hash_table));
+    RETURN_IF_ERROR(_runtime_filter_slots->publish(state, !_should_build_hash_table));
     return Base::close(state, exec_status);
 }
 

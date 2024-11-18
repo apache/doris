@@ -222,7 +222,7 @@ public:
 
     // publish filter
     // push filter to remote node or push down it to scan_node
-    Status publish(bool publish_local = false);
+    Status publish(RuntimeState* state, bool publish_local = false);
 
     Status send_filter_size(RuntimeState* state, uint64_t local_filter_size);
 
@@ -289,7 +289,7 @@ public:
     bool need_sync_filter_size();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(const TNetworkAddress* addr, uint64_t local_merge_time);
+    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, uint64_t local_merge_time);
 
     void init_profile(RuntimeProfile* parent_profile);
 

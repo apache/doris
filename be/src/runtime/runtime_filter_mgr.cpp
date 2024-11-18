@@ -305,7 +305,8 @@ Status RuntimeFilterMergeControllerEntity::init(UniqueId query_id,
     return Status::OK();
 }
 
-Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSizeRequest* request) {
+Status RuntimeFilterMergeControllerEntity::send_filter_size(std::weak_ptr<QueryContext> query_ctx,
+                                                            const PSendFilterSizeRequest* request) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cnt_val;
 
@@ -326,6 +327,8 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
 
     Status st = Status::OK();
     if (cnt_val->source_addrs.size() == cnt_val->producer_size) {
+        auto ctx = query_ctx.lock()->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
+                                                                   : query_ctx;
         for (auto addr : cnt_val->source_addrs) {
             std::shared_ptr<PBackendService_Stub> stub(
                     ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(addr));
@@ -339,7 +342,7 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(const PSendFilterSiz
             auto closure = AutoReleaseClosure<PSyncFilterSizeRequest,
                                               DummyBrpcCallback<PSyncFilterSizeResponse>>::
                     create_unique(std::make_shared<PSyncFilterSizeRequest>(),
-                                  DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared());
+                                  DummyBrpcCallback<PSyncFilterSizeResponse>::create_shared(), ctx);
 
             auto* pquery_id = closure->request_->mutable_query_id();
             pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
@@ -372,7 +375,8 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
 }
 
 // merge data
-Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* request,
+Status RuntimeFilterMergeControllerEntity::merge(std::weak_ptr<QueryContext> query_ctx,
+                                                 const PMergeFilterRequest* request,
                                                  butil::IOBufAsZeroCopyInputStream* attach_data) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     std::shared_ptr<RuntimeFilterCntlVal> cnt_val;
@@ -441,12 +445,14 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
             has_attachment = true;
         }
 
+        auto ctx = query_ctx.lock()->ignore_runtime_filter_error() ? std::weak_ptr<QueryContext> {}
+                                                                   : query_ctx;
         std::vector<TRuntimeFilterTargetParamsV2>& targets = cnt_val->targetv2_info;
         for (auto& target : targets) {
             auto closure = AutoReleaseClosure<PPublishFilterRequestV2,
                                               DummyBrpcCallback<PPublishFilterResponse>>::
                     create_unique(std::make_shared<PPublishFilterRequestV2>(apply_request),
-                                  DummyBrpcCallback<PPublishFilterResponse>::create_shared());
+                                  DummyBrpcCallback<PPublishFilterResponse>::create_shared(), ctx);
 
             closure->request_->set_filter_id(request->filter_id());
             closure->request_->set_is_pipeline(request->has_is_pipeline() &&
