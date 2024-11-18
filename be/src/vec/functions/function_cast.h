@@ -1113,167 +1113,9 @@ StringParser::ParseResult try_parse_decimal_impl(typename DataType::FieldType& x
     }
 }
 
-/// Monotonicity.
-
-struct PositiveMonotonicity {
-    static bool has() { return true; }
-    static IFunction::Monotonicity get(const IDataType&, const Field&, const Field&) {
-        return {true};
-    }
-};
-
-struct UnknownMonotonicity {
-    static bool has() { return false; }
-    static IFunction::Monotonicity get(const IDataType&, const Field&, const Field&) {
-        return {false};
-    }
-};
-
-template <typename T>
-struct ToNumberMonotonicity {
-    static bool has() { return true; }
-
-    static UInt64 divide_by_range_of_type(UInt64 x) {
-        if constexpr (sizeof(T) < sizeof(UInt64))
-            return x >> (sizeof(T) * 8);
-        else
-            return 0;
-    }
-
-    static IFunction::Monotonicity get(const IDataType& type, const Field& left,
-                                       const Field& right) {
-        if (!type.is_value_represented_by_number()) return {};
-
-        /// If type is same, the conversion is always monotonic.
-        /// (Enum has separate case, because it is different data type)
-        if (check_and_get_data_type<DataTypeNumber<T>>(
-                    &type) /*|| check_and_get_data_type<DataTypeEnum<T>>(&type)*/)
-            return {true, true, true};
-
-        /// Float cases.
-
-        /// When converting to Float, the conversion is always monotonic.
-        if (std::is_floating_point_v<T>) return {true, true, true};
-
-        /// If converting from Float, for monotonicity, arguments must fit in range of result type.
-        if (WhichDataType(type).is_float()) {
-            if (left.is_null() || right.is_null()) return {};
-
-            Float64 left_float = left.get<Float64>();
-            Float64 right_float = right.get<Float64>();
-
-            if (left_float >= std::numeric_limits<T>::min() &&
-                left_float <= static_cast<Float64>(std::numeric_limits<T>::max()) &&
-                right_float >= std::numeric_limits<T>::min() &&
-                right_float <= static_cast<Float64>(std::numeric_limits<T>::max()))
-                return {true};
-
-            return {};
-        }
-
-        /// Integer cases.
-
-        const bool from_is_unsigned = type.is_value_represented_by_unsigned_integer();
-        const bool to_is_unsigned = std::is_unsigned_v<T>;
-
-        const size_t size_of_from = type.get_size_of_value_in_memory();
-        const size_t size_of_to = sizeof(T);
-
-        const bool left_in_first_half =
-                left.is_null() ? from_is_unsigned : (left.get<Int64>() >= 0);
-
-        const bool right_in_first_half =
-                right.is_null() ? !from_is_unsigned : (right.get<Int64>() >= 0);
-
-        /// Size of type is the same.
-        if (size_of_from == size_of_to) {
-            if (from_is_unsigned == to_is_unsigned) return {true, true, true};
-
-            if (left_in_first_half == right_in_first_half) return {true};
-
-            return {};
-        }
-
-        /// Size of type is expanded.
-        if (size_of_from < size_of_to) {
-            if (from_is_unsigned == to_is_unsigned) return {true, true, true};
-
-            if (!to_is_unsigned) return {true, true, true};
-
-            /// signed -> unsigned. If arguments from the same half, then function is monotonic.
-            if (left_in_first_half == right_in_first_half) return {true};
-
-            return {};
-        }
-
-        /// Size of type is shrinked.
-        if (size_of_from > size_of_to) {
-            /// Function cannot be monotonic on unbounded ranges.
-            if (left.is_null() || right.is_null()) return {};
-
-            if (from_is_unsigned == to_is_unsigned) {
-                /// all bits other than that fits, must be same.
-                if (divide_by_range_of_type(left.get<UInt64>()) ==
-                    divide_by_range_of_type(right.get<UInt64>()))
-                    return {true};
-
-                return {};
-            } else {
-                /// When signedness is changed, it's also required for arguments to be from the same half.
-                /// And they must be in the same half after converting to the result type.
-                if (left_in_first_half == right_in_first_half &&
-                    (T(left.get<Int64>()) >= 0) == (T(right.get<Int64>()) >= 0) &&
-                    divide_by_range_of_type(left.get<UInt64>()) ==
-                            divide_by_range_of_type(right.get<UInt64>()))
-                    return {true};
-
-                return {};
-            }
-        }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
-};
-
-/** The monotonicity for the `to_string` function is mainly determined for test purposes.
-  * It is doubtful that anyone is looking to optimize queries with conditions `std::to_string(CounterID) = 34`.
-  */
-struct ToStringMonotonicity {
-    static bool has() { return true; }
-
-    static IFunction::Monotonicity get(const IDataType& type, const Field& left,
-                                       const Field& right) {
-        IFunction::Monotonicity positive(true, true);
-        IFunction::Monotonicity not_monotonic;
-
-        if (left.is_null() || right.is_null()) return {};
-
-        if (left.get_type() == Field::Types::UInt64 && right.get_type() == Field::Types::UInt64) {
-            return (left.get<Int64>() == 0 && right.get<Int64>() == 0) ||
-                                   (floor(log10(left.get<UInt64>())) ==
-                                    floor(log10(right.get<UInt64>())))
-                           ? positive
-                           : not_monotonic;
-        }
-
-        if (left.get_type() == Field::Types::Int64 && right.get_type() == Field::Types::Int64) {
-            return (left.get<Int64>() == 0 && right.get<Int64>() == 0) ||
-                                   (left.get<Int64>() > 0 && right.get<Int64>() > 0 &&
-                                    floor(log10(left.get<Int64>())) ==
-                                            floor(log10(right.get<Int64>())))
-                           ? positive
-                           : not_monotonic;
-        }
-
-        return not_monotonic;
-    }
-};
-
-template <typename ToDataType, typename Name, typename MonotonicityImpl>
+template <typename ToDataType, typename Name>
 class FunctionConvert : public IFunction {
 public:
-    using Monotonic = MonotonicityImpl;
-
     static constexpr auto name = Name::name;
 
     static FunctionPtr create() { return std::make_shared<FunctionConvert>(); }
@@ -1342,51 +1184,33 @@ public:
             return ret_status;
         }
     }
-
-    Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
-                                            const Field& right) const override {
-        return Monotonic::get(type, left, right);
-    }
 };
 
-using FunctionToUInt8 = FunctionConvert<DataTypeUInt8, NameToUInt8, ToNumberMonotonicity<UInt8>>;
-using FunctionToUInt16 =
-        FunctionConvert<DataTypeUInt16, NameToUInt16, ToNumberMonotonicity<UInt16>>;
-using FunctionToUInt32 =
-        FunctionConvert<DataTypeUInt32, NameToUInt32, ToNumberMonotonicity<UInt32>>;
-using FunctionToUInt64 =
-        FunctionConvert<DataTypeUInt64, NameToUInt64, ToNumberMonotonicity<UInt64>>;
-using FunctionToInt8 = FunctionConvert<DataTypeInt8, NameToInt8, ToNumberMonotonicity<Int8>>;
-using FunctionToInt16 = FunctionConvert<DataTypeInt16, NameToInt16, ToNumberMonotonicity<Int16>>;
-using FunctionToInt32 = FunctionConvert<DataTypeInt32, NameToInt32, ToNumberMonotonicity<Int32>>;
-using FunctionToInt64 = FunctionConvert<DataTypeInt64, NameToInt64, ToNumberMonotonicity<Int64>>;
-using FunctionToInt128 =
-        FunctionConvert<DataTypeInt128, NameToInt128, ToNumberMonotonicity<Int128>>;
-using FunctionToFloat32 =
-        FunctionConvert<DataTypeFloat32, NameToFloat32, ToNumberMonotonicity<Float32>>;
-using FunctionToFloat64 =
-        FunctionConvert<DataTypeFloat64, NameToFloat64, ToNumberMonotonicity<Float64>>;
+using FunctionToUInt8 = FunctionConvert<DataTypeUInt8, NameToUInt8>;
+using FunctionToUInt16 = FunctionConvert<DataTypeUInt16, NameToUInt16>;
+using FunctionToUInt32 = FunctionConvert<DataTypeUInt32, NameToUInt32>;
+using FunctionToUInt64 = FunctionConvert<DataTypeUInt64, NameToUInt64>;
+using FunctionToInt8 = FunctionConvert<DataTypeInt8, NameToInt8>;
+using FunctionToInt16 = FunctionConvert<DataTypeInt16, NameToInt16>;
+using FunctionToInt32 = FunctionConvert<DataTypeInt32, NameToInt32>;
+using FunctionToInt64 = FunctionConvert<DataTypeInt64, NameToInt64>;
+using FunctionToInt128 = FunctionConvert<DataTypeInt128, NameToInt128>;
+using FunctionToFloat32 = FunctionConvert<DataTypeFloat32, NameToFloat32>;
+using FunctionToFloat64 = FunctionConvert<DataTypeFloat64, NameToFloat64>;
 
-using FunctionToTimeV2 =
-        FunctionConvert<DataTypeTimeV2, NameToFloat64, ToNumberMonotonicity<Float64>>;
-using FunctionToString = FunctionConvert<DataTypeString, NameToString, ToStringMonotonicity>;
-using FunctionToDecimal32 =
-        FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32, UnknownMonotonicity>;
-using FunctionToDecimal64 =
-        FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64, UnknownMonotonicity>;
-using FunctionToDecimal128 =
-        FunctionConvert<DataTypeDecimal<Decimal128V2>, NameToDecimal128, UnknownMonotonicity>;
-using FunctionToDecimal128V3 =
-        FunctionConvert<DataTypeDecimal<Decimal128V3>, NameToDecimal128V3, UnknownMonotonicity>;
-using FunctionToDecimal256 =
-        FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256, UnknownMonotonicity>;
-using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4, UnknownMonotonicity>;
-using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6, UnknownMonotonicity>;
-using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate, UnknownMonotonicity>;
-using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime, UnknownMonotonicity>;
-using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate, UnknownMonotonicity>;
-using FunctionToDateTimeV2 =
-        FunctionConvert<DataTypeDateTimeV2, NameToDateTime, UnknownMonotonicity>;
+using FunctionToTimeV2 = FunctionConvert<DataTypeTimeV2, NameToFloat64>;
+using FunctionToString = FunctionConvert<DataTypeString, NameToString>;
+using FunctionToDecimal32 = FunctionConvert<DataTypeDecimal<Decimal32>, NameToDecimal32>;
+using FunctionToDecimal64 = FunctionConvert<DataTypeDecimal<Decimal64>, NameToDecimal64>;
+using FunctionToDecimal128 = FunctionConvert<DataTypeDecimal<Decimal128V2>, NameToDecimal128>;
+using FunctionToDecimal128V3 = FunctionConvert<DataTypeDecimal<Decimal128V3>, NameToDecimal128V3>;
+using FunctionToDecimal256 = FunctionConvert<DataTypeDecimal<Decimal256>, NameToDecimal256>;
+using FunctionToIPv4 = FunctionConvert<DataTypeIPv4, NameToIPv4>;
+using FunctionToIPv6 = FunctionConvert<DataTypeIPv6, NameToIPv6>;
+using FunctionToDate = FunctionConvert<DataTypeDate, NameToDate>;
+using FunctionToDateTime = FunctionConvert<DataTypeDateTime, NameToDateTime>;
+using FunctionToDateV2 = FunctionConvert<DataTypeDateV2, NameToDate>;
+using FunctionToDateTimeV2 = FunctionConvert<DataTypeDateTimeV2, NameToDateTime>;
 
 template <typename DataType>
 struct FunctionTo;
@@ -1708,15 +1532,10 @@ public:
     using WrapperType =
             std::function<Status(FunctionContext*, Block&, const ColumnNumbers&, size_t, size_t)>;
     using ElementWrappers = std::vector<WrapperType>;
-    using MonotonicityForRange =
-            std::function<Monotonicity(const IDataType&, const Field&, const Field&)>;
 
-    FunctionCast(const char* name_, MonotonicityForRange&& monotonicity_for_range_,
-                 const DataTypes& argument_types_, const DataTypePtr& return_type_)
-            : name(name_),
-              monotonicity_for_range(monotonicity_for_range_),
-              argument_types(argument_types_),
-              return_type(return_type_) {}
+    FunctionCast(const char* name_, const DataTypes& argument_types_,
+                 const DataTypePtr& return_type_)
+            : name(name_), argument_types(argument_types_), return_type(return_type_) {}
 
     const DataTypes& get_argument_types() const override { return argument_types; }
     const DataTypePtr& get_return_type() const override { return return_type; }
@@ -1731,16 +1550,10 @@ public:
 
     String get_name() const override { return name; }
 
-    Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
-                                            const Field& right) const override {
-        return monotonicity_for_range(type, left, right);
-    }
-
     bool is_use_default_implementation_for_constants() const override { return true; }
 
 private:
     const char* name = nullptr;
-    MonotonicityForRange monotonicity_for_range;
 
     DataTypes argument_types;
     DataTypePtr return_type;
@@ -2525,8 +2338,6 @@ private:
 
 class FunctionBuilderCast : public FunctionBuilderImpl {
 public:
-    using MonotonicityForRange = FunctionCast::MonotonicityForRange;
-
     static constexpr auto name = "CAST";
     static FunctionBuilderPtr create() { return std::make_shared<FunctionBuilderCast>(); }
 
@@ -2545,9 +2356,7 @@ protected:
 
         for (size_t i = 0; i < arguments.size(); ++i) data_types[i] = arguments[i].type;
 
-        auto monotonicity = get_monotonicity_information(arguments.front().type, return_type.get());
-        return std::make_shared<FunctionCast>(name, std::move(monotonicity), data_types,
-                                              return_type);
+        return std::make_shared<FunctionCast>(name, data_types, return_type);
     }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
@@ -2578,38 +2387,6 @@ protected:
 
     bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_low_cardinality_columns() const override { return false; }
-
-private:
-    template <typename DataType>
-    static auto monotonicity_for_type(const DataType* const) {
-        return FunctionTo<DataType>::Type::Monotonic::get;
-    }
-
-    MonotonicityForRange get_monotonicity_information(const DataTypePtr& from_type,
-                                                      const IDataType* to_type) const {
-        if (const auto type = check_and_get_data_type<DataTypeUInt8>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeUInt16>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeUInt32>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeUInt64>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeInt8>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeInt16>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeInt32>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeInt64>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeFloat32>(to_type))
-            return monotonicity_for_type(type);
-        if (const auto type = check_and_get_data_type<DataTypeFloat64>(to_type))
-            return monotonicity_for_type(type);
-        /// other types like Null, FixedString, Array and Tuple have no monotonicity defined
-        return {};
-    }
 };
 
 } // namespace doris::vectorized

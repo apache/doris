@@ -45,28 +45,25 @@
 
 namespace doris::vectorized {
 
-inline constexpr UInt64 TOP_K_MAX_SIZE = 0xFFFFFF;
-
 struct AggregateFunctionTopKGenericData {
     using Set = SpaceSaving<StringRef, StringRefHash>;
 
     Set value;
 };
 
-template <int32_t ArgsSize>
 class AggregateFunctionApproxTopK final
         : public IAggregateFunctionDataHelper<AggregateFunctionTopKGenericData,
-                                              AggregateFunctionApproxTopK<ArgsSize>>,
+                                              AggregateFunctionApproxTopK>,
           AggregateFunctionApproxTop {
 private:
     using State = AggregateFunctionTopKGenericData;
 
 public:
-    AggregateFunctionApproxTopK(std::vector<std::string> column_names,
+    AggregateFunctionApproxTopK(const std::vector<std::string>& column_names,
                                 const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionTopKGenericData,
-                                           AggregateFunctionApproxTopK<ArgsSize>>(argument_types_),
-              _column_names(std::move(column_names)) {}
+                                           AggregateFunctionApproxTopK>(argument_types_),
+              AggregateFunctionApproxTop(column_names) {}
 
     String get_name() const override { return "approx_top_k"; }
 
@@ -88,7 +85,7 @@ public:
     void deserialize(AggregateDataPtr __restrict place, BufferReadable& buf,
                      Arena* arena) const override {
         auto readStringBinaryInto = [](Arena& arena, BufferReadable& buf) {
-            size_t size = 0;
+            uint64_t size = 0;
             read_var_uint(size, buf);
 
             if (UNLIKELY(size > DEFAULT_MAX_STRING_SIZE)) {
@@ -104,7 +101,7 @@ public:
         auto& set = this->data(place).value;
         set.clear();
 
-        size_t size = 0;
+        uint64_t size = 0;
         read_var_uint(size, buf);
         if (UNLIKELY(size > TOP_K_MAX_SIZE)) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
@@ -141,7 +138,7 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         if (!_init_flag) {
-            lazy_init(columns, row_num);
+            lazy_init(columns, row_num, this->get_argument_types());
         }
 
         auto& set = this->data(place).value;
@@ -227,64 +224,6 @@ public:
         std::string res = buffer.GetString();
         data_to.insert_data(res.data(), res.size());
     }
-
-private:
-    void lazy_init(const IColumn** columns, ssize_t row_num) const {
-        auto get_param = [](size_t idx, const DataTypes& data_types,
-                            const IColumn** columns) -> uint64_t {
-            const auto& data_type = data_types.at(idx);
-            const IColumn* column = columns[idx];
-
-            const auto* type = data_type.get();
-            if (type->is_nullable()) {
-                type = assert_cast<const DataTypeNullable*, TypeCheckOnRelease::DISABLE>(type)
-                               ->get_nested_type()
-                               .get();
-            }
-            int64_t value = 0;
-            WhichDataType which(type);
-            if (which.idx == TypeIndex::Int8) {
-                value = assert_cast<const ColumnInt8*, TypeCheckOnRelease::DISABLE>(column)
-                                ->get_element(0);
-            } else if (which.idx == TypeIndex::Int16) {
-                value = assert_cast<const ColumnInt16*, TypeCheckOnRelease::DISABLE>(column)
-                                ->get_element(0);
-            } else if (which.idx == TypeIndex::Int32) {
-                value = assert_cast<const ColumnInt32*, TypeCheckOnRelease::DISABLE>(column)
-                                ->get_element(0);
-            }
-            if (value <= 0) {
-                throw Exception(ErrorCode::INVALID_ARGUMENT,
-                                "The parameter cannot be less than or equal to 0.");
-            }
-            return value;
-        };
-
-        const auto& data_types = this->get_argument_types();
-        if (ArgsSize == 1) {
-            _threshold =
-                    std::min(get_param(_column_names.size(), data_types, columns), (uint64_t)1000);
-        } else if (ArgsSize == 2) {
-            _threshold =
-                    std::min(get_param(_column_names.size(), data_types, columns), (uint64_t)1000);
-            _reserved = std::min(
-                    std::max(get_param(_column_names.size() + 1, data_types, columns), _threshold),
-                    (uint64_t)1000);
-        }
-
-        if (_threshold == 0 || _reserved == 0 || _threshold > 1000 || _reserved > 1000) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "approx_top_k param error, _threshold: {}, _reserved: {}", _threshold,
-                            _reserved);
-        }
-
-        _init_flag = true;
-    }
-
-    mutable std::vector<std::string> _column_names;
-    mutable bool _init_flag = false;
-    mutable uint64_t _threshold = 10;
-    mutable uint64_t _reserved = 300;
 };
 
 } // namespace doris::vectorized

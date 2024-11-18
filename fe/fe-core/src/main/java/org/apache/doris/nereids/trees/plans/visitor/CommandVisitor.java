@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
@@ -36,10 +37,12 @@ import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinComman
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -51,10 +54,15 @@ import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
@@ -242,6 +250,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(setDefaultStorageVaultCommand, context);
     }
 
+    default R visitShowLastInsertCommand(ShowLastInsertCommand showLastInsertCommand, C context) {
+        return visitCommand(showLastInsertCommand, context);
+    }
+
     default R visitShowVariablesCommand(ShowVariablesCommand showVariablesCommand, C context) {
         return visitCommand(showVariablesCommand, context);
     }
@@ -250,11 +262,40 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showViewCommand, context);
     }
 
+    default R visitShowRepositoriesCommand(ShowRepositoriesCommand showRepositoriesCommand, C context) {
+        return visitCommand(showRepositoriesCommand, context);
+    }
+
     default R visitShowRolesCommand(ShowRolesCommand showRolesCommand, C context) {
         return visitCommand(showRolesCommand, context);
     }
 
     default R visitShowProcCommand(ShowProcCommand showProcCommand, C context) {
         return visitCommand(showProcCommand, context);
+    }
+
+    default R visitShowStorageEnginesCommand(ShowStorageEnginesCommand showStorageEnginesCommand, C context) {
+        return visitCommand(showStorageEnginesCommand, context);
+    }
+
+    default R visitShowCreateMaterializedViewCommand(ShowCreateMaterializedViewCommand showCreateMtlzViewCommand,
+                        C context) {
+        return visitCommand(showCreateMtlzViewCommand, context);
+    }
+
+    default R visitAlterRoleCommand(AlterRoleCommand alterRoleCommand, C context) {
+        return visitCommand(alterRoleCommand, context);
+    }
+
+    default R visitShowFrontendsCommand(ShowFrontendsCommand showFrontendsCommand, C context) {
+        return visitCommand(showFrontendsCommand, context);
+    }
+
+    default R visitRecoverDatabaseCommand(RecoverDatabaseCommand recoverDatabaseCommand, C context) {
+        return visitCommand(recoverDatabaseCommand, context);
+    }
+
+    default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
+        return visitCommand(dropRoleCommand, context);
     }
 }

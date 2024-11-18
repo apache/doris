@@ -69,7 +69,7 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
         }
         explain {
             sql("""${sqlstr4}""")
-            contains """pushdown agg=COUNT (1000)"""
+            contains """pushdown agg=COUNT (-1)"""
         }
 
         // don't use push down count
@@ -95,6 +95,17 @@ suite("test_iceberg_optimize_count", "p0,external,doris,external_docker,external
         explain {
             sql("""${sqlstr4}""")
             contains """pushdown agg=NONE"""
+        }
+
+        // There has `dangling delete` after rewrite
+        sql """ set enable_count_push_down_for_external_table=true; """
+        sqlstr5 = """ select count(*) from ${catalog_name}.test_db.dangling_delete_after_write; """
+
+        qt_q09 """${sqlstr5}""" 
+
+        explain {
+            sql("""${sqlstr5}""")
+            contains """pushdown agg=COUNT (-1)"""
         }
 
     } finally {

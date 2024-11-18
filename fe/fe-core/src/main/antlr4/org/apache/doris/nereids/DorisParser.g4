@@ -57,7 +57,10 @@ statementBase
     | supportedUnsetStatement           #supportedUnsetStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
     | unsupportedStatement              #unsupported
+    | supportedRecoverStatement         #supportedRecoverStatementAlias
     ;
+
+
 
 unsupportedStatement
     : unsupportedUseStatement
@@ -184,20 +187,28 @@ supportedAlterStatement
     : ALTER VIEW name=multipartIdentifier (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         AS query                                                          #alterView
     | ALTER STORAGE VAULT name=multipartIdentifier properties=propertyClause   #alterStorageVault
+    | ALTER ROLE role=identifier commentSpec                                        #alterRole
     ;
 
 supportedDropStatement
-    : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE #dropCatalogRecycleBin
+    : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE  #dropCatalogRecycleBin
+    | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
     ;
 
 supportedShowStatement
     : SHOW (GLOBAL | SESSION | LOCAL)? VARIABLES wildWhere?                         #showVariables
     | SHOW AUTHORS                                                                  #showAuthors
+    | SHOW LAST INSERT                                                              #showLastInsert    
     | SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
+    | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ROLES                                                                    #showRoles        
     | SHOW PROC path=STRING_LITERAL                                                 #showProc        
+    | SHOW STORAGE? ENGINES                                                         #showStorageEngines
+    | SHOW CREATE MATERIALIZED VIEW mvName=identifier
+        ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
+    | SHOW FRONTENDS name=identifier?                                               #showFrontends 
     ;
 
 unsupportedOtherStatement
@@ -246,7 +257,6 @@ unsupportedShowStatement
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
     | SHOW PLUGINS                                                                  #showPlugins
-    | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW BRIEF? CREATE TABLE name=multipartIdentifier                             #showCreateTable
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
@@ -296,8 +306,6 @@ unsupportedShowStatement
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
-    | SHOW FRONTENDS name=identifier?                                               #showFrontends
-    | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
@@ -317,9 +325,6 @@ unsupportedShowStatement
     | SHOW ENCRYPTKEYS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showEncryptKeys
     | SHOW SYNC JOB ((FROM | IN) database=multipartIdentifier)?                     #showSyncJob
     | SHOW TABLE CREATION ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTableCreation
-    | SHOW LAST INSERT                                                              #showLastInsert    
-    | SHOW CREATE MATERIALIZED VIEW mvName=identifier
-        ON tableName=multipartIdentifier                                            #showCreateMaterializedView
     | SHOW CATALOG RECYCLE BIN wildWhere?                                           #showCatalogRecycleBin
     | SHOW QUERY STATS ((FOR database=identifier)
             | (FROM tableName=multipartIdentifier (ALL VERBOSE?)?))?                #showQueryStats
@@ -452,9 +457,12 @@ unsupportedCancelStatement
     | CANCEL WARM UP JOB wildWhere?                                                 #cancelWarmUp
     ;
 
-unsupportedRecoverStatement
+supportedRecoverStatement
     : RECOVER DATABASE name=identifier id=INTEGER_VALUE? (AS alias=identifier)?     #recoverDatabase
-    | RECOVER TABLE name=multipartIdentifier
+    ;
+
+unsupportedRecoverStatement
+    :RECOVER TABLE name=multipartIdentifier
         id=INTEGER_VALUE? (AS alias=identifier)?                                    #recoverTable
     | RECOVER PARTITION name=identifier id=INTEGER_VALUE? (AS alias=identifier)?
         FROM tableName=multipartIdentifier                                          #recoverPartition
@@ -558,7 +566,6 @@ unsupportedAlterStatement
         properties=propertyClause                                                   #alterStoragePlicy
     | ALTER USER (IF EXISTS)? grantUserIdentify
         passwordOption (COMMENT STRING_LITERAL)?                                    #alterUser
-    | ALTER ROLE role=identifier commentSpec                                        #alterRole
     | ALTER REPOSITORY name=identifier properties=propertyClause?                   #alterRepository
     ;
 
@@ -657,7 +664,6 @@ unsupportedDropStatement
     | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     | DROP REPOSITORY name=identifier                                           #dropRepository
-    | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
     | DROP FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #dropFile
     | DROP INDEX (IF EXISTS)? name=identifier ON tableName=multipartIdentifier  #dropIndex

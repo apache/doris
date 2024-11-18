@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <initializer_list>
+#include <type_traits>
 
 /** Copy-on-write shared ptr.
   * Allows to work with shared immutable objects and sometimes unshare and mutate you own unique copy.
@@ -391,9 +392,14 @@ public:
   *
   * See example in "cow_columns.cpp".
   */
+namespace doris::vectorized {
+class IColumn;
+}
 template <typename Base, typename Derived>
 class COWHelper : public Base {
 public:
+    static_assert(std::is_base_of_v<doris::vectorized::IColumn, Base>,
+                  "COWHelper only use in IColumn");
     using Ptr = typename Base::template immutable_ptr<Derived>;
     using MutablePtr = typename Base::template mutable_ptr<Derived>;
 
@@ -404,6 +410,16 @@ public:
 
     typename Base::MutablePtr clone() const override {
         return typename Base::MutablePtr(new Derived(static_cast<const Derived&>(*this)));
+    }
+    void append_data_by_selector(typename Base::MutablePtr& res,
+                                 const typename Base::Selector& selector) const override {
+        this->template append_data_by_selector_impl<Derived>(res, selector);
+    }
+
+    void append_data_by_selector(typename Base::MutablePtr& res,
+                                 const typename Base::Selector& selector, size_t begin,
+                                 size_t end) const override {
+        this->template append_data_by_selector_impl<Derived>(res, selector, begin, end);
     }
 
 protected:
