@@ -147,7 +147,8 @@ public:
     size_t on_response_data(const void* data, size_t length);
 
 private:
-    const char* _to_errmsg(CURLcode code);
+    const char* _to_errmsg(CURLcode code) const;
+    const char* _get_url() const;
 
 private:
     CURL* _curl = nullptr;
