@@ -1324,6 +1324,9 @@ public:
             UInt8 bytes_to_cut_count = is_ipv4_mapped(ipv6_address_data)
                                                ? bytes_to_cut_for_ipv4_count
                                                : bytes_to_cut_for_ipv6_count;
+            // the current function logic is processed in big endian manner
+            // But ipv6 in doris is stored in little-endian byte order
+            // so transfer to big-endian byte order first
             cut_address(ipv6_address_data, pos, bytes_to_cut_count);
             offsets_res[i] = cast_set<uint32_t>(pos - begin);
         }
