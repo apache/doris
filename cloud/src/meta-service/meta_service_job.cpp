@@ -1178,7 +1178,7 @@ void process_schema_change_job(MetaServiceCode& code, std::string& msg, std::str
             }
 
             num_remove_rows += rs.num_rows();
-            size_remove_rowsets += rs.data_disk_size();
+            size_remove_rowsets += rs.total_disk_size();
             ++num_remove_rowsets;
             num_remove_segments += rs.num_segments();
             index_size_remove_rowsets += rs.index_disk_size();

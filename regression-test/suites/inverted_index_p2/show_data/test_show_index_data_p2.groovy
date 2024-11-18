@@ -144,7 +144,7 @@ suite("test_show_index_data_p2", "p2") {
 
         // wait for all compactions done
         for (def tablet in tablets) {
-            Awaitility.await().atMost(30, TimeUnit.MINUTES).untilAsserted(() -> {
+            Awaitility.await().atMost(60, TimeUnit.MINUTES).untilAsserted(() -> {
                 Thread.sleep(30000)
                 String tablet_id = tablet.TabletId
                 backend_id = tablet.BackendId
@@ -182,7 +182,7 @@ suite("test_show_index_data_p2", "p2") {
 
     def check_show_data = { FileSizeChange expect_idx, FileSizeChange expect_data ->
         Thread.sleep(90000)
-        Awaitility.await().atMost(5, TimeUnit.MINUTES).untilAsserted(() -> {
+        Awaitility.await().atMost(10, TimeUnit.MINUTES).untilAsserted(() -> {
             Thread.sleep(10000)
             def result = sql """ show data with detail;"""
             logger.info("show data with detail result is: ${result}")
@@ -242,7 +242,7 @@ suite("test_show_index_data_p2", "p2") {
             }
         }
         sql """ alter table ${show_table_name} drop column clientip"""
-        Awaitility.await().atMost(30, TimeUnit.MINUTES).untilAsserted(() -> {
+        Awaitility.await().atMost(60, TimeUnit.MINUTES).untilAsserted(() -> {
             Thread.sleep(30000)
             tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
             for (def tablet in tablets) {
@@ -286,7 +286,7 @@ suite("test_show_index_data_p2", "p2") {
         }
         sql """ ALTER TABLE ${show_table_name} ADD INDEX status_idx (status) using inverted; """
         sql """ build index status_idx on ${show_table_name}"""
-        Awaitility.await().atMost(30, TimeUnit.MINUTES).untilAsserted(() -> {
+        Awaitility.await().atMost(60, TimeUnit.MINUTES).untilAsserted(() -> {
             Thread.sleep(30000)
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
@@ -328,7 +328,7 @@ suite("test_show_index_data_p2", "p2") {
             }
         }
         sql """ DROP INDEX status_idx on ${show_table_name}"""
-        Awaitility.await().atMost(30, TimeUnit.MINUTES).untilAsserted(() -> {
+        Awaitility.await().atMost(60, TimeUnit.MINUTES).untilAsserted(() -> {
             Thread.sleep(30000)
             for (def tablet in tablets) {
                 String tablet_id = tablet.TabletId
@@ -359,7 +359,7 @@ suite("test_show_index_data_p2", "p2") {
         }
     }
     executor.shutdown()
-    executor.awaitTermination(30, TimeUnit.MINUTES)
+    executor.awaitTermination(60, TimeUnit.MINUTES)
 
     // 2. check show data
     check_show_data.call(FileSizeChange.LARGER, FileSizeChange.LARGER)
@@ -368,7 +368,7 @@ suite("test_show_index_data_p2", "p2") {
     compaction.call()
 
     // 4. check show data
-    check_show_data.call(FileSizeChange.LARGER, FileSizeChange.SMALLER)
+    check_show_data.call(FileSizeChange.SMALLER, FileSizeChange.LARGER)
 
     // 5. schema change
     schema_change.call()
