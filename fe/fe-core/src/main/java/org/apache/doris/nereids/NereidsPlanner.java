@@ -56,11 +56,13 @@ import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -269,7 +271,18 @@ public class NereidsPlanner extends Planner {
             }
         }
 
-        // if we cannot get table row count, skip join reorder
+        if (cascadesContext.getRewritePlan() instanceof LogicalOlapTableSink) {
+            LogicalOlapTableSink root = (LogicalOlapTableSink) cascadesContext.getRewritePlan();
+            if (root.getDmlCommandType().equals(DMLCommandType.INSERT)) {
+                if (ConnectContext.get() != null) {
+                    SessionVariable sessionVariable = ConnectContext.get().getSessionVariable();
+                    sessionVariable.setVarOnce(SessionVariable.runtime_filter_wait_infinitely, "true");
+                    sessionVariable.setVarOnce(SessionVariable.ENABLE_RUNTIME_FILTER_PRUNE, "false");
+                }
+            }
+        }
+
+        // if we cannot get table row count, skip join reorderwai
         // except:
         //   1. user set leading hint
         //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true

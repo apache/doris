@@ -67,7 +67,7 @@ public class PlanPostProcessors {
         }
         builder.add(new CommonSubExpressionOpt());
         // DO NOT replace PLAN NODE from here
-        if (cascadesContext.getConnectContext().getSessionVariable().pushTopnToAgg) {
+            if (cascadesContext.getConnectContext().getSessionVariable().pushTopnToAgg) {
             builder.add(new PushTopnToAgg());
         }
         builder.add(new TopNScanOpt());
