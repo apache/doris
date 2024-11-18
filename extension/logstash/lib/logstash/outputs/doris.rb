@@ -26,6 +26,7 @@ require "json"
 require "base64"
 require "restclient"
 require 'thread'
+require 'java'
 
 class LogStash::Outputs::Doris < LogStash::Outputs::Base
   # support multi thread concurrency for performance
@@ -34,13 +35,15 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
   config_name "doris"
 
+  # each config item will become a instance variable
+
   # hosts array of Doris Frontends. eg ["http://fe1:8030", "http://fe2:8030"]
   config :http_hosts, :validate => :array, :required => true
   # the database which data is loaded to
   config :db, :validate => :string, :required => true
   # the table which data is loaded to
   config :table, :validate => :string, :required => true
-  # label prefix of a stream load requst.
+  # label prefix of a stream load request.
   config :label_prefix, :validate => :string, :default => "logstash"
   # user name
   config :user, :validate => :string, :required => true
@@ -70,11 +73,11 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
   config :log_progress_interval, :validate => :number, :default => 10
 
-  def print_plugin_info()
-    @@plugins = Gem::Specification.find_all { |spec| spec.name =~ /logstash-output-doris/ }
-    @plugin_name = @@plugins[0].name
-    @plugin_version = @@plugins[0].version
-    @logger.debug("Running #{@plugin_name} version #{@plugin_version}")
+  def print_plugin_info
+    plugins = Gem::Specification.find_all { |spec| spec.name =~ /logstash-output-doris/ }
+    plugin_name = plugins[0].name
+    plugin_version = plugins[0].version
+    @logger.debug("Running #{plugin_name} version #{plugin_version}")
 
     @logger.info("Initialized doris output with settings",
                  :db => @db,
@@ -84,10 +87,10 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
   end
 
   def register
-    @http_query = "/api/#{db}/#{table}/_stream_load"
+    @http_query = "/api/#{@db}/#{@table}/_stream_load"
 
     @hostnames_pool =
-      parse_http_hosts(http_hosts,
+      parse_http_hosts(@http_hosts,
                        ShortNameResolver.new(ttl: @host_resolve_ttl_sec, logger: @logger))
 
     @request_headers = make_request_headers
@@ -103,7 +106,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
     @total_bytes = java.util.concurrent.atomic.AtomicLong.new(0)
     @total_rows = java.util.concurrent.atomic.AtomicLong.new(0)
 
-    report_thread = Thread.new do
+    Thread.new do
       last_time = @init_time
       last_bytes = @total_bytes.get
       last_rows = @total_rows.get
@@ -132,15 +135,13 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       end
     end
 
-    print_plugin_info()
+    print_plugin_info
   end
-
-  # def register
 
   private
 
   def parse_http_hosts(hosts, resolver)
-    ip_re = /^[\d]+\.[\d]+\.[\d]+\.[\d]+$/
+    ip_re = /^\d+\.\d+\.\d+\.\d+$/
 
     lambda {
       hosts.flat_map { |h|
@@ -162,11 +163,11 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
   private
 
-  def get_host_addresses()
+  def get_host_addresses
     begin
       @hostnames_pool.call
-    rescue Exception => ex
-      @logger.error('Error while resolving host', :error => ex.to_s)
+    rescue Exception => e
+      @logger.error('Error while resolving host', :error => e.to_s)
     end
   end
 
@@ -188,12 +189,12 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
     # @logger.info("get event num: #{event_num}")
     @logger.debug("get documents: #{documents}")
 
-    hosts = get_host_addresses()
+    hosts = get_host_addresses
 
     http_headers = @request_headers.dup
-    if !@group_commit
-      # only set label if group_commit is off_mode or not set, since lable can not be used with group_commit
-      http_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
+    unless @group_commit
+      # only set label if group_commit is off_mode or not set, since label can not be used with group_commit
+      http_headers["label"] = @label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
     end
 
     req_count = 0
@@ -205,10 +206,10 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       response_json = {}
       begin
         response_json = JSON.parse(response.body)
-      rescue => e
+      rescue => _
         @logger.warn("doris stream load response: #{response} is not a valid JSON")
       end
-      if response_json["Status"] == "Success"
+      if response_json["Status"] == "Success" || response_json["Status"] == "Publish Timeout"
         @total_bytes.addAndGet(documents.size)
         @total_rows.addAndGet(event_num)
         break
@@ -218,7 +219,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
         if @max_retries >= 0 && req_count > @max_retries
           @logger.warn("DROP this batch after failed #{req_count} times.")
           if @save_on_failure
-            @logger.warn("Try save to disk.Disk file path : #{save_dir}/#{table}_#{save_file}")
+            @logger.warn("Try save to disk. Disk file path : #{@save_dir}/#{@table}_#{@save_file}")
             save_to_disk(documents)
           end
           break
@@ -250,13 +251,13 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
     response = ""
     begin
-      response = RestClient.put(url, documents, http_headers) { |response, request, result|
-        case response.code
+      response = RestClient.put(url, documents, http_headers) { |res, _, _|
+        case res.code
         when 301, 302, 307
-          @logger.debug("redirect to: #{response.headers[:location]}")
-          response.follow_redirection
+          @logger.debug("redirect to: #{res.headers[:location]}")
+          res.follow_redirection
         else
-          response.return!
+          res.return!
         end
       }
     rescue => e
@@ -267,7 +268,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       @logger.info("doris stream load response:\n#{response}")
     end
 
-    return response
+    response
   end
 
   # def make_request
@@ -321,11 +322,10 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
   def save_to_disk(documents)
     begin
-      file = File.open("#{save_dir}/#{db}_#{table}_#{save_file}", "a")
+      file = File.open("#{@save_dir}/#{@db}_#{@table}_#{@save_file}", "a")
       file.write(documents)
     rescue IOError => e
-      log_failure("An error occurred while saving file to disk: #{e}",
-                  :file_name => file_name)
+      log_failure("An error occurred while saving file to disk: #{e}, #{:file_name}: #{file}")
     ensure
       file.close unless file.nil?
     end
@@ -336,7 +336,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
     @logger.warn("[Doris Output Failure] #{message}")
   end
 
-  def make_request_headers()
+  def make_request_headers
     headers = @headers || {}
     headers["Expect"] ||= "100-continue"
     headers["Content-Type"] ||= "text/plain;charset=utf-8"

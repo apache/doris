@@ -44,18 +44,18 @@ class ShortNameResolver
 
     @logger.info("Resolved shortname '#{shortname}' to addresses #{addresses}")
 
-    return addresses
+    addresses
   end
 
   public
 
   def get_address(shortname)
-    return resolve_cached(shortname).sample
+    resolve_cached(shortname).sample
   end
 
   public
 
   def get_addresses(shortname)
-    return resolve_cached(shortname)
+    resolve_cached(shortname)
   end
 end

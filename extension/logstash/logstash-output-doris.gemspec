@@ -20,7 +20,7 @@ Gem::Specification.new do |s|
   s.version = '1.0.1'
   s.author = 'Apache Doris'
   s.email = 'dev@doris.apache.org'
-  s.homepage = 'http://doris.apache.org'
+  s.homepage = 'https://doris.apache.org'
   s.licenses = ['Apache-2.0']
   s.summary = "This output lets you `PUT` messages in a batched fashion to Doris HTTP endpoint"
   s.description = "This gem is a logstash plugin required to be installed on top of the Logstash core pipeline using $LS_HOME/bin/plugin install gemname. This gem is not a stand-alone program"
