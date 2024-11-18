@@ -993,17 +993,17 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t sta
 Status IRuntimeFilter::publish(RuntimeState* state, bool publish_local) {
     DCHECK(is_producer());
 
-    auto send_to_remote = [&](IRuntimeFilter* filter) {
+    auto send_to_remote_targets = [&](IRuntimeFilter* filter) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
+        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
         return filter->push_to_remote(state, &addr);
     };
-    auto send_to_local = [&](std::shared_ptr<RuntimePredicateWrapper> wrapper) {
-        std::vector<std::shared_ptr<IRuntimeFilter>> filters;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
-        DCHECK(!filters.empty());
-        // push down
+    auto send_to_local_targets = [&](std::shared_ptr<RuntimePredicateWrapper> wrapper,
+                                     bool global) {
+        std::vector<std::shared_ptr<IRuntimeFilter>> filters =
+                global ? _state->global_runtime_filter_mgr()->get_consume_filters(_filter_id)
+                       : _state->local_runtime_filter_mgr()->get_consume_filters(_filter_id);
         for (auto filter : filters) {
             filter->_wrapper = wrapper;
             filter->update_runtime_filter_type_to_profile();
@@ -1011,32 +1011,36 @@ Status IRuntimeFilter::publish(RuntimeState* state, bool publish_local) {
         }
         return Status::OK();
     };
-    auto do_local_merge = [&]() {
-        LocalMergeFilters* local_merge_filters = nullptr;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
-                _filter_id, &local_merge_filters));
-        std::lock_guard l(*local_merge_filters->lock);
-        RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper.get()));
-        local_merge_filters->merge_time--;
-        if (local_merge_filters->merge_time == 0) {
-            if (_has_local_target) {
-                RETURN_IF_ERROR(send_to_local(local_merge_filters->filters[0]->_wrapper));
-            } else {
-                RETURN_IF_ERROR(send_to_remote(local_merge_filters->filters[0].get()));
+    auto do_merge = [&]() {
+        if (!_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
+            LocalMergeFilters* local_merge_filters = nullptr;
+            RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
+                    _filter_id, &local_merge_filters));
+            std::lock_guard l(*local_merge_filters->lock);
+            RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper.get()));
+            local_merge_filters->merge_time--;
+            if (local_merge_filters->merge_time == 0) {
+                if (_has_local_target) {
+                    RETURN_IF_ERROR(
+                            send_to_local_targets(local_merge_filters->filters[0]->_wrapper, true));
+                } else {
+                    RETURN_IF_ERROR(send_to_remote_targets(local_merge_filters->filters[0].get()));
+                }
             }
         }
         return Status::OK();
     };
 
-    if (_need_local_merge && _has_local_target) {
-        RETURN_IF_ERROR(do_local_merge());
-    } else if (_has_local_target) {
-        RETURN_IF_ERROR(send_to_local(_wrapper));
+    if (_has_local_target) {
+        // A runtime filter may have multiple targets and some of those are local-merge RF and others are not.
+        // So for all runtime filters' producers, `publish` should notify all consumers in global RF mgr which manages local-merge RF and local RF mgr which manages others.
+        RETURN_IF_ERROR(do_merge());
+        RETURN_IF_ERROR(send_to_local_targets(_wrapper, false));
     } else if (!publish_local) {
-        if (_is_broadcast_join || _state->be_exec_version < USE_NEW_SERDE) {
-            RETURN_IF_ERROR(send_to_remote(this));
+        if (_is_broadcast_join || _state->get_query_ctx()->be_exec_version() < USE_NEW_SERDE) {
+            RETURN_IF_ERROR(send_to_remote_targets(this));
         } else {
-            RETURN_IF_ERROR(do_local_merge());
+            RETURN_IF_ERROR(do_merge());
         }
     } else {
         // remote broadcast join only push onetime in build shared hash table
@@ -1097,13 +1101,16 @@ public:
 Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filter_size) {
     DCHECK(is_producer());
 
-    if (_need_local_merge) {
+    if (!_state->global_runtime_filter_mgr()->get_consume_filters(_filter_id).empty()) {
         LocalMergeFilters* local_merge_filters = nullptr;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_local_merge_producer_filters(
+        RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                 _filter_id, &local_merge_filters));
         std::lock_guard l(*local_merge_filters->lock);
         local_merge_filters->merge_size_times--;
         local_merge_filters->local_merged_size += local_filter_size;
+        if (_has_local_target) {
+            set_synced_size(local_filter_size);
+        }
         if (local_merge_filters->merge_size_times) {
             return Status::OK();
         } else {
@@ -1123,9 +1130,9 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
 
     TNetworkAddress addr;
     DCHECK(_state != nullptr);
-    RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
+    RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
     std::shared_ptr<PBackendService_Stub> stub(
-            _state->exec_env->brpc_internal_client_cache()->get_client(addr));
+            _state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(addr));
     if (!stub) {
         return Status::InternalError("Get rpc stub failed, host={}, port={}", addr.hostname,
                                      addr.port);
@@ -1140,8 +1147,8 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
             state->query_options().ignore_runtime_filter_error ? std::weak_ptr<QueryContext> {}
                                                                : state->get_query_ctx_weak());
     auto* pquery_id = request->mutable_query_id();
-    pquery_id->set_hi(_state->query_id.hi());
-    pquery_id->set_lo(_state->query_id.lo());
+    pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
+    pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
 
     auto* source_addr = request->mutable_source_addr();
     source_addr->set_hostname(BackendOptions::get_local_backend().host);
@@ -1164,7 +1171,7 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
 Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr) {
     DCHECK(is_producer());
     std::shared_ptr<PBackendService_Stub> stub(
-            _state->exec_env->brpc_internal_client_cache()->get_client(*addr));
+            _state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
         return Status::InternalError(
                 fmt::format("Get rpc stub failed, host={}, port={}", addr->hostname, addr->port));
@@ -1182,8 +1189,8 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     int len = 0;
 
     auto* pquery_id = merge_filter_request->mutable_query_id();
-    pquery_id->set_hi(_state->query_id.hi());
-    pquery_id->set_lo(_state->query_id.lo());
+    pquery_id->set_hi(_state->get_query_ctx()->query_id().hi);
+    pquery_id->set_lo(_state->get_query_ctx()->query_id().lo);
 
     auto* pfragment_instance_id = merge_filter_request->mutable_fragment_instance_id();
     pfragment_instance_id->set_hi(BackendOptions::get_local_backend().id);
@@ -1194,7 +1201,7 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
 
     merge_filter_callback->cntl_->set_timeout_ms(
-            get_execution_rpc_timeout_ms(_state->execution_timeout));
+            get_execution_rpc_timeout_ms(_state->get_query_ctx()->execution_timeout()));
     if (config::execution_ignore_eovercrowded) {
         merge_filter_callback->cntl_->ignore_eovercrowded();
     }
@@ -1241,8 +1248,8 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
 
 void IRuntimeFilter::update_state() {
     DCHECK(is_consumer());
-    auto execution_timeout = _state->execution_timeout * 1000;
-    auto runtime_filter_wait_time_ms = _state->runtime_filter_wait_time_ms;
+    auto execution_timeout = _state->get_query_ctx()->execution_timeout() * 1000;
+    auto runtime_filter_wait_time_ms = _state->get_query_ctx()->runtime_filter_wait_time_ms();
     // bitmap filter is precise filter and only filter once, so it must be applied.
     int64_t wait_times_ms = _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER
                                     ? execution_timeout

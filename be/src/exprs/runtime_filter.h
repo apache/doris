@@ -203,8 +203,8 @@ public:
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
               registration_time_(MonotonicMillis()),
-              _wait_infinitely(_state->runtime_filter_wait_infinitely),
-              _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
+              _wait_infinitely(_state->get_query_ctx()->runtime_filter_wait_infinitely()),
+              _rf_wait_time_ms(_state->get_query_ctx()->runtime_filter_wait_time_ms()),
               _runtime_filter_type(get_runtime_filter_type(desc)),
               _profile(
                       new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
@@ -335,7 +335,7 @@ public:
     int32_t wait_time_ms() const {
         int32_t res = 0;
         if (wait_infinitely()) {
-            res = _state->execution_timeout;
+            res = _state->get_query_ctx()->execution_timeout();
             // Convert to ms
             res *= 1000;
         } else {
