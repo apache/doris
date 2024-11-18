@@ -238,7 +238,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         }
-        catalog.dropTable(TableIdentifier.of(dbName, tableName));
+        catalog.dropTable(TableIdentifier.of(dbName, tableName), true);
         db.setUnInitialized(true);
     }
 
