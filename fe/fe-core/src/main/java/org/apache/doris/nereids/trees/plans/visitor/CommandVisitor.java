@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowPluginsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPrivilegesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
@@ -317,5 +318,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTableIdCommand(ShowTableIdCommand showTableIdCommand, C context) {
         return visitCommand(showTableIdCommand, context);
+    }
+
+    default R visitShowPrivilegesCommand(ShowPrivilegesCommand showPrivilegesCommand, C context) {
+        return visitCommand(showPrivilegesCommand, context);
     }
 }
