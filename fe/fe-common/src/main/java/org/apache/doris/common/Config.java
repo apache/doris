@@ -1507,7 +1507,7 @@ public class Config extends ConfigBase {
      * If set to true, there's risk to run out of FE disk capacity.
      */
     @ConfField
-    public static boolean enable_outfile_to_local = false;
+    public static boolean enable_outfile_to_local = true;
 
     /**
      * Used to set the initial flow window size of the GRPC client channel, and also used to max message size.
