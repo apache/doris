@@ -705,6 +705,9 @@ public class ExportJob implements Writable {
         finishTimeMs = System.currentTimeMillis();
         failMsg = new ExportFailMsg(type, msg);
         jobExecutorList.clear();
+        selectStmtListPerParallel.clear();
+        allOutfileInfo.clear();
+        partitionToVersion.clear();
         if (FeConstants.runningUnitTest) {
             return;
         }
@@ -752,6 +755,9 @@ public class ExportJob implements Writable {
         outfileInfo = GsonUtils.GSON.toJson(allOutfileInfo);
         // Clear the jobExecutorList to release memory.
         jobExecutorList.clear();
+        selectStmtListPerParallel.clear();
+        allOutfileInfo.clear();
+        partitionToVersion.clear();
         Env.getCurrentEnv().getEditLog().logExportUpdateState(this, ExportJobState.FINISHED);
         LOG.info("finish export job {}", id);
     }
