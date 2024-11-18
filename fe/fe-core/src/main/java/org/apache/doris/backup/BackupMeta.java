@@ -184,10 +184,13 @@ public class BackupMeta implements Writable, GsonPostProcessable {
             Resource resource = Resource.read(in);
             resourceNameMap.put(resource.getName(), resource);
         }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            StoragePolicy policy = StoragePolicy.read(in);
-            storagePolicyNameMap.put(policy.getName(), policy);
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_141) {
+            size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                StoragePolicy policy = StoragePolicy.read(in);
+                storagePolicyNameMap.put(policy.getName(), policy);
+            }
         }
     }
 
