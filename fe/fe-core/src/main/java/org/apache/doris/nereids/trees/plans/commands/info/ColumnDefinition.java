@@ -41,6 +41,7 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -251,20 +252,19 @@ public class ColumnDefinition {
             } else if (type.isArrayType()) {
                 throw new AnalysisException("Array can only be used in the non-key column of"
                         + " the duplicate table at present.");
+            } else if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
+                throw new AnalysisException("Key column can not set complex type:" + name);
+            } else if (type.isJsonType()) {
+                throw new AnalysisException("JsonType type should not be used in key column[" + getName() + "].");
+            } else if (type.isVariantType()) {
+                throw new AnalysisException("Variant type should not be used in key column[" + getName() + "].");
+            } else if (type.isMapType()) {
+                throw new AnalysisException("Map can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            } else if (type.isStructType()) {
+                throw new AnalysisException("Struct can only be used in the non-key column of"
+                        + " the duplicate table at present.");
             }
-        }
-        if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
-            throw new AnalysisException("Key column can not set complex type:" + name);
-        } else if (type.isJsonType()) {
-            throw new AnalysisException("JsonType type should not be used in key column[" + getName() + "].");
-        } else if (type.isVariantType()) {
-            throw new AnalysisException("Variant type should not be used in key column[" + getName() + "].");
-        } else if (type.isMapType()) {
-            throw new AnalysisException("Map can only be used in the non-key column of"
-                    + " the duplicate table at present.");
-        } else if (type.isStructType()) {
-            throw new AnalysisException("Struct can only be used in the non-key column of"
-                    + " the duplicate table at present.");
         }
     }
 
@@ -300,7 +300,13 @@ public class ColumnDefinition {
                     throw new AnalysisException("complex type have to use aggregate function: " + name);
                 }
             }
-            isNullable = false;
+            if (isNullable) {
+                throw new AnalysisException("complex type column must be not nullable, column:" + name);
+            }
+        }
+
+        if (keysSet.contains(name)) {
+            isKey = true;
         }
 
         // check keys type
@@ -323,6 +329,17 @@ public class ColumnDefinition {
                 if (!SessionVariable.enableAggState()) {
                     throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
                 }
+            }
+        } else if (isOlap && !isKey) {
+            Preconditions.checkState(keysType != null, "keysType is null");
+            if (keysType.equals(KeysType.DUP_KEYS)) {
+                aggType = AggregateType.NONE;
+            } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
+                aggType = AggregateType.NONE;
+            } else if (!keysType.equals(KeysType.AGG_KEYS)) {
+                aggType = AggregateType.REPLACE;
+            } else {
+                throw new AnalysisException("should set aggregation type to non-key column when in aggregate key");
             }
         }
 
