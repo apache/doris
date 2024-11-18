@@ -82,7 +82,7 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
     @Override
     protected Statistics computeFilter(Filter filter) {
         Statistics childStats = groupExpression.childStatistics(0);
-        return getStatistics(filter, childStats);
+        return getHistoricalStatistics(filter, childStats);
     }
 
     @Override
@@ -90,16 +90,16 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
         Statistics legacyStats = JoinEstimation.estimate(
                 groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1), join);
-        return getStatistics(join, legacyStats);
+        return getHistoricalStatistics(join, legacyStats);
     }
 
     @Override
     protected Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
         Statistics childStats = groupExpression.childStatistics(0);
-        return getStatistics(aggregate, childStats);
+        return getHistoricalStatistics(aggregate, childStats);
     }
 
-    private Statistics getStatistics(PlanNode planNode, Statistics delegateStats)
+    private Statistics getHistoricalStatistics(PlanNode planNode, Statistics delegateStats)
     {
         String hash = null; // todo: based on plan toString
         PlanNodeWithHash planNodeWithHash = new PlanNodeWithHash((PlanNode) planNode, Optional.of(hash));
