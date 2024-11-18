@@ -416,6 +416,19 @@ build_thrift() {
 build_protobuf() {
     check_if_source_exist "${PROTOBUF_SOURCE}"
     cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
+    rm -fr gmock
+
+    # NOTE(amos): -Wl,--undefined=pthread_create force searching for pthread symbols.
+    # See https://stackoverflow.com/a/65348893/1329147 for detailed explanation.
+    mkdir gmock
+    cd gmock
+    tar xf "${TP_SOURCE_DIR}/${GTEST_NAME}"
+
+    mv "${GTEST_SOURCE}" gtest
+
+    cd "${TP_SOURCE_DIR}/${PROTOBUF_SOURCE}"
+
+    ./autogen.sh
 
     if [[ "${KERNEL}" == 'Darwin' ]]; then
         ldflags="-L${TP_LIB_DIR}"
@@ -423,20 +436,21 @@ build_protobuf() {
         ldflags="-L${TP_LIB_DIR} -static-libstdc++ -static-libgcc -Wl,--undefined=pthread_create"
     fi
 
-    mkdir -p cmake/build
-    cd cmake/build
-
-    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
+    CXXFLAGS="-fPIC -O2 -I${TP_INCLUDE_DIR}" \
         LDFLAGS="${ldflags}" \
-        "${CMAKE_CMD}" -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
-        -Dprotobuf_USE_EXTERNAL_GTEST=ON \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-        -Dprotobuf_BUILD_SHARED_LIBS=OFF \
-        -Dprotobuf_BUILD_TESTS=OFF \
-        -Dprotobuf_WITH_ZLIB_DEFAULT=ON \
-        -Dprotobuf_ABSL_PROVIDER=package \
-        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" ../..
+        ./configure --prefix="${TP_INSTALL_DIR}" --disable-shared --enable-static --with-zlib="${TP_INSTALL_DIR}/include"
+
+    # ATTN: If protoc is not built fully statically the linktime libc may newer than runtime.
+    #       This will casue protoc cannot run
+    #       If you really need to dynamically link protoc, please set the environment variable DYN_LINK_PROTOC=1
+
+    if [[ "${DYN_LINK_PROTOC:-0}" == "1" || "${KERNEL}" == 'Darwin' ]]; then
+        echo "link protoc dynamiclly"
+    else
+        cd src
+        sed -i 's/^AM_LDFLAGS\(.*\)$/AM_LDFLAGS\1 -all-static/' Makefile
+        cd -
+    fi
 
     make -j "${PARALLEL}"
     make install
