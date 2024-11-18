@@ -276,7 +276,8 @@ public abstract class MaterializationContext {
     }
 
     public Plan getScanPlan(StructInfo queryStructInfo, CascadesContext cascadesContext) {
-        if (this.scanPlan == null) {
+        if (this.scanPlan == null || this.shuttledExprToScanExprMapping == null
+                || this.exprToScanExprMapping == null) {
             tryGenerateScanPlan(cascadesContext);
         }
         return scanPlan;
