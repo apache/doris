@@ -353,6 +353,8 @@ public:
 
         if (!nullable_rhs.is_null_at(row)) {
             nested_column->replace_column_data(*nullable_rhs.nested_column, row, self_row);
+        } else {
+            nested_column->replace_column_data_default(self_row);
         }
     }
 
