@@ -202,6 +202,7 @@ supportedShowStatement
     | SHOW VIEW
         (FROM |IN) tableName=multipartIdentifier
         ((FROM | IN) database=identifier)?                                          #showView
+    | SHOW PLUGINS                                                                  #showPlugins    
     | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ROLES                                                                    #showRoles        
     | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId
@@ -258,7 +259,6 @@ unsupportedShowStatement
     | SHOW (GLOBAL | SESSION | LOCAL)? STATUS wildWhere?                            #showStatus
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
-    | SHOW PLUGINS                                                                  #showPlugins
     | SHOW BRIEF? CREATE TABLE name=multipartIdentifier                             #showCreateTable
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
