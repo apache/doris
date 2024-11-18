@@ -260,14 +260,20 @@ MetaServiceResponseStatus fix_tablet_stats_internal(
             return st;
         }
         int64_t total_disk_size = 0;
+        int64_t index_disk_size = 0;
+        int64_t data_disk_size = 0;
         for (const auto& rs_meta : resp.rowset_meta()) {
             total_disk_size += rs_meta.total_disk_size();
+            index_disk_size += rs_meta.index_disk_size();
+            data_disk_size += rs_meta.data_disk_size();
         }
 
         // set new disk size to tabletPB and write it back
         TabletStatsPB tablet_stat;
         tablet_stat.CopyFrom(*tablet_stat_ptr);
         tablet_stat.set_data_size(total_disk_size);
+        tablet_stat.set_index_size(index_disk_size);
+        tablet_stat.set_segment_size(data_disk_size);
         // record tablet stats batch
         tablet_stat_shared_ptr_vec_batch.emplace_back(std::make_shared<TabletStatsPB>(tablet_stat));
         std::string tablet_stat_key;

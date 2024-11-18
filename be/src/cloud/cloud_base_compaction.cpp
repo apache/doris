@@ -125,6 +125,7 @@ Status CloudBaseCompaction::prepare_compact() {
         _input_row_num += rs->num_rows();
         _input_segments += rs->num_segments();
         _input_rowsets_data_size += rs->data_disk_size();
+        _input_rowsets_index_size += rs->index_disk_size();
         _input_rowsets_total_size += rs->total_disk_size();
     }
     LOG_INFO("start CloudBaseCompaction, tablet_id={}, range=[{}-{}]", _tablet->tablet_id(),
