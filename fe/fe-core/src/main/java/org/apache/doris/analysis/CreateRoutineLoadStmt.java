@@ -34,13 +34,13 @@ import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.RoutineLoadDataSourcePropertyFactory;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.qe.OriginStatement;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -234,13 +234,13 @@ public class CreateRoutineLoadStmt extends DdlStmt implements NotFallbackInParse
      * make stmt by nereids
      */
     public CreateRoutineLoadStmt(LabelName labelName, String dbName, String name, String tableName,
-                                 List<ParseNode> loadPropertyList, OriginStatement origStmt, UserIdentity userIdentity,
-            Map<String, String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc, int desireTaskConcurrentNum,
-            long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS, long maxBatchRows, long maxBatchSizeBytes,
-            long execMemLimit, int sendBatchParallelism, String timezone, String format, String jsonPaths,
-            String jsonRoot, byte enclose, byte escape, long workloadGroupId, boolean loadToSingleTablet,
-            boolean strictMode, boolean isPartialUpdate, boolean stripOuterArray, boolean numAsString,
-            boolean fuzzyParse, AbstractDataSourceProperties dataSourceProperties) {
+            List<ParseNode> loadPropertyList, OriginStatement origStmt, UserIdentity userIdentity,
+            Map<String, String> jobProperties, String typeName, RoutineLoadDesc routineLoadDesc,
+            int desireTaskConcurrentNum, long maxErrorNum, double maxFilterRatio, long maxBatchIntervalS,
+            long maxBatchRows, long maxBatchSizeBytes, long execMemLimit, int sendBatchParallelism, String timezone,
+            String format, String jsonPaths, String jsonRoot, byte enclose, byte escape, long workloadGroupId,
+            boolean loadToSingleTablet, boolean strictMode, boolean isPartialUpdate, boolean stripOuterArray,
+            boolean numAsString, boolean fuzzyParse, AbstractDataSourceProperties dataSourceProperties) {
         this.labelName = labelName;
         this.dbName = dbName;
         this.name = name;

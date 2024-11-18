@@ -1463,7 +1463,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LoadProperty loadProperty = null;
         if (ctx instanceof SeparatorContext) {
             String separator = ((SeparatorContext) ctx).STRING_LITERAL().getText()
-                .substring(1, ((SeparatorContext) ctx).STRING_LITERAL().getText().length() - 1);
+                    .substring(1, ((SeparatorContext) ctx).STRING_LITERAL().getText().length() - 1);
             loadProperty = new LoadSeparator(separator);
         } else if (ctx instanceof ImportColumnsContext) {
             List<LoadColumnDesc> descList = new ArrayList<>();
@@ -1519,7 +1519,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             throw new AnalysisException("labelParts in load should be [ctl.][db.]label");
         }
         LabelName jobLabel = new LabelName(labelDbName, labelName);
-        String tableName = ctx.table.getText();
+        String tableName = null;
+        if (ctx.table != null) {
+            tableName = ctx.table.getText();
+        }
         Map<String, String> properties = ctx.propertyClause() != null
                 // NOTICE: we should not generate immutable map here, because it will be modified when analyzing.
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause()))
