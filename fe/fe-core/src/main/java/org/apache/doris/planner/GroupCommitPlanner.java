@@ -62,7 +62,6 @@ import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -135,28 +134,7 @@ public class GroupCommitPlanner {
             List<InternalService.PDataRow> rows)
             throws DdlException, RpcException, ExecutionException, InterruptedException {
         selectBackends(ctx);
-        if (backend == null || !backend.isAlive() || backend.isDecommissioned()) {
-            List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            if (allBackendIds.isEmpty()) {
-                throw new DdlException("No alive backend");
-            }
-            Collections.shuffle(allBackendIds);
-            boolean find = false;
-            for (Long beId : allBackendIds) {
-                backend = Env.getCurrentSystemInfo().getBackend(beId);
-                if (!backend.isDecommissioned()) {
-                    ctx.setInsertGroupCommit(this.table.getId(), backend);
-                    find = true;
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("choose new be {}", backend.getId());
-                    }
-                    break;
-                }
-            }
-            if (!find) {
-                throw new DdlException("No suitable backend");
-            }
-        }
+
         PGroupCommitInsertRequest request = PGroupCommitInsertRequest.newBuilder()
                 .setExecPlanFragmentRequest(InternalService.PExecPlanFragmentRequest.newBuilder()
                         .setRequest(execPlanFragmentParamsBytes)
