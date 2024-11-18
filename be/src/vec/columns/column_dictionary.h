@@ -122,7 +122,7 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
-    const char* get_family_name() const override { return "ColumnDictionary"; }
+    std::string get_name() const override { return "ColumnDictionary"; }
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);

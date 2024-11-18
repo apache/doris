@@ -31,13 +31,13 @@
 
 namespace doris::vectorized {
 
-class SapceSavingTest : public testing::Test {
+class SpaceSavingTest : public testing::Test {
 public:
     void SetUp() override {}
     void TearDown() override {}
 
-    SapceSavingTest() = default;
-    ~SapceSavingTest() override = default;
+    SpaceSavingTest() = default;
+    ~SpaceSavingTest() override = default;
 };
 
 int getDaySeed() {
@@ -63,7 +63,7 @@ int32_t generateRandomNumber() {
     return rand() % 256;
 }
 
-TEST_F(SapceSavingTest, test_space_saving_ip) {
+TEST_F(SpaceSavingTest, test_space_saving_ip) {
     int seed = getDaySeed();
     std::srand(seed);
 
@@ -93,7 +93,7 @@ TEST_F(SapceSavingTest, test_space_saving_ip) {
     EXPECT_EQ(i, j);
 }
 
-TEST_F(SapceSavingTest, test_space_saving_number) {
+TEST_F(SpaceSavingTest, test_space_saving_number) {
     int seed = getDaySeed();
     std::srand(seed);
 
@@ -121,7 +121,7 @@ TEST_F(SapceSavingTest, test_space_saving_number) {
     EXPECT_EQ(i, j);
 }
 
-TEST_F(SapceSavingTest, test_space_saving_merge) {
+TEST_F(SpaceSavingTest, test_space_saving_merge) {
     int seed = getDaySeed();
     std::srand(seed);
 
@@ -193,7 +193,7 @@ TEST_F(SapceSavingTest, test_space_saving_merge) {
 }
 
 // Test inserting beyond capacity
-TEST_F(SapceSavingTest, test_space_saving_exceed_capacity) {
+TEST_F(SpaceSavingTest, test_space_saving_exceed_capacity) {
     int seed = getDaySeed();
     std::srand(seed);
 
@@ -208,7 +208,7 @@ TEST_F(SapceSavingTest, test_space_saving_exceed_capacity) {
 }
 
 // Test merging two SpaceSaving instances
-TEST_F(SapceSavingTest, test_space_saving_merge_behavior) {
+TEST_F(SpaceSavingTest, test_space_saving_merge_behavior) {
     int seed = getDaySeed();
     std::srand(seed);
 
@@ -231,7 +231,7 @@ TEST_F(SapceSavingTest, test_space_saving_merge_behavior) {
 }
 
 // Test that top_k returns elements in correct order
-TEST_F(SapceSavingTest, test_space_saving_top_k_order) {
+TEST_F(SpaceSavingTest, test_space_saving_top_k_order) {
     int seed = getDaySeed();
     std::srand(seed);
 
@@ -250,7 +250,7 @@ TEST_F(SapceSavingTest, test_space_saving_top_k_order) {
 }
 
 // Test that the merging does not lose counts
-TEST_F(SapceSavingTest, test_space_saving_merge_counts) {
+TEST_F(SpaceSavingTest, test_space_saving_merge_counts) {
     int seed = getDaySeed();
     std::srand(seed);
 
@@ -276,7 +276,7 @@ TEST_F(SapceSavingTest, test_space_saving_merge_counts) {
 }
 
 // Test with string keys and check behavior
-TEST_F(SapceSavingTest, test_space_saving_string_keys) {
+TEST_F(SpaceSavingTest, test_space_saving_string_keys) {
     int seed = getDaySeed();
     std::srand(seed);
 

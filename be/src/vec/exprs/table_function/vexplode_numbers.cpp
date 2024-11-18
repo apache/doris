@@ -70,7 +70,7 @@ Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* st
 
         ((ColumnInt32*)_elements_column.get())->clear();
         //_cur_size may be a negative number
-        _cur_size = std::max(0L, _cur_size);
+        _cur_size = std::max(static_cast<int64_t>(0L), _cur_size);
         if (_cur_size &&
             _cur_size <= state->batch_size()) { // avoid elements_column too big or empty
             _is_const = true;                   // use const optimize

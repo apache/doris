@@ -88,10 +88,7 @@ public:
     using Offsets = PaddedPODArray<Offset>;
 
     /// Name of a Column. It is used in info messages.
-    virtual std::string get_name() const { return get_family_name(); }
-
-    /// Name of a Column kind, without parameters (example: FixedString, Array).
-    virtual const char* get_family_name() const = 0;
+    virtual std::string get_name() const = 0;
 
     /** If column isn't constant, returns nullptr (or itself).
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
@@ -228,8 +225,11 @@ public:
         }
     }
 
-    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
-                                          std::vector<size_t> positions);
+    // insert the data of target columns into self column according to positions
+    // positions[i] means index of srcs whitch need to insert_from
+    // the virtual function overhead of multiple calls to insert_from can be reduced to once
+    void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                  std::vector<size_t> positions);
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
@@ -462,8 +462,7 @@ public:
       * For array/map/struct types, we compare with nested column element and offsets size
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "compare_at for " + std::string(get_family_name()));
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "compare_at for " + get_name());
     }
 
     /**
@@ -485,7 +484,7 @@ public:
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                  Permutation& res) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "get_permutation for " + std::string(get_family_name()));
+                               "get_permutation for " + get_name());
     }
 
     /** Copies each element according offsets parameter.
@@ -654,6 +653,20 @@ public:
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
+    /**
+     * ColumnSorter is used to sort each columns in a Block. In this sorting pattern, sorting a
+     * column will produce a list of EqualRange which has the same elements respectively. And for
+     * next column in this block, we only need to sort rows in those `range`.
+     *
+     * Besides, we do not materialize sorted data eagerly. Instead, the intermediate sorting results
+     * are represendted by permutation and data will be materialized after all of columns are sorted.
+     *
+     * @sorter: ColumnSorter is used to do sorting.
+     * @flags : indicates if current item equals to the previous one.
+     * @perms : permutation after sorting
+     * @range : EqualRange which has the same elements respectively.
+     * @last_column : indicates if this column is the last in this block.
+     */
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                              IColumn::Permutation& perms, EqualRange& range,
                              bool last_column) const;
@@ -668,8 +681,11 @@ public:
 
     // only used in agg value replace
     // ColumnString should replace according to 0,1,2... ,size,0,1,2...
+    // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
-
+    // replace data to default value if null, used to avoid null data output decimal check failure
+    // usage: nested_column.replace_column_null_data(nested_null_map.data())
+    // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
     virtual bool is_date_type() const { return is_date; }

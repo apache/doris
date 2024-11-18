@@ -25,9 +25,17 @@ start-thriftserver.sh --driver-java-options "-Dderby.system.home=/tmp/derby"
 
 
 
-ls /mnt/scripts/create_preinstalled_scripts/*.sql | xargs -n 1 -I {} bash -c '
+ls /mnt/scripts/create_preinstalled_scripts/iceberg/*.sql | xargs -n 1 -I {} bash -c '
     START_TIME=$(date +%s)
-    spark-sql --master  spark://doris--spark-iceberg:7077   -f {} 
+    spark-sql --master spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions -f {} 
+    END_TIME=$(date +%s)
+    EXECUTION_TIME=$((END_TIME - START_TIME))
+    echo "Script: {} executed in $EXECUTION_TIME seconds"
+'
+
+ls /mnt/scripts/create_preinstalled_scripts/paimon/*.sql | xargs -n 1 -I {} bash -c '
+    START_TIME=$(date +%s)
+    spark-sql --master  spark://doris--spark-iceberg:7077 --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -f {} 
     END_TIME=$(date +%s)
     EXECUTION_TIME=$((END_TIME - START_TIME))
     echo "Script: {} executed in $EXECUTION_TIME seconds"
