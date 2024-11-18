@@ -60,15 +60,14 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
                     _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
         }
     }
-    _shared_state->partition_by_eq_expr_ctxs.resize(p._partition_by_eq_expr_ctxs.size());
-    for (size_t i = 0; i < _shared_state->partition_by_eq_expr_ctxs.size(); i++) {
-        RETURN_IF_ERROR(p._partition_by_eq_expr_ctxs[i]->clone(
-                state, _shared_state->partition_by_eq_expr_ctxs[i]));
-    }
-    _shared_state->order_by_eq_expr_ctxs.resize(p._order_by_eq_expr_ctxs.size());
-    for (size_t i = 0; i < _shared_state->order_by_eq_expr_ctxs.size(); i++) {
+    _partition_by_eq_expr_ctxs.resize(p._partition_by_eq_expr_ctxs.size());
+    for (size_t i = 0; i < _partition_by_eq_expr_ctxs.size(); i++) {
         RETURN_IF_ERROR(
-                p._order_by_eq_expr_ctxs[i]->clone(state, _shared_state->order_by_eq_expr_ctxs[i]));
+                p._partition_by_eq_expr_ctxs[i]->clone(state, _partition_by_eq_expr_ctxs[i]));
+    }
+    _order_by_eq_expr_ctxs.resize(p._order_by_eq_expr_ctxs.size());
+    for (size_t i = 0; i < _order_by_eq_expr_ctxs.size(); i++) {
+        RETURN_IF_ERROR(p._order_by_eq_expr_ctxs[i]->clone(state, _order_by_eq_expr_ctxs[i]));
     }
     return Status::OK();
 }
@@ -80,11 +79,11 @@ bool AnalyticSinkLocalState::_whether_need_next_partition(BlockRowPos& found_par
          shared_state.partition_by_end.pos)) { //now still have partition data
         return false;
     }
-    if ((shared_state.partition_by_eq_expr_ctxs.empty() && !shared_state.input_eos) ||
+    if ((_partition_by_eq_expr_ctxs.empty() && !shared_state.input_eos) ||
         (found_partition_end.pos == 0)) { //no partition, get until fetch to EOS
         return true;
     }
-    if (!shared_state.partition_by_eq_expr_ctxs.empty() &&
+    if (!_partition_by_eq_expr_ctxs.empty() &&
         found_partition_end.pos == shared_state.all_block_end.pos &&
         !shared_state.input_eos) { //current partition data calculate done
         return true;
@@ -177,13 +176,13 @@ BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
         return shared_state.partition_by_end;
     }
 
-    if (shared_state.partition_by_eq_expr_ctxs.empty() ||
+    if (_partition_by_eq_expr_ctxs.empty() ||
         (shared_state.input_total_rows == 0)) { //no partition_by, the all block is end
         return shared_state.all_block_end;
     }
 
     BlockRowPos cal_end = shared_state.all_block_end;
-    for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
+    for (size_t i = 0; i < _partition_by_eq_expr_ctxs.size();
          ++i) { //have partition_by, binary search the partiton end
         cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
                                            shared_state.partition_by_end, cal_end);
@@ -303,10 +302,10 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
     }
     {
         SCOPED_TIMER(local_state._compute_partition_by_timer);
-        for (size_t i = 0; i < local_state._shared_state->partition_by_eq_expr_ctxs.size(); ++i) {
+        for (size_t i = 0; i < local_state._partition_by_eq_expr_ctxs.size(); ++i) {
             int result_col_id = -1;
-            RETURN_IF_ERROR(local_state._shared_state->partition_by_eq_expr_ctxs[i]->execute(
-                    input_block, &result_col_id));
+            RETURN_IF_ERROR(local_state._partition_by_eq_expr_ctxs[i]->execute(input_block,
+                                                                               &result_col_id));
             DCHECK_GE(result_col_id, 0);
             local_state._shared_state->partition_by_column_idxs[i] = result_col_id;
         }
@@ -314,10 +313,10 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block
 
     {
         SCOPED_TIMER(local_state._compute_order_by_timer);
-        for (size_t i = 0; i < local_state._shared_state->order_by_eq_expr_ctxs.size(); ++i) {
+        for (size_t i = 0; i < local_state._order_by_eq_expr_ctxs.size(); ++i) {
             int result_col_id = -1;
-            RETURN_IF_ERROR(local_state._shared_state->order_by_eq_expr_ctxs[i]->execute(
-                    input_block, &result_col_id));
+            RETURN_IF_ERROR(
+                    local_state._order_by_eq_expr_ctxs[i]->execute(input_block, &result_col_id));
             DCHECK_GE(result_col_id, 0);
             local_state._shared_state->ordey_by_column_idxs[i] = result_col_id;
         }
