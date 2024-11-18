@@ -20,6 +20,7 @@ package org.apache.doris.backup;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -176,10 +177,12 @@ public class BackupMeta implements Writable {
             Resource resource = Resource.read(in);
             resourceNameMap.put(resource.getName(), resource);
         }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            StoragePolicy policy = StoragePolicy.read(in);
-            storagePolicyNameMap.put(policy.getName(), policy);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124) {
+            size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                StoragePolicy policy = StoragePolicy.read(in);
+                storagePolicyNameMap.put(policy.getName(), policy);
+            }
         }
     }
 
