@@ -192,8 +192,6 @@ public class OlapScanNode extends ScanNode {
     private Set<Long> sampleTabletIds = Sets.newHashSet();
     private TableSample tableSample;
 
-    private HashSet<Long> scanBackendIds = new HashSet<>();
-
     private Map<Long, Integer> tabletId2BucketSeq = Maps.newHashMap();
     // a bucket seq may map to many tablets, and each tablet has a
     // TScanRangeLocations.
@@ -1918,10 +1916,5 @@ public class OlapScanNode extends ScanNode {
     @Override
     public int getScanRangeNum() {
         return getScanTabletIds().size();
-    }
-
-    @Override
-    public int numScanBackends() {
-        return scanBackendIds.size();
     }
 }
