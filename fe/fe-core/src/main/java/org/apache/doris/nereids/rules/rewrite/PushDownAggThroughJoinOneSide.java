@@ -265,13 +265,7 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
             newProjections.addAll(rightDifference);
             newAggChild = ((LogicalProject) agg.child()).withProjectsAndChild(newProjections, newJoin);
         }
-        // TODO: column prune project
-        LogicalAggregate<Plan> newAgg = agg.withAggOutputChild(newOutputExprs, newAggChild);
-        if (checkOutput(newAgg)) {
-            return newAgg;
-        } else {
-            return (LogicalAggregate<Plan>) agg;
-        }
+        return agg.withAggOutputChild(newOutputExprs, newAggChild);
     }
 
     private static Expression replaceAggFunc(AggregateFunction func, Slot inputSlot) {
@@ -279,26 +273,6 @@ public class PushDownAggThroughJoinOneSide implements RewriteRuleFactory {
             return new Sum(inputSlot);
         } else {
             return func.withChildren(inputSlot);
-        }
-    }
-
-    private static boolean checkOutput(LogicalAggregate agg) {
-        if (agg.child() instanceof LogicalProject) {
-            Set<Slot> joinOutputs = ((Plan) agg.child().child(0)).getOutputSet();
-            if (!joinOutputs.containsAll(((LogicalProject<?>) agg.child()).getInputSlots())) {
-                return false;
-            }
-            Set<Slot> projectOutputs = ((LogicalProject<?>) agg.child()).getOutputSet();
-            if (!projectOutputs.containsAll(agg.getInputSlots())) {
-                return false;
-            }
-            return true;
-        } else {
-            Set<Slot> joinOutputs = ((Plan) agg.child()).getOutputSet();
-            if (!joinOutputs.containsAll(agg.getInputSlots())) {
-                return false;
-            }
-            return true;
         }
     }
 }
