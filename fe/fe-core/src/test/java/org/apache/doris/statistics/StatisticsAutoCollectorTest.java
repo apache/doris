@@ -142,6 +142,11 @@ public class StatisticsAutoCollectorTest {
                 columns.add(new Column("c2", PrimitiveType.HLL));
                 return columns;
             }
+
+            @Mock
+            public long getRowCount() {
+                return 1;
+            }
         };
         StatisticsAutoCollector saa = new StatisticsAutoCollector();
         List<AnalysisInfo> analysisInfoList = saa.constructAnalysisInfo(new Database(1, "anydb"));
@@ -397,6 +402,11 @@ public class StatisticsAutoCollectorTest {
                 objects.add(-1L);
                 return objects;
             }
+
+            @Mock
+            public long getRowCount() {
+                return 1;
+            }
         };
 
         new MockUp<StatisticsUtil>() {
@@ -468,6 +478,11 @@ public class StatisticsAutoCollectorTest {
                 ArrayList<Long> objects = new ArrayList<>();
                 objects.add(-1L);
                 return objects;
+            }
+
+            @Mock
+            public long getRowCount() {
+                return 1;
             }
         };
 
