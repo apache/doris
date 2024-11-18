@@ -116,8 +116,9 @@ suite("test_show_index_data_p2", "p2") {
     def tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
 
     def compaction = {
-        int beforeSegmentCount = 0
+        
         for (def tablet in tablets) {
+            int beforeSegmentCount = 0
             String tablet_id = tablet.TabletId
             (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -127,8 +128,8 @@ suite("test_show_index_data_p2", "p2") {
             for (String rowset in (List<String>) tabletJson.rowsets) {
                 beforeSegmentCount += Integer.parseInt(rowset.split(" ")[1])
             }
+            assertEquals(beforeSegmentCount, 110)
         }
-        assertEquals(beforeSegmentCount, 110)
 
         // trigger compactions for all tablets in ${tableName}
         for (def tablet in tablets) {
@@ -174,6 +175,11 @@ suite("test_show_index_data_p2", "p2") {
     double localIndexSize = 0
     double localSegmentSize = 0
 
+    def check_size_equal = { double result1, double result2 ->
+        double tolerance = 0.1 * Math.max(result1, result2);
+        return Math.abs(result1 - result2) <= tolerance;
+    }
+
     def check_show_data = { FileSizeChange expect_idx, FileSizeChange expect_data ->
         Thread.sleep(90000)
         Awaitility.await().atMost(5, TimeUnit.MINUTES).untilAsserted(() -> {
@@ -199,25 +205,18 @@ suite("test_show_index_data_p2", "p2") {
                 assertTrue(currentSegmentIndexSize == localSegmentSize)
             }
 
-            
-            def result2 = sql """ select * from information_schema.tables where TABLE_NAME = '${show_table_name}' """
-            logger.info("result 2 is: ${result2}")
-            // def currentLocalIndexSize = convert_size(result2[0][4])
-            // def currentSegmentIndexSize = convert_size(result2[0][5])
-            // if (expect_idx_bigger) {
-            //     assertTrue(currentLocalIndexSize > localIndexSize)
-            // } else {
-            //     assertTrue(currentLocalIndexSize <= localIndexSize)
-            // }
-            // if (expect_data_bigger) {
-            //     assertTrue(currentSegmentIndexSize > localSegmentSize)
-            // } else {
-            //     assertTrue(currentSegmentIndexSize <= localSegmentSize)
-            // }
             assertTrue(currentLocalIndexSize != 0)
             assertTrue(currentSegmentIndexSize != 0)
             localIndexSize = currentLocalIndexSize
             localSegmentSize = currentSegmentIndexSize
+
+            def result2 = sql """ select * from information_schema.tables where TABLE_NAME = '${show_table_name}' """
+            logger.info("result 2 is: ${result2}")
+            def currentLocalIndexSize2 = result2[0][11] as double
+            def currentSegmentIndexSize2 = result2[0][9] as double
+            logger.info("currentLocalIndexSize2 is: ${currentLocalIndexSize2}, currentSegmentIndexSize2 is: ${currentSegmentIndexSize2}")
+            assertTrue(check_size_equal(currentLocalIndexSize, currentLocalIndexSize2))
+            assertTrue(check_size_equal(currentSegmentIndexSize, currentSegmentIndexSize2))
             logger.info("show data with detail localIndexSize is: " + localIndexSize)
             logger.info("show data with detail localSegmentSize is: " + localSegmentSize)
         });

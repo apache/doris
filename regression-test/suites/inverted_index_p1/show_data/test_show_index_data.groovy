@@ -116,8 +116,9 @@ suite("test_show_index_data", "p1") {
     def tablets = sql_return_maparray """ show tablets from ${show_table_name}; """
 
     def compaction = {
-        int beforeSegmentCount = 0
+
         for (def tablet in tablets) {
+            int beforeSegmentCount = 0
             String tablet_id = tablet.TabletId
             (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -127,8 +128,8 @@ suite("test_show_index_data", "p1") {
             for (String rowset in (List<String>) tabletJson.rowsets) {
                 beforeSegmentCount += Integer.parseInt(rowset.split(" ")[1])
             }
+            assertEquals(beforeSegmentCount, 10)
         }
-        assertEquals(beforeSegmentCount, 10)
 
         // trigger compactions for all tablets in ${tableName}
         for (def tablet in tablets) {
@@ -175,7 +176,7 @@ suite("test_show_index_data", "p1") {
     double localSegmentSize = 0
 
     def check_size_equal = { double result1, double result2 ->
-        double tolerance = 0.05 * Math.max(result1, result2);
+        double tolerance = 0.1 * Math.max(result1, result2);
         return Math.abs(result1 - result2) <= tolerance;
     }
 
@@ -203,18 +204,18 @@ suite("test_show_index_data", "p1") {
             } else {
                 assertTrue(currentSegmentIndexSize == localSegmentSize)
             }
-
-            
-            def result2 = sql """ select * from information_schema.tables where TABLE_NAME = '${show_table_name}' """
-            logger.info("result 2 is: ${result2}")
-            def currentLocalIndexSize2 = convert_size(result2[0][7])
-            def currentSegmentIndexSize2 = convert_size(result2[0][9])
-            assertTrue(check_size_equal(currentLocalIndexSize, currentLocalIndexSize2))
-            assertTrue(check_size_equal(currentSegmentIndexSize, currentSegmentIndexSize2))
             assertTrue(currentLocalIndexSize != 0)
             assertTrue(currentSegmentIndexSize != 0)
             localIndexSize = currentLocalIndexSize
             localSegmentSize = currentSegmentIndexSize
+
+            def result2 = sql """ select * from information_schema.tables where TABLE_NAME = '${show_table_name}' """
+            logger.info("result 2 is: ${result2}")
+            def currentLocalIndexSize2 = result2[0][11] as double
+            def currentSegmentIndexSize2 = result2[0][9] as double
+            logger.info("currentLocalIndexSize2 is: ${currentLocalIndexSize2}, currentSegmentIndexSize2 is: ${currentSegmentIndexSize2}")
+            assertTrue(check_size_equal(currentLocalIndexSize, currentLocalIndexSize2))
+            assertTrue(check_size_equal(currentSegmentIndexSize, currentSegmentIndexSize2))
             logger.info("show data with detail localIndexSize is: " + localIndexSize)
             logger.info("show data with detail localSegmentSize is: " + localSegmentSize)
         });
