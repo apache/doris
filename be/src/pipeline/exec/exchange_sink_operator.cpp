@@ -59,6 +59,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _local_send_timer = ADD_TIMER(_profile, "LocalSendTime");
     _split_block_hash_compute_timer = ADD_TIMER(_profile, "SplitBlockHashComputeTime");
     _distribute_rows_into_channels_timer = ADD_TIMER(_profile, "DistributeRowsIntoChannelsTime");
+    _send_new_partition_timer = ADD_TIMER(_profile, "SendNewPartitionTime");
     _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
     _overall_throughput = _profile->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
@@ -276,15 +277,13 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 }
 
 Status ExchangeSinkLocalState::_send_new_partition_batch(vectorized::Block* input_block) {
-    if (_row_distribution.batching_rows() > 0) { // maybe try_close more than 1 time
-        RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
-        auto& p = _parent->cast<ExchangeSinkOperatorX>();
-        // Recovery back
-        _row_distribution.clear_batching_stats();
-        _row_distribution._batching_block->clear_column_data();
-        _row_distribution._deal_batched = false;
-        RETURN_IF_ERROR(p.sink(_state, input_block, false));
-    }
+    RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
+    auto& p = _parent->cast<ExchangeSinkOperatorX>();
+    // Recovery back
+    _row_distribution.clear_batching_stats();
+    _row_distribution._batching_block->clear_column_data();
+    _row_distribution._deal_batched = false;
+    RETURN_IF_ERROR(p.sink(_state, input_block, false));
     return Status::OK();
 }
 
@@ -528,18 +527,20 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
             RETURN_IF_ERROR(local_state._row_distribution.generate_rows_distribution(
                     *block, convert_block, filtered_rows, has_filtered_rows,
                     local_state._row_part_tablet_ids, local_state._number_input_rows));
-
-            const auto& row_ids = local_state._row_part_tablet_ids[0].row_ids;
-            const auto& tablet_ids = local_state._row_part_tablet_ids[0].tablet_ids;
-            for (int idx = 0; idx < row_ids.size(); ++idx) {
-                const auto& row = row_ids[idx];
-                const auto& tablet_id_hash =
-                        HashUtil::zlib_crc_hash(&tablet_ids[idx], sizeof(int64), 0);
-                channel2rows[tablet_id_hash % num_channels].emplace_back(row);
+            if (local_state._row_distribution.batching_rows() > 0) {
+                SCOPED_TIMER(local_state._send_new_partition_timer);
+                RETURN_IF_ERROR(local_state._send_new_partition_batch(block));
+            } else {
+                const auto& row_ids = local_state._row_part_tablet_ids[0].row_ids;
+                const auto& tablet_ids = local_state._row_part_tablet_ids[0].tablet_ids;
+                for (int idx = 0; idx < row_ids.size(); ++idx) {
+                    const auto& row = row_ids[idx];
+                    const auto& tablet_id_hash =
+                            HashUtil::zlib_crc_hash(&tablet_ids[idx], sizeof(int64), 0);
+                    channel2rows[tablet_id_hash % num_channels].emplace_back(row);
+                }
             }
         }
-
-        RETURN_IF_ERROR(local_state._send_new_partition_batch(block));
 
         {
             SCOPED_TIMER(local_state._distribute_rows_into_channels_timer);
