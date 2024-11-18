@@ -201,14 +201,14 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
     _record_debug_info();
     try_set_dep_ready_without_lock();
 
-    // if done is nullptr, this function can't delay this response
-    if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
-        MonotonicStopWatch monotonicStopWatch;
-        monotonicStopWatch.start();
-        DCHECK(*done != nullptr);
-        _pending_closures.emplace_back(*done, monotonicStopWatch);
-        *done = nullptr;
-    }
+    // // if done is nullptr, this function can't delay this response
+    // if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
+    //     MonotonicStopWatch monotonicStopWatch;
+    //     monotonicStopWatch.start();
+    //     DCHECK(*done != nullptr);
+    //     _pending_closures.emplace_back(*done, monotonicStopWatch);
+    //     *done = nullptr;
+    // }
     _recvr->_parent->memory_used_counter()->update(block_byte_size);
     _recvr->_parent->peak_memory_usage_counter()->set(
             _recvr->_parent->memory_used_counter()->value());
