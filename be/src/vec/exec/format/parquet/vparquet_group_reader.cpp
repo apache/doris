@@ -109,11 +109,6 @@ Status RowGroupReader::init(
     _tuple_descriptor = tuple_descriptor;
     _row_descriptor = row_descriptor;
     _col_name_to_slot_id = colname_to_slot_id;
-    if (not_single_slot_filter_conjuncts != nullptr && !not_single_slot_filter_conjuncts->empty()) {
-        _not_single_slot_filter_conjuncts.insert(_not_single_slot_filter_conjuncts.end(),
-                                                 not_single_slot_filter_conjuncts->begin(),
-                                                 not_single_slot_filter_conjuncts->end());
-    }
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _merge_read_ranges(row_ranges);
     if (_read_columns.empty()) {
@@ -141,6 +136,11 @@ Status RowGroupReader::init(
         _column_readers[read_col] = std::move(reader);
     }
     // Check if single slot can be filtered by dict.
+    if (not_single_slot_filter_conjuncts != nullptr && !not_single_slot_filter_conjuncts->empty()) {
+        _filter_conjuncts.insert(_filter_conjuncts.end(), not_single_slot_filter_conjuncts->begin(),
+                                 not_single_slot_filter_conjuncts->end());
+        return Status::OK();
+    }
     if (!_slot_id_to_filter_conjuncts) {
         return Status::OK();
     }
@@ -363,17 +363,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
 
             RETURN_IF_CATCH_EXCEPTION(
                     Block::filter_block_internal(block, columns_to_filter, result_filter));
-            if (!_not_single_slot_filter_conjuncts.empty()) {
-                _convert_dict_cols_to_string_cols(block);
-                SCOPED_RAW_TIMER(&_predicate_filter_time);
-                RETURN_IF_CATCH_EXCEPTION(
-                        RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                                _not_single_slot_filter_conjuncts, block, columns_to_filter,
-                                column_to_keep)));
-            } else {
-                Block::erase_useless_column(block, column_to_keep);
-                _convert_dict_cols_to_string_cols(block);
-            }
+            Block::erase_useless_column(block, column_to_keep);
+            _convert_dict_cols_to_string_cols(block);
         } else {
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
@@ -604,15 +595,6 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
     *batch_eof = pre_eof;
     RETURN_IF_ERROR(_fill_partition_columns(block, column_size, _lazy_read_ctx.partition_columns));
     RETURN_IF_ERROR(_fill_missing_columns(block, column_size, _lazy_read_ctx.missing_columns));
-    if (!_not_single_slot_filter_conjuncts.empty()) {
-        {
-            SCOPED_RAW_TIMER(&_predicate_filter_time);
-            RETURN_IF_CATCH_EXCEPTION(
-                    RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
-                            _not_single_slot_filter_conjuncts, block, columns_to_filter,
-                            origin_column_num)));
-        }
-    }
     return Status::OK();
 }
 
