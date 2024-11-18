@@ -181,7 +181,9 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
                                 // in the ExpressionNormalization, so must invoke in another job, otherwise dead loop.
-                                new ExtractSingleTableExpressionFromDisjunction(),
+                                new ExtractSingleTableExpressionFromDisjunction()
+                        ),
+                        topDown(
                                 new ExtractInPredicateFromFilter()
                         )
                 ),
