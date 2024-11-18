@@ -17,15 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -43,38 +37,34 @@ import java.util.List;
 /**
  * show database id command
  */
-public class ShowDatabaseIdCommand extends ShowCommand {
-    public static final Logger LOG = LogManager.getLogger(ShowFrontendsCommand.class);
-    private final Long dbId;
+public class ShowDatabaseIdCommand extends ShowCommand{
+  public static final Logger LOG = LogManager.getLogger(ShowFrontendsCommand.class);
+  private final Long dbId;
 
-    /**
-     * constructor
-     */
-    public ShowDatabaseIdCommand(Long dbId) {
-        super(PlanType.SHOW_DATABASE_ID_COMMAND);
-        this.dbId = dbId;
-    }
+  /**
+   * constructor
+   */
+  public ShowDatabaseIdCommand(Long dbId) {
+    super(PlanType.SHOW_DATABASE_ID_COMMAND);
+    this.dbId = dbId;
+  }
 
-    @Override
-    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // check access first
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SHOW TABLE");
-        }
-        List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf database = ctx.getCurrentCatalog().getDbNullable(dbId);
-        if (database != null) {
-            List<String> row = new ArrayList<>();
-            row.add(database.getFullName());
-            rows.add(row);
-        }
-        ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        builder.addColumn(new Column("DBName", ScalarType.createVarchar(30)));
-        return new ShowResultSet(builder.build(), rows);
-    }
+  @Override
+  public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+      List<List<String>> rows = Lists.newArrayList();
+      DatabaseIf database = ctx.getCurrentCatalog().getDbNullable(dbId);
+      if (database != null) {
+          List<String> row = new ArrayList<>();
+          row.add(database.getFullName());
+          rows.add(row);
+      }
+      ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
+      builder.addColumn(new Column("DBName", ScalarType.createVarchar(30)));
+      return new ShowResultSet(builder.build(), rows);
+  }
 
-    @Override
-    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitShowDatabaseIdCommand(this, context);
-    }
+  @Override
+  public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
+      return visitor.visitShowDatabaseIdCommand(this, context);
+  }
 }
