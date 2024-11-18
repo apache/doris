@@ -391,16 +391,6 @@ public:
     // Do nothing, call try_insert instead
     void insert(const Field& field) override { try_insert(field); }
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        append_data_by_selector_impl<ColumnObject>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        append_data_by_selector_impl<ColumnObject>(res, selector, begin, end);
-    }
-
     void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                              const uint32_t* indices_end) override;
 
