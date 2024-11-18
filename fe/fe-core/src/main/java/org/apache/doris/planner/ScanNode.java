@@ -111,6 +111,11 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     protected TableSnapshot tableSnapshot;
 
+    // Save the id of backends which this scan node will be executed on.
+    // This is also important for local shuffle logic.
+    // Now only OlapScanNode and FileQueryScanNode implement this.
+    protected HashSet<Long> scanBackendIds = new HashSet<>();
+
     public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType) {
         super(id, desc.getId().asList(), planNodeName, statisticalType);
         this.desc = desc;
@@ -732,7 +737,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     }
 
     public int numScanBackends() {
-        return 0;
+        return scanBackendIds.size();
     }
 
     public int getScanRangeNum() {
