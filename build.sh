@@ -825,6 +825,10 @@ EOF
         cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
     fi
 
+    if [[ "${BUILD_BENCHMARK}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/benchmark_test" "${DORIS_OUTPUT}/be/lib/"/
+    fi
+
     if [[ "${BUILD_FS_BENCHMARK}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/bin/run-fs-benchmark.sh" "${DORIS_OUTPUT}/be/bin/"/
     fi

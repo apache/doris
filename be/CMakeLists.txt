@@ -570,7 +570,7 @@ if (OS_MACOSX)
     )
 endif()
 
-if (MAKE_TEST OR BUILD_BENCHMARK)
+if (BUILD_BENCHMARK)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
         benchmark
@@ -818,5 +818,5 @@ if (BUILD_BENCHMARK)
     add_executable(benchmark_test ${BASE_DIR}/benchmark/benchmark_main.cpp)
     target_link_libraries(benchmark_test ${DORIS_LINK_LIBS})
     message(STATUS "Add benchmark to build")
-    install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR})
+    install(TARGETS benchmark_test DESTINATION ${OUTPUT_DIR}/lib)
 endif()

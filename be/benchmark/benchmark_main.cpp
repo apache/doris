@@ -24,24 +24,27 @@
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
 
-namespace doris::vectorized {
+namespace doris::vectorized { // change if need
 
 static void Example1(benchmark::State& state) {
+    // init. dont time it.
     state.PauseTiming();
     Block block;
     DataTypePtr str_type = std::make_shared<DataTypeString>();
     std::vector<std::string> vals {100, "content"};
     state.ResumeTiming();
 
+    // do test
     for (auto _ : state) {
         auto str_col = ColumnString::create();
         for (auto& v : vals) {
             str_col->insert_data(v.data(), v.size());
         }
         block.insert({std::move(str_col), str_type, "col"});
-        benchmark::DoNotOptimize(block);
+        benchmark::DoNotOptimize(block); // mark the watched target
     }
 }
+// could BENCHMARK many functions to compare them together.
 BENCHMARK(Example1);
 
 } // namespace doris::vectorized
