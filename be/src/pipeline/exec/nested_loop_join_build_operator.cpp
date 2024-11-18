@@ -43,7 +43,7 @@ struct RuntimeFilterBuild {
         }
         {
             SCOPED_TIMER(_parent->publish_runtime_filter_timer());
-            RETURN_IF_ERROR(runtime_filter_slots.publish());
+            RETURN_IF_ERROR(runtime_filter_slots.publish(state));
         }
 
         return Status::OK();

@@ -165,6 +165,12 @@ public:
         return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
     }
 
+    bool ignore_runtime_filter_error() const {
+        return _query_options.__isset.ignore_runtime_filter_error
+                       ? _query_options.ignore_runtime_filter_error
+                       : false;
+    }
+
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
     // the runtime filter should do the local merge work
