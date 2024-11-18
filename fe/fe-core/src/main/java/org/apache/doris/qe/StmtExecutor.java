@@ -1295,7 +1295,7 @@ public class StmtExecutor {
                     context.getForwardedStmtId());
         }
 
-        parseByLegacy();
+        // parseByLegacy();
 
         // yiguolei: insert stmt's grammar analysis will write editlog,
         // so that we check if the stmt should be forward to master here
@@ -1450,7 +1450,7 @@ public class StmtExecutor {
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
 
-            analyzeVariablesInStmt();
+            // analyzeVariablesInStmt();
         }
         if (context.getSessionVariable().isEnableInsertGroupCommit() && parsedStmt instanceof NativeInsertStmt) {
             NativeInsertStmt nativeInsertStmt = (NativeInsertStmt) parsedStmt;
