@@ -571,14 +571,12 @@ public:
 
     int64_t current_row_position = 0;
     BlockRowPos partition_by_end;
-    vectorized::VExprContextSPtrs partition_by_eq_expr_ctxs;
     int64_t input_total_rows = 0;
     BlockRowPos all_block_end;
     std::vector<vectorized::Block> input_blocks;
     bool input_eos = false;
     BlockRowPos found_partition_end;
     std::vector<int64_t> origin_cols;
-    vectorized::VExprContextSPtrs order_by_eq_expr_ctxs;
     std::vector<int64_t> input_block_first_row_positions;
     std::vector<std::vector<vectorized::MutableColumnPtr>> agg_input_columns;
 

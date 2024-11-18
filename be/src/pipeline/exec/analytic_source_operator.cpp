@@ -122,13 +122,15 @@ BlockRowPos AnalyticLocalState::_get_partition_by_end() {
         return shared_state.partition_by_end;
     }
 
-    if (shared_state.partition_by_eq_expr_ctxs.empty() ||
+    const auto partition_exprs_size =
+            _parent->cast<AnalyticSourceOperatorX>()._partition_exprs_size;
+    if (partition_exprs_size == 0 ||
         (shared_state.input_total_rows == 0)) { //no partition_by, the all block is end
         return shared_state.all_block_end;
     }
 
     BlockRowPos cal_end = shared_state.all_block_end;
-    for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
+    for (size_t i = 0; i < partition_exprs_size;
          ++i) { //have partition_by, binary search the partiton end
         cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
                                            shared_state.partition_by_end, cal_end);
@@ -144,12 +146,13 @@ bool AnalyticLocalState::_whether_need_next_partition(BlockRowPos& found_partiti
          shared_state.partition_by_end.pos)) { //now still have partition data
         return false;
     }
-    if ((shared_state.partition_by_eq_expr_ctxs.empty() && !shared_state.input_eos) ||
+    const auto partition_exprs_size =
+            _parent->cast<AnalyticSourceOperatorX>()._partition_exprs_size;
+    if ((partition_exprs_size == 0 && !shared_state.input_eos) ||
         (found_partition_end.pos == 0)) { //no partition, get until fetch to EOS
         return true;
     }
-    if (!shared_state.partition_by_eq_expr_ctxs.empty() &&
-        found_partition_end.pos == shared_state.all_block_end.pos &&
+    if (partition_exprs_size != 0 && found_partition_end.pos == shared_state.all_block_end.pos &&
         !shared_state.input_eos) { //current partition data calculate done
         return true;
     }
@@ -401,7 +404,7 @@ Status AnalyticLocalState::_get_next_for_range(size_t current_block_rows) {
 void AnalyticLocalState::_update_order_by_range() {
     _order_by_start = _order_by_end;
     _order_by_end = _shared_state->partition_by_end;
-    for (size_t i = 0; i < _shared_state->order_by_eq_expr_ctxs.size(); ++i) {
+    for (size_t i = 0; i < _parent->cast<AnalyticSourceOperatorX>()._order_by_exprs_size; ++i) {
         _order_by_end = _compare_row_to_find_end(_shared_state->ordey_by_column_idxs[i],
                                                  _order_by_start, _order_by_end, true);
     }
@@ -476,7 +479,9 @@ AnalyticSourceOperatorX::AnalyticSourceOperatorX(ObjectPool* pool, const TPlanNo
           _has_window(tnode.analytic_node.__isset.window),
           _has_range_window(tnode.analytic_node.window.type == TAnalyticWindowType::RANGE),
           _has_window_start(tnode.analytic_node.window.__isset.window_start),
-          _has_window_end(tnode.analytic_node.window.__isset.window_end) {
+          _has_window_end(tnode.analytic_node.window.__isset.window_end),
+          _partition_exprs_size(tnode.analytic_node.partition_exprs.size()),
+          _order_by_exprs_size(tnode.analytic_node.order_by_exprs.size()) {
     _is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     _fn_scope = AnalyticFnScope::PARTITION;
     if (tnode.analytic_node.__isset.window &&
