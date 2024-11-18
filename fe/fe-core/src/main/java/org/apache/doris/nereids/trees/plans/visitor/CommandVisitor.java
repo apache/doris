@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -300,6 +301,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowFrontendsCommand(ShowFrontendsCommand showFrontendsCommand, C context) {
         return visitCommand(showFrontendsCommand, context);
+    }
+
+    default R visitShowWhiteListCommand(ShowWhiteListCommand whiteListCommand, C context) {
+        return visitCommand(whiteListCommand, context);
     }
 
     default R visitRecoverDatabaseCommand(RecoverDatabaseCommand recoverDatabaseCommand, C context) {

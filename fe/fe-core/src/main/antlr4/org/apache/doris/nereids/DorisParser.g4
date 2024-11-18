@@ -212,6 +212,7 @@ supportedShowStatement
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW FRONTENDS name=identifier?                                               #showFrontends 
     | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
+    | SHOW WHITELIST                                                                #showWhitelist
     ;
 
 unsupportedOtherStatement
@@ -249,7 +250,6 @@ unsupportedShowStatement
     | SHOW STAGES                                                                   #showStages
     | SHOW STORAGE (VAULT | VAULTS)                                                 #showStorageVault
     | SHOW CREATE REPOSITORY FOR identifier                                         #showCreateRepository
-    | SHOW WHITELIST                                                                #showWhitelist
     | SHOW OPEN TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showOpenTables
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
