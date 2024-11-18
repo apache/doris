@@ -240,7 +240,9 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
 }
 
 void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
-    if (block->mem_reuse() && _block_memory_usage < _max_bytes_in_queue) {
+    // If under low memory mode, should not return the freeblock, it will occupy too much memory.
+    if (!_local_state->low_memory_mode() && block->mem_reuse() &&
+        _block_memory_usage < _max_bytes_in_queue) {
         size_t block_size_to_reuse = block->allocated_bytes();
         _block_memory_usage += block_size_to_reuse;
         _scanner_memory_used_counter->set(_block_memory_usage);
@@ -249,6 +251,14 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
             update_peak_memory_usage(block_size_to_reuse);
         }
     }
+}
+
+void ScannerContext::clear_free_blocks() {
+    vectorized::BlockUPtr block;
+    while (_free_blocks.try_dequeue(block)) {
+        // do nothing
+    }
+    block.reset();
 }
 
 Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
@@ -321,10 +331,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             update_peak_memory_usage(-current_block->allocated_bytes());
             // consume current block
             block->swap(*current_block);
-            // If under low memory mode, should not return the freeblock, it will occupy too memory.
-            if (!_local_state->low_memory_mode()) {
-                return_free_block(std::move(current_block));
-            }
+            return_free_block(std::move(current_block));
         } else {
             // This scan task do not have any cached blocks.
             _tasks_queue.pop_front();

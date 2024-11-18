@@ -645,11 +645,6 @@ public:
 
     [[nodiscard]] std::string get_name() const override { return _name; }
 
-    [[nodiscard]] virtual bool try_reserve_memory(RuntimeState* state, vectorized::Block* block,
-                                                  bool eos) {
-        return true;
-    }
-
     virtual bool should_dry_run(RuntimeState* state) { return false; }
 
     [[nodiscard]] virtual bool count_down_destination() { return true; }

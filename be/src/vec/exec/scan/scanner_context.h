@@ -123,6 +123,7 @@ public:
 
     vectorized::BlockUPtr get_free_block(bool force);
     void return_free_block(vectorized::BlockUPtr block);
+    void clear_free_blocks();
     inline void inc_block_usage(size_t usage) { _block_memory_usage += usage; }
 
     int64_t block_memory_usage() { return _block_memory_usage; }

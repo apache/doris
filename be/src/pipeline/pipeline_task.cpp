@@ -426,7 +426,7 @@ Status PipelineTask::execute(bool* eos) {
             _root->reset_reserve_mem_size(_state);
 
             auto workload_group = _state->get_query_ctx()->workload_group();
-            if (workload_group && reserve_size > 0) {
+            if (workload_group && _state->enable_reserve_memory() && reserve_size > 0) {
                 auto st = thread_context()->try_reserve_memory(reserve_size);
 
                 COUNTER_UPDATE(_memory_reserve_times, 1);
@@ -458,25 +458,28 @@ Status PipelineTask::execute(bool* eos) {
             DEFER_RELEASE_RESERVED();
             COUNTER_UPDATE(_memory_reserve_times, 1);
             const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, *eos);
-            status = thread_context()->try_reserve_memory(sink_reserve_size);
-            if (!status.ok()) {
-                COUNTER_UPDATE(_memory_reserve_failed_times, 1);
-                LOG(INFO) << "query: " << print_id(query_id) << ", try to reserve: "
-                          << PrettyPrinter::print(sink_reserve_size, TUnit::BYTES)
-                          << ", sink name: " << _sink->get_name()
-                          << ", node id: " << _sink->node_id() << ", task id: " << _state->task_id()
-                          << ", failed: " << status.to_string()
-                          << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
-                _state->get_query_ctx()->update_paused_reason(status);
-                _state->get_query_ctx()->set_low_memory_mode();
-                ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                        _state->get_query_ctx()->shared_from_this(), sink_reserve_size);
-                DCHECK_EQ(_pending_block.get(), nullptr);
-                _pending_block = std::move(_block);
-                _block = vectorized::Block::create_unique(_pending_block->clone_empty());
-                _eos = *eos;
-                *eos = false;
-                continue;
+            if (_state->enable_reserve_memory()) {
+                status = thread_context()->try_reserve_memory(sink_reserve_size);
+                if (!status.ok()) {
+                    COUNTER_UPDATE(_memory_reserve_failed_times, 1);
+                    LOG(INFO) << "query: " << print_id(query_id) << ", try to reserve: "
+                              << PrettyPrinter::print(sink_reserve_size, TUnit::BYTES)
+                              << ", sink name: " << _sink->get_name()
+                              << ", node id: " << _sink->node_id()
+                              << ", task id: " << _state->task_id()
+                              << ", failed: " << status.to_string()
+                              << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    _state->get_query_ctx()->update_paused_reason(status);
+                    _state->get_query_ctx()->set_low_memory_mode();
+                    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                            _state->get_query_ctx()->shared_from_this(), sink_reserve_size);
+                    DCHECK_EQ(_pending_block.get(), nullptr);
+                    _pending_block = std::move(_block);
+                    _block = vectorized::Block::create_unique(_pending_block->clone_empty());
+                    _eos = *eos;
+                    *eos = false;
+                    continue;
+                }
             }
 
             // Define a lambda function to catch sink exception, because sink will check
