@@ -98,6 +98,8 @@ public:
     // Return negative if a temporary error occurred during the check process.
     int do_delete_bitmap_inverted_check();
 
+    // 4. check that https://github.com/apache/doris/pull/40204 works as expected
+
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
     // Return 0 if success, otherwise error
@@ -112,9 +114,12 @@ private:
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
 
+    using Version = std::pair<int64_t, int64_t>;
     struct RowsetDigest {
         std::string rowset_id;
-        std::pair<int64_t, int64_t> version;
+        Version version;
+
+        std::string to_string() const;
     };
 
     int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);

@@ -280,13 +280,16 @@ int get_tablet_meta(TxnKv* txn_kv, const std::string& instance_id, int64_t table
     }
 
     std::string key, val;
-    meta_tablet_key({instance_id, tablet_idx.tablet_id(), tablet_idx.index_id(),
+    meta_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
                      tablet_idx.partition_id(), tablet_id},
                     &key);
     err = txn->get(key, &val);
     if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << fmt::format("failed to get tablet, err={} tablet_id={} key={}", err,
-                                    tablet_id, hex(key));
+        LOG(WARNING) << fmt::format(
+                "failed to get tablet, err={}, table_id={}, index_id={}, partition_id={}, "
+                "tablet_id={} key={}",
+                err, tablet_idx.table_id(), tablet_idx.index_id(), tablet_idx.partition_id(),
+                tablet_id, hex(key));
         return -1;
     }
     if (!tablet_meta.ParseFromString(val)) [[unlikely]] {

@@ -760,6 +760,10 @@ int InstanceChecker::do_inverted_check() {
     return num_file_leak > 0 ? 1 : check_ret;
 }
 
+std::string InstanceChecker::RowsetDigest::to_string() const {
+    return fmt::format("rowset_id={}, version=[{}-{}]", rowset_id, version.first, version.second);
+}
+
 int InstanceChecker::check_delete_bitmap_integrity(int64_t tablet_id) {
     std::vector<RowsetDigest> tablet_rowsets;
     // Get all visible rowsets of this tablet
@@ -799,12 +803,17 @@ int InstanceChecker::check_delete_bitmap_integrity(int64_t tablet_id) {
         }
     } while (it->more() && !stopped());
 
-    // Check delete bitmaps integrity of this tablet
+    // Check
     int64_t abnormal_rowsets_num {0};
     for (const auto& rowset : tablet_rowsets) {
+        if (rowset.version.second <= 1) {
+            // skip dummy rowset [0-1]
+            continue;
+        }
         auto begin = meta_delete_bitmap_key({instance_id_, tablet_id, rowset.rowset_id, 0, 0});
         auto end = meta_delete_bitmap_key({instance_id_, tablet_id, rowset.rowset_id,
-                                           std::numeric_limits<int64_t>::max(), 0});
+                                           std::numeric_limits<int64_t>::max(),
+                                           std::numeric_limits<int64_t>::max()});
         std::unique_ptr<RangeGetIterator> it;
         err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
@@ -816,35 +825,37 @@ int InstanceChecker::check_delete_bitmap_integrity(int64_t tablet_id) {
             ++abnormal_rowsets_num;
             LOG(WARNING) << fmt::format(
                     "[delete bitmap checker] can't find corresponding delete bitmap for "
-                    "rowset_id={}",
-                    rowset.rowset_id);
+                    "instance_id={}, tablet_id={}, {}",
+                    instance_id_, tablet_id, rowset.to_string());
         }
     }
 
     if (abnormal_rowsets_num > 0) {
         LOG(WARNING) << fmt::format(
-                "[delete bitmap checker] can't find corresponding delete bitmap for {} "
-                "rowsets.",
-                abnormal_rowsets_num);
+                "[delete bitmap checker] can't find corresponding delete bitmap for "
+                "instance_id={}, tablet_id={}, abnormal_rowsets_num={}",
+                instance_id_, tablet_id, abnormal_rowsets_num);
         return 1;
     }
 
-    // 2. check the recycled rowsets' delete bitmap is cleared from ms
-
-    // 3. check that delete bitmaps of rowsets which has been compacted is pruned from ms
-
-    // 4. check that https://github.com/apache/doris/pull/40204 works as expected
-
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] check delete bitmap integrity for tablet={} successfully.",
+            tablet_id);
     return 0;
 }
 
 int InstanceChecker::do_delete_bitmap_integrity_check() {
+    // check that for every visible rowset, there exists at least delete bitmap in MS
     return traverse_mow_tablet(
             [&](int64_t tablet_id) { return check_delete_bitmap_integrity(tablet_id); });
 }
 
+int InstanceChecker::do_delete_bitmap_inverted_check() {
+    // TODO:
+    return 0;
+}
+
 int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& check_func) {
-    bool succ {true};
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -855,7 +866,7 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
     auto begin = meta_rowset_key({instance_id_, 0, 0});
     auto end = meta_rowset_key({instance_id_, std::numeric_limits<int64_t>::max(), 0});
     do {
-        TxnErrorCode err = txn->get(begin, end, &it);
+        TxnErrorCode err = txn->get(begin, end, &it, false, 1);
         if (err != TxnErrorCode::TXN_OK) {
             LOG(WARNING) << "failed to get rowset kv, err=" << err;
             return -1;
@@ -893,13 +904,14 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
 
                 // TODO(bobhan1): handle check result
                 int ret = check_func(tablet_id);
-                if (!ret) {
-                    succ = false;
+                if (ret != 0) {
+                    // TODO(bobhan1): return immediately on non-zero status or continue to check other tablets ?
+                    return ret;
                 }
             }
         }
     } while (it->more() && !stopped());
-    return succ;
+    return 0;
 }
 
 } // namespace doris::cloud
