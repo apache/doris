@@ -118,8 +118,8 @@ bool OrderedSloppyPhraseMatcher::stretch_to_order(PostingsAndPosition* prev_post
 }
 
 PhraseQuery::PhraseQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                         const TQueryOptions& query_options)
-        : _searcher(searcher) {}
+                         const TQueryOptions& query_options, const io::IOContext* io_ctx)
+        : _searcher(searcher), _io_ctx(io_ctx) {}
 
 PhraseQuery::~PhraseQuery() {
     for (auto& term_doc : _term_docs) {
@@ -166,7 +166,7 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
         std::wstring ws_term = StringUtil::string_to_wstring(terms[0]);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
-        TermDocs* term_doc = _searcher->getReader()->termDocs(t);
+        TermDocs* term_doc = _searcher->getReader()->termDocs(t, _io_ctx);
         _term_docs.push_back(term_doc);
         _lead1 = TermIterator(term_doc);
         return;
@@ -177,7 +177,7 @@ void PhraseQuery::add(const std::wstring& field_name, const std::vector<std::str
         std::wstring ws_term = StringUtil::string_to_wstring(term);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
-        TermPositions* term_pos = _searcher->getReader()->termPositions(t);
+        TermPositions* term_pos = _searcher->getReader()->termPositions(t, _io_ctx);
         _term_docs.push_back(term_pos);
         iterators.emplace_back(term_pos);
         return term_pos;
