@@ -31,6 +31,10 @@
 #include "recycler/storage_vault_accessor.h"
 #include "recycler/white_black_list.h"
 
+namespace doris {
+class RowsetMetaCloudPB;
+}
+
 namespace doris::cloud {
 class StorageVaultAccessor;
 class InstanceChecker;
@@ -123,6 +127,10 @@ private:
     };
 
     int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
+    int collect_tablet_rowsets(
+            int64_t tablet_id,
+            const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
+    int traverse_delete_bitmaps(const std::function<int(int64_t)>& check_func);
 
     // check if all the visible rowsets have a corresponding delete bitmap
     int check_delete_bitmap_integrity(int64_t tablet_id);
