@@ -88,10 +88,7 @@ public:
     using Offsets = PaddedPODArray<Offset>;
 
     /// Name of a Column. It is used in info messages.
-    virtual std::string get_name() const { return get_family_name(); }
-
-    /// Name of a Column kind, without parameters (example: FixedString, Array).
-    virtual const char* get_family_name() const = 0;
+    virtual std::string get_name() const = 0;
 
     /** If column isn't constant, returns nullptr (or itself).
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
@@ -465,8 +462,7 @@ public:
       * For array/map/struct types, we compare with nested column element and offsets size
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "compare_at for " + std::string(get_family_name()));
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "compare_at for " + get_name());
     }
 
     /**
@@ -488,7 +484,7 @@ public:
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                  Permutation& res) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "get_permutation for " + std::string(get_family_name()));
+                               "get_permutation for " + get_name());
     }
 
     /** Copies each element according offsets parameter.

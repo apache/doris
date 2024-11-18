@@ -119,7 +119,6 @@ public:
     using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
-    const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
     bool is_variable_length() const override { return true; }
 

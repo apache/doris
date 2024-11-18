@@ -49,7 +49,7 @@ private:
               _data(src._data.begin(), src._data.end()) {}
 
 public:
-    const char* get_family_name() const override { return "ColumnFixedLengthObject"; }
+    std::string get_name() const override { return "ColumnFixedLengthObject"; }
 
     size_t size() const override { return _item_count; }
 

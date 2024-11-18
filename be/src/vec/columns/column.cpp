@@ -30,7 +30,7 @@ namespace doris::vectorized {
 
 std::string IColumn::dump_structure() const {
     std::stringstream res;
-    res << get_family_name() << "(size = " << size();
+    res << get_name() << "(size = " << size();
 
     ColumnCallback callback = [&](ColumnPtr& subcolumn) {
         res << ", " << subcolumn->dump_structure();
