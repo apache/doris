@@ -650,6 +650,15 @@ void ExchangeSinkLocalState::register_channels(pipeline::ExchangeSinkBuffer* buf
     for (auto& channel : channels) {
         channel->register_exchange_buffer(buffer);
     }
+
+    std::set<InstanceLoId> ins_id_set;
+    for (auto& channel : channels) {
+        auto ins_id = channel->ins_id();
+        if (!channel->is_local() && !ins_id_set.contains(ins_id)) {
+            buffer->register_sink(ins_id);
+            ins_id_set.insert(ins_id);
+        }
+    }
 }
 
 Status ExchangeSinkOperatorX::channel_add_rows(
