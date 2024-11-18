@@ -377,15 +377,15 @@ suite("test_backup_cooldown_1", "backup_cooldown_data") {
     // 1.3 restore 指定 （"reserve_storage_policy"="false"), 预期成功，且不落冷
 
     // 2 删除老表
-    // 1.1 restore 不指定 预期成功，且落冷
-    // 1.2 restore 指定 （"reserve_storage_policy"="true"）预期成功，且落冷
-    // 1.3 restore 指定 （"reserve_storage_policy"="false"）预期成功，且不落冷
+    // 2.1 restore 不指定 预期成功，且落冷
+    // 2.2 restore 指定 （"reserve_storage_policy"="true"）预期成功，且落冷
+    // 2.3 restore 指定 （"reserve_storage_policy"="false"）预期成功，且不落冷
 
 
     // 3 删除resource 和 policy
-    // 1.1 restore 不指定 预期成功，且落冷
-    // 1.2 restore 指定 （"reserve_storage_policy"="true"）预期成功，且落冷
-    // 1.3 restore 指定 （"reserve_storage_policy"="false"）预期成功，且不落冷
+    // 2.1 restore 不指定 预期成功，且落冷
+    // 2.2 restore 指定 （"reserve_storage_policy"="true"）预期成功，且落冷
+    // 2.3 restore 指定 （"reserve_storage_policy"="false"）预期成功，且不落冷
 
 
     // 1. old table exist

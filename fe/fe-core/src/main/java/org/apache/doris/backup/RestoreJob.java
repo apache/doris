@@ -1419,10 +1419,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
             } else {
                 // restore storage policy
                 try {
-                    policyMgr.replayCreate(backupStoargePolicy);
-                    Env.getCurrentEnv().getEditLog().logCreatePolicy(backupStoargePolicy);
+                    policyMgr.createStoragePolicy(backupStoargePolicy);
                 } catch (Exception e) {
-                    LOG.error("restore user property fail should not happen", e);
+                    LOG.error("restore storage policy fail should not happen", e);
                 }
                 storagePolicies.add(backupStoargePolicy);
             }
