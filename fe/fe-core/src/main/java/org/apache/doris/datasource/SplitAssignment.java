@@ -18,6 +18,8 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.profile.ProfileSpan;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -52,6 +54,7 @@ public class SplitAssignment {
     private Split sampleSplit = null;
     private final AtomicBoolean isStop = new AtomicBoolean(false);
     private final AtomicBoolean scheduleFinished = new AtomicBoolean(false);
+    private SummaryProfile summaryProfile;
 
     private UserException exception = null;
 
@@ -60,12 +63,14 @@ public class SplitAssignment {
             SplitGenerator splitGenerator,
             SplitToScanRange splitToScanRange,
             Map<String, String> locationProperties,
-            List<String> pathPartitionKeys) {
+            List<String> pathPartitionKeys,
+            SummaryProfile summaryProfile) {
         this.backendPolicy = backendPolicy;
         this.splitGenerator = splitGenerator;
         this.splitToScanRange = splitToScanRange;
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
+        this.summaryProfile = summaryProfile;
     }
 
     public void init() throws UserException {
@@ -113,7 +118,7 @@ public class SplitAssignment {
         return sampleSplit;
     }
 
-    public void addToQueue(List<Split> splits) {
+    public void addToQueue(List<Split> splits, String scanNodeId) {
         if (splits.isEmpty()) {
             return;
         }
@@ -123,10 +128,13 @@ public class SplitAssignment {
                 sampleSplit = splits.get(0);
                 assignLock.notify();
             }
-            try {
-                batch = backendPolicy.computeScanRangeAssignment(splits);
-            } catch (UserException e) {
-                exception = e;
+            try (ProfileSpan ignored = ProfileSpan.create(
+                    summaryProfile, scanNodeId, SummaryProfile.CREATE_SCAN_RANGE_TIME)) {
+                try {
+                    batch = backendPolicy.computeScanRangeAssignment(splits);
+                } catch (UserException e) {
+                    exception = e;
+                }
             }
         }
         if (batch != null) {
@@ -173,5 +181,9 @@ public class SplitAssignment {
 
     public boolean isStop() {
         return isStop.get();
+    }
+
+    public SummaryProfile getSummaryProfile() {
+        return summaryProfile;
     }
 }
