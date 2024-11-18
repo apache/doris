@@ -33,13 +33,12 @@ PhysicalResultSink
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((web_sales.ws_net_profit <= 300.00) and (web_sales.ws_net_profit >= 50.00) and (web_sales.ws_sales_price <= 200.00) and (web_sales.ws_sales_price >= 50.00))
-------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
+----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((date_dim.d_year = 1998))
 ------------------------------------------------PhysicalOlapScan[date_dim]
 ------------------------------------PhysicalProject
---------------------------------------filter(((((cd1.cd_marital_status = 'D') AND (cd1.cd_education_status = 'Primary')) OR ((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'College'))) OR ((cd1.cd_marital_status = 'U') AND (cd1.cd_education_status = 'Advanced Degree'))) and cd_education_status IN ('Advanced Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'S', 'U'))
+--------------------------------------filter(cd_education_status IN ('Advanced Degree', 'College', 'Primary') and cd_marital_status IN ('D', 'S', 'U'))
 ----------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[reason]

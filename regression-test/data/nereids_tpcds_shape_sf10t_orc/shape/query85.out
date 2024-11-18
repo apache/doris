@@ -21,16 +21,15 @@ PhysicalResultSink
 ------------------------------------PhysicalProject
 --------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF2 wp_web_page_sk->[ws_web_page_sk]
 ----------------------------------------PhysicalProject
-------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF0 ws_item_sk->[wr_item_sk];RF1 ws_order_number->[wr_order_number]
+------------------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF0 wr_item_sk->[ws_item_sk];RF1 wr_order_number->[ws_order_number]
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1 RF3 RF4 RF7 RF9
+----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1 RF2 RF8
 --------------------------------------------PhysicalProject
-----------------------------------------------filter((web_sales.ws_net_profit <= 300.00) and (web_sales.ws_net_profit >= 50.00) and (web_sales.ws_sales_price <= 200.00) and (web_sales.ws_sales_price >= 50.00))
-------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF8
+----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF3 RF4 RF7 RF9
 ----------------------------------------PhysicalProject
 ------------------------------------------PhysicalOlapScan[web_page]
 ------------------------------------PhysicalProject
---------------------------------------filter(((((cd1.cd_marital_status = 'M') AND (cd1.cd_education_status = '4 yr Degree')) OR ((cd1.cd_marital_status = 'S') AND (cd1.cd_education_status = 'College'))) OR ((cd1.cd_marital_status = 'D') AND (cd1.cd_education_status = 'Secondary'))) and cd_education_status IN ('4 yr Degree', 'College', 'Secondary') and cd_marital_status IN ('D', 'M', 'S'))
+--------------------------------------filter(cd_education_status IN ('4 yr Degree', 'College', 'Secondary') and cd_marital_status IN ('D', 'M', 'S'))
 ----------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5 RF6
 --------------------------------PhysicalProject
 ----------------------------------filter(cd_education_status IN ('4 yr Degree', 'College', 'Secondary') and cd_marital_status IN ('D', 'M', 'S'))
