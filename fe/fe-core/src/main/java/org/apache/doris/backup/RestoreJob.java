@@ -1372,8 +1372,7 @@ public class RestoreJob extends AbstractJob {
             } else {
                 // restore storage policy
                 try {
-                    policyMgr.replayCreate(backupStoargePolicy);
-                    Env.getCurrentEnv().getEditLog().logCreatePolicy(backupStoargePolicy);
+                    policyMgr.createStoragePolicy(backupStoargePolicy);
                 } catch (Exception e) {
                     LOG.error("restore user property fail should not happen", e);
                 }
