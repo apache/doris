@@ -349,7 +349,7 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
             size_output_rowsets += rs->total_disk_size();
             num_output_segments += rs->num_segments();
             index_size_output_rowsets += rs->index_disk_size();
-            segment_size_output_rowsets += rs->data_disk_size()
+            segment_size_output_rowsets += rs->data_disk_size();
         }
         sc_job->set_num_output_rows(num_output_rows);
         sc_job->set_size_output_rowsets(size_output_rowsets);

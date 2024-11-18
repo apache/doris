@@ -156,8 +156,8 @@ suite("test_show_index_data_p2", "p2") {
             });
         }
 
-        int afterSegmentCount = 0
         for (def tablet in tablets) {
+            int afterSegmentCount = 0
             String tablet_id = tablet.TabletId
             (code, out, err) = curl("GET", tablet.CompactionStatus)
             logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -168,8 +168,9 @@ suite("test_show_index_data_p2", "p2") {
                 logger.info("rowset is: " + rowset)
                 afterSegmentCount += Integer.parseInt(rowset.split(" ")[1])
             }
+            assertEquals(afterSegmentCount, 1)
         }
-        assertEquals(afterSegmentCount, 1)
+        
     }
 
     double localIndexSize = 0
