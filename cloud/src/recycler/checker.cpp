@@ -765,6 +765,9 @@ std::string InstanceChecker::RowsetDigest::to_string() const {
 }
 
 int InstanceChecker::check_delete_bitmap_integrity(int64_t tablet_id) {
+    // number of rowsets which doesn't have a delete bitmap in MS
+    int64_t abnormal_rowsets_num {0};
+
     std::vector<RowsetDigest> tablet_rowsets {};
     // Get all visible rowsets of this tablet
     auto collect_cb = [&tablet_rowsets](const doris::RowsetMetaCloudPB& rowset) {
@@ -785,7 +788,6 @@ int InstanceChecker::check_delete_bitmap_integrity(int64_t tablet_id) {
         return -1;
     }
 
-    int64_t abnormal_rowsets_num {0};
     for (const auto& rowset : tablet_rowsets) {
         if (rowset.version.second <= 1) {
             // skip dummy rowset [0-1]
@@ -814,25 +816,43 @@ int InstanceChecker::check_delete_bitmap_integrity(int64_t tablet_id) {
     if (abnormal_rowsets_num > 0) {
         LOG(WARNING) << fmt::format(
                 "[delete bitmap checker] can't find corresponding delete bitmap for "
-                "instance_id={}, tablet_id={}, abnormal_rowsets_num={}",
-                instance_id_, tablet_id, abnormal_rowsets_num);
+                "instance_id={}, tablet_id={}, rowsets_num={}, abnormal_rowsets_num={}",
+                instance_id_, tablet_id, tablet_rowsets.size(), abnormal_rowsets_num);
         return 1;
     }
 
     LOG(INFO) << fmt::format(
-            "[delete bitmap checker] check delete bitmap integrity for tablet={} successfully.",
-            tablet_id);
+            "[delete bitmap checker] check delete bitmap integrity for tablet={} successfully. "
+            "rowsets_num={}",
+            tablet_id, tablet_rowsets.size());
     return 0;
 }
 
 int InstanceChecker::do_delete_bitmap_integrity_check() {
+    int64_t total_tablets_num {0};
+    int64_t failed_tablets_num {0};
+
     // check that for every visible rowset, there exists at least delete bitmap in MS
-    return traverse_mow_tablet(
-            [&](int64_t tablet_id) { return check_delete_bitmap_integrity(tablet_id); });
+    int ret = traverse_mow_tablet([&](int64_t tablet_id) {
+        ++total_tablets_num;
+        int res = check_delete_bitmap_integrity(tablet_id);
+        failed_tablets_num += (res != 0);
+        return res;
+    });
+
+    if (ret < 0) {
+        return ret;
+    }
+
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] check delete bitmap integrity for instance_id={}, "
+            "total_tablets_num={}, failed_tablets_num={}",
+            instance_id_, total_tablets_num, failed_tablets_num);
+
+    return (failed_tablets_num > 0) ? 1 : 0;
 }
 
 int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& check_func) {
-    bool failed {false};
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -879,7 +899,6 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
             if (tablet_meta.enable_unique_key_merge_on_write()) {
                 // only check merge-on-write table
                 int ret = check_func(tablet_id);
-                failed |= (ret != 0);
                 if (ret < 0) {
                     // return immediately when encounter unecpected result,
                     // otherwise we continue to check the next tablet
@@ -888,7 +907,7 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
             }
         }
     } while (it->more() && !stopped());
-    return failed ? 1 : 0;
+    return 0;
 }
 
 int InstanceChecker::collect_tablet_rowsets(
@@ -936,12 +955,11 @@ int InstanceChecker::collect_tablet_rowsets(
             }
         }
     } while (it->more() && !stopped());
-    // TODO(bobhan1): delete this log later
 
     LOG(INFO) << fmt::format(
-            "[delete bitmap checker] successfully collect rowsets for tablet_id={}, "
-            "rowsets_num={}",
-            tablet_id, rowsets_num);
+            "[delete bitmap checker] successfully collect rowsets for instance_id={}, "
+            "tablet_id={}, rowsets_num={}",
+            instance_id_, tablet_id, rowsets_num);
     return 0;
 }
 

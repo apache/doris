@@ -2719,6 +2719,30 @@ TEST(CheckerTest, delete_bitmap_integrity_check_abnormal) {
         }
     }
 
+    for (int tablet_id = 500011; tablet_id <= 500020; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        int64_t rowset_start_id = 300;
+        for (int ver = 2; ver <= 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, rowset_id, 1);
+            // only create delete bitmaps for some rowsets
+            if (ver > 5) {
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val {"test"};
+                txn->put(delete_bitmap_key, delete_bitmap_val);
+            } else {
+                // delete bitmaps may be spilitted into mulitiple KVs if too large
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val(1000, 'A');
+                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+            }
+        }
+    }
+
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
 
     ASSERT_NE(checker.do_delete_bitmap_integrity_check(), 0);
