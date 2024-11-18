@@ -403,10 +403,7 @@ Status CloudMetaMgr::get_rowset(CloudTablet* tablet,
             req.set_cumulative_compaction_cnt(tablet->cumulative_compaction_cnt());
             req.set_cumulative_point(tablet->cumulative_layer_point());
         }
-        req.set_end_version(-1);
-        if (config::variant_use_cloud_schema_dict) {
-            req.set_schema_op(GetRowsetRequest::NO_DICT);
-        }
+        req.set_schema_op(GetRowsetRequest::NO_DICT);
 
         Status st = retry_rpc("get rowset", req, &resp, &MetaService_Stub::get_rowset);
         if (!st.ok()) {
