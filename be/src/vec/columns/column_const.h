@@ -121,8 +121,6 @@ public:
 
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
-    const char* get_family_name() const override { return "Const"; }
-
     void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
@@ -250,15 +248,6 @@ public:
         } else {
             return data->compare_at(0, 0, *rhs_const_column.data, nan_direction_hint);
         }
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        assert_cast<Self&>(*res).resize(selector.size());
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        assert_cast<Self&>(*res).resize(end - begin);
     }
 
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }

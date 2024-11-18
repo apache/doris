@@ -59,6 +59,8 @@ private:
     CL_NS(store)::IndexInput* base;
     int64_t fileOffset;
     int64_t _length;
+    const io::IOContext* _io_ctx = nullptr;
+    bool _is_index_file = false; // Indicates if the file is a TII file
 
 protected:
     void readInternal(uint8_t* /*b*/, const int32_t /*len*/) override;
@@ -75,6 +77,8 @@ public:
     const char* getDirectoryType() const override { return DorisCompoundReader::getClassName(); }
     const char* getObjectName() const override { return getClassName(); }
     static const char* getClassName() { return "CSIndexInput"; }
+    void setIoContext(const void* io_ctx) override;
+    void setIndexFile(bool isIndexFile) override;
 };
 
 CSIndexInput::CSIndexInput(CL_NS(store)::IndexInput* base, const int64_t fileOffset,
@@ -92,9 +96,12 @@ void CSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     if (start + len > _length) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
+    base->setIoContext(_io_ctx);
+    base->setIndexFile(_is_index_file);
     base->seek(fileOffset + start);
     bool read_from_buffer = true;
     base->readBytes(b, len, read_from_buffer);
+    base->setIoContext(nullptr);
 }
 
 CSIndexInput::~CSIndexInput() = default;
@@ -110,6 +117,14 @@ CSIndexInput::CSIndexInput(const CSIndexInput& clone) : BufferedIndexInput(clone
 }
 
 void CSIndexInput::close() {}
+
+void CSIndexInput::setIoContext(const void* io_ctx) {
+    _io_ctx = static_cast<const io::IOContext*>(io_ctx);
+}
+
+void CSIndexInput::setIndexFile(bool isIndexFile) {
+    _is_index_file = isIndexFile;
+}
 
 DorisCompoundReader::DorisCompoundReader(CL_NS(store)::IndexInput* stream, int32_t read_buffer_size)
         : _ram_dir(new lucene::store::RAMDirectory()),

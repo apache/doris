@@ -1578,8 +1578,8 @@ class Suite implements GroovyInterceptable {
         }
     }
 
-    def getMVJobState = { tableName, rollUpName  ->
-        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' and IndexName = '${rollUpName}' ORDER BY CreateTime DESC limit 1"""
+    def getMVJobState = { tableName  ->
+        def jobStateResult = sql """ SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC limit 1"""
         if (jobStateResult == null || jobStateResult.isEmpty()) {
             logger.info("show alter table roll is empty" + jobStateResult)
             return "NOT_READY"
@@ -1590,14 +1590,14 @@ class Suite implements GroovyInterceptable {
         }
         return "FINISHED";
     }
-    def waitForRollUpJob =  (tbName, rollUpName, timeoutMillisecond) -> {
+    def waitForRollUpJob =  (tbName, timeoutMillisecond) -> {
 
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + timeoutMillisecond
 
         String result
         while (timeoutTimestamp > System.currentTimeMillis()){
-            result = getMVJobState(tbName, rollUpName)
+            result = getMVJobState(tbName)
             if (result == "FINISHED") {
                 sleep(200)
                 return
@@ -1680,7 +1680,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void setFeConfig(String key, Object value) {
-        sql "ADMIN SET ALL FRONTEND CONFIG ('${key}' = '${value}')"
+        sql "ADMIN SET ALL FRONTENDS CONFIG ('${key}' = '${value}')"
     }
 
     void setFeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
@@ -1873,8 +1873,17 @@ class Suite implements GroovyInterceptable {
     }
 
     // mv not part in rewrite process
-    def mv_not_part_in = { query_sql, mv_name ->
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name)
+    void mv_not_part_in(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_name + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean isContain = result.contains("${mv_name}")
+                    Assert.assertFalse(isContain)
+                }
+            }
+        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->
@@ -1886,8 +1895,20 @@ class Suite implements GroovyInterceptable {
     }
 
     // multi mv all not part in rewrite process
-    def mv_all_not_part_in = { query_sql, mv_names ->
-        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
+    void mv_all_not_part_in(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()) {
+        logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " + sync_cbo_rewrite)
+        if (!sync_cbo_rewrite) {
+            explain {
+                sql("${query_sql}")
+                check { result ->
+                    boolean isContain = false;
+                    for (String mv_name : mv_names) {
+                        isContain = isContain || result.contains("${mv_name}")
+                    }
+                    Assert.assertFalse(isContain)
+                }
+            }
+        }
         explain {
             sql(" memo plan ${query_sql}")
             check { result ->

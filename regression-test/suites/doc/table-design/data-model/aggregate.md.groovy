@@ -33,9 +33,9 @@ suite("docs/table-design/data-model/aggregate.md") {
             `min_dwell_time` INT MIN DEFAULT "99999" COMMENT "用户最小停留时间"
         )
         AGGREGATE KEY(`user_id`, `date`, `city`, `age`, `sex`)
-        DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 10
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 3"
         );
         """
 

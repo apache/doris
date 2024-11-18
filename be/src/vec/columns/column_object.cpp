@@ -1935,7 +1935,7 @@ void ColumnObject::update_crc_with_value(size_t start, size_t end, uint32_t& has
 
 std::string ColumnObject::debug_string() const {
     std::stringstream res;
-    res << get_family_name() << "(num_row = " << num_rows;
+    res << get_name() << "(num_row = " << num_rows;
     for (auto& entry : subcolumns) {
         if (entry->data.is_finalized()) {
             res << "[column:" << entry->data.data[0]->dump_structure()
@@ -1952,8 +1952,8 @@ Status ColumnObject::sanitize() const {
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
             auto column = subcolumn->data.get_least_common_type()->create_column();
-            std::string original = subcolumn->data.get_finalized_column().get_family_name();
-            std::string expected = column->get_family_name();
+            std::string original = subcolumn->data.get_finalized_column().get_name();
+            std::string expected = column->get_name();
             if (original != expected) {
                 return Status::InternalError("Incompatible type between {} and {}, debug_info:",
                                              original, expected, debug_string());

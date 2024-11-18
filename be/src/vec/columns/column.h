@@ -88,10 +88,7 @@ public:
     using Offsets = PaddedPODArray<Offset>;
 
     /// Name of a Column. It is used in info messages.
-    virtual std::string get_name() const { return get_family_name(); }
-
-    /// Name of a Column kind, without parameters (example: FixedString, Array).
-    virtual const char* get_family_name() const = 0;
+    virtual std::string get_name() const = 0;
 
     /** If column isn't constant, returns nullptr (or itself).
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
@@ -465,8 +462,7 @@ public:
       * For array/map/struct types, we compare with nested column element and offsets size
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "compare_at for " + std::string(get_family_name()));
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "compare_at for " + get_name());
     }
 
     /**
@@ -488,7 +484,7 @@ public:
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                  Permutation& res) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "get_permutation for " + std::string(get_family_name()));
+                               "get_permutation for " + get_name());
     }
 
     /** Copies each element according offsets parameter.
@@ -506,13 +502,17 @@ public:
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
-      * For default implementation, see scatter_impl.
+      * For default implementation, see column_impl.h
       */
     using ColumnIndex = UInt64;
     using Selector = PaddedPODArray<ColumnIndex>;
 
+    // The append_data_by_selector function requires the column to implement the insert_from function.
+    // In fact, this function is just calling insert_from but without the overhead of a virtual function.
+
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
 
+    // Here, begin and end represent the range of the Selector.
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector, size_t begin,
                                          size_t end) const = 0;
 
@@ -657,6 +657,20 @@ public:
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
+    /**
+     * ColumnSorter is used to sort each columns in a Block. In this sorting pattern, sorting a
+     * column will produce a list of EqualRange which has the same elements respectively. And for
+     * next column in this block, we only need to sort rows in those `range`.
+     *
+     * Besides, we do not materialize sorted data eagerly. Instead, the intermediate sorting results
+     * are represendted by permutation and data will be materialized after all of columns are sorted.
+     *
+     * @sorter: ColumnSorter is used to do sorting.
+     * @flags : indicates if current item equals to the previous one.
+     * @perms : permutation after sorting
+     * @range : EqualRange which has the same elements respectively.
+     * @last_column : indicates if this column is the last in this block.
+     */
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                              IColumn::Permutation& perms, EqualRange& range,
                              bool last_column) const;

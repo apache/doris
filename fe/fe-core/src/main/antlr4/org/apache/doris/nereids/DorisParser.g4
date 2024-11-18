@@ -205,8 +205,10 @@ supportedShowStatement
     | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ROLES                                                                    #showRoles        
     | SHOW PROC path=STRING_LITERAL                                                 #showProc        
+    | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
+    | SHOW FRONTENDS name=identifier?                                               #showFrontends 
     ;
 
 unsupportedOtherStatement
@@ -255,7 +257,6 @@ unsupportedShowStatement
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
     | SHOW EVENTS ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showEvents
     | SHOW PLUGINS                                                                  #showPlugins
-    | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW BRIEF? CREATE TABLE name=multipartIdentifier                             #showCreateTable
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
     | SHOW CREATE MATERIALIZED VIEW name=multipartIdentifier                        #showMaterializedView
@@ -305,7 +306,6 @@ unsupportedShowStatement
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
-    | SHOW FRONTENDS name=identifier?                                               #showFrontends
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
