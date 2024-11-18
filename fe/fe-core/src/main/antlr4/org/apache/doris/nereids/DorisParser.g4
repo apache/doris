@@ -204,12 +204,15 @@ supportedShowStatement
         ((FROM | IN) database=identifier)?                                          #showView
     | SHOW REPOSITORIES                                                             #showRepositories
     | SHOW ROLES                                                                    #showRoles        
+    | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId
     | SHOW PROC path=STRING_LITERAL                                                 #showProc        
     | SHOW STORAGE? ENGINES                                                         #showStorageEngines
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
+    | SHOW BACKENDS                                                                 #showBackends
     | SHOW FRONTENDS name=identifier?                                               #showFrontends 
     | SHOW DATABASE databaseId=INTEGER_VALUE                                        #showDatabaseId
+    | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     ;
 
 unsupportedOtherStatement
@@ -252,7 +255,6 @@ unsupportedShowStatement
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
-    | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW FULL? PROCESSLIST                                                        #showProcessList
     | SHOW (GLOBAL | SESSION | LOCAL)? STATUS wildWhere?                            #showStatus
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
@@ -291,7 +293,6 @@ unsupportedShowStatement
     | SHOW DATA (FROM tableName=multipartIdentifier)? sortClause? propertyClause?   #showData
     | SHOW TEMPORARY? PARTITIONS FROM tableName=multipartIdentifier
         wildWhere? sortClause? limitClause?                                         #showPartitions
-    | SHOW PARTITION partitionId=INTEGER_VALUE                                      #showPartitionId
     | SHOW TABLET tabletId=INTEGER_VALUE                                            #showTabletId
     | SHOW TABLETS BELONG
         tabletIds+=INTEGER_VALUE (COMMA tabletIds+=INTEGER_VALUE)*                  #showTabletBelong
@@ -304,7 +305,6 @@ unsupportedShowStatement
     | SHOW BROKER                                                                   #showBroker
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
-    | SHOW BACKENDS                                                                 #showBackends
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash
     | SHOW SNAPSHOT ON repo=identifier wildWhere?                                   #showSnapshot
     | SHOW ALL? GRANTS                                                              #showGrants

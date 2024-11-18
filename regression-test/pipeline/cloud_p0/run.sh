@@ -58,7 +58,7 @@ run() {
         echo "ak='${s3SourceAk}'"
         echo "sk='${s3SourceSk}'"
         echo "hwYunAk='${hwYunAk:-}'"
-        echo "hwYunAk='${hwYunSk:-}'"
+        echo "hwYunSk='${hwYunSk:-}'"
         echo "txYunAk='${txYunAk:-}'"
         echo "txYunSk='${txYunSk:-}'"
     } >>"${teamcity_build_checkoutDir}"/regression-test/pipeline/cloud_p0/conf/regression-conf-custom.groovy

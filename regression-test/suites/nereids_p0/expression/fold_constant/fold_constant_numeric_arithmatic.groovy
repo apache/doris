@@ -434,4 +434,13 @@ test {
     testFoldConst("with cte as (select round(300.343, -4) order by 1 limit 1) select * from cte")
     testFoldConst("with cte as (select ceil(300.343, -4) order by 1 limit 1) select * from cte")
     testFoldConst("with cte as (select truncate(300.343, -4) order by 1 limit 1) select * from cte")
+
+    testFoldConst("with cte as (select floor(3) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select round(3) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select ceil(3) order by 1 limit 1) select * from cte")
+
+    testFoldConst("with cte as (select floor(3, 2) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select round(3, 2) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select ceil(3, 2) order by 1 limit 1) select * from cte")
+    testFoldConst("with cte as (select truncate(3, 2) order by 1 limit 1) select * from cte")
 }
