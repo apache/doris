@@ -74,7 +74,6 @@ suite("test_index_compaction_p0", "p0, nonConcurrent") {
     (1..20).each { i ->
         def fileName = "documents-" + i + ".json"
         load_json_data.call(compaction_table_name, """${fileName}""")
-
     }
 
     def backendId_to_backendIP = [:]
