@@ -368,7 +368,7 @@ suite("test_show_index_data_p2", "p2") {
     compaction.call()
 
     // 4. check show data
-    check_show_data.call(FileSizeChange.SMALLER, FileSizeChange.SMALLER)
+    check_show_data.call(FileSizeChange.LARGER, FileSizeChange.SMALLER)
 
     // 5. schema change
     schema_change.call()

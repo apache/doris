@@ -702,7 +702,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
         stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
         stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
-        stats->set_num_segments(stats->num_segments() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
+        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
         stats->set_last_cumu_compaction_time_ms(now * 1000);
         // clang-format on
     } else if (compaction.type() == TabletCompactionJobPB::BASE) {
@@ -713,7 +713,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
         stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
         stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
-        stats->set_num_segments(stats->num_segments() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
+        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
         stats->set_last_base_compaction_time_ms(now * 1000);
         // clang-format on
     } else if (compaction.type() == TabletCompactionJobPB::FULL) {
@@ -729,7 +729,7 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         stats->set_num_rowsets(stats->num_rowsets() + (compaction.num_output_rowsets() - compaction.num_input_rowsets()));
         stats->set_num_segments(stats->num_segments() + (compaction.num_output_segments() - compaction.num_input_segments()));
         stats->set_index_size(stats->index_size() + (compaction.index_size_output_rowsets() - compaction.index_size_input_rowsets()));
-        stats->set_num_segments(stats->num_segments() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
+        stats->set_segment_size(stats->segment_size() + (compaction.segment_size_output_rowsets() - compaction.segment_size_input_rowsets()));
         stats->set_last_full_compaction_time_ms(now * 1000);
         // clang-format on
     } else {
