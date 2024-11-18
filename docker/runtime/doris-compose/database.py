@@ -27,12 +27,13 @@ LOG = utils.get_logger()
 
 class FEState(object):
 
-    def __init__(self, id, is_master, alive, last_heartbeat, err_msg):
+    def __init__(self, id, is_master, alive, last_heartbeat, err_msg, role):
         self.id = id
         self.is_master = is_master
         self.alive = alive
         self.last_heartbeat = last_heartbeat
         self.err_msg = err_msg
+        self.role = role
 
 
 class BEState(object):
@@ -66,11 +67,11 @@ class DBManager(object):
         self._load_fe_states()
         self._load_be_states()
 
-    def add_fe(self, fe_endpoint):
+    def add_fe(self, fe_endpoint, role):
         try:
-            sql = f"ALTER SYSTEM ADD FOLLOWER '{fe_endpoint}'"
+            sql = f"ALTER SYSTEM ADD {role} '{fe_endpoint}'"
             self._exec_query(sql)
-            LOG.info(f"Added FE {fe_endpoint} via SQL successfully.")
+            LOG.info(f"Added {role} FE {fe_endpoint} via SQL successfully.")
         except Exception as e:
             LOG.error(f"Failed to add FE {fe_endpoint} via SQL: {str(e)}")
             raise
@@ -78,8 +79,9 @@ class DBManager(object):
     def drop_fe(self, fe_endpoint):
         id = CLUSTER.Node.get_id_from_ip(fe_endpoint[:fe_endpoint.find(":")])
         try:
-            self._exec_query(
-                "ALTER SYSTEM DROP FOLLOWER '{}'".format(fe_endpoint))
+            role = self.get_fe(id).role if self.get_fe(id) else "FOLLOWER"
+            self._exec_query("ALTER SYSTEM DROP {} '{}'".format(
+                role, fe_endpoint))
             LOG.info("Drop fe {} with id {} from db succ.".format(
                 fe_endpoint, id))
         except Exception as e:
@@ -152,7 +154,7 @@ class DBManager(object):
                 .format(be_endpoint, be.alive, be.decommissioned, be.tablet_num, old_tablet_num,
                         int(time.time() - start_ts)))
 
-            time.sleep(5)
+            time.sleep(1)
 
     def create_default_storage_vault(self, cloud_store_config):
         try:
@@ -194,7 +196,7 @@ class DBManager(object):
             id = CLUSTER.Node.get_id_from_ip(ip)
             last_heartbeat = utils.escape_null(record["LastHeartbeat"])
             err_msg = record["ErrMsg"]
-            fe = FEState(id, is_master, alive, last_heartbeat, err_msg)
+            fe = FEState(id, is_master, alive, last_heartbeat, err_msg, role)
             fe_states[id] = fe
             if is_master and alive:
                 alive_master_fe_ip = ip
@@ -257,19 +259,23 @@ def get_db_mgr(cluster_name, required_load_succ=True):
     if not master_fe_ip:
         return db_mgr
 
-    has_alive_fe = False
+    alive_fe = None
+    cluster = CLUSTER.Cluster.load(cluster_name)
     containers = utils.get_doris_containers(cluster_name).get(cluster_name, [])
     for container in containers:
         if utils.is_container_running(container):
-            _, node_type, _ = utils.parse_service_name(container.name)
+            _, node_type, id = utils.parse_service_name(container.name)
             if node_type == CLUSTER.Node.TYPE_FE:
-                has_alive_fe = True
-                break
-
-    if not has_alive_fe:
+                node = cluster.get_node(node_type, id)
+                if not alive_fe:
+                    alive_fe = node
+                if node.get_ip() == master_fe_ip:
+                    alive_fe = node
+                    break
+    if not alive_fe:
         return db_mgr
 
-    db_mgr.master_fe_ip = master_fe_ip
+    db_mgr.master_fe_ip = alive_fe.get_ip()
     try:
         db_mgr.load_states()
     except Exception as e:

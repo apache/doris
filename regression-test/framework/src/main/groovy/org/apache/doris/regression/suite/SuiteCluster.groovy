@@ -461,8 +461,8 @@ class SuiteCluster {
         return new Tuple4(frontends, backends, metaservices, recyclers)
     }
 
-    List<Integer> addFrontend(int num, boolean followerMode=false) throws Exception {
-        def result = add(num, 0, null, followerMode)
+    List<Integer> addFrontend(int num, boolean followerMode=false, boolean useSqlMode=false) throws Exception {
+        def result = add(num, 0, null, followerMode, useSqlMode)
         return result.first
     }
 
@@ -473,7 +473,7 @@ class SuiteCluster {
 
     // ATTN: clusterName just used for cloud mode, 1 cluster has n bes
     // ATTN: followerMode just used for cloud mode
-    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false) throws Exception {
+    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false, boolean useSqlMode=false) throws Exception {
         assert feNum > 0 || beNum > 0
 
         def sb = new StringBuilder()
@@ -482,6 +482,9 @@ class SuiteCluster {
             sb.append('--add-fe-num ' + feNum + ' ')
             if (followerMode) {
                 sb.append('--fe-follower' + ' ')
+            }
+            if (useSqlMode) {
+                sb.append('--sql-mode-node-mgr' + ' ')
             }
         }
         if (beNum > 0) {
