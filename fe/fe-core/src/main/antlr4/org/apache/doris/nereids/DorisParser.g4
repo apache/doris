@@ -211,6 +211,7 @@ supportedShowStatement
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView   
     | SHOW BACKENDS                                                                 #showBackends
     | SHOW FRONTENDS name=identifier?                                               #showFrontends 
+    | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     ;
 
 unsupportedOtherStatement
@@ -253,7 +254,6 @@ unsupportedShowStatement
     | SHOW TABLE STATUS ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTableStatus
     | SHOW FULL? TABLES ((FROM | IN) database=multipartIdentifier)? wildWhere?      #showTables
     | SHOW FULL? VIEWS ((FROM | IN) database=multipartIdentifier)? wildWhere?       #showViews
-    | SHOW TABLE tableId=INTEGER_VALUE                                              #showTableId
     | SHOW FULL? PROCESSLIST                                                        #showProcessList
     | SHOW (GLOBAL | SESSION | LOCAL)? STATUS wildWhere?                            #showStatus
     | SHOW FULL? TRIGGERS ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showTriggers
