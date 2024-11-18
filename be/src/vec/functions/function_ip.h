@@ -1291,16 +1291,16 @@ public:
         offsets_res.resize(input_rows_count);
         auto* begin = reinterpret_cast<char*>(chars_res.data());
         auto* pos = begin;
-        unsigned char ipv6_address_data[IPV6_BINARY_LENGTH];
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto ipv6_idx = index_check_const(i, ipv6_const);
             auto bytes_to_cut_for_ipv6_idx = index_check_const(i, bytes_to_cut_for_ipv6_const);
             auto bytes_to_cut_for_ipv4_idx = index_check_const(i, bytes_to_cut_for_ipv4_const);
-
-            memcpy(ipv6_address_data,
-                   reinterpret_cast<const unsigned char*>(&ipv6_addr_column_data[ipv6_idx]),
-                   IPV6_BINARY_LENGTH);
+            // the current function logic is processed in big endian manner
+            // But ipv6 in doris is stored in little-endian byte order
+            // need transfer to big-endian byte order first, so we can't deal this process in column
+            auto val_128 = ipv6_addr_column_data[ipv6_idx];
+            auto* address = reinterpret_cast<unsigned char*>(&val_128);
 
             Int8 bytes_to_cut_for_ipv6_count =
                     to_cut_for_ipv6_bytes_column_data[bytes_to_cut_for_ipv6_idx];
@@ -1321,13 +1321,9 @@ public:
                                 get_name());
             }
 
-            UInt8 bytes_to_cut_count = is_ipv4_mapped(ipv6_address_data)
-                                               ? bytes_to_cut_for_ipv4_count
-                                               : bytes_to_cut_for_ipv6_count;
-            // the current function logic is processed in big endian manner
-            // But ipv6 in doris is stored in little-endian byte order
-            // so transfer to big-endian byte order first
-            cut_address(ipv6_address_data, pos, bytes_to_cut_count);
+            UInt8 bytes_to_cut_count = is_ipv4_mapped(address) ? bytes_to_cut_for_ipv4_count
+                                                               : bytes_to_cut_for_ipv6_count;
+            cut_address(address, pos, bytes_to_cut_count);
             offsets_res[i] = cast_set<uint32_t>(pos - begin);
         }
 
