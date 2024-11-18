@@ -75,7 +75,8 @@ public:
     template <typename T, typename TT>
     static void judge_selectivity(double ignore_threshold, int64_t filter_rows, int64_t input_rows,
                                   T& always_true, TT& judge_counter) {
-        always_true = filter_rows / (input_rows * 1.0) < ignore_threshold;
+        always_true = static_cast<double>(filter_rows) / static_cast<double>(input_rows) <
+                      ignore_threshold;
         judge_counter = config::runtime_filter_sampling_frequency;
     }
 

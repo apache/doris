@@ -233,7 +233,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
     if (_free_blocks.try_dequeue(block)) {
         DCHECK(block->mem_reuse());
         _block_memory_usage -= block->allocated_bytes();
-        _scanner_memory_used_counter->set(_block_memory_usage);
+        _scanner_memory_used_counter->set(static_cast<int64_t>(_block_memory_usage));
         // A free block is reused, so the memory usage should be decreased
         // The caller of get_free_block will increase the memory usage
         update_peak_memory_usage(-block->allocated_bytes());
@@ -249,7 +249,7 @@ void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
     if (block->mem_reuse() && _block_memory_usage < _max_bytes_in_queue) {
         size_t block_size_to_reuse = block->allocated_bytes();
         _block_memory_usage += block_size_to_reuse;
-        _scanner_memory_used_counter->set(_block_memory_usage);
+        _scanner_memory_used_counter->set(static_cast<int64_t>(_block_memory_usage));
         block->clear_column_data();
         if (_free_blocks.enqueue(std::move(block))) {
             update_peak_memory_usage(block_size_to_reuse);
