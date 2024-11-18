@@ -2638,23 +2638,21 @@ TEST(CheckerTest, delete_bitmap_integrity_check_normal) {
         ASSERT_EQ(0,
                   create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
         int64_t rowset_start_id = 100;
-        for (int64_t rowset_idx = 1; rowset_idx <= 10; rowset_idx++) {
-            std::string rowset_id = std::to_string(rowset_start_id + rowset_idx);
-            for (int ver = 2; ver < 10; ++ver) {
-                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                       ver, rowset_id, 1);
-                if (ver > 6) {
-                    auto delete_bitmap_key =
-                            meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                    std::string delete_bitmap_val {"test"};
-                    txn->put(delete_bitmap_key, delete_bitmap_val);
-                } else {
-                    // delete bitmaps may be spilitted into mulitiple KVs if too large
-                    auto delete_bitmap_key =
-                            meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                    std::string delete_bitmap_val(1000, 'A');
-                    cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
-                }
+        for (int ver = 2; ver <= 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, rowset_id, 1);
+            if (ver > 6) {
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val {"test"};
+                txn->put(delete_bitmap_key, delete_bitmap_val);
+            } else {
+                // delete bitmaps may be spilitted into mulitiple KVs if too large
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val(1000, 'A');
+                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
             }
         }
     }
@@ -2664,12 +2662,10 @@ TEST(CheckerTest, delete_bitmap_integrity_check_normal) {
         ASSERT_EQ(0,
                   create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
         int64_t rowset_start_id = 200;
-        for (int64_t rowset_idx = 1; rowset_idx <= 10; rowset_idx++) {
-            std::string rowset_id = std::to_string(rowset_start_id + rowset_idx);
-            for (int ver = 2; ver < 10; ++ver) {
-                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                       ver, rowset_id, 1);
-            }
+        for (int ver = 2; ver <= 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, rowset_id, 1);
         }
     }
 
@@ -2701,25 +2697,23 @@ TEST(CheckerTest, delete_bitmap_integrity_check_abnormal) {
         ASSERT_EQ(0,
                   create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
         int64_t rowset_start_id = 300;
-        for (int64_t rowset_idx = 1; rowset_idx < 10; rowset_idx++) {
-            std::string rowset_id = std::to_string(rowset_start_id + rowset_idx);
-            for (int ver = 2; ver < 10; ++ver) {
-                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                       ver, rowset_id, 1);
-                if (rowset_idx <= 7) {
-                    // only create delete bitmaps for some rowsets
-                    if (ver > 6) {
-                        auto delete_bitmap_key =
-                                meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                        std::string delete_bitmap_val {"test"};
-                        txn->put(delete_bitmap_key, delete_bitmap_val);
-                    } else {
-                        // delete bitmaps may be spilitted into mulitiple KVs if too large
-                        auto delete_bitmap_key =
-                                meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
-                        std::string delete_bitmap_val(1000, 'A');
-                        cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
-                    }
+        for (int ver = 2; ver <= 20; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, rowset_id, 1);
+            if (ver <= 10) {
+                // only create delete bitmaps for some rowsets
+                if (ver > 5) {
+                    auto delete_bitmap_key =
+                            meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                    std::string delete_bitmap_val {"test"};
+                    txn->put(delete_bitmap_key, delete_bitmap_val);
+                } else {
+                    // delete bitmaps may be spilitted into mulitiple KVs if too large
+                    auto delete_bitmap_key =
+                            meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                    std::string delete_bitmap_val(1000, 'A');
+                    cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
                 }
             }
         }
@@ -2728,6 +2722,129 @@ TEST(CheckerTest, delete_bitmap_integrity_check_abnormal) {
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
 
     ASSERT_NE(checker.do_delete_bitmap_integrity_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
+    // normal case, all delete bitmaps belong to a rowset
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    // create some rowsets with delete bitmaps in merge-on-write tablet
+    for (int tablet_id = 600001; tablet_id <= 600010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        int64_t rowset_start_id = 400;
+        for (int ver = 2; ver <= 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, rowset_id, 1);
+            if (ver >= 5) {
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val {"test"};
+                txn->put(delete_bitmap_key, delete_bitmap_val);
+            } else {
+                // delete bitmaps may be spilitted into mulitiple KVs if too large
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val(1000, 'A');
+                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+            }
+        }
+    }
+
+    // also create some rowsets without delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 700001; tablet_id <= 700010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 500;
+        for (int ver = 2; ver < 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, rowset_id, 1);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_EQ(checker.do_delete_bitmap_inverted_check(), 0);
+}
+
+TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
+    // abnormal case, some delete bitmaps arem leaked
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(instance_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("1");
+
+    InstanceChecker checker(txn_kv, instance_id);
+    ASSERT_EQ(checker.init(instance), 0);
+    auto accessor = checker.accessor_map_.begin()->second;
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+
+    constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
+    // create some rowsets with delete bitmaps in merge-on-write tablet
+    for (int tablet_id = 600001; tablet_id <= 600010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
+        int64_t rowset_start_id = 400;
+        for (int ver = 2; ver <= 20; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+
+            if (ver >= 10) {
+                // only create rowsets for some versions
+                create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                       ver, rowset_id, 1);
+            }
+
+            if (ver >= 5) {
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val {"test"};
+                txn->put(delete_bitmap_key, delete_bitmap_val);
+            } else {
+                // delete bitmaps may be spilitted into mulitiple KVs if too large
+                auto delete_bitmap_key =
+                        meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+                std::string delete_bitmap_val(1000, 'A');
+                cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
+            }
+        }
+    }
+
+    // also create some rowsets without delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 700001; tablet_id <= 700010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 500;
+        for (int ver = 2; ver < 10; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, rowset_id, 1);
+        }
+    }
+
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+
+    ASSERT_NE(checker.do_delete_bitmap_inverted_check(), 0);
 }
 
 TEST(RecyclerTest, delete_rowset_data) {

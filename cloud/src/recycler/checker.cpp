@@ -902,6 +902,8 @@ int InstanceChecker::collect_tablet_rowsets(
     std::unique_ptr<RangeGetIterator> it;
     auto begin = meta_rowset_key({instance_id_, tablet_id, 0});
     auto end = meta_rowset_key({instance_id_, tablet_id + 1, 0});
+
+    int64_t rowsets_num {0};
     do {
         TxnErrorCode err = txn->get(begin, end, &it);
         if (err != TxnErrorCode::TXN_OK) {
@@ -919,6 +921,12 @@ int InstanceChecker::collect_tablet_rowsets(
                 return -1;
             }
 
+            ++rowsets_num;
+            LOG(WARNING) << fmt::format(
+                    "[InstanceChecker::collect_tablet_rowsets] instance_id={}, tablet_id={}, "
+                    "rowset_id={}, version=[{}-{}]",
+                    instance_id_, tablet_id, rowset.rowset_id_v2(), rowset.start_version(),
+                    rowset.end_version());
             collect_cb(rowset);
 
             if (!it->has_next()) {
@@ -928,10 +936,18 @@ int InstanceChecker::collect_tablet_rowsets(
             }
         }
     } while (it->more() && !stopped());
+    // TODO(bobhan1): delete this log later
+
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] successfully collect rowsets for tablet_id={}, "
+            "rowsets_num={}",
+            tablet_id, rowsets_num);
     return 0;
 }
 
 int InstanceChecker::do_delete_bitmap_inverted_check() {
+    // number of delete bitmap keys being scanned
+    int64_t total_delete_bitmap_keys {0};
     // number of delete bitmaps which belongs to non mow tablet
     int64_t abnormal_delete_bitmaps {0};
     // number of delete bitmaps which doesn't have corresponding rowset in MS
@@ -973,6 +989,8 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
             auto rowset_id = std::get<std::string>(std::get<0>(out[4]));
             auto version = std::get<std::int64_t>(std::get<0>(out[5]));
             auto segment_id = std::get<std::int64_t>(std::get<0>(out[6]));
+
+            ++total_delete_bitmap_keys;
 
             if (!it->has_next()) {
                 // Update to next smallest key for iteration
@@ -1016,21 +1034,33 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                     return ret;
                 }
             }
+            DCHECK_EQ(tablet_id, tablet_rowsets_cache.tablet_id);
 
             if (!tablet_rowsets_cache.rowsets.contains(rowset_id)) {
                 ++leaked_delete_bitmaps;
                 // log an error and continue to check the next delete bitmap
                 LOG(WARNING) << fmt::format(
                         "[delete bitmap check fails] can't find corresponding rowset for delete "
-                        "bitmap instance_id={}, tablet_id={}, version={}, segment_id={}",
-                        instance_id_, tablet_id, version, segment_id);
+                        "bitmap instance_id={}, tablet_id={}, rowset_id={}, version={}, "
+                        "segment_id={}",
+                        instance_id_, tablet_id, rowset_id, version, segment_id);
             }
         }
     } while (it->more() && !stopped());
+
     if (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) {
-        LOG(WARNING) << fmt::format("");
+        LOG(WARNING) << fmt::format(
+                "[delete bitmap check fails] delete bitmap inverted check for instance_id={}, "
+                "total_delete_bitmap_keys={}, leaked_delete_bitmaps={}, abnormal_delete_bitmaps={}",
+                instance_id_, total_delete_bitmap_keys, leaked_delete_bitmaps,
+                abnormal_delete_bitmaps);
+    } else {
+        LOG(INFO) << fmt::format(
+                "[delete bitmap checker] delete bitmap inverted check for instance_id={} "
+                "passed. total_delete_bitmap_keys={}",
+                instance_id_, total_delete_bitmap_keys);
     }
-    return (leaked_delete_bitmaps > 0) ? 1 : 0;
+    return (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) ? 1 : 0;
 }
 
 } // namespace doris::cloud
