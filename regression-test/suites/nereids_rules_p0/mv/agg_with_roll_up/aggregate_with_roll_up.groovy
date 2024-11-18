@@ -410,6 +410,7 @@ suite("aggregate_with_roll_up") {
             "l_shipdate, " +
             "l_suppkey"
     order_qt_query18_0_before "${query18_0}"
+    // fail because RBO rule EliminateGroupByKeyByUniform
     async_mv_rewrite_fail(db, mv18_0, query18_0, "mv18_0")
     order_qt_query18_0_after "${query18_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18_0"""
@@ -432,6 +433,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query19_0_before "${query19_0}"
+    // fail because RBO rule EliminateGroupByKeyByUniform
     async_mv_rewrite_fail(db, mv19_0, query19_0, "mv19_0")
     order_qt_query19_0_after "${query19_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_0"""
@@ -463,6 +465,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query19_1_before "${query19_1}"
+    // fail because RBO rule EliminateGroupByKeyByUniform
     async_mv_rewrite_fail(db, mv19_1, query19_1, "mv19_1")
     order_qt_query19_1_after "${query19_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv19_1"""
@@ -571,6 +574,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query21_0_before "${query21_0}"
+    // fail because RBO rule EliminateGroupByKeyByUniform
     async_mv_rewrite_fail(db, mv21_0, query21_0, "mv21_0")
     order_qt_query21_0_after "${query21_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_0"""
@@ -637,6 +641,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query22_1_before "${query22_1}"
+    // fail because RBO rule EliminateGroupByKeyByUniform
     async_mv_rewrite_fail(db, mv22_1, query22_1, "mv22_1")
     order_qt_query22_1_after "${query22_1}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_1"""
@@ -671,6 +676,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query23_0_before "${query23_0}"
+    // fail because RBO rule EliminateGroupByKeyByUniform
     async_mv_rewrite_fail(db, mv23_0, query23_0, "mv23_0")
     order_qt_query23_0_after "${query23_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv23_0"""
@@ -703,6 +709,7 @@ suite("aggregate_with_roll_up") {
             "l_shipdate, " +
             "l_suppkey"
     order_qt_query24_0_before "${query24_0}"
+    // fail because RBO rule EliminateGroupByKeyByUniform
     async_mv_rewrite_fail(db, mv24_0, query24_0, "mv24_0")
     order_qt_query24_0_after "${query24_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv24_0"""
@@ -879,6 +886,7 @@ suite("aggregate_with_roll_up") {
     """
 
     order_qt_query25_4_before "${query25_4}"
+    // fail because RBO rule EliminateGroupByKeyByUniform
     async_mv_rewrite_fail(db, mv25_4, query25_4, "mv25_4")
     order_qt_query25_4_after "${query25_4}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_4"""
@@ -1033,6 +1041,7 @@ suite("aggregate_with_roll_up") {
             "o_comment "
 
     order_qt_query2_0_before "${query2_0}"
+    // fail because RBO rule EliminateGroupByKeyByUniform
     async_mv_rewrite_fail(db, mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""

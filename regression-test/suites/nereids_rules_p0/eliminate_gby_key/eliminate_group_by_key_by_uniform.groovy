@@ -84,7 +84,7 @@ suite("eliminate_group_by_key_by_uniform") {
     //test window
     qt_window "select max(a) over(partition by a order by a) from eli_gbk_by_uniform_t where a=10 group by a,b order by 1"
     //test partition topn
-    qt_partition_topn "select r from (select rank(a) over(partition by a order by a) r from eli_gbk_by_uniform_t where a=10 group by a,b) t where r<2 order by 1"
+    qt_partition_topn "select r from (select rank() over(partition by a order by a) r from eli_gbk_by_uniform_t where a=10 group by a,b) t where r<2 order by 1"
     qt_partition_topn_qualifiy "select rank() over(partition by a order by a) r from eli_gbk_by_uniform_t where a=10 group by a,b qualify r<2 order by 1"
     //test cte
     qt_cte_producer "with t as (select a,b,count(*) from eli_gbk_by_uniform_t where a=1 group by a,b) select t1.a,t2.a,t2.b from t t1 inner join t t2 on t1.a=t2.a order by 1,2,3"
@@ -96,4 +96,8 @@ suite("eliminate_group_by_key_by_uniform") {
 
     //test topn
     qt_topn "select a,b from eli_gbk_by_uniform_t where a=1 group by a,b order by a limit 10 offset 0"
+
+    //olap table sink
+    sql "insert into eli_gbk_by_uniform_t select a,b,c,d,dt from eli_gbk_by_uniform_t where a = 1 group by a,b,c,d,dt"
+    qt_sink "select * from eli_gbk_by_uniform_t order by 1,2,3,4,5"
 }
