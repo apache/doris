@@ -34,6 +34,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -55,7 +56,11 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 >= limit.getLimit() + limit.getOffset())
                         .then(limit -> {
                             LogicalAggregate<? extends Plan> agg = limit.child();
-                            List<OrderKey> orderKeys = generateOrderKeyByGroupKey(agg);
+                            Optional<OrderKey> orderKeysOpt = tryGenerateOrderKeyByTheFirstGroupKey(agg);
+                            if (!orderKeysOpt.isPresent()) {
+                                return null;
+                            }
+                            List<OrderKey> orderKeys = Lists.newArrayList(orderKeysOpt.get());
                             return new LogicalTopN<>(orderKeys, limit.getLimit(), limit.getOffset(), agg);
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),
                 //limit->project->agg to topn->project->agg
@@ -68,7 +73,11 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                             LogicalProject<? extends Plan> project = limit.child();
                             LogicalAggregate<? extends Plan> agg
                                     = (LogicalAggregate<? extends Plan>) project.child();
-                            List<OrderKey> orderKeys = generateOrderKeyByGroupKey(agg);
+                            Optional<OrderKey> orderKeysOpt = tryGenerateOrderKeyByTheFirstGroupKey(agg);
+                            if (!orderKeysOpt.isPresent()) {
+                                return null;
+                            }
+                            List<OrderKey> orderKeys = Lists.newArrayList(orderKeysOpt.get());
                             Plan result;
 
                             if (outputAllGroupKeys(limit, agg)) {
@@ -78,21 +87,27 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
                                 // add the first group by key to topn, and prune this key by upper project
                                 // topn order keys are prefix of group by keys
                                 // refer to PushTopnToAgg.tryGenerateOrderKeyByGroupKeyAndTopnKey()
-                                List<NamedExpression> bottomProjections = Lists.newArrayList(project.getProjects());
-                                if (agg.getGroupByExpressions().isEmpty()) {
-                                    return null;
-                                }
                                 Expression firstGroupByKey = agg.getGroupByExpressions().get(0);
                                 if (!(firstGroupByKey instanceof SlotReference)) {
                                     return null;
                                 }
-                                bottomProjections.add((SlotReference) firstGroupByKey);
-                                LogicalProject<Plan> bottomProject = project.withProjects(bottomProjections);
+                                boolean shouldPruneFirstGroupByKey = true;
+                                if (project.getOutputs().contains(firstGroupByKey)) {
+                                    shouldPruneFirstGroupByKey = false;
+                                } else {
+                                    List<NamedExpression> bottomProjections = Lists.newArrayList(project.getProjects());
+                                    bottomProjections.add((SlotReference) firstGroupByKey);
+                                    project = project.withProjects(bottomProjections);
+                                }
                                 LogicalTopN topn = new LogicalTopN<>(orderKeys, limit.getLimit(),
-                                        limit.getOffset(), bottomProject);
-                                List<NamedExpression> limitOutput = limit.getOutput().stream()
-                                        .map(e -> (NamedExpression) e).collect(Collectors.toList());
-                                result = new LogicalProject<>(limitOutput, topn);
+                                        limit.getOffset(), project);
+                                if (shouldPruneFirstGroupByKey) {
+                                    List<NamedExpression> limitOutput = limit.getOutput().stream()
+                                            .map(e -> (NamedExpression) e).collect(Collectors.toList());
+                                    result = new LogicalProject<>(limitOutput, topn);
+                                } else {
+                                    result = topn;
+                                }
                             }
                             return result;
                         }).toRule(RuleType.LIMIT_AGG_TO_TOPN_AGG),
@@ -138,9 +153,14 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
         return limit.getOutputSet().containsAll(agg.getGroupByExpressions());
     }
 
-    private List<OrderKey> generateOrderKeyByGroupKey(LogicalAggregate<? extends Plan> agg) {
-        return agg.getGroupByExpressions().stream()
-                .map(key -> new OrderKey(key, true, false))
-                .collect(Collectors.toList());
+    private Optional<OrderKey> tryGenerateOrderKeyByTheFirstGroupKey(LogicalAggregate<? extends Plan> agg) {
+        if (agg.getGroupByExpressions().isEmpty()) {
+            return Optional.empty();
+        }
+        if (agg.getGroupByExpressions().get(0) instanceof SlotReference) {
+            // agg normalize projects the expression under agg. we cannot use it as order key above agg
+            return Optional.of(new OrderKey(agg.getGroupByExpressions().get(0), true, false));
+        }
+        return Optional.empty();
     }
 }
