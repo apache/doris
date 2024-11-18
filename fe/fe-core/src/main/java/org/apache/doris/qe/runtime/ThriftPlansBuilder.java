@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleBucketJoinAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanRanges;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.ScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedScanBucketOlapTableJob;
@@ -498,14 +499,18 @@ public class ThriftPlansBuilder {
             if (instanceJob.getAssignedWorker().id() != worker.id()) {
                 continue;
             }
-            if (instanceJob instanceof LocalShuffleAssignedJob
-                    && ((LocalShuffleAssignedJob) instanceJob).receiveDataFromLocal) {
-                continue;
-            }
+
             Integer instanceIndex = instanceToIndex.get(instanceJob);
-            BucketScanSource bucketScanSource = (BucketScanSource) instanceJob.getScanSource();
-            for (Integer bucketIndex : bucketScanSource.bucketIndexToScanNodeToTablets.keySet()) {
-                bucketIdToInstanceId.put(bucketIndex, instanceIndex);
+            if (instanceJob instanceof LocalShuffleBucketJoinAssignedJob) {
+                LocalShuffleBucketJoinAssignedJob assignedJob = (LocalShuffleBucketJoinAssignedJob) instanceJob;
+                for (Integer bucketIndex : assignedJob.getAssignedJoinBucketIndexes()) {
+                    bucketIdToInstanceId.put(bucketIndex, instanceIndex);
+                }
+            } else {
+                BucketScanSource bucketScanSource = (BucketScanSource) instanceJob.getScanSource();
+                for (Integer bucketIndex : bucketScanSource.bucketIndexToScanNodeToTablets.keySet()) {
+                    bucketIdToInstanceId.put(bucketIndex, instanceIndex);
+                }
             }
         }
         return bucketIdToInstanceId;
