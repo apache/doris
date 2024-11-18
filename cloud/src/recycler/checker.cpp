@@ -836,7 +836,7 @@ int InstanceChecker::do_delete_bitmap_integrity_check() {
     int64_t total_tablets_num {0};
     int64_t failed_tablets_num {0};
 
-    // check that for every visible rowset, there exists at least delete bitmap in MS
+    // check that for every visible rowset, there exists at least delete one bitmap in MS
     int ret = traverse_mow_tablet([&](int64_t tablet_id) {
         ++total_tablets_num;
         int res = check_delete_bitmap_integrity(tablet_id);
@@ -904,8 +904,8 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
                 // only check merge-on-write table
                 int ret = check_func(tablet_id);
                 if (ret < 0) {
-                    // return immediately when encounter unecpected result,
-                    // otherwise we continue to check the next tablet
+                    // return immediately when encounter unecpected error,
+                    // otherwise, we continue to check the next tablet
                     return ret;
                 }
             }
@@ -1037,28 +1037,40 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                         tablet_meta.enable_unique_key_merge_on_write();
                 tablet_rowsets_cache.rowsets.clear();
 
-                if (!tablet_rowsets_cache.enable_merge_on_write) {
-                    ++abnormal_delete_bitmaps;
-                    // log an error and continue to check the next delete bitmap
-                    LOG(WARNING) << fmt::format(
-                            "[delete bitmap check fails] find a delete bitmap belongs to tablet "
-                            "which is not a merge-on-write table! instance_id={}, tablet_id={}, "
-                            "version={}, segment_id={}",
-                            instance_id_, tablet_id, version, segment_id);
-                    continue;
-                }
-
-                auto collect_cb = [&tablet_rowsets_cache](const doris::RowsetMetaCloudPB& rowset) {
-                    tablet_rowsets_cache.rowsets.insert(rowset.rowset_id_v2());
-                };
-                ret = collect_tablet_rowsets(tablet_id, collect_cb);
-                if (ret < 0) {
-                    return ret;
+                if (tablet_rowsets_cache.enable_merge_on_write) {
+                    // only collect rowsets for merge-on-write tablet
+                    auto collect_cb =
+                            [&tablet_rowsets_cache](const doris::RowsetMetaCloudPB& rowset) {
+                                tablet_rowsets_cache.rowsets.insert(rowset.rowset_id_v2());
+                            };
+                    ret = collect_tablet_rowsets(tablet_id, collect_cb);
+                    if (ret < 0) {
+                        return ret;
+                    }
                 }
             }
             DCHECK_EQ(tablet_id, tablet_rowsets_cache.tablet_id);
 
+            if (!tablet_rowsets_cache.enable_merge_on_write) {
+                // clang-format off
+                TEST_SYNC_POINT_CALLBACK(
+                        "InstanceChecker::do_delete_bitmap_inverted_check.get_abnormal_delete_bitmap",
+                        &tablet_id, &rowset_id, &version, &segment_id);
+                // clang-format on
+                ++abnormal_delete_bitmaps;
+                // log an error and continue to check the next delete bitmap
+                LOG(WARNING) << fmt::format(
+                        "[delete bitmap check fails] find a delete bitmap belongs to tablet "
+                        "which is not a merge-on-write table! instance_id={}, tablet_id={}, "
+                        "version={}, segment_id={}",
+                        instance_id_, tablet_id, version, segment_id);
+                continue;
+            }
+
             if (!tablet_rowsets_cache.rowsets.contains(rowset_id)) {
+                TEST_SYNC_POINT_CALLBACK(
+                        "InstanceChecker::do_delete_bitmap_inverted_check.get_leaked_delete_bitmap",
+                        &tablet_id, &rowset_id, &version, &segment_id);
                 ++leaked_delete_bitmaps;
                 // log an error and continue to check the next delete bitmap
                 LOG(WARNING) << fmt::format(
