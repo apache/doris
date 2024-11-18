@@ -810,6 +810,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_COMMENT: {
                     ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
                     env.getAlterInstance().replayModifyComment(operation);
+                    env.getBinlogManager().addModifyComment(operation, logId);
                     break;
                 }
                 case OperationType.OP_ALTER_ROUTINE_LOAD_JOB: {
