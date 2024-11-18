@@ -518,13 +518,18 @@ public class CacheAnalyzer {
     }
 
     public InternalService.PFetchCacheResult getCacheData() throws UserException {
-        if (parsedStmt instanceof LogicalPlanAdapter) {
-            cacheMode = innerCheckCacheModeForNereids(0);
-        } else if (parsedStmt instanceof SelectStmt) {
-            cacheMode = innerCheckCacheMode(0);
-        } else if (parsedStmt instanceof SetOperationStmt) {
-            cacheMode = innerCheckCacheModeSetOperation(0);
-        } else {
+        try {
+            if (parsedStmt instanceof LogicalPlanAdapter) {
+                cacheMode = innerCheckCacheModeForNereids(0);
+            } else if (parsedStmt instanceof SelectStmt) {
+                cacheMode = innerCheckCacheMode(0);
+            } else if (parsedStmt instanceof SetOperationStmt) {
+                cacheMode = innerCheckCacheModeSetOperation(0);
+            } else {
+                return null;
+            }
+        } catch (NullPointerException e) {
+            LOG.error("getCacheData error", e);
             return null;
         }
 
