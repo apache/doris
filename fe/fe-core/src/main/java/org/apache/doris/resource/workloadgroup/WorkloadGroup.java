@@ -33,6 +33,7 @@ import org.apache.doris.thrift.TWorkloadGroupInfo;
 import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -43,8 +44,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 public class WorkloadGroup implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(WorkloadGroup.class);
@@ -92,6 +96,26 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
     public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
 
+    private static final Map<String, String> ALL_PROPERTIES_DEFAULT_VALUE_MAP = Maps.newHashMap();
+
+    static {
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(CPU_SHARE, "-1");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(CPU_HARD_LIMIT, "-1");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_LIMIT, "-1");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(ENABLE_MEMORY_OVERCOMMIT, "true");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MAX_CONCURRENCY, String.valueOf(Integer.MAX_VALUE));
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MAX_QUEUE_SIZE, "0");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(QUEUE_TIMEOUT, "0");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SCAN_THREAD_NUM, "-1");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MAX_REMOTE_SCAN_THREAD_NUM, "-1");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MIN_REMOTE_SCAN_THREAD_NUM, "-1");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SPILL_THRESHOLD_LOW_WATERMARK, "50%");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SPILL_THRESHOLD_HIGH_WATERMARK, "80%");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(TAG, "");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(READ_BYTES_PER_SECOND, "-1");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(REMOTE_READ_BYTES_PER_SECOND, "-1");
+    }
+
     @SerializedName(value = "id")
     private long id;
 
@@ -122,9 +146,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         this.properties = properties;
         this.version = version;
         if (properties.containsKey(MEMORY_LIMIT)) {
-            String memoryLimitString = properties.get(MEMORY_LIMIT);
-            this.memoryLimitPercent = Double.parseDouble(
-                    memoryLimitString.substring(0, memoryLimitString.length() - 1));
+            setMemLimitPercent(properties);
         }
         if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
             properties.put(ENABLE_MEMORY_OVERCOMMIT, properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase());
@@ -208,15 +230,22 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         }
 
         if (properties.containsKey(CPU_SHARE)) {
-            String cpuShare = properties.get(CPU_SHARE);
-            if (!StringUtils.isNumeric(cpuShare) || Long.parseLong(cpuShare) <= 0) {
-                throw new DdlException(CPU_SHARE + " " + cpuShare + " requires a positive integer.");
+            String inputValue = properties.get(CPU_SHARE);
+            try {
+                int cpuShareI = Integer.parseInt(inputValue);
+                if (cpuShareI <= 0 && cpuShareI != -1) {
+                    throw new NumberFormatException();
+                }
+            } catch (NumberFormatException e) {
+                throw new DdlException(
+                        "The allowed " + CPU_SHARE + " value is -1 or a positive integer, but input value is "
+                                + inputValue);
             }
         }
 
         if (properties.containsKey(CPU_HARD_LIMIT)) {
-            String cpuHardLimit = properties.get(CPU_HARD_LIMIT);
-            String originValue = cpuHardLimit;
+            String inputValue = properties.get(CPU_HARD_LIMIT);
+            String cpuHardLimit = inputValue;
             try {
                 boolean endWithSign = false;
                 if (cpuHardLimit.endsWith("%")) {
@@ -233,33 +262,39 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        "workload group's " + WorkloadGroup.CPU_HARD_LIMIT
-                                + "  must be a positive integer[1,100] or -1, but input value is " + originValue);
+                        "The allowed " + WorkloadGroup.CPU_HARD_LIMIT
+                                + " value is -1 or a positive integer between 1 and 100, but input value is "
+                                + inputValue);
             }
         }
 
         if (properties.containsKey(MEMORY_LIMIT)) {
-            String memoryLimit = properties.get(MEMORY_LIMIT);
-            if (!memoryLimit.endsWith("%")) {
-                throw new DdlException(MEMORY_LIMIT + " " + memoryLimit + " requires a percentage and ends with a '%'");
+            String memoryLimitStr = properties.get(MEMORY_LIMIT);
+            if (!memoryLimitStr.endsWith("%") && !"-1".equals(memoryLimitStr)) {
+                throw new DdlException(
+                        MEMORY_LIMIT + " requires a percentage value which ends with a '%' or -1, but input value is "
+                                + memoryLimitStr);
             }
-            String memLimitErr = MEMORY_LIMIT + " " + memoryLimit + " requires a positive floating point number.";
-            try {
-                if (Double.parseDouble(memoryLimit.substring(0, memoryLimit.length() - 1)) <= 0) {
-                    throw new DdlException(memLimitErr);
+            if (!"-1".equals(memoryLimitStr)) {
+                try {
+                    double memLimitD = Double.parseDouble(memoryLimitStr.substring(0, memoryLimitStr.length() - 1));
+                    if (memLimitD <= 0) {
+                        throw new NumberFormatException();
+                    }
+                } catch (NumberFormatException e) {
+                    throw new DdlException("The allowed " + MEMORY_LIMIT
+                            + " value is a positive floating point number, but input value is " + memoryLimitStr);
                 }
-            } catch (NumberFormatException e) {
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(memLimitErr, e);
-                }
-                throw new DdlException(memLimitErr);
             }
         }
 
         if (properties.containsKey(ENABLE_MEMORY_OVERCOMMIT)) {
-            String value = properties.get(ENABLE_MEMORY_OVERCOMMIT).toLowerCase();
+            String inputValue = properties.get(ENABLE_MEMORY_OVERCOMMIT);
+            String value = inputValue.toLowerCase();
             if (!("true".equals(value) || "false".equals(value))) {
-                throw new DdlException("The value of '" + ENABLE_MEMORY_OVERCOMMIT + "' must be true or false.");
+                throw new DdlException(
+                        "The value of '" + ENABLE_MEMORY_OVERCOMMIT + "' must be true or false. but input value is "
+                                + inputValue);
             }
         }
 
@@ -272,7 +307,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
+                        "The allowed " + SCAN_THREAD_NUM + " value is -1 or a positive integer. but input value is "
+                                + value);
             }
         }
 
@@ -287,7 +323,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 maxRemoteScanNum = intValue;
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        MAX_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
+                        "The allowed " + MAX_REMOTE_SCAN_THREAD_NUM
+                                + " value is -1 or a positive integer. but input value is " + value);
             }
         }
 
@@ -302,7 +339,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 minRemoteScanNum = intValue;
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        MIN_REMOTE_SCAN_THREAD_NUM + " must be a positive integer or -1. but input value is " + value);
+                        "The allowed " + MIN_REMOTE_SCAN_THREAD_NUM
+                                + " value is -1 or a positive integer. but input value is " + value);
             }
         }
 
@@ -315,30 +353,42 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
         // check queue property
         if (properties.containsKey(MAX_CONCURRENCY)) {
+            String inputValue = properties.get(MAX_CONCURRENCY);
             try {
-                if (Integer.parseInt(properties.get(MAX_CONCURRENCY)) < 0) {
-                    throw new DdlException(MAX_CONCURRENCY + " requires a positive integer");
+                if (Integer.parseInt(inputValue) < 0) {
+                    throw new NumberFormatException();
                 }
             } catch (NumberFormatException e) {
-                throw new DdlException(MAX_CONCURRENCY + " requires a positive integer");
+                throw new DdlException(
+                        "The allowed " + MAX_CONCURRENCY
+                                + " value is an integer greater than or equal to 0, but input value is "
+                                + inputValue);
             }
         }
         if (properties.containsKey(MAX_QUEUE_SIZE)) {
+            String inputValue = properties.get(MAX_QUEUE_SIZE);
             try {
-                if (Integer.parseInt(properties.get(MAX_QUEUE_SIZE)) < 0) {
-                    throw new DdlException(MAX_QUEUE_SIZE + " requires a positive integer");
+                if (Integer.parseInt(inputValue) < 0) {
+                    throw new NumberFormatException();
                 }
             } catch (NumberFormatException e) {
-                throw new DdlException(MAX_QUEUE_SIZE + " requires a positive integer");
+                throw new DdlException(
+                        "The allowed " + MAX_QUEUE_SIZE
+                                + " value is an integer greater than or equal to 0, but input value is "
+                                + inputValue);
             }
         }
         if (properties.containsKey(QUEUE_TIMEOUT)) {
+            String inputValue = properties.get(QUEUE_TIMEOUT);
             try {
-                if (Integer.parseInt(properties.get(QUEUE_TIMEOUT)) < 0) {
-                    throw new DdlException(QUEUE_TIMEOUT + " requires a positive integer");
+                if (Integer.parseInt(inputValue) < 0) {
+                    throw new NumberFormatException();
                 }
             } catch (NumberFormatException e) {
-                throw new DdlException(QUEUE_TIMEOUT + " requires a positive integer");
+                throw new DdlException(
+                        "The allowed " + QUEUE_TIMEOUT
+                                + " value is an integer greater than or equal to 0, but input value is "
+                                + inputValue);
             }
         }
 
@@ -350,14 +400,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
             try {
                 int intValue = Integer.parseInt(lowVal);
-                if ((intValue < 1 || intValue > 100) && intValue != -1) {
+                if ((intValue < 1 || intValue > 100)) {
                     throw new NumberFormatException();
                 }
                 lowWaterMark = intValue;
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        SPILL_THRESHOLD_LOW_WATERMARK
-                                + " must be a positive integer(1 ~ 100) or -1. but input value is "
+                        "The allowed " + SPILL_THRESHOLD_LOW_WATERMARK
+                                + " value is an integer value between 1 and 100, but input value is "
                                 + lowVal);
             }
         }
@@ -376,7 +426,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 highWaterMark = intValue;
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        SPILL_THRESHOLD_HIGH_WATERMARK + " must be a positive integer(1 ~ 100). but input value is "
+                        "The allowed " + SPILL_THRESHOLD_HIGH_WATERMARK
+                                + " value is an integer value between 1 and 100, but input value is "
                                 + highVal);
             }
         }
@@ -390,13 +441,13 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             String readBytesVal = properties.get(READ_BYTES_PER_SECOND);
             try {
                 long longVal = Long.parseLong(readBytesVal);
-                boolean isValidValue = longVal == -1 || longVal > 0;
-                if (!isValidValue) {
+                if (longVal <= 0 && longVal != -1) {
                     throw new NumberFormatException();
                 }
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        READ_BYTES_PER_SECOND + " should be -1 or an integer value bigger than 0, but input value is "
+                        "The allowed " + READ_BYTES_PER_SECOND
+                                + " value should be -1 or an positive integer, but input value is "
                                 + readBytesVal);
             }
         }
@@ -405,13 +456,12 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             String readBytesVal = properties.get(REMOTE_READ_BYTES_PER_SECOND);
             try {
                 long longVal = Long.parseLong(readBytesVal);
-                boolean isValidValue = longVal == -1 || longVal > 0;
-                if (!isValidValue) {
+                if (longVal <= 0 && longVal != -1) {
                     throw new NumberFormatException();
                 }
             } catch (NumberFormatException e) {
-                throw new DdlException(REMOTE_READ_BYTES_PER_SECOND
-                        + " should be -1 or an integer value bigger than 0, but input value is " + readBytesVal);
+                throw new DdlException("The allowed " + REMOTE_READ_BYTES_PER_SECOND
+                        + " value should be -1 or an positive integer, but input value is " + readBytesVal);
             }
         }
 
@@ -445,10 +495,6 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return version;
     }
 
-    public double getMemoryLimitPercent() {
-        return memoryLimitPercent;
-    }
-
     public int getMaxConcurrency() {
         return maxConcurrency;
     }
@@ -469,74 +515,49 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         // skip id,name,running query,waiting query
         for (int i = 2; i < WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.size(); i++) {
             String key = WorkloadGroupMgr.WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES.get(i);
-            if (CPU_HARD_LIMIT.equals(key)) {
-                String val = properties.get(key);
-                if (StringUtils.isEmpty(val)) { // cpu_hard_limit is not required
-                    row.add("-1");
-                } else if ("-1".equals(val)) {
-                    row.add(val);
-                } else {
-                    row.add(val + "%");
-                }
-            } else if (CPU_SHARE.equals(key) && !properties.containsKey(key)) {
-                row.add("-1");
-            } else if (MEMORY_LIMIT.equals(key) && !properties.containsKey(key)) {
-                row.add("0%");
-            } else if (ENABLE_MEMORY_OVERCOMMIT.equals(key) && !properties.containsKey(key)) {
-                row.add("true");
-            } else if (SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
-                row.add("-1");
-            } else if (MAX_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
-                row.add("-1");
-            } else if (MIN_REMOTE_SCAN_THREAD_NUM.equals(key) && !properties.containsKey(key)) {
-                row.add("-1");
-            } else if (SPILL_THRESHOLD_LOW_WATERMARK.equals(key)) {
-                String val = properties.get(key);
-                if (StringUtils.isEmpty(val)) {
-                    row.add(SPILL_LOW_WATERMARK_DEFAULT_VALUE + "%");
-                } else if ("-1".equals(val)) {
-                    row.add("-1");
-                } else {
-                    row.add(val + "%");
-                }
-            } else if (SPILL_THRESHOLD_HIGH_WATERMARK.equals(key)) {
-                String val = properties.get(key);
-                if (StringUtils.isEmpty(val)) {
-                    row.add(SPILL_HIGH_WATERMARK_DEFAULT_VALUE + "%");
-                } else {
-                    row.add(val + "%");
-                }
-            } else if (QueryQueue.RUNNING_QUERY_NUM.equals(key)) {
+            if (QueryQueue.RUNNING_QUERY_NUM.equals(key)) {
                 row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.first));
             } else if (QueryQueue.WAITING_QUERY_NUM.equals(key)) {
                 row.add(queryQueueDetail == null ? "0" : String.valueOf(queryQueueDetail.second));
-            } else if (TAG.equals(key)) {
-                String val = properties.get(key);
-                if (StringUtils.isEmpty(val)) {
-                    row.add("");
-                } else {
-                    row.add(val);
-                }
-            } else if (READ_BYTES_PER_SECOND.equals(key) || REMOTE_READ_BYTES_PER_SECOND.equals(key)) {
-                String val = properties.get(key);
-                if (StringUtils.isEmpty(val)) {
-                    row.add("-1");
-                } else {
-                    row.add(val);
-                }
             } else {
-                row.add(properties.get(key));
+                String val = properties.get(key);
+                if (StringUtils.isEmpty(val)) {
+                    row.add(ALL_PROPERTIES_DEFAULT_VALUE_MAP.get(key));
+                } else if ((CPU_HARD_LIMIT.equals(key) && !"-1".equals(val))
+                        || SPILL_THRESHOLD_LOW_WATERMARK.equals(key)
+                        || SPILL_THRESHOLD_HIGH_WATERMARK.equals(key)) {
+                    row.add(val + "%");
+                } else {
+                    row.add(val);
+                }
             }
         }
         result.addRow(row);
     }
 
-    public int getCpuHardLimit() {
-        return cpuHardLimit;
+    public int getCpuHardLimitWhenCalSum() {
+        return cpuHardLimit == -1 ? 0 : cpuHardLimit;
     }
 
-    public String getTag() {
-        return properties.get(TAG);
+    public double getMemoryLimitPercentWhenCalSum() {
+        return memoryLimitPercent == -1 ? 0 : memoryLimitPercent;
+    }
+
+    public double getMemoryLimitPercent() {
+        return memoryLimitPercent;
+    }
+
+    public Optional<Set<String>> getTag() {
+        String tagStr = properties.get(TAG);
+        if (StringUtils.isEmpty(tagStr)) {
+            return Optional.empty();
+        }
+        Set<String> tagSet = new HashSet<>();
+        String[] ss = tagStr.split(",");
+        for (String str : ss) {
+            tagSet.add(str);
+        }
+        return Optional.of(tagSet);
     }
 
     @Override
@@ -637,12 +658,16 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         return GsonUtils.GSON.fromJson(json, WorkloadGroup.class);
     }
 
+    void setMemLimitPercent(Map<String, String> props) {
+        String memoryLimitString = props.get(MEMORY_LIMIT);
+        this.memoryLimitPercent = "-1".equals(memoryLimitString) ? -1
+                : Double.parseDouble(memoryLimitString.substring(0, memoryLimitString.length() - 1));
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
         if (properties.containsKey(MEMORY_LIMIT)) {
-            String memoryLimitString = properties.get(MEMORY_LIMIT);
-            this.memoryLimitPercent = Double.parseDouble(memoryLimitString.substring(0,
-                    memoryLimitString.length() - 1));
+            setMemLimitPercent(properties);
         }
 
         if (properties.containsKey(CPU_HARD_LIMIT)) {
