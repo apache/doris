@@ -2691,6 +2691,19 @@ TEST(CheckerTest, delete_bitmap_integrity_check_abnormal) {
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
 
+    std::map<int64_t, std::unordered_set<std::string>> expected_abnormal_rowsets {};
+    std::map<int64_t, std::unordered_set<std::string>> real_abnort_rowsets {};
+    auto sp = SyncPoint::get_instance();
+    std::unique_ptr<int, std::function<void(int*)>> defer(
+            (int*)0x01, [](int*) { SyncPoint::get_instance()->clear_all_call_backs(); });
+    sp->set_call_back("InstanceChecker::check_delete_bitmap_integrity.get_abnormal_rowset",
+                      [&real_abnort_rowsets](auto&& args) {
+                          int64_t tablet_id = *try_any_cast<int64_t*>(args[0]);
+                          std::string rowset_id = *try_any_cast<std::string*>(args[1]);
+                          real_abnort_rowsets[tablet_id].insert(rowset_id);
+                      });
+    sp->enable_processing();
+
     constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
     // create some rowsets, some with delete bitmaps, some without delete bitmaps in merge-on-write tablet
     for (int tablet_id = 500001; tablet_id <= 500010; ++tablet_id) {
@@ -2709,17 +2722,20 @@ TEST(CheckerTest, delete_bitmap_integrity_check_abnormal) {
                     std::string delete_bitmap_val {"test"};
                     txn->put(delete_bitmap_key, delete_bitmap_val);
                 } else {
-                    // delete bitmaps may be spilitted into mulitiple KVs if too large
+                    // delete bitmaps may be splitted into mulitiple KVs if too large
                     auto delete_bitmap_key =
                             meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
                     std::string delete_bitmap_val(1000, 'A');
                     cloud::put(txn.get(), delete_bitmap_key, delete_bitmap_val, 0, 300);
                 }
+            } else {
+                expected_abnormal_rowsets[tablet_id].insert(rowset_id);
             }
         }
     }
 
-    for (int tablet_id = 500011; tablet_id <= 500020; ++tablet_id) {
+    // create some rowsets with correct delete bitmaps
+    for (int tablet_id = 5000011; tablet_id <= 500020; ++tablet_id) {
         ASSERT_EQ(0,
                   create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
         int64_t rowset_start_id = 300;
@@ -2727,7 +2743,6 @@ TEST(CheckerTest, delete_bitmap_integrity_check_abnormal) {
             std::string rowset_id = std::to_string(rowset_start_id++);
             create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
                                                    ver, rowset_id, 1);
-            // only create delete bitmaps for some rowsets
             if (ver > 5) {
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
@@ -2744,8 +2759,10 @@ TEST(CheckerTest, delete_bitmap_integrity_check_abnormal) {
     }
 
     ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
-
+    LOG(INFO) << fmt::format("expected_abnormal_rowsets.size()={}",
+                             expected_abnormal_rowsets.size());
     ASSERT_NE(checker.do_delete_bitmap_integrity_check(), 0);
+    ASSERT_EQ(expected_abnormal_rowsets, real_abnort_rowsets);
 }
 
 TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
@@ -2826,10 +2843,10 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
 
     constexpr int table_id = 10000, index_id = 10001, partition_id = 10002;
     // create some rowsets with delete bitmaps in merge-on-write tablet
-    for (int tablet_id = 600001; tablet_id <= 600010; ++tablet_id) {
+    for (int tablet_id = 800001; tablet_id <= 800010; ++tablet_id) {
         ASSERT_EQ(0,
                   create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, true));
-        int64_t rowset_start_id = 400;
+        int64_t rowset_start_id = 600;
         for (int ver = 2; ver <= 20; ++ver) {
             std::string rowset_id = std::to_string(rowset_start_id++);
 
@@ -2854,7 +2871,23 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
         }
     }
 
-    // also create some rowsets without delete bitmaps in non merge-on-write tablet
+    // create some rowsets without delete bitmaps in non merge-on-write tablet
+    for (int tablet_id = 900001; tablet_id <= 900010; ++tablet_id) {
+        ASSERT_EQ(0,
+                  create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));
+        int64_t rowset_start_id = 700;
+        for (int ver = 2; ver < 6; ++ver) {
+            std::string rowset_id = std::to_string(rowset_start_id++);
+            create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
+                                                   ver, rowset_id, 1);
+            auto delete_bitmap_key =
+                    meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
+            std::string delete_bitmap_val {"test2"};
+            txn->put(delete_bitmap_key, delete_bitmap_val);
+        }
+    }
+
+    // create some rowsets with delete bitmaps in non merge-on-write tablet
     for (int tablet_id = 700001; tablet_id <= 700010; ++tablet_id) {
         ASSERT_EQ(0,
                   create_tablet(txn_kv.get(), table_id, index_id, partition_id, tablet_id, false));

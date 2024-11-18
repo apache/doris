@@ -793,8 +793,9 @@ int InstanceChecker::check_delete_bitmap_integrity(int64_t tablet_id) {
             // skip dummy rowset [0-1]
             continue;
         }
-        auto begin = meta_delete_bitmap_key({instance_id_, tablet_id, rowset.rowset_id, 0, 0});
-        auto end = meta_delete_bitmap_key({instance_id_, tablet_id, rowset.rowset_id,
+        std::string rowset_id = rowset.rowset_id;
+        auto begin = meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, 0, 0});
+        auto end = meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id,
                                            std::numeric_limits<int64_t>::max(),
                                            std::numeric_limits<int64_t>::max()});
         std::unique_ptr<RangeGetIterator> it;
@@ -805,6 +806,9 @@ int InstanceChecker::check_delete_bitmap_integrity(int64_t tablet_id) {
             return -1;
         }
         if (!it->has_next()) {
+            TEST_SYNC_POINT_CALLBACK(
+                    "InstanceChecker::check_delete_bitmap_integrity.get_abnormal_rowset",
+                    &tablet_id, &rowset_id);
             ++abnormal_rowsets_num;
             LOG(WARNING) << fmt::format(
                     "[delete bitmap check fails] can't find corresponding delete bitmap for "
