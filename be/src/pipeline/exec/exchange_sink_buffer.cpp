@@ -265,12 +265,12 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
 
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
-                
             } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
                 return;
-            } else if (eos) {
+            }
+            if (eos) {
                 _ended(id);
             }
             {
@@ -353,12 +353,12 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
 
             Status s(Status::create(result.status()));
             if (s.is<ErrorCode::END_OF_FILE>()) {
-          
             } else if (!s.ok()) {
                 _failed(id,
                         fmt::format("exchange req success but status isn't ok: {}", s.to_string()));
                 return;
-            } else if (eos) {
+            }
+            if (eos) {
                 _ended(id);
             }
             {
