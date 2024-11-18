@@ -15,22 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.catalog.authorizer.ranger.hive;
+package org.apache.doris.mysql.authenticate;
 
-import org.apache.doris.mysql.privilege.AccessControllerFactory;
-import org.apache.doris.mysql.privilege.CatalogAccessController;
+import java.util.Properties;
 
-import java.util.Map;
+public interface AuthenticatorFactory {
+    /**
+     * Creates a new instance of Authenticator.
+     *
+     * @return an instance of Authenticator
+     */
+    Authenticator create(Properties initProps);
 
-public class RangerHiveAccessControllerFactory implements AccessControllerFactory {
-
-    @Override
-    public String factoryIdentifier() {
-        return "ranger-hive";
-    }
-
-    @Override
-    public CatalogAccessController createAccessController(Map<String, String> prop) {
-        return new RangerCacheHiveAccessController(prop);
-    }
+    /**
+     * Returns the identifier for the factory, such as "ldap" or "default".
+     *
+     * @return the factory identifier
+     */
+    String factoryIdentifier();
 }
+
