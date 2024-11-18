@@ -232,7 +232,9 @@ class BucketShuffleExchanger final : public ShuffleExchanger {
     BucketShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
                            int free_block_limit)
             : ShuffleExchanger(running_sink_operators, num_sources, num_partitions,
-                               free_block_limit) {}
+                               free_block_limit) {
+        DCHECK_GT(num_partitions, 0);
+    }
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };
