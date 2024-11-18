@@ -729,6 +729,20 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
         for (auto rs : _stale_rs_metas) {
             rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
         }
+    }else {
+        RowsetMetaSharedPtr rs_meta;
+        CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+        auto* cloud_tablet = (static_cast<CloudTablet*>(engine.get_tablet(tablet_id())->get()));
+        Status result = engine.meta_mgr().get_rowset(&(*cloud_tablet),&rs_meta);
+        if (result.ok()){
+            if (rs_meta) {
+                rs_meta->to_rowset_pb(tablet_meta_pb->add_rs_metas());
+            } else {
+                LOG(WARNING) << "rs_meta is null for tablet: " << tablet_id();
+            }
+        }else{
+            LOG(WARNING) << "failed to rs_meta " << table_id() << ": " << result;
+        }
     }
 
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());

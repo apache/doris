@@ -384,6 +384,48 @@ Status CloudMetaMgr::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* tab
     return Status::OK();
 }
 
+Status CloudMetaMgr::get_rowset(CloudTablet* tablet,
+                                    RowsetMetaSharedPtr* rs_meta) {
+
+        {
+            Status ret_st;
+        }
+        GetRowsetRequest req;
+        GetRowsetResponse resp;
+        req.set_cloud_unique_id(config::cloud_unique_id);
+        auto* idx = req.mutable_idx();
+        idx->set_tablet_id(tablet->tablet_id());
+        idx->set_table_id(tablet->table_id());
+        idx->set_index_id(tablet->index_id());
+        idx->set_partition_id(tablet->partition_id());
+        {
+            req.set_base_compaction_cnt(tablet->base_compaction_cnt());
+            req.set_cumulative_compaction_cnt(tablet->cumulative_compaction_cnt());
+            req.set_cumulative_point(tablet->cumulative_layer_point());
+        }
+        req.set_end_version(-1);
+        if (config::variant_use_cloud_schema_dict) {
+            req.set_schema_op(GetRowsetRequest::NO_DICT);
+        }
+
+        Status st = retry_rpc("get rowset", req, &resp, &MetaService_Stub::get_rowset);
+        if (!st.ok()) {
+            if (resp.status().code() == MetaServiceCode::TABLET_NOT_FOUND) {
+                return Status::NotFound("failed to get rowset meta: {}", resp.status().msg());
+            }
+            return st;
+        }
+
+        for (const auto& cloud_rs_meta_pb : *resp.mutable_rowset_meta()) {
+            RowsetMetaPB meta_pb = cloud_rowset_meta_to_doris(
+                    cloud_rs_meta_pb, resp.has_schema_dict() ? &resp.schema_dict() : nullptr);
+            *rs_meta = std::make_shared<RowsetMeta>();
+            (*rs_meta)->init_from_pb(meta_pb);
+        }
+        VLOG_DEBUG << "get rowset meta, tablet_id: " << (*rs_meta)->tablet_id();
+        return Status::OK();
+    }
+
 Status CloudMetaMgr::sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data,
                                          bool sync_delete_bitmap) {
     using namespace std::chrono;
