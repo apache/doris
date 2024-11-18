@@ -923,6 +923,7 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
         auto st = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
                 UniqueId(request->finst_id()).to_thrift(), &schema);
         if (!st.ok()) {
+            LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
