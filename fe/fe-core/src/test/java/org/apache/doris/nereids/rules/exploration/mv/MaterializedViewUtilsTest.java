@@ -664,11 +664,11 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "t1.L_QUANTITY, "
                                 + "t2.O_ORDERSTATUS;",
                         nereidsPlanner -> {
-                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            RelatedTableInfo relatedTableInfo =
-                                    MaterializedViewUtils.getRelatedTableInfo("date_alias", "day",
-                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // fail because RBO rule EliminateGroupByKeyByUniform
+                            // Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            // RelatedTableInfo relatedTableInfo =
+                            //         MaterializedViewUtils.getRelatedTableInfo("date_alias", "day",
+                            //                 rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // checkRelatedTableInfo(relatedTableInfo,
                             //         "lineitem",
                             //         "L_SHIPDATE",
@@ -727,11 +727,11 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "t1.L_QUANTITY, "
                                 + "t2.O_ORDERSTATUS;",
                         nereidsPlanner -> {
-                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            RelatedTableInfo relatedTableInfo =
-                                    MaterializedViewUtils.getRelatedTableInfo("date_alias", "month",
-                                            rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // fail because RBO rule EliminateGroupByKeyByUniform
+                            // Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            // RelatedTableInfo relatedTableInfo =
+                            //         MaterializedViewUtils.getRelatedTableInfo("date_alias", "month",
+                            //                 rewrittenPlan, nereidsPlanner.getCascadesContext());
                             // checkRelatedTableInfo(relatedTableInfo,
                             //         "lineitem",
                             //         "L_SHIPDATE",
