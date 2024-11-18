@@ -53,4 +53,20 @@ suite("test_cut_ipv6_function") {
     qt_sql "select cut_ipv6(to_ipv6('2001:0DB8:AC10:FE01:FEED:BABE:CAFE:F00D'), 0, NULL)"
 
     sql "DROP TABLE test_cut_ipv6_function"
+
+    sql """ DROP TABLE IF EXISTS test_cutipv6 """
+    sql """
+      CREATE TABLE `test_cutipv6` (
+        `pk` int NOT NULL,
+        `col_ipv6_undef_signed` ipv6 NULL
+      ) ENGINE=OLAP
+      UNIQUE KEY(`pk`)
+      DISTRIBUTED BY HASH(`pk`) BUCKETS 10
+      PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+      );
+    """
+    sql """ insert into test_cutipv6 values(0,"182a:556f:6665:4fb1:a0f0:40ff:3af2:7ad3"); """
+    qt_sql "select pk,col_ipv6_undef_signed from test_cutipv6 where cut_ipv6(col_ipv6_undef_signed, 4, 7) != '182a:556f:6665:4fb1:a0f0:40ff:3af2:7ad3';"
+
 }

@@ -78,12 +78,12 @@ MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data) {
 }
 
 void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
-                 const IColumn& offset_column, const IColumn* length_column) {
+                 const ColumnInt64& offset_column, const ColumnInt64* length_column) {
     size_t cur = 0;
     for (size_t row = 0; row < src.offsets_ptr->size(); ++row) {
         size_t off = (*src.offsets_ptr)[row - 1];
         size_t len = (*src.offsets_ptr)[row] - off;
-        Int64 start = offset_column.get_int(row);
+        Int64 start = offset_column.get_element(row);
         if (len == 0 || start == 0) {
             dst.offsets_ptr->push_back(cur);
             continue;
@@ -98,7 +98,7 @@ void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
         }
         Int64 end;
         if (length_column) {
-            Int64 size = length_column->get_int(row);
+            Int64 size = length_column->get_element(row);
             end = std::max((Int64)off, std::min((Int64)(off + len), start + size));
         } else {
             end = off + len;

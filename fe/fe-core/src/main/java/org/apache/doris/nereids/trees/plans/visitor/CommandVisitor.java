@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
@@ -59,11 +60,13 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDatabaseIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowPartitionIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
@@ -255,12 +258,20 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showLastInsertCommand, context);
     }
 
+    default R visitShowPartitionIdCommand(ShowPartitionIdCommand showPartitionIdCommand, C context) {
+        return visitCommand(showPartitionIdCommand, context);
+    }
+
     default R visitShowVariablesCommand(ShowVariablesCommand showVariablesCommand, C context) {
         return visitCommand(showVariablesCommand, context);
     }
 
     default R visitShowViewCommand(ShowViewCommand showViewCommand, C context) {
         return visitCommand(showViewCommand, context);
+    }
+
+    default R visitShowBackendsCommand(ShowBackendsCommand showBackendsCommand, C context) {
+        return visitCommand(showBackendsCommand, context);
     }
 
     default R visitShowRepositoriesCommand(ShowRepositoriesCommand showRepositoriesCommand, C context) {
@@ -302,5 +313,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
         return visitCommand(dropRoleCommand, context);
+    }
+
+    default R visitShowTableIdCommand(ShowTableIdCommand showTableIdCommand, C context) {
+        return visitCommand(showTableIdCommand, context);
     }
 }
