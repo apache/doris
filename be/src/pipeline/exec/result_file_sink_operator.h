@@ -21,10 +21,6 @@
 #include "vec/sink/writer/vfile_result_writer.h"
 
 namespace doris::vectorized {
-template <typename Parent>
-class BlockSerializer;
-template <typename Parent>
-class Channel;
 class BroadcastPBlockHolder;
 } // namespace doris::vectorized
 
@@ -47,13 +43,8 @@ public:
 private:
     friend class ResultFileSinkOperatorX;
 
-    template <typename ChannelPtrType>
-    void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
-
     std::shared_ptr<BufferControlBlock> _sender;
 
-    std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
-    std::unique_ptr<vectorized::BlockSerializer<ResultFileSinkLocalState>> _serializer;
     std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
     int _sender_id;
 };
