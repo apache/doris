@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullable;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 
@@ -98,7 +99,7 @@ public class SimplifyConditionalFunction implements ExpressionPatternRuleFactory
      */
     private static Expression rewriteNullIf(NullIf nullIf) {
         if (nullIf.child(0) instanceof NullLiteral || nullIf.child(1) instanceof NullLiteral) {
-            return nullIf.child(0);
+            return new Nullable(nullIf.child(0));
         } else {
             return nullIf;
         }
