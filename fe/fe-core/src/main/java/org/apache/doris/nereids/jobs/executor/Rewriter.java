@@ -77,6 +77,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubqueryOrView;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.ExtractAndNormalizeWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.ExtractFilterFromCrossJoin;
+import org.apache.doris.nereids.rules.rewrite.ExtractInPredicateFromFilter;
 import org.apache.doris.nereids.rules.rewrite.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.InferAggNotNull;
@@ -180,7 +181,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         topDown(
                                 // ExtractSingleTableExpressionFromDisjunction conflict to InPredicateToEqualToRule
                                 // in the ExpressionNormalization, so must invoke in another job, otherwise dead loop.
-                                new ExtractSingleTableExpressionFromDisjunction()
+                                new ExtractSingleTableExpressionFromDisjunction(),
+                                new ExtractInPredicateFromFilter()
                         )
                 ),
                 // subquery unnesting relay on ExpressionNormalization to extract common factor expression

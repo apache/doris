@@ -21,7 +21,6 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -125,9 +124,6 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         int expandThreshold = cascadesContext.getAndCacheSessionVariable(
                 "partitionPruningExpandThreshold",
                 10, sessionVariable -> sessionVariable.partitionPruningExpandThreshold);
-
-        partitionPredicate = OrToIn.INSTANCE.rewriteTree(
-                partitionPredicate, new ExpressionRewriteContext(cascadesContext));
         if (BooleanLiteral.TRUE.equals(partitionPredicate)) {
             return Utils.fastToImmutableList(idToPartitions.keySet());
         } else if (BooleanLiteral.FALSE.equals(partitionPredicate) || partitionPredicate.isNullLiteral()) {

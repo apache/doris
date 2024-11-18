@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.expression.rules.ExtractCommonFactorRule;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateDedup;
 import org.apache.doris.nereids.rules.expression.rules.InPredicateToEqualToRule;
 import org.apache.doris.nereids.rules.expression.rules.NormalizeBinaryPredicatesRule;
-import org.apache.doris.nereids.rules.expression.rules.OrToIn;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyCastRule;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyDecimalV3Comparison;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyNotExprRule;
@@ -166,20 +165,6 @@ class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         assertRewrite("a and (b or ((a and e) or (a and f))) and (b or d)", "(b or ((a and (e or f)) and d)) and a");
 
-    }
-
-    @Test
-    void testTpcdsCase() {
-        executor = new ExpressionRuleExecutor(ImmutableList.of(
-                bottomUp(
-                        SimplifyRange.INSTANCE,
-                        OrToIn.INSTANCE,
-                        ExtractCommonFactorRule.INSTANCE
-                )
-        ));
-        assertRewrite(
-                "(((((customer_address.ca_country = 'United States') AND ca_state IN ('DE', 'FL', 'TX')) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('ID', 'IN', 'ND'))) OR ((customer_address.ca_country = 'United States') AND ca_state IN ('IL', 'MT', 'OH'))))",
-                "((customer_address.ca_country = 'United States') AND ca_state IN ('DE', 'FL', 'TX', 'ID', 'IN', 'ND', 'IL', 'MT', 'OH'))");
     }
 
     @Test
