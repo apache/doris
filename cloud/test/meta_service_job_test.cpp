@@ -118,9 +118,11 @@ void insert_rowsets(TxnKv* txn_kv, int64_t table_id, int64_t index_id, int64_t p
     std::deque<std::string> buffer;
     int data_size = 0, num_rows = 0, num_seg = 0, index_size = 0, segment_size = 0;
     for (auto& rowset : rowsets) {
-        data_size += rowset.data_disk_size();
+        data_size += rowset.total_disk_size();
         num_rows += rowset.num_rows();
         num_seg += rowset.num_segments();
+        index_size += rowset.index_disk_size();
+        segment_size += rowset.data_disk_size();
         auto& key = buffer.emplace_back();
         auto& val = buffer.emplace_back();
         meta_rowset_key({instance_id, tablet_id, rowset.end_version()}, &key);
