@@ -87,6 +87,7 @@ public class IcebergTransactionTest {
         hadoopCatalog.setConf(new Configuration());
         hadoopCatalog.initialize("df", props);
         this.externalCatalog = new IcebergHMSExternalCatalog(1L, "iceberg", "", Maps.newHashMap(), "");
+        externalCatalog.initLocalObjectsImpl();
         new MockUp<IcebergHMSExternalCatalog>() {
             @Mock
             public Catalog getCatalog() {
