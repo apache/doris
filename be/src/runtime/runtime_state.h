@@ -554,7 +554,6 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge,
                                             std::shared_ptr<IRuntimeFilter>* producer_filter,
                                             bool build_bf_exactly);
 
