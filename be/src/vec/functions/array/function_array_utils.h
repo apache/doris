@@ -91,7 +91,7 @@ MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data);
 
 // array[offset:length]
 void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
-                 const IColumn& offset_column, const IColumn* length_column);
+                 const ColumnInt64& offset_column, const ColumnInt64* length_column);
 
 using ColumnArrayExecutionDatas = std::vector<ColumnArrayExecutionData>;
 } // namespace doris::vectorized
