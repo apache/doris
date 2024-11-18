@@ -286,12 +286,14 @@ public class Profile {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
                 physicalPlan = nereidsPlanner.getPhysicalPlan();
                 physicalRelations.addAll(nereidsPlanner.getPhysicalRelations());
-                FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
-                if (distributedPlans != null) {
-                    summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,
-                            DistributedPlan.toString(Lists.newArrayList(distributedPlans.values()))
+                if (profileLevel >= 3) {
+                    FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
+                    if (distributedPlans != null) {
+                        summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,
+                                DistributedPlan.toString(Lists.newArrayList(distributedPlans.values()))
                                     .replace("\n", "\n     ")
-                    );
+                        );
+                    }
                 }
             }
 
