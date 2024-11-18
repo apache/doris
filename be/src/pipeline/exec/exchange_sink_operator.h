@@ -96,7 +96,7 @@ public:
     static Status empty_callback_function(void* sender, TCreatePartitionResult* result) {
         return Status::OK();
     }
-    Status _send_new_partition_batch();
+    Status _send_new_partition_batch(vectorized::Block* input_block);
     std::vector<std::shared_ptr<vectorized::Channel>> channels;
     int current_channel_idx {0}; // index of current channel to send to if _random == true
     bool only_local_exchange {false};
@@ -127,6 +127,7 @@ private:
     // Used to counter send bytes under local data exchange
     RuntimeProfile::Counter* _local_bytes_send_counter = nullptr;
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _send_new_partition_timer = nullptr;
 
     RuntimeProfile::Counter* _wait_queue_timer = nullptr;
     RuntimeProfile::Counter* _wait_broadcast_buffer_timer = nullptr;
