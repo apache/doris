@@ -30,7 +30,7 @@
 namespace doris::segment_v2 {
 
 PhraseEdgeQuery::PhraseEdgeQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher,
-                                 const TQueryOptions& query_options)
+                                 const TQueryOptions& query_options, const io::IOContext* io_ctx)
         : _searcher(searcher),
           _query(std::make_unique<CL_NS(search)::MultiPhraseQuery>()),
           _max_expansions(query_options.inverted_index_max_expansions) {}

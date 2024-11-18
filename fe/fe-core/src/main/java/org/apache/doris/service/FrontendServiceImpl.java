@@ -2952,9 +2952,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             byte[] meta = snapshot.getMeta();
             byte[] jobInfo = snapshot.getJobInfo();
             long expiredAt = snapshot.getExpiredAt();
+            long commitSeq = snapshot.getCommitSeq();
 
-            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, expired at: {}",
-                    label, meta.length, jobInfo.length, expiredAt);
+            LOG.info("get snapshot info, snapshot: {}, meta size: {}, job info size: {}, "
+                    + "expired at: {}, commit seq: {}", label, meta.length, jobInfo.length, expiredAt, commitSeq);
             if (request.isEnableCompress()) {
                 meta = GZIPUtils.compress(meta);
                 jobInfo = GZIPUtils.compress(jobInfo);
@@ -2967,6 +2968,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setMeta(meta);
             result.setJobInfo(jobInfo);
             result.setExpiredAt(expiredAt);
+            result.setCommitSeq(commitSeq);
         }
 
         return result;
