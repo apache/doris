@@ -205,7 +205,7 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1, userTags.size());
 
         // update connection context and query
-        connectContext.setResourceTags(userTags);
+        connectContext.setResourceTags(userTags, false);
         String queryStr = "explain select * from test.tbl1";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         System.out.println(explainString);
@@ -221,7 +221,7 @@ public class ResourceTagQueryTest {
         }
 
         // update connection context and query, it will failed because no zone1 backend
-        connectContext.setResourceTags(userTags);
+        connectContext.setResourceTags(userTags, false);
         Assert.assertTrue(connectContext.isResourceTagsSet());
         queryStr = "explain select * from test.tbl1";
         String error = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
