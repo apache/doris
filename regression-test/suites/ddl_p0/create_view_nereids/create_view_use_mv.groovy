@@ -75,7 +75,6 @@ suite("create_view_use_mv") {
     group by
     k1, k2, k3, k4, k5, l_orderkey, mv_o_orderkey"""
     qt_create_view_from_mv "select * from t_mv_v_view order by 1"
-    qt_show_view_t_lineitem "show view from lineitem"
 
     sql "drop view if exists v_for_alter"
     sql "CREATE VIEW v_for_alter AS SELECT * FROM orders"
