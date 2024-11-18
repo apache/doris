@@ -125,6 +125,7 @@ void ExchangeSinkBuffer::construct_request(TUniqueId fragment_instance_id) {
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
     _rpc_channel_is_idle[low_id] = true;
+    _instance_to_receiver_eof[low_id] = false;
     _instance_to_rpc_stats_vec.emplace_back(std::make_shared<RpcInstanceStatistics>(low_id));
     _instance_to_rpc_stats[low_id] = _instance_to_rpc_stats_vec.back().get();
     _instance_to_request[low_id] = std::make_shared<PTransmitDataParams>();
