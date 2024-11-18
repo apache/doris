@@ -21,9 +21,21 @@
 
 #include <limits>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
+
+enum class JoinProbeMethod {
+    PROCESS_NULL_AWARE_LEFT_HALF_JOIN_FOR_EMPTY_BUILD_SIDE,
+    FIND_NULL_AWARE_WITH_OTHER_CONJUNCTS,
+    FIND_BATCH_CONJUNCT,
+    FIND_BATCH_CONJUNCT_MATCH_ONE,
+    FIND_BATCH_INNER_OUTER_JOIN,
+    FIND_BATCH_LEFT_SEMI_ANTI,
+    FIND_BATCH_RIGHT_SEMI_ANTI,
+};
 
 namespace doris {
 template <typename Key, typename Hash = DefaultHash<Key>>
@@ -83,60 +95,82 @@ public:
         }
     }
 
-    template <int JoinOpType, bool with_other_conjuncts, bool is_mark_join, bool need_judge_null>
-    auto find_batch(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
-                    int probe_idx, uint32_t build_idx, int probe_rows,
-                    uint32_t* __restrict probe_idxs, bool& probe_visited,
-                    uint32_t* __restrict build_idxs, bool has_mark_join_conjunct = false) {
-        if constexpr (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                      JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) {
+    template <int JoinOpType>
+    JoinProbeMethod get_method(bool has_mark_join_conjunct, bool is_mark_join,
+                               bool with_other_conjuncts) {
+        if (JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+            JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) {
+            if (with_other_conjuncts) {
+                return JoinProbeMethod::FIND_NULL_AWARE_WITH_OTHER_CONJUNCTS;
+            }
             if (_empty_build_side) {
-                return _process_null_aware_left_half_join_for_empty_build_side<JoinOpType>(
-                        probe_idx, probe_rows, probe_idxs, build_idxs);
+                return JoinProbeMethod::PROCESS_NULL_AWARE_LEFT_HALF_JOIN_FOR_EMPTY_BUILD_SIDE;
             }
         }
 
-        if constexpr (with_other_conjuncts ||
-                      (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN)) {
-            if constexpr (!with_other_conjuncts) {
-                constexpr bool is_null_aware_join =
-                        JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                        JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
-                constexpr bool is_left_half_join = JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
-                                                   JoinOpType == TJoinOp::LEFT_ANTI_JOIN;
+        if (with_other_conjuncts || (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN)) {
+            if (!with_other_conjuncts) {
+                bool is_null_aware_join = JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
+                                          JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN;
+                bool is_left_half_join = JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
+                                         JoinOpType == TJoinOp::LEFT_ANTI_JOIN;
 
                 /// For null aware join or left half(semi/anti) join without other conjuncts and without
                 /// mark join conjunct.
                 /// If one row on probe side has one match in build side, we should stop searching the
                 /// hash table for this row.
                 if (is_null_aware_join || (is_left_half_join && !has_mark_join_conjunct)) {
-                    return _find_batch_conjunct<JoinOpType, need_judge_null, true>(
-                            keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs,
-                            build_idxs);
+                    return JoinProbeMethod::FIND_BATCH_CONJUNCT_MATCH_ONE;
                 }
             }
 
+            return JoinProbeMethod::FIND_BATCH_CONJUNCT;
+        }
+
+        if (JoinOpType == TJoinOp::INNER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN ||
+            JoinOpType == TJoinOp::LEFT_OUTER_JOIN || JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
+            return JoinProbeMethod::FIND_BATCH_INNER_OUTER_JOIN;
+        }
+        if (JoinOpType == TJoinOp::LEFT_ANTI_JOIN || JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
+            JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return JoinProbeMethod::FIND_BATCH_LEFT_SEMI_ANTI;
+        }
+        if (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN || JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+            return JoinProbeMethod::FIND_BATCH_RIGHT_SEMI_ANTI;
+        }
+        throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid hash join input");
+    }
+
+    template <int JoinOpType, bool need_judge_null>
+    auto find_batch(const Key* __restrict keys, const uint32_t* __restrict build_idx_map,
+                    int probe_idx, uint32_t build_idx, int probe_rows,
+                    uint32_t* __restrict probe_idxs, bool& probe_visited,
+                    uint32_t* __restrict build_idxs, JoinProbeMethod method) {
+        if (method == JoinProbeMethod::PROCESS_NULL_AWARE_LEFT_HALF_JOIN_FOR_EMPTY_BUILD_SIDE) {
+            return _process_null_aware_left_half_join_for_empty_build_side<JoinOpType>(
+                    probe_idx, probe_rows, probe_idxs, build_idxs);
+        }
+        if (method == JoinProbeMethod::FIND_BATCH_CONJUNCT) {
             return _find_batch_conjunct<JoinOpType, need_judge_null, false>(
                     keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
         }
-
-        if constexpr (JoinOpType == TJoinOp::INNER_JOIN || JoinOpType == TJoinOp::FULL_OUTER_JOIN ||
-                      JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
-                      JoinOpType == TJoinOp::RIGHT_OUTER_JOIN) {
+        if (method == JoinProbeMethod::FIND_BATCH_CONJUNCT_MATCH_ONE) {
+            return _find_batch_conjunct<JoinOpType, need_judge_null, true>(
+                    keys, build_idx_map, probe_idx, build_idx, probe_rows, probe_idxs, build_idxs);
+        }
+        if (method == JoinProbeMethod::FIND_BATCH_INNER_OUTER_JOIN) {
             return _find_batch_inner_outer_join<JoinOpType>(keys, build_idx_map, probe_idx,
                                                             build_idx, probe_rows, probe_idxs,
                                                             probe_visited, build_idxs);
         }
-        if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-                      JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
-                      JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+        if (method == JoinProbeMethod::FIND_BATCH_LEFT_SEMI_ANTI) {
             return _find_batch_left_semi_anti<JoinOpType, need_judge_null>(
                     keys, build_idx_map, probe_idx, probe_rows, probe_idxs);
         }
-        if constexpr (JoinOpType == TJoinOp::RIGHT_ANTI_JOIN ||
-                      JoinOpType == TJoinOp::RIGHT_SEMI_JOIN) {
+        if (method == JoinProbeMethod::FIND_BATCH_RIGHT_SEMI_ANTI) {
             return _find_batch_right_semi_anti(keys, build_idx_map, probe_idx, probe_rows);
         }
+
         return std::tuple {0, 0U, 0U};
     }
 
@@ -267,8 +301,12 @@ private:
     auto _process_null_aware_left_half_join_for_empty_build_side(int probe_idx, int probe_rows,
                                                                  uint32_t* __restrict probe_idxs,
                                                                  uint32_t* __restrict build_idxs) {
-        static_assert(JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
-                      JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN);
+        if (JoinOpType != TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+            JoinOpType != TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "process_null_aware_left_half_join_for_empty_build_side meet invalid "
+                            "hash join input");
+        }
         uint32_t matched_cnt = 0;
         const auto batch_size = max_batch_size;
 
