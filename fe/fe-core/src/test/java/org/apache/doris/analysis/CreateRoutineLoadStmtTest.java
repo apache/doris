@@ -269,7 +269,7 @@ public class CreateRoutineLoadStmtTest {
             }
         };
         createRoutineLoadInfo.validate(analyzer.getContext());
-        CreateRoutineLoadStmt createRoutineLoadStmtNereids = createRoutineLoadInfo.translateToLegacyStmt();
+        CreateRoutineLoadStmt createRoutineLoadStmtNereids = createRoutineLoadInfo.translateToLegacyStmt(ctx);
 
         CreateRoutineLoadStmt createRoutineLoadStmtOrigin = new CreateRoutineLoadStmt(labelName, tableNameString,
                 loadPropertyList, properties,
