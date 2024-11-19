@@ -198,7 +198,7 @@ supportedDropStatement
 
 supportedShowStatement
     : SHOW (GLOBAL | SESSION | LOCAL)? VARIABLES wildWhere?                         #showVariables
-    | SHOW AUTHORS                                                                  #showAuthors                                                            #showLastInsert
+    | SHOW AUTHORS                                                                  #showAuthors                                                            
     | SHOW LAST INSERT                                                              #showLastInsert 
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
