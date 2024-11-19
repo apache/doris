@@ -41,6 +41,7 @@ private:
     MetricRegistry* _registry = nullptr;
     std::shared_ptr<MetricEntity> _server_entity;
 
+    IntGauge* max_jdbc_scan_connection_percent;
     jclass _jdbc_data_source_clz;
     jmethodID _get_connection_percent_id;
     std::unordered_map<std::string, std::shared_ptr<JdbcConnectionMetrics>>

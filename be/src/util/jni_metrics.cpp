@@ -26,6 +26,7 @@
 namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(jdbc_scan_connection_percent, MetricUnit::PERCENT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(max_jdbc_scan_connection_percent, MetricUnit::PERCENT);
 struct JdbcConnectionMetrics {
     JdbcConnectionMetrics(std::shared_ptr<MetricEntity> entity) : entity(entity) {
         INT_GAUGE_METRIC_REGISTER(entity, jdbc_scan_connection_percent);
@@ -56,9 +57,11 @@ Status JniMetrics::_init() {
     JNI_CALL_METHOD_CHECK_EXCEPTION(
             , _get_connection_percent_id, env,
             GetStaticMethodID(_jdbc_data_source_clz, "getConnectionPercent", "()Ljava/util/Map;"));
-    _is_init = true;
     _server_entity->register_hook(_s_hook_name,
                                   std::bind(&JniMetrics::update_jdbc_connection_metrics, this));
+    INT_GAUGE_METRIC_REGISTER(_server_entity, max_jdbc_scan_connection_percent);
+    max_jdbc_scan_connection_percent->set_value(0);
+    _is_init = true;
     LOG(INFO) << "jni metrics inited successfully";
     return Status::OK();
 }
@@ -81,6 +84,9 @@ Status JniMetrics::update_jdbc_connection_metrics() {
                                              std::make_shared<JdbcConnectionMetrics>(entity));
         }
         _jdbc_connection_metrics[catalog_id]->upate(percent);
+        if (percent > max_jdbc_scan_connection_percent->value()) {
+            max_jdbc_scan_connection_percent->set_value(percent);
+        }
     }
     // remove unused catalog
     for (auto& item : _jdbc_connection_metrics) {
