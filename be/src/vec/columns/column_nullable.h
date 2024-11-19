@@ -245,12 +245,6 @@ public:
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
-        _push_false_to_nullmap(num);
-        get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
-    }
-
     void insert_default() override {
         get_nested_column().insert_default();
         get_null_map_data().push_back(1);

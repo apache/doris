@@ -98,10 +98,9 @@ public:
         }
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
+    void insert_many_strings(const StringRef* strings, size_t num) override {
         for (size_t i = 0; i < num; i++) {
-            insert_binary_data(data_array + start_offset_array[i], len_array[i]);
+            insert_binary_data(strings[i].data, strings[i].size);
         }
     }
 
