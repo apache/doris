@@ -220,9 +220,7 @@ protected:
     ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
                      int free_block_limit)
             : Exchanger<PartitionedBlock>(running_sink_operators, num_sources, num_partitions,
-                                          free_block_limit) {
-        _data_queue.resize(num_partitions);
-    }
+                                          free_block_limit) {}
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, LocalExchangeSinkLocalState& local_state);
 };
@@ -232,7 +230,10 @@ class BucketShuffleExchanger final : public ShuffleExchanger {
     BucketShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions,
                            int free_block_limit)
             : ShuffleExchanger(running_sink_operators, num_sources, num_partitions,
-                               free_block_limit) {}
+                               free_block_limit) {
+        DCHECK_GT(num_partitions, 0);
+        _data_queue.resize(std::max(num_partitions, num_sources));
+    }
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };
