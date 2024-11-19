@@ -224,7 +224,7 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitUnsetDefaultStorageVaultCommand(UnsetDefaultStorageVaultCommand unsetDefaultStorageVaultCommand,
-            C context) {
+                                                   C context) {
         return visitCommand(unsetDefaultStorageVaultCommand, context);
     }
 
