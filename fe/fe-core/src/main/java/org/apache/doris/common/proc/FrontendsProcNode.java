@@ -30,6 +30,7 @@ import org.apache.doris.system.SystemInfoService.HostInfo;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import inet.ipaddr.IPAddressString;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -223,10 +224,18 @@ public class FrontendsProcNode implements ProcNodeInterface {
                 LOG.warn("Failed to get InetAddress {}", addr);
                 continue;
             }
-            if (fe.getHost().equals(address.getHostAddress())) {
+            // Format the IP address
+            String formattedIp = formatIp(address.getHostAddress());
+
+            if (formatIp(fe.getHost()).equals(formattedIp)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static String formatIp(String str) {
+        // Use IPAddressString to format the IP address
+        return new IPAddressString(str).getAddress().toCanonicalString();
     }
 }
