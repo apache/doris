@@ -157,10 +157,6 @@ public class LimitAggToTopNAgg implements RewriteRuleFactory {
         if (agg.getGroupByExpressions().isEmpty()) {
             return Optional.empty();
         }
-        if (agg.getGroupByExpressions().get(0) instanceof SlotReference) {
-            // agg normalize projects the expression under agg. we cannot use it as order key above agg
-            return Optional.of(new OrderKey(agg.getGroupByExpressions().get(0), true, false));
-        }
-        return Optional.empty();
+        return Optional.of(new OrderKey(agg.getGroupByExpressions().get(0), true, false));
     }
 }
