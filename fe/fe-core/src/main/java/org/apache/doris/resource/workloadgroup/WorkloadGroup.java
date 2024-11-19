@@ -90,7 +90,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     // later more type and workload may be included in the future.
     public static final String INTERNAL_TYPE = "internal_type";
 
-    // deprecated
+    // deprecated, use MEMORY_LOW_WATERMARK and MEMORY_HIGH_WATERMARK instead.
     public static final String SPILL_THRESHOLD_LOW_WATERMARK = "spill_threshold_low_watermark";
     public static final String SPILL_THRESHOLD_HIGH_WATERMARK = "spill_threshold_high_watermark";
 
@@ -128,8 +128,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SCAN_THREAD_NUM, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MAX_REMOTE_SCAN_THREAD_NUM, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MIN_REMOTE_SCAN_THREAD_NUM, "-1");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SPILL_THRESHOLD_LOW_WATERMARK, "50%");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SPILL_THRESHOLD_HIGH_WATERMARK, "80%");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_LOW_WATERMARK, "50%");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_HIGH_WATERMARK, "80%");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(TAG, "");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(READ_BYTES_PER_SECOND, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(REMOTE_READ_BYTES_PER_SECOND, "-1");
@@ -561,8 +561,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 if (StringUtils.isEmpty(val)) {
                     row.add(ALL_PROPERTIES_DEFAULT_VALUE_MAP.get(key));
                 } else if ((CPU_HARD_LIMIT.equals(key) && !"-1".equals(val))
-                        || SPILL_THRESHOLD_LOW_WATERMARK.equals(key)
-                        || SPILL_THRESHOLD_HIGH_WATERMARK.equals(key)) {
+                        || MEMORY_LOW_WATERMARK.equals(key)
+                        || MEMORY_HIGH_WATERMARK.equals(key)) {
                     row.add(val + "%");
                 } else {
                     row.add(val);
