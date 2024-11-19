@@ -79,9 +79,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 
-/**
- * CommandVisitor.
- */
+/** CommandVisitor. */
 public interface CommandVisitor<R, C> {
 
     R visitCommand(Command command, C context);
@@ -268,7 +266,6 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowPartitionIdCommand(ShowPartitionIdCommand showPartitionIdCommand, C context) {
         return visitCommand(showPartitionIdCommand, context);
-
     }
 
     default R visitShowVariablesCommand(ShowVariablesCommand showVariablesCommand, C context) {
@@ -304,7 +301,7 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitShowCreateMaterializedViewCommand(ShowCreateMaterializedViewCommand showCreateMtlzViewCommand,
-            C context) {
+                        C context) {
         return visitCommand(showCreateMtlzViewCommand, context);
     }
 
