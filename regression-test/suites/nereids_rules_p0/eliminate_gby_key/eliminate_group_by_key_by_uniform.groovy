@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("eliminate_group_by_key_by_uniform") {
+    sql "set enable_nereids_rules = 'ELIMINATE_GROUP_BY_KEY_BY_UNIFORM'"
     sql "drop table if exists eli_gbk_by_uniform_t"
     sql """create table eli_gbk_by_uniform_t(a int null, b int not null, c varchar(10) null, d date, dt datetime)
     distributed by hash(a) properties("replication_num"="1");
