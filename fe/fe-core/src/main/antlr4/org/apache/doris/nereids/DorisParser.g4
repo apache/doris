@@ -260,6 +260,7 @@ supportedShowStatement
     | SHOW COLLATION wildWhere?                                                     #showCollation
     | SHOW SQL_BLOCK_RULE (FOR ruleName=identifier)?                                #showSqlBlockRule
     | SHOW CREATE VIEW name=multipartIdentifier                                     #showCreateView
+    | SHOW DATA TYPES                                                               #showDataTypes
     | SHOW CREATE MATERIALIZED VIEW mvName=identifier
         ON tableName=multipartIdentifier                                            #showCreateMaterializedView  
     | SHOW (WARNINGS | ERRORS) limitClause?                                         #showWarningErrors
@@ -328,7 +329,6 @@ unsupportedShowStatement
         LEFT_PAREN functionArguments? RIGHT_PAREN
         ((FROM | IN) database=multipartIdentifier)?                                 #showCreateFunction
     | SHOW (DATABASES | SCHEMAS) (FROM catalog=identifier)? wildWhere?              #showDatabases
-    | SHOW DATA TYPES                                                               #showDataTypes
     | SHOW CATALOGS wildWhere?                                                      #showCatalogs
     | SHOW CATALOG name=identifier                                                  #showCatalog
     | SHOW FULL? (COLUMNS | FIELDS) (FROM | IN) tableName=multipartIdentifier
