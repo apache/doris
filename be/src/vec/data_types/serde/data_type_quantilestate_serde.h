@@ -36,17 +36,17 @@
 namespace doris {
 
 namespace vectorized {
-
+#include "common/compile_check_begin.h"
 class DataTypeQuantileStateSerDe : public DataTypeSerDe {
 public:
     DataTypeQuantileStateSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
-    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+    Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
                                       FormatOptions& options) const override {
         return Status::NotSupported("serialize_one_cell_to_json with type [{}]", column.get_name());
     }
 
-    Status serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
+    Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override {
         return Status::NotSupported("serialize_column_to_json with type [{}]", column.get_name());
     }
@@ -63,9 +63,9 @@ public:
                                     column.get_name());
     }
 
-    Status write_column_to_pb(const IColumn& column, PValues& result, int start,
-                              int end) const override {
-        result.mutable_bytes_value()->Reserve(end - start);
+    Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                              int64_t end) const override {
+        result.mutable_bytes_value()->Reserve(cast_set<int>(end - start));
         for (size_t row_num = start; row_num < end; ++row_num) {
             StringRef data = column.get_data_at(row_num);
             result.add_bytes_value(data.to_string());
@@ -81,12 +81,12 @@ public:
     }
 
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
-                                 int32_t col_id, int row_num) const override {
+                                 int32_t col_id, int64_t row_num) const override {
         auto& col = reinterpret_cast<const ColumnQuantileState&>(column);
         auto& val = const_cast<QuantileState&>(col.get_element(row_num));
         size_t actual_size = val.get_serialized_size();
         auto ptr = mem_pool->alloc(actual_size);
-        result.writeKey(col_id);
+        result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
         result.writeStartBinary();
         result.writeBinary(reinterpret_cast<const char*>(ptr), actual_size);
         result.writeEndBinary();
@@ -100,7 +100,7 @@ public:
         col.insert_value(val);
     }
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                               arrow::ArrayBuilder* array_builder, int start, int end,
+                               arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                const cctz::time_zone& ctz) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "write_column_to_arrow with type " + column.get_name());
@@ -112,19 +112,19 @@ public:
     }
 
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override {
         return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
-                                 int row_idx, bool col_const,
+                                 int64_t row_idx, bool col_const,
                                  const FormatOptions& options) const override {
         return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
     }
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int start, int end,
+                               int64_t start, int64_t end,
                                std::vector<StringRef>& buffer_list) const override {
         return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
     }
@@ -132,14 +132,15 @@ public:
 private:
     template <bool is_binary_format>
     Status _write_column_to_mysql(const IColumn& column, MysqlRowBuffer<is_binary_format>& result,
-                                  int row_idx, bool col_const, const FormatOptions& options) const;
+                                  int64_t row_idx, bool col_const,
+                                  const FormatOptions& options) const;
 };
 
 // QuantileState is binary data which is not shown by mysql
 template <bool is_binary_format>
 Status DataTypeQuantileStateSerDe::_write_column_to_mysql(const IColumn& column,
                                                           MysqlRowBuffer<is_binary_format>& result,
-                                                          int row_idx, bool col_const,
+                                                          int64_t row_idx, bool col_const,
                                                           const FormatOptions& options) const {
     auto& data_column = reinterpret_cast<const ColumnQuantileState&>(column);
 
@@ -159,6 +160,6 @@ Status DataTypeQuantileStateSerDe::_write_column_to_mysql(const IColumn& column,
     }
     return Status::OK();
 }
-
+#include "common/compile_check_end.h"
 } // namespace vectorized
 } // namespace doris
