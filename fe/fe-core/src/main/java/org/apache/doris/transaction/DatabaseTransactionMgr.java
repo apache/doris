@@ -1660,6 +1660,14 @@ public class DatabaseTransactionMgr {
             if (idToRunningTransactionState.put(transactionState.getTransactionId(), transactionState) == null) {
                 runningTxnNums++;
             }
+            if (isReplay && transactionState.getSubTxnIds() != null) {
+                LOG.info("add sub transactions for txn_id={}, status={}, sub_txn_ids={}",
+                        transactionState.getTransactionId(), transactionState.getTransactionStatus(),
+                        transactionState.getSubTxnIds());
+                for (Long subTxnId : transactionState.getSubTxnIds()) {
+                    addSubTransaction(transactionState.getTransactionId(), subTxnId);
+                }
+            }
         } else {
             if (idToRunningTransactionState.remove(transactionState.getTransactionId()) != null) {
                 runningTxnNums--;
@@ -1669,6 +1677,11 @@ public class DatabaseTransactionMgr {
                 finalStatusTransactionStateDequeShort.add(transactionState);
             } else {
                 finalStatusTransactionStateDequeLong.add(transactionState);
+            }
+            if (transactionState.getSubTxnIds() != null) {
+                LOG.info("clean sub transactions for txn_id={}, sub_txn_ids={}", transactionState.getTransactionId(),
+                        transactionState.getSubTxnIds());
+                cleanSubTransactions(transactionState.getTransactionId());
             }
         }
         updateTxnLabels(transactionState);
