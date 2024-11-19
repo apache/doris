@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -25,14 +26,28 @@ import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.PlanNodeWithHash;
+import org.apache.doris.plugin.AuditEvent;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.HistoricalPlanStatistics;
+import org.apache.doris.statistics.HistoricalPlanStatisticsEntry;
 import org.apache.doris.statistics.HistoryBasedPlanStatisticsProvider;
+import org.apache.doris.statistics.HistoryBasedSourceInfo;
+import org.apache.doris.statistics.PlanStatistics;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsBuilder;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import com.google.common.collect.ImmutableMap;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ExecutionException;
 import java.util.function.Supplier;
 
 /**
@@ -41,13 +56,21 @@ import java.util.function.Supplier;
 public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
     private final Supplier<HistoryBasedPlanStatisticsProvider> historyBasedPlanStatisticsProvider;
     private final HistoryBasedStatisticsCacheManager historyBasedStatisticsCacheManager;
+    private final String queryId;
     public HistoryBasedPlanStatisticsCalculator(GroupExpression groupExpression, boolean forbidUnknownColStats,
             Map<String, ColumnStatistic> columnStatisticMap, boolean isPlayNereidsDump,
             Map<CTEId, Statistics> cteIdToStats, CascadesContext context) {
         super(groupExpression, forbidUnknownColStats, columnStatisticMap, isPlayNereidsDump,
                 cteIdToStats, context);
-        this.historyBasedPlanStatisticsProvider = requireNonNull(historyBasedPlanStatisticsProvider, "historyBasedPlanStatisticsProvider is null");
-        this.historyBasedStatisticsCacheManager = requireNonNull(historyBasedStatisticsCacheManager, "historyBasedStatisticsCacheManager is null");
+        WorkloadRuntimeStatusMgr mgr = Env.getCurrentEnv().getWorkloadRuntimeStatusMgr();
+        List<AuditEvent> auditEventList = mgr.getQueryNeedAudit();
+        // TODO: choose which audit event
+        AuditEvent event = auditEventList.get(0);
+        this.queryId = event.queryId;
+        this.historyBasedPlanStatisticsProvider = requireNonNull(context.getStatementContext().getHistoryBasedPlanStatisticsTracker().getHistoryBasedPlanStatisticsProvider(),
+                "historyBasedPlanStatisticsProvider is null");
+        this.historyBasedStatisticsCacheManager = requireNonNull(context.getStatementContext().getHistoryBasedPlanStatisticsTracker().getHistoryBasedStatisticsCacheManager(),
+                "historyBasedStatisticsCacheManager is null");
     }
 
     @Override
@@ -75,46 +98,74 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
         return getStatistics(aggregate, childStats);
     }
 
-
-    private Statistics getStatistics(Plan planNode, Statistics delegateStats)
+    private Statistics getStatistics(PlanNode planNode, Statistics delegateStats)
     {
-        //if (!useHistoryBasedPlanStatisticsEnabled(session)) {
-        //    return delegateStats;
+        String hash = null; // todo: based on plan toString
+        PlanNodeWithHash planNodeWithHash = new PlanNodeWithHash((PlanNode) planNode, Optional.of(hash));
+        //Map<PlanNodeWithHash, HistoricalPlanStatistics> statistics = ImmutableMap.of();
+        //try {
+        HistoricalPlanStatistics planStatistics = historyBasedStatisticsCacheManager
+                    .getStatisticsCache(queryId, historyBasedPlanStatisticsProvider, 1000)
+                    .getUnchecked(planNodeWithHash);
+                    //.getAll(planNodeWithHash.collect(toImmutableList()));
         //}
-
-        Plan plan = resolveGroupReferences(planNode, lookup);
-        Map<PlanCanonicalizationStrategy, PlanNodeWithHash> allHashes = getPlanNodeHashes(plan, session, true);
-
-        Map<PlanNodeWithHash, HistoricalPlanStatistics> statistics = ImmutableMap.of();
-        try {
-            statistics = historyBasedStatisticsCacheManager
-                    .getStatisticsCache(session.getQueryId(), historyBasedPlanStatisticsProvider, getHistoryBasedOptimizerTimeoutLimit(session).toMillis())
-                    .getAll(allHashes.values().stream().distinct().collect(toImmutableList()));
+        //catch (ExecutionException e) {
+        //    throw new RuntimeException(format("Unable to get plan statistics for %s", planNode), e.getCause());
+        //}
+        Optional<HistoricalPlanStatisticsEntry> historicalPlanStatisticsEntry = getSelectedHistoricalPlanStatisticsEntry(planStatistics, 1000);
+        if (historicalPlanStatisticsEntry.isPresent()) {
+            PlanStatistics predictedPlanStatistics = historicalPlanStatisticsEntry.get().getPlanStatistics();
+            // todo: choose which one is the output rows count
+            delegateStats.withRowCountAndEnforceValid(predictedPlanStatistics.getPushRows());
         }
-        catch (ExecutionException e) {
-            throw new RuntimeException(format("Unable to get plan statistics for %s", planNode), e.getCause());
-        }
-        double historyMatchingThreshold = getHistoryInputTableStatisticsMatchingThreshold(session);
-        // Return statistics corresponding to first strategy that we find, in order specified by `historyBasedPlanCanonicalizationStrategyList`
-        for (PlanCanonicalizationStrategy strategy : historyBasedPlanCanonicalizationStrategyList(session)) {
-            for (Map.Entry<PlanNodeWithHash, HistoricalPlanStatistics> entry : statistics.entrySet()) {
-                if (allHashes.containsKey(strategy) && entry.getKey().getHash().isPresent() && allHashes.get(strategy).equals(entry.getKey())) {
-                    Optional<List<PlanStatistics>> inputTableStatistics = getPlanNodeInputTableStatistics(plan, session, strategy, true);
-                    if (inputTableStatistics.isPresent()) {
-                        Optional<HistoricalPlanStatisticsEntry> historicalPlanStatisticsEntry = getSelectedHistoricalPlanStatisticsEntry(entry.getValue(), inputTableStatistics.get(), historyMatchingThreshold);
-                        if (historicalPlanStatisticsEntry.isPresent()) {
-                            PlanStatistics predictedPlanStatistics = historicalPlanStatisticsEntry.get().getPlanStatistics();
-                            if ((toConfidenceLevel(predictedPlanStatistics.getConfidence()).getConfidenceOrdinal() >= delegateStats.confidenceLevel().getConfidenceOrdinal())) {
-                                return delegateStats.combineStats(
-                                        predictedPlanStatistics,
-                                        new HistoryBasedSourceInfo(entry.getKey().getHash(), inputTableStatistics, Optional.ofNullable(historicalPlanStatisticsEntry.get().getHistoricalPlanStatisticsEntryInfo())));
-                            }
+        return delegateStats;
+
+        /*
+        double historyMatchingThreshold = 10;//getHistoryInputTableStatisticsMatchingThreshold(session);
+        for (Map.Entry<PlanNodeWithHash, HistoricalPlanStatistics> entry : statistics.entrySet()) {
+            if (entry.getKey().getHash().isPresent()) {
+                Optional<List<PlanStatistics>> inputTableStatistics = getPlanNodeInputTableStatistics(plan, session, strategy, true);
+                if (inputTableStatistics.isPresent()) {
+                    Optional<HistoricalPlanStatisticsEntry> historicalPlanStatisticsEntry = getSelectedHistoricalPlanStatisticsEntry(entry.getValue(), inputTableStatistics.get(), historyMatchingThreshold);
+                    if (historicalPlanStatisticsEntry.isPresent()) {
+                        PlanStatistics predictedPlanStatistics = historicalPlanStatisticsEntry.get().getPlanStatistics();
+                        if ((toConfidenceLevel(predictedPlanStatistics.getConfidence()).getConfidenceOrdinal() >= delegateStats.confidenceLevel().getConfidenceOrdinal())) {
+                            return delegateStats.combineStats(
+                                    predictedPlanStatistics,
+                                    new HistoryBasedSourceInfo(entry.getKey().getHash(), inputTableStatistics, Optional.ofNullable(historicalPlanStatisticsEntry.get().getHistoricalPlanStatisticsEntryInfo())));
                         }
                     }
                 }
             }
-        }
+        }*/
 
         return delegateStats;
     }
+
+    public static Optional<HistoricalPlanStatisticsEntry> getSelectedHistoricalPlanStatisticsEntry(
+            HistoricalPlanStatistics historicalPlanStatistics,
+            //List<PlanStatistics> inputTableStatistics,
+            double historyMatchingThreshold)
+    {
+        List<HistoricalPlanStatisticsEntry> lastRunsStatistics = historicalPlanStatistics.getLastRunsStatistics();
+        if (lastRunsStatistics.isEmpty()) {
+            return Optional.empty();
+        }
+
+        //Optional<Integer> similarStatsIndex = getSimilarStatsIndex(historicalPlanStatistics, inputTableStatistics, historyMatchingThreshold);
+        Optional<Integer> similarStatsIndex = Optional.of(0);;
+
+        if (similarStatsIndex.isPresent()) {
+            return Optional.of(lastRunsStatistics.get(similarStatsIndex.get()));
+        }
+
+        // TODO: Use linear regression to predict stats if we have only 1 table.
+        return Optional.empty();
+    }
+
+    //private Optional<List<PlanStatistics>> getPlanNodeInputTableStatistics(PlanNode plan)
+    //{
+    //    PlanNode statsEquivalentPlanNode = plan;
+    //    return planCanonicalInfoProvider.getInputTableStatistics(session, statsEquivalentPlanNode, strategy, cacheOnly);
+    //}
 }

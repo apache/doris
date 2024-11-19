@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -113,6 +114,7 @@ public class CascadesContext implements ScheduleContext {
     private final TopnFilterContext topnFilterContext = new TopnFilterContext();
     private Optional<Scope> outerScope = Optional.empty();
     private Map<List<String>, TableIf> tables = null;
+    private Map<Integer, PhysicalPlan> needStatsPlanIdNodeMap = Maps.newLinkedHashMap();
 
     private boolean isRewriteRoot;
     private volatile boolean isTimeout = false;
@@ -226,6 +228,10 @@ public class CascadesContext implements ScheduleContext {
 
     public Optional<CascadesContext> getParent() {
         return parent;
+    }
+
+    public Map<Integer, PhysicalPlan> getNeedStatsPlanIdNodeMap() {
+        return needStatsPlanIdNodeMap;
     }
 
     public Optional<CTEId> getCurrentTree() {

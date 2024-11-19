@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import static java.lang.String.format;
 import static java.util.Collections.emptyList;
 import static java.util.Collections.unmodifiableList;
 
@@ -31,7 +32,7 @@ public class HistoricalPlanStatisticsEntry
     public HistoricalPlanStatisticsEntry(PlanStatistics planStatistics, List<PlanStatistics> inputTableStatistics)
     {
         // Check for nulls, to make it thrift backwards compatible
-        this.planStatistics = planStatistics == null ? PlanStatistics.empty() : planStatistics;
+        this.planStatistics = planStatistics == null ? PlanStatistics.EMPTY : planStatistics;
         this.inputTableStatistics = unmodifiableList(inputTableStatistics == null ? emptyList() : inputTableStatistics);
     }
 

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.stats.HboStatsCalculator;
+import org.apache.doris.nereids.stats.HistoryBasedPlanStatisticsCalculator;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -118,7 +119,7 @@ public class DeriveStatsJob extends Job {
                         context.getCascadesContext());
                 statsCalculator.estimate();
             } else {
-                statsCalculator = new HboStatsCalculator(groupExpression,
+                statsCalculator = new HistoryBasedPlanStatisticsCalculator(groupExpression,
                         sessionVariable.getForbidUnknownColStats(),
                         connectContext.getTotalColumnStatisticMap(),
                         sessionVariable.isPlayNereidsDump(),

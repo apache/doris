@@ -17,8 +17,8 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.planner.PlanNodeWithHash;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
-
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,11 +33,6 @@ public class InMemoryHistoryBasedPlanStatisticsProvider
 
     public InMemoryHistoryBasedPlanStatisticsProvider() {
         semaphore.acquireUninterruptibly();
-    }
-
-    @Override
-    public String getName() {
-        return "test";
     }
 
     @Override

@@ -17,24 +17,42 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.planner.PlanNode;
+import org.apache.doris.planner.PlanNodeWithHash;
+import org.apache.doris.statistics.HistoricalPlanStatistics;
+import org.apache.doris.statistics.HistoryBasedPlanStatisticsProvider;
+import org.apache.doris.statistics.PlanNodeCanonicalInfo;
+import org.apache.doris.statistics.PlanStatistics;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
+
 public class HistoryBasedStatisticsCacheManager
 {
     // Cache historical statistics of plan node.
-    private final Map<QueryId, LoadingCache<PlanNodeWithHash, HistoricalPlanStatistics>> statisticsCache = new ConcurrentHashMap<>();
+    private final Map<String, LoadingCache<PlanNodeWithHash, HistoricalPlanStatistics>> statisticsCache = new ConcurrentHashMap<>();
 
     // Cache hashes of plan node.
-    private final Map<QueryId, Map<CachingPlanCanonicalInfoProvider.CacheKey, PlanNodeCanonicalInfo>> canonicalInfoCache = new ConcurrentHashMap<>();
+    //private final Map<String, Map<CachingPlanCanonicalInfoProvider.CacheKey, PlanNodeCanonicalInfo>> canonicalInfoCache = new ConcurrentHashMap<>();
 
-    private final Map<QueryId, Map<CachingPlanCanonicalInfoProvider.InputTableCacheKey, PlanStatistics>> inputTableStatistics = new ConcurrentHashMap<>();
+    //private final Map<String, Map<CachingPlanCanonicalInfoProvider.InputTableCacheKey, PlanStatistics>> inputTableStatistics = new ConcurrentHashMap<>();
 
     // Stores query IDs which timeout during history optimizer registration
-    private final Set<QueryId> queryIdsRegistrationTimeOut = ConcurrentHashMap.newKeySet();
-    private final Map<QueryId, Map<PlanCanonicalizationStrategy, String>> canonicalPlan = new ConcurrentHashMap<>();
-    private final Map<QueryId, PlanNode> statsEquivalentPlanRootNode = new ConcurrentHashMap<>();
+    private final Set<String> queryIdsRegistrationTimeOut = ConcurrentHashMap.newKeySet();
 
     public HistoryBasedStatisticsCacheManager() {}
 
-    public LoadingCache<PlanNodeWithHash, HistoricalPlanStatistics> getStatisticsCache(QueryId queryId, Supplier<HistoryBasedPlanStatisticsProvider> historyBasedPlanStatisticsProvider, long timeoutInMilliSeconds)
+    public LoadingCache<PlanNodeWithHash, HistoricalPlanStatistics> getStatisticsCache(String queryId, Supplier<HistoryBasedPlanStatisticsProvider> historyBasedPlanStatisticsProvider, long timeoutInMilliSeconds)
     {
         return statisticsCache.computeIfAbsent(queryId, ignored -> CacheBuilder.newBuilder()
                 .build(new CacheLoader<PlanNodeWithHash, HistoricalPlanStatistics>()
@@ -48,66 +66,46 @@ public class HistoryBasedStatisticsCacheManager
                     @Override
                     public Map<PlanNodeWithHash, HistoricalPlanStatistics> loadAll(Iterable<? extends PlanNodeWithHash> keys)
                     {
-                        Map<PlanNodeWithHash, HistoricalPlanStatistics> statistics = new HashMap<>(historyBasedPlanStatisticsProvider.get().getStats(ImmutableList.copyOf(keys), timeoutInMilliSeconds));
+                        Map<PlanNodeWithHash, HistoricalPlanStatistics> statistics = new HashMap<>(historyBasedPlanStatisticsProvider.get().getStats(
+                                ImmutableList.copyOf(keys), timeoutInMilliSeconds));
                         // loadAll excepts all keys to be written
                         for (PlanNodeWithHash key : keys) {
-                            statistics.putIfAbsent(key, empty());
+                            statistics.putIfAbsent(key, HistoricalPlanStatistics.empty());
                         }
                         return ImmutableMap.copyOf(statistics);
                     }
                 }));
     }
 
-    public Map<CachingPlanCanonicalInfoProvider.CacheKey, PlanNodeCanonicalInfo> getCanonicalInfoCache(QueryId queryId)
-    {
-        return canonicalInfoCache.computeIfAbsent(queryId, ignored -> new ConcurrentHashMap());
-    }
+    //public Map<CachingPlanCanonicalInfoProvider.CacheKey, PlanNodeCanonicalInfo> getCanonicalInfoCache(String queryId)
+    //{
+    //    return canonicalInfoCache.computeIfAbsent(queryId, ignored -> new ConcurrentHashMap());
+    //}
 
-    public Map<CachingPlanCanonicalInfoProvider.InputTableCacheKey, PlanStatistics> getInputTableStatistics(QueryId queryId)
-    {
-        return inputTableStatistics.computeIfAbsent(queryId, ignored -> new ConcurrentHashMap());
-    }
+    //public Map<CachingPlanCanonicalInfoProvider.InputTableCacheKey, PlanStatistics> getInputTableStatistics(String queryId)
+    //{
+    //    return inputTableStatistics.computeIfAbsent(queryId, ignored -> new ConcurrentHashMap());
+    //}
 
-    public Map<PlanCanonicalizationStrategy, String> getCanonicalPlan(QueryId queryId)
-    {
-        return canonicalPlan.computeIfAbsent(queryId, ignored -> new ConcurrentHashMap());
-    }
-
-    public void setStatsEquivalentPlanRootNode(QueryId queryId, PlanNode plan)
-    {
-        statsEquivalentPlanRootNode.put(queryId, plan);
-    }
-
-    public Optional<PlanNode> getStatsEquivalentPlanRootNode(QueryId queryId)
-    {
-        if (statsEquivalentPlanRootNode.containsKey(queryId)) {
-            return Optional.of(statsEquivalentPlanRootNode.get(queryId));
-        }
-        return Optional.empty();
-    }
-
-    public void invalidate(QueryId queryId)
+    public void invalidate(String queryId)
     {
         statisticsCache.remove(queryId);
-        canonicalInfoCache.remove(queryId);
-        inputTableStatistics.remove(queryId);
+        //canonicalInfoCache.remove(queryId);
+        //inputTableStatistics.remove(queryId);
         queryIdsRegistrationTimeOut.remove(queryId);
-        canonicalPlan.remove(queryId);
-        statsEquivalentPlanRootNode.remove(queryId);
     }
 
-    @VisibleForTesting
-    public Map<QueryId, Map<CachingPlanCanonicalInfoProvider.CacheKey, PlanNodeCanonicalInfo>> getCanonicalInfoCache()
-    {
-        return canonicalInfoCache;
-    }
+    //public Map<String, Map<CachingPlanCanonicalInfoProvider.CacheKey, PlanNodeCanonicalInfo>> getCanonicalInfoCache()
+    //{
+    //    return canonicalInfoCache;
+    //}
 
-    public boolean historyBasedQueryRegistrationTimeout(QueryId queryId)
+    public boolean historyBasedQueryRegistrationTimeout(String queryId)
     {
         return queryIdsRegistrationTimeOut.contains(queryId);
     }
 
-    public void setHistoryBasedQueryRegistrationTimeout(QueryId queryId)
+    public void setHistoryBasedQueryRegistrationTimeout(String queryId)
     {
         queryIdsRegistrationTimeOut.add(queryId);
     }

@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
+import org.apache.doris.nereids.stats.HistoryBasedPlanStatisticsTracker;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -173,7 +174,7 @@ public class StatementContext implements Closeable {
     private String disableJoinReorderReason;
 
     private Backend groupCommitMergeBackend;
-
+    private HistoryBasedPlanStatisticsTracker historyBasedPlanStatisticsTracker;
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -212,6 +213,14 @@ public class StatementContext implements Closeable {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public void setHistoryBasedPlanStatisticsTracker(HistoryBasedPlanStatisticsTracker tracker) {
+        this.historyBasedPlanStatisticsTracker = tracker;
+    }
+
+    public HistoryBasedPlanStatisticsTracker getHistoryBasedPlanStatisticsTracker() {
+        return this.historyBasedPlanStatisticsTracker;
     }
 
     public void setOriginStatement(OriginStatement originStatement) {

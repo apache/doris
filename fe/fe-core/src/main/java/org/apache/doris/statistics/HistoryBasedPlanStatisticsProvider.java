@@ -16,10 +16,14 @@
 // under the License.
 
 package org.apache.doris.statistics;
+
+import org.apache.doris.planner.PlanNodeWithHash;
+
+import java.util.List;
+import java.util.Map;
+
 public interface HistoryBasedPlanStatisticsProvider
 {
-    String getName();
-
     /**
      * Given a list of plan node hashes, returns historical statistics for them.
      * Some entries in return value may be missing if no corresponding history exists.
@@ -27,7 +31,7 @@ public interface HistoryBasedPlanStatisticsProvider
      *
      * TODO: Using PlanNode as map key can be expensive, we can use Plan node id as a map key.
      */
-    Map<PlanNodeWithHash, HistoricalPlanStatistics> getStats(List<PlanNodeWithHash> planNodesWithHash, long timeoutInMilliSeconds);
+    Map<PlanNodeWithHash, HistoricalPlanStatistics> getStats(List<PlanNodeWithHash> nodeIds, long timeoutInMilliSeconds);
 
     /**
      * Given plan hashes and corresponding statistics after a query is run, store them for future retrieval.

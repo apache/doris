@@ -19,36 +19,32 @@ package org.apache.doris.statistics;
 
 import static java.util.Objects.requireNonNull;
 
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
+/**
+ * Describes plan statistics which are derived from history based optimizer.
+ */
+public class HistoryBasedSourceInfo
+{
+    private final Optional<String> hash;
+    private final Optional<List<PlanStatistics>> inputTableStatistics;
 
-public class PlanStatisticsWithSourceInfo {
-    private final int nodeId;
-    private final PlanStatistics planStatistics;
-
-    private final HistoryBasedSourceInfo sourceInfo;
-
-    public PlanStatisticsWithSourceInfo(int id, PlanStatistics planStatistics, HistoryBasedSourceInfo sourceInfo)
+    public HistoryBasedSourceInfo(Optional<String> hash, Optional<List<PlanStatistics>> inputTableStatistics)
     {
-        this.nodeId = id;
-        this.planStatistics = requireNonNull(planStatistics, "planStatistics is null");
-        this.sourceInfo = sourceInfo;
+        this.hash = requireNonNull(hash, "hash is null");
+        this.inputTableStatistics = requireNonNull(inputTableStatistics, "inputTableStatistics is null");
     }
 
-
-    public int getId()
+    public Optional<String> getHash()
     {
-        return nodeId;
+        return hash;
     }
 
-    public PlanStatistics getPlanStatistics()
+    public Optional<List<PlanStatistics>> getInputTableStatistics()
     {
-        return planStatistics;
-    }
-
-    public HistoryBasedSourceInfo getSourceInfo()
-    {
-        return sourceInfo;
+        return inputTableStatistics;
     }
 
     @Override
@@ -60,15 +56,13 @@ public class PlanStatisticsWithSourceInfo {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        PlanStatisticsWithSourceInfo that = (PlanStatisticsWithSourceInfo) o;
-        return nodeId == that.nodeId && planStatistics.equals(that.planStatistics) && sourceInfo.equals(that.sourceInfo);
+        HistoryBasedSourceInfo that = (HistoryBasedSourceInfo) o;
+        return Objects.equals(hash, that.hash) && Objects.equals(inputTableStatistics, that.inputTableStatistics);
     }
 
     @Override
     public int hashCode()
     {
-        return Objects.hash(nodeId, planStatistics, sourceInfo);
+        return Objects.hash(hash, inputTableStatistics);
     }
-
-
 }

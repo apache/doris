@@ -313,7 +313,11 @@ public class NereidsPlanner extends Planner {
         // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
         MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
         NereidsTracer.output(statementContext.getConnectContext());
-
+        // hbo related
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor()
+                    .getHistoryBasedPlanStatisticsTracker().setContext(cascadesContext, physicalPlan);
+        }
         return physicalPlan;
     }
 
@@ -416,7 +420,9 @@ public class NereidsPlanner extends Planner {
         }
         if (root.needCollectExecStats()) {
             // todo: make sure the plan id is valid
-            fragment.getCollectExecStatsIds().add(((PlanNode) root).getId().asInt());
+            int nodeId = ((PlanNode) root).getId().asInt();
+            fragment.getCollectExecStatsIds().add(nodeId);
+            cascadesContext.getNeedStatsPlanIdNodeMap().put(nodeId, root);
         }
     }
 
