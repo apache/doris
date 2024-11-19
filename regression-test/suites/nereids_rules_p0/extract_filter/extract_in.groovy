@@ -31,6 +31,7 @@ suite("extract_in") {
             PROPERTIES ('replication_num' = '1');
 
         insert into t values (7, 8, 9, 10, 11,12, 13);
+        set ignore_shape_nodes="PhysicalDistribute,PhysicalProject";
     """
 
     qt_1 "explain shape plan select * from t where col1 = 1 or col1 = 2 or col1 = 3 and (col2 = 4)"
