@@ -177,13 +177,21 @@ public class AESUtilTest {
 
     @Test
     public void testGetSecretKey() throws Exception {
+        // Pre-populate the secret key map via the public initServicePublicKeyCertificate API.
+        Properties props = new Properties();
+        props.setProperty("testService1", "testKey123testKey123");
+        props.setProperty("newService", "newKey456newKey456");
+        AESUtil.initServicePublicKeyCertificate(props);
+
+        // Guard: getSecretKey must NOT lazily fetch from URL on miss anymore.
+        // If anyone calls initServicePublicKeyCertificateFromUrl during a getSecretKey
+        // invocation, fail the test loudly.
+        final boolean[] urlFetchCalled = {false};
         new MockUp<AESUtil>() {
             @Mock
             void initServicePublicKeyCertificateFromUrl(String baseUrl) {
-                Properties props = new Properties();
-                props.setProperty("testService1", "testKey123testKey123");
-                props.setProperty("newService", "newKey456newKey456");
-                AESUtil.initServicePublicKeyCertificate(props);
+                urlFetchCalled[0] = true;
+                Assert.fail("getSecretKey must not trigger initServicePublicKeyCertificateFromUrl on miss");
             }
         };
 
@@ -193,17 +201,90 @@ public class AESUtilTest {
         Assert.assertEquals("AES", secretKey.getAlgorithm());
         Assert.assertArrayEquals("testKey123testKey123".getBytes(StandardCharsets.UTF_8), secretKey.getEncoded());
 
-        // Test that we can get the secret key for a new service after mocking the URL fetch
+        // Test that we can get the secret key for newService (already populated above).
         SecretKeySpec newSecretKey = AESUtil.getSecretKey("newService");
         Assert.assertNotNull(newSecretKey);
         Assert.assertEquals("AES", newSecretKey.getAlgorithm());
         Assert.assertArrayEquals("newKey456newKey456".getBytes(StandardCharsets.UTF_8), newSecretKey.getEncoded());
 
-        // Test that we still get an exception for an invalid service
+        // Test that we get an exception for an unknown service, with no lazy URL fetch.
         Exception exception = Assert.assertThrows(NoSuchAlgorithmException.class, () -> {
-            AESUtil.getSecretKey("invalidService");
+            AESUtil.getSecretKey("unknownService");
         });
-        Assert.assertTrue(exception.getMessage().contains("unable to get secret key certificate for invalidService"));
+        Assert.assertTrue(exception.getMessage().contains("unable to get secret key certificate for unknownService"));
+        Assert.assertFalse("getSecretKey must not have invoked initServicePublicKeyCertificateFromUrl",
+                urlFetchCalled[0]);
+    }
+
+    @Test
+    public void testInitServicePublicKeyCertificateFromUrl_throwsIoException(
+            @Mocked URL mockUrl, @Mocked HttpURLConnection mockConnection) throws Exception {
+        String url = "http://example.com/keys";
+        new Expectations() {{
+                mockUrl.openConnection();
+                result = mockConnection;
+                mockConnection.setRequestMethod("GET");
+                mockConnection.getResponseCode();
+                result = new IOException("boom");
+            }};
+
+        IOException thrown = Assert.assertThrows(IOException.class,
+                () -> AESUtil.initServicePublicKeyCertificateFromUrl(url));
+        Assert.assertTrue("Exception message should mention the failing URL, was: " + thrown.getMessage(),
+                thrown.getMessage().contains("Failed to load secret key certificate from url:"));
+    }
+
+    @Test
+    public void testInitServicePublicKeyCertificateFromUrl_nullOrEmptyUrl(
+            @Mocked URL mockUrl, @Mocked HttpURLConnection mockConnection) throws Exception {
+        // Both null and empty must return without throwing and without opening any connection.
+        AESUtil.initServicePublicKeyCertificateFromUrl(null);
+        AESUtil.initServicePublicKeyCertificateFromUrl("");
+
+        // Verify no URL connection attempt was made for the null/empty inputs.
+        new Verifications() {{
+                mockUrl.openConnection();
+                times = 0;
+                mockConnection.getResponseCode();
+                times = 0;
+            }};
+    }
+
+    @Test
+    public void testSyncSecretKeyFromUrl_delegates() throws Exception {
+        final String[] capturedUrl = {null};
+        final int[] callCount = {0};
+        new MockUp<AESUtil>() {
+            @Mock
+            void initServicePublicKeyCertificateFromUrl(String secretKeyUrl) {
+                callCount[0]++;
+                capturedUrl[0] = secretKeyUrl;
+            }
+        };
+
+        AESUtil.syncSecretKeyFromUrl();
+
+        Assert.assertEquals("syncSecretKeyFromUrl should delegate exactly once", 1, callCount[0]);
+
+        // Read SECRET_KEY_URL via reflection to assert the delegated argument.
+        java.lang.reflect.Field f = AESUtil.class.getDeclaredField("SECRET_KEY_URL");
+        f.setAccessible(true);
+        String expected = (String) f.get(null);
+        Assert.assertEquals("syncSecretKeyFromUrl must pass SECRET_KEY_URL through",
+                expected, capturedUrl[0]);
+    }
+
+    @Test
+    public void testSyncSecretKeyFromUrl_propagatesIoException() throws Exception {
+        new MockUp<AESUtil>() {
+            @Mock
+            void initServicePublicKeyCertificateFromUrl(String secretKeyUrl) throws IOException {
+                throw new IOException("delegated failure");
+            }
+        };
+
+        IOException thrown = Assert.assertThrows(IOException.class, AESUtil::syncSecretKeyFromUrl);
+        Assert.assertEquals("delegated failure", thrown.getMessage());
     }
 
 }

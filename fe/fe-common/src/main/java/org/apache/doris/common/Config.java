@@ -3963,4 +3963,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {"是否允许获取hdfs的文件元数据信息时忽略隐藏目录",
         "whether to enable list hdfs files ignore hidden directory"})
     public static boolean enable_list_hdfs_files_ignore_hidden_directory = true;
+
+    @ConfField(description = {"source密钥同步时间间隔（秒）",
+        "Secret key synchronization interval (seconds)"})
+    public static int secret_key_sync_time_s = 3600;
+
 }
