@@ -64,14 +64,14 @@ public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId
     @Override
     public Plan visit(Plan plan, Map<ExprId, ExprId> replaceMap) {
         plan = visitChildren(this, plan, replaceMap);
-        plan = exprIdReplacer.rewriteExpr(plan);
+        plan = exprIdReplacer.rewriteExpr(plan, replaceMap);
         return plan;
     }
 
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate, Map<ExprId, ExprId> replaceMap) {
         aggregate = visitChildren(this, aggregate, replaceMap);
-        aggregate = (LogicalAggregate<? extends Plan>) exprIdReplacer.rewriteExpr(aggregate);
+        aggregate = (LogicalAggregate<? extends Plan>) exprIdReplacer.rewriteExpr(aggregate, replaceMap);
 
         if (aggregate.getGroupByExpressions().isEmpty() || aggregate.getSourceRepeat().isPresent()) {
             return aggregate;

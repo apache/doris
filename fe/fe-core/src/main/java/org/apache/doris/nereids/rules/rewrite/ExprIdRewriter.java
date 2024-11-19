@@ -79,7 +79,10 @@ public class ExprIdRewriter extends ExpressionRewrite {
     }
 
     /**rewriteExpr*/
-    public Plan rewriteExpr(Plan plan) {
+    public Plan rewriteExpr(Plan plan, Map<ExprId, ExprId> replaceMap) {
+        if (replaceMap.isEmpty()) {
+            return plan;
+        }
         for (Rule rule : rules) {
             Pattern<Plan> pattern = (Pattern<Plan>) rule.getPattern();
             if (pattern.matchPlanTree(plan)) {
@@ -109,7 +112,7 @@ public class ExprIdRewriter extends ExpressionRewrite {
                         if (replaceMap.containsKey(slot.getExprId())) {
                             ExprId newId = replaceMap.get(slot.getExprId());
                             while (replaceMap.containsKey(newId)) {
-                                newId = replaceMap.get(slot.getExprId());
+                                newId = replaceMap.get(newId);
                             }
                             return slot.withExprId(newId);
                         }
