@@ -143,8 +143,8 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
+
     bool is_variable_length() const override { return nested_column->is_variable_length(); }
 
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }

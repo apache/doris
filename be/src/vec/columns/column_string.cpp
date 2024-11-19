@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
+#include <cstring>
 
 #include "util/memcpy_inlined.h"
 #include "util/simd/bits.h"
@@ -81,16 +82,26 @@ MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
 }
 
 template <typename T>
-MutableColumnPtr ColumnStr<T>::get_shrinked_column() {
-    auto shrinked_column = ColumnStr<T>::create();
-    shrinked_column->get_offsets().reserve(offsets.size());
-    shrinked_column->get_chars().reserve(chars.size());
-    for (int i = 0; i < size(); i++) {
-        StringRef str = get_data_at(i);
-        reinterpret_cast<ColumnStr<T>*>(shrinked_column.get())
-                ->insert_data(str.data, strnlen(str.data, str.size));
+void ColumnStr<T>::shrink_padding_chars() {
+    if (size() == 0) {
+        return;
     }
-    return shrinked_column;
+    char* data = reinterpret_cast<char*>(chars.data());
+    auto* offset = offsets.data();
+    size_t size = offsets.size();
+
+    // deal the 0-th element. no need to move.
+    auto next_start = offset[0];
+    offset[0] = strnlen(data, size_at(0));
+    for (size_t i = 1; i < size; i++) {
+        // get the i-th length and whole move it to cover the last's trailing void
+        auto length = strnlen(data + next_start, offset[i] - next_start);
+        memmove(data + offset[i - 1], data + next_start, length);
+        // offset i will be changed. so save the old value for (i+1)-th to get its length.
+        next_start = offset[i];
+        offset[i] = offset[i - 1] + length;
+    }
+    chars.resize_fill(offsets.back()); // just call it to shrink memory here. no possible to expand.
 }
 
 // This method is only called by MutableBlock::merge_ignore_overflow
