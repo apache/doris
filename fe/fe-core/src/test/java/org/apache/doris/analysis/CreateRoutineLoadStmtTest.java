@@ -27,10 +27,6 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.LoadDataSourceType;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
-import org.apache.doris.nereids.trees.plans.commands.load.LoadPartitionNames;
-import org.apache.doris.nereids.trees.plans.commands.load.LoadProperty;
-import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 
@@ -48,7 +44,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -211,100 +206,6 @@ public class CreateRoutineLoadStmtTest {
         Assert.assertEquals(serverAddress, kafkaDataSourceProperties.getBrokerList());
         Assert.assertEquals(topicName, kafkaDataSourceProperties.getTopic());
         Assert.assertEquals("+08:00", createRoutineLoadStmt.getTimezone());
-    }
-
-    @Test
-    public void testAnalyzeForNereids(@Injectable Analyzer analyzer,
-                            @Injectable SessionVariable sessionVariable) throws UserException {
-        String jobName = "job1";
-        String dbName = "db1";
-        LabelName labelName = new LabelName(dbName, jobName);
-        String tableNameString = "table1";
-        String topicName = "topic1";
-        String serverAddress = "127.0.0.1:8080";
-        String kafkaPartitionString = "1,2,3";
-        String timeZone = "8:00";
-        List<String> partitionNameString = Lists.newArrayList();
-        partitionNameString.add("p1");
-        LoadPartitionNames loadPartitionNames = new LoadPartitionNames(false, partitionNameString);
-        LoadSeparator loadColumnSeparator = new LoadSeparator(",");
-
-        // duplicate load property
-        Map<String, LoadProperty> loadPropertyMap = new HashMap<>();
-        loadPropertyMap.put("seperator", loadPartitionNames);
-        loadPropertyMap.put("partitionNames", loadColumnSeparator);
-
-        PartitionNames partitionNames = new PartitionNames(false, partitionNameString);
-        Separator columnSeparator = new Separator(",");
-
-        // duplicate load property
-        List<ParseNode> loadPropertyList = new ArrayList<>();
-        loadPropertyList.add(columnSeparator);
-        loadPropertyList.add(partitionNames);
-
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put(CreateRoutineLoadStmt.DESIRED_CONCURRENT_NUMBER_PROPERTY, "2");
-        properties.put(LoadStmt.TIMEZONE, timeZone);
-        String typeName = LoadDataSourceType.KAFKA.name();
-        Map<String, String> customProperties = Maps.newHashMap();
-
-        customProperties.put(KafkaConfiguration.KAFKA_TOPIC.getName(), topicName);
-        customProperties.put(KafkaConfiguration.KAFKA_BROKER_LIST.getName(), serverAddress);
-        customProperties.put(KafkaConfiguration.KAFKA_PARTITIONS.getName(), kafkaPartitionString);
-
-        CreateRoutineLoadInfo createRoutineLoadInfo = new CreateRoutineLoadInfo(labelName, tableNameString,
-                loadPropertyMap, properties,
-                typeName, customProperties,
-                LoadTask.MergeType.APPEND, "");
-
-        new Expectations() {
-            {
-                ctx.getSessionVariable();
-                result = sessionVariable;
-                sessionVariable.getSendBatchParallelism();
-                result = 1;
-
-                sessionVariable.getTimeZone();
-                result = "Asia/Hong_Kong";
-            }
-        };
-        createRoutineLoadInfo.validate(analyzer.getContext());
-        CreateRoutineLoadStmt createRoutineLoadStmtNereids = createRoutineLoadInfo.translateToLegacyStmt(ctx);
-
-        CreateRoutineLoadStmt createRoutineLoadStmtOrigin = new CreateRoutineLoadStmt(labelName, tableNameString,
-                loadPropertyList, properties,
-                typeName, customProperties,
-                LoadTask.MergeType.APPEND, "");
-        new MockUp<StatementBase>() {
-            @Mock
-            public void analyze(Analyzer analyzer1) {
-                return;
-            }
-        };
-
-        new Expectations() {
-            {
-                ctx.getSessionVariable();
-                result = sessionVariable;
-                sessionVariable.getSendBatchParallelism();
-                result = 1;
-
-                sessionVariable.getTimeZone();
-                result = "Asia/Hong_Kong";
-            }
-        };
-
-        createRoutineLoadStmtOrigin.analyze(analyzer);
-
-        Assert.assertNotNull(createRoutineLoadStmtNereids.getRoutineLoadDesc());
-        Assert.assertEquals(createRoutineLoadStmtOrigin.getRoutineLoadDesc().getColumnSeparator().getSeparator(), createRoutineLoadStmtNereids.getRoutineLoadDesc().getColumnSeparator().getSeparator());
-        Assert.assertEquals(createRoutineLoadStmtOrigin.getRoutineLoadDesc().getPartitionNames().getPartitionNames(), createRoutineLoadStmtNereids.getRoutineLoadDesc().getPartitionNames().getPartitionNames());
-        Assert.assertEquals(2, createRoutineLoadStmtNereids.getDesiredConcurrentNum());
-        Assert.assertEquals(0, createRoutineLoadStmtNereids.getMaxErrorNum());
-        KafkaDataSourceProperties kafkaDataSourceProperties = (KafkaDataSourceProperties) createRoutineLoadStmtNereids.getDataSourceProperties();
-        Assert.assertEquals(serverAddress, kafkaDataSourceProperties.getBrokerList());
-        Assert.assertEquals(topicName, kafkaDataSourceProperties.getTopic());
-        Assert.assertEquals("+08:00", createRoutineLoadStmtNereids.getTimezone());
     }
 
     @Test

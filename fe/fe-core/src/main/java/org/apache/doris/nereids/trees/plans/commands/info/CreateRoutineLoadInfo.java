@@ -358,7 +358,8 @@ public class CreateRoutineLoadInfo {
                     List<ImportColumnDesc> importColumnDescList = new ArrayList<>();
                     for (LoadColumnDesc columnDesc : ((LoadColumnClause) loadProperty).getColumns()) {
                         if (columnDesc.getExpression() != null) {
-                            Expr expr = ExpressionTranslator.translate(columnDesc.getExpression(), context);
+                            Expr expr = translateToLegacyExpr(columnDesc.getExpression(), analyzer,
+                                    context, cascadesContext);
                             importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), expr));
                         } else {
                             importColumnDescList.add(new ImportColumnDesc(columnDesc.getColumnName(), null));
@@ -369,16 +370,8 @@ public class CreateRoutineLoadInfo {
                     if (isMultiTable) {
                         throw new AnalysisException("Multi-table load does not support setting columns info");
                     }
-                    Expression expression;
-                    try {
-                        expression = analyzer.analyze(((LoadWhereClause) loadProperty).getExpression(),
-                                new ExpressionRewriteContext(cascadesContext));
-                    } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
-                        throw new org.apache.doris.nereids.exceptions.AnalysisException("In where clause '"
-                            + ((LoadWhereClause) loadProperty).getExpression().toSql() + "', "
-                            + Utils.convertFirstChar(e.getMessage()));
-                    }
-                    Expr expr = ExpressionTranslator.translate(expression, context);
+                    Expr expr = translateToLegacyExpr(((LoadWhereClause) loadProperty).getExpression(),
+                            analyzer, context, cascadesContext);
                     if (((LoadWhereClause) loadProperty).isPreceding()) {
                         precedingImportWhereStmt = new ImportWhereStmt(expr,
                                 ((LoadWhereClause) loadProperty).isPreceding());
@@ -389,8 +382,8 @@ public class CreateRoutineLoadInfo {
                     partitionNames = new PartitionNames(((LoadPartitionNames) loadProperty).isTemp(),
                             ((LoadPartitionNames) loadProperty).getPartitionNames());
                 } else if (loadProperty instanceof LoadDeleteOnClause) {
-                    Expr expr = ExpressionTranslator.translate(
-                            ((LoadDeleteOnClause) loadProperty).getExpression(), context);
+                    Expr expr = translateToLegacyExpr(((LoadDeleteOnClause) loadProperty).getExpression(),
+                            analyzer, context, cascadesContext);
                     importDeleteOnStmt = new ImportDeleteOnStmt(expr);
                 } else if (loadProperty instanceof LoadSequenceClause) {
                     importSequenceStmt = new ImportSequenceStmt(
@@ -402,6 +395,19 @@ public class CreateRoutineLoadInfo {
             precedingImportWhereStmt, importWhereStmt,
             partitionNames, importDeleteOnStmt == null ? null : importDeleteOnStmt.getExpr(), mergeType,
             importSequenceStmt == null ? null : importSequenceStmt.getSequenceColName());
+    }
+
+    private Expr translateToLegacyExpr(Expression expr, ExpressionAnalyzer analyzer, PlanTranslatorContext context,
+                                       CascadesContext cascadesContext) {
+        Expression expression;
+        try {
+            expression = analyzer.analyze(expr, new ExpressionRewriteContext(cascadesContext));
+        } catch (org.apache.doris.nereids.exceptions.AnalysisException e) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException("In where clause '"
+                + expr.toSql() + "', "
+                + Utils.convertFirstChar(e.getMessage()));
+        }
+        return ExpressionTranslator.translate(expression, context);
     }
 
     private void checkJobProperties() throws UserException {
