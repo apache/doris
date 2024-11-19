@@ -64,10 +64,16 @@ public class MTMVRewriteUtil {
                 res.add(partition);
                 continue;
             }
-            try {
-                if (refreshContext == null) {
+            if (refreshContext == null) {
+                try {
                     refreshContext = MTMVRefreshContext.buildContext(mtmv);
+                } catch (AnalysisException e) {
+                    LOG.warn("buildContext failed", e);
+                    // After failure, one should quickly return to avoid repeated failures
+                    return res;
                 }
+            }
+            try {
                 if (MTMVPartitionUtil.isMTMVPartitionSync(refreshContext, partition.getName(),
                         mtmvRelation.getBaseTablesOneLevel(),
                         Sets.newHashSet())) {
