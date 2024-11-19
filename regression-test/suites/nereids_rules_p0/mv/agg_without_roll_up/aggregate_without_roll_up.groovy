@@ -150,10 +150,10 @@ suite("aggregate_without_roll_up") {
             o_shippriority,
             o_comment;
             """
-     order_qt_query1_0_before "${query1_0}"
-     async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
-     order_qt_query1_0_after "${query1_0}"
-     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
+    order_qt_query1_0_before "${query1_0}"
+    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+    order_qt_query1_0_after "${query1_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
 
     def mv1_1 = "select O_SHIPPRIORITY, O_COMMENT, O_ORDERDATE, " +
@@ -387,8 +387,7 @@ suite("aggregate_without_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query13_0_before "${query13_0}"
-    // fail because RBO rule EliminateGroupByKeyByUniform
-    async_mv_rewrite_fail(db, mv13_0, query13_0, "mv13_0")
+    async_mv_rewrite_success(db, mv13_0, query13_0, "mv13_0")
     order_qt_query13_0_after "${query13_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_0"""
 
@@ -587,8 +586,7 @@ suite("aggregate_without_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query17_0_before "${query17_0}"
-    // fail because RBO rule EliminateGroupByKeyByUniform
-    async_mv_rewrite_fail(db, mv17_0, query17_0, "mv17_0")
+    async_mv_rewrite_success(db, mv17_0, query17_0, "mv17_0")
     order_qt_query17_0_after "${query17_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv17_0"""
 
@@ -676,8 +674,7 @@ suite("aggregate_without_roll_up") {
             "l_shipdate, " +
             "l_suppkey"
     order_qt_query18_0_before "${query18_0}"
-    // fail because RBO rule EliminateGroupByKeyByUniform
-    async_mv_rewrite_fail(db, mv18_0, query18_0, "mv18_0")
+    async_mv_rewrite_success(db, mv18_0, query18_0, "mv18_0")
     order_qt_query18_0_after "${query18_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18_0"""
 
@@ -1076,7 +1073,7 @@ suite("aggregate_without_roll_up") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_2"""
 
 
-        def mv22_0 = """
+    def mv22_0 = """
             select
             o_orderdate,
             l_partkey,
@@ -1109,7 +1106,7 @@ suite("aggregate_without_roll_up") {
     order_qt_query22_0_after "${query22_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_0"""
 
-   // test combinator aggregate function rewrite
+    // test combinator aggregate function rewrite
     sql """set enable_agg_state=true"""
     // query has no combinator and mv has combinator
     // mv is union
