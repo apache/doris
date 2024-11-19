@@ -26,6 +26,8 @@ suite("test_show_tablet") {
                 "replication_num" = "1"
             );"""
     def res = sql """SHOW TABLETS FROM show_tablets_test_t limit 5, 1;"""
+
+    logger.info("result: " + res.toString());
     assertTrue(res.size() == 0)
 
     res = sql """SHOW TABLETS FROM show_tablets_test_t limit 3, 5;"""
