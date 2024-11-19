@@ -95,7 +95,7 @@ public class S3Resource extends Resource {
 
         // the endpoint for ping need add uri scheme.
         String pingEndpoint = properties.get(S3Properties.ENDPOINT);
-        if (!pingEndpoint.startsWith("http://")) {
+        if (!pingEndpoint.startsWith("http://") && !pingEndpoint.startsWith("https://")) {
             pingEndpoint = "http://" + properties.get(S3Properties.ENDPOINT);
             properties.put(S3Properties.ENDPOINT, pingEndpoint);
             properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
