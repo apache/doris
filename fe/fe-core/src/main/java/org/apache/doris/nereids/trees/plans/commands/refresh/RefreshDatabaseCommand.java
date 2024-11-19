@@ -39,8 +39,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
@@ -48,7 +46,6 @@ import java.util.Map;
  * Refresh database.
  */
 public class RefreshDatabaseCommand extends Command implements ForwardWithSync {
-    private static final Logger LOG = LogManager.getLogger(RefreshDatabaseCommand.class);
     private static final String INVALID_CACHE = "invalid_cache";
 
     private String catalogName;
