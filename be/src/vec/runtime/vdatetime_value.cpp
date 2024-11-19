@@ -1204,7 +1204,7 @@ static int check_word(const char* lib[], const char* str, const char* end, const
 // this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
 // change this method should also change that.
 bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, const char* value,
-                                            int value_len, const char** sub_val_end) {
+                                            int64_t value_len, const char** sub_val_end) {
     if (value_len <= 0) [[unlikely]] {
         return false;
     }
@@ -2254,7 +2254,7 @@ void DateV2Value<T>::set_zero() {
 // change this method should also change that.
 template <typename T>
 bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, const char* value,
-                                          int value_len, const char** sub_val_end) {
+                                          int64_t value_len, const char** sub_val_end) {
     if (value_len <= 0) [[unlikely]] {
         return false;
     }
@@ -3439,7 +3439,7 @@ void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t se
 }
 
 template <typename T>
-void DateV2Value<T>::set_microsecond(uint32_t microsecond) {
+void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
