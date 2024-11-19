@@ -79,7 +79,9 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 
-/** CommandVisitor. */
+/**
+ * CommandVisitor.
+ */
 public interface CommandVisitor<R, C> {
 
     R visitCommand(Command command, C context);
@@ -224,7 +226,7 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitUnsetDefaultStorageVaultCommand(UnsetDefaultStorageVaultCommand unsetDefaultStorageVaultCommand,
-                                                   C context) {
+            C context) {
         return visitCommand(unsetDefaultStorageVaultCommand, context);
     }
 
@@ -256,9 +258,9 @@ public interface CommandVisitor<R, C> {
         return visitCommand(setDefaultStorageVaultCommand, context);
     }
 
-
     default R visitRefreshCatalogCommand(RefreshCatalogCommand refreshCatalogCommand, C context) {
         return visitCommand(refreshCatalogCommand, context);
+    }
 
     default R visitShowLastInsertCommand(ShowLastInsertCommand showLastInsertCommand, C context) {
         return visitCommand(showLastInsertCommand, context);
@@ -302,7 +304,7 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitShowCreateMaterializedViewCommand(ShowCreateMaterializedViewCommand showCreateMtlzViewCommand,
-                        C context) {
+            C context) {
         return visitCommand(showCreateMtlzViewCommand, context);
     }
 
