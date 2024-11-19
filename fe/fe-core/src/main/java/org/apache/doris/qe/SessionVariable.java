@@ -3586,10 +3586,6 @@ public class SessionVariable implements Serializable, Writable {
         this.disableNereidsRules = disableNereidsRules;
     }
 
-    public void setEnableNereidsRules(String enableNereidsRules) {
-        this.enableNereidsRules = enableNereidsRules;
-    }
-
     public double getNereidsCboPenaltyFactor() {
         return nereidsCboPenaltyFactor;
     }
