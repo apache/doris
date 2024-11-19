@@ -32,6 +32,7 @@ public class EliminateGroupByKeyByUniformTest extends TestWithFeService implemen
                 + "distributed by hash(a) properties('replication_num' = '1');");
         connectContext.setDatabase("test");
         connectContext.getSessionVariable().setDisableNereidsRules("PRUNE_EMPTY_PARTITION");
+        connectContext.getSessionVariable().setEnableNereidsRules("ELIMINATE_GROUP_BY_KEY_BY_UNIFORM");
     }
 
     @Test
