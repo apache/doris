@@ -100,4 +100,102 @@ suite("eliminate_group_by_key_by_uniform") {
     //olap table sink
     sql "insert into eli_gbk_by_uniform_t select a,b,c,d,dt from eli_gbk_by_uniform_t where a = 1 group by a,b,c,d,dt"
     qt_sink "select * from eli_gbk_by_uniform_t order by 1,2,3,4,5"
+
+    sql """
+    drop table if exists orders_inner_1
+    """
+
+    sql """CREATE TABLE `orders_inner_1` (
+      `o_orderkey` BIGINT not NULL,
+      `o_custkey` INT NULL,
+      `o_orderstatus` VARCHAR(1) NULL,
+      `o_totalprice` DECIMAL(15, 2)  NULL,
+      `o_orderpriority` VARCHAR(15) NULL,
+      `o_clerk` VARCHAR(15) NULL,
+      `o_shippriority` INT NULL,
+      `o_comment` VARCHAR(79) NULL,
+      `o_orderdate` DATE NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`o_orderkey`, `o_custkey`)
+    COMMENT 'OLAP'
+    PARTITION BY list(o_orderkey) (
+    PARTITION p1 VALUES in ('1'),
+    PARTITION p2 VALUES in ('2'),
+    PARTITION p3 VALUES in ('3'),
+    PARTITION p4 VALUES in ('4')
+    )
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );"""
+
+    sql """
+    drop table if exists lineitem_inner_1
+    """
+
+    sql """CREATE TABLE `lineitem_inner_1` (
+      `l_orderkey` BIGINT not NULL,
+      `l_linenumber` INT NULL,
+      `l_partkey` INT NULL,
+      `l_suppkey` INT NULL,
+      `l_quantity` DECIMAL(15, 2) NULL,
+      `l_extendedprice` DECIMAL(15, 2) NULL,
+      `l_discount` DECIMAL(15, 2) NULL,
+      `l_tax` DECIMAL(15, 2) NULL,
+      `l_returnflag` VARCHAR(1) NULL,
+      `l_linestatus` VARCHAR(1) NULL,
+      `l_commitdate` DATE NULL,
+      `l_receiptdate` DATE NULL,
+      `l_shipinstruct` VARCHAR(25) NULL,
+      `l_shipmode` VARCHAR(10) NULL,
+      `l_comment` VARCHAR(44) NULL,
+      `l_shipdate` DATE NULL
+    ) ENGINE=OLAP
+    DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
+    COMMENT 'OLAP'
+    PARTITION BY list(l_orderkey) (
+    PARTITION p1 VALUES in ('1'),
+    PARTITION p2 VALUES in ('2'),
+    PARTITION p3 VALUES in ('3')
+    )
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );"""
+
+    sql """
+    insert into orders_inner_1 values 
+    (2, 1, 'o', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
+    (1, null, 'k', 109.2, 'c','d',2, 'mm', '2023-10-17'),
+    (3, 3, null, 99.5, 'a', 'b', 1, 'yy', '2023-10-19'),
+    (1, 2, 'o', null, 'a', 'b', 1, 'yy', '2023-10-20'),
+    (2, 3, 'k', 109.2, null,'d',2, 'mm', '2023-10-21'),
+    (3, 1, 'o', 99.5, 'a', null, 1, 'yy', '2023-10-22'),
+    (1, 3, 'k', 99.5, 'a', 'b', null, 'yy', '2023-10-19'),
+    (2, 1, 'o', 109.2, 'c','d',2, null, '2023-10-18'),
+    (3, 2, 'k', 99.5, 'a', 'b', 1, 'yy', '2023-10-17'),
+    (4, 5, 'o', 99.5, 'a', 'b', 1, 'yy', '2023-10-19'); 
+    """
+
+    sql """
+    insert into lineitem_inner_1 values 
+    (2, 1, 2, 3, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
+    (1, null, 3, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
+    (3, 3, null, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
+    (1, 2, 3, null, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17'),
+    (2, 3, 2, 1, 5.5, 6.5, 7.5, 8.5, 'o', 'k', null, '2023-10-18', 'a', 'b', 'yyyyyyyyy', '2023-10-18'),
+    (3, 1, 1, 2, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', null, 'c', 'd', 'xxxxxxxxx', '2023-10-19'),
+    (1, 3, 2, 2, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy', '2023-10-17');
+    """
+
+    qt_nest_exprid_replace """
+    select l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey,
+            count(t.O_ORDERDATE) over (partition by lineitem_inner_1.l_orderkey order by lineitem_inner_1.l_orderkey) as window_count
+    from lineitem_inner_1
+    inner join (select O_ORDERDATE, o_orderkey, count(O_ORDERDATE) over (partition by O_ORDERDATE order by o_orderkey ) from orders_inner_1 where o_orderkey=2 group by O_ORDERDATE, o_orderkey) as t
+    on lineitem_inner_1.l_orderkey = t.o_orderkey
+    where t.o_orderkey=2
+    group by l_shipdate, l_orderkey, t.O_ORDERDATE, t.o_orderkey
+    order by 1,2,3,4,5
+    """
 }
