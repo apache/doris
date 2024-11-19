@@ -95,7 +95,7 @@ suite("test_warmup_show_stmt_2") {
         assertEquals(result[i].get("TableName"), "regression_test_cloud_p0_cache_multi_cluster_warm_up_hotspot.customer")
     }
     if (!found) {
-        org.junit.Assert.assertTrue(getLineNumber() + "cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
+        org.junit.Assert.assertTrue(getLineNumber() + "cannot find expected cache hotspot ${hotTableName}")
     }
 
     result = sql_return_maparray """ show cache hotspot "/regression_cluster_name0" """
@@ -127,6 +127,6 @@ suite("test_warmup_show_stmt_2") {
         break
     }
     if (!found) {
-        org.junit.Assert.assertTrue("cannot find expected cache hotspot ${hotTableName}", result.size() > i + 1)
+        org.junit.Assert.assertTrue("cannot find expected cache hotspot ${hotTableName}")
     }
 }
