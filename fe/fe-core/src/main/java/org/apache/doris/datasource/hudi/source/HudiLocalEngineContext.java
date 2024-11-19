@@ -22,6 +22,11 @@ import org.apache.hudi.common.data.HoodieAtomicLongAccumulator;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.data.HoodieData.HoodieDataCacheKey;
 import org.apache.hudi.common.data.HoodieListData;
+import org.apache.hudi.common.engine.EngineProperty;
+import org.apache.hudi.common.engine.HoodieEngineContext;
+import org.apache.hudi.common.engine.LocalTaskContextSupplier;
+import org.apache.hudi.common.engine.TaskContextSupplier;
+import org.apache.hudi.common.function.FunctionWrapper;
 import org.apache.hudi.common.function.SerializableBiFunction;
 import org.apache.hudi.common.function.SerializableConsumer;
 import org.apache.hudi.common.function.SerializableFunction;
@@ -40,28 +45,20 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static java.util.stream.Collectors.toList;
-import static org.apache.hudi.common.function.FunctionWrapper.throwingFlatMapToPairWrapper;
-import static org.apache.hudi.common.function.FunctionWrapper.throwingFlatMapWrapper;
-import static org.apache.hudi.common.function.FunctionWrapper.throwingForeachWrapper;
-import static org.apache.hudi.common.function.FunctionWrapper.throwingMapToPairWrapper;
-import static org.apache.hudi.common.function.FunctionWrapper.throwingMapWrapper;
-import static org.apache.hudi.common.function.FunctionWrapper.throwingReduceWrapper;
-
 /**
  * This file is copied from
- * org.apache.hudi.common.engine.HoodieLocalEngineContext.
+ * org.apache.hudi.common.engine.HudiLocalEngineContext.
  * Because we need set ugi in thread pool
  * A java based engine context, use this implementation on the query engine
  * integrations if needed.
  */
-public final class HoodieLocalEngineContext extends HoodieEngineContext {
+public final class HudiLocalEngineContext extends HoodieEngineContext {
 
-    public HoodieLocalEngineContext(StorageConfiguration<?> conf) {
+    public HudiLocalEngineContext(StorageConfiguration<?> conf) {
         this(conf, new LocalTaskContextSupplier());
     }
 
-    public HoodieLocalEngineContext(StorageConfiguration<?> conf, TaskContextSupplier taskContextSupplier) {
+    public HudiLocalEngineContext(StorageConfiguration<?> conf, TaskContextSupplier taskContextSupplier) {
         super(conf, taskContextSupplier);
     }
 
@@ -82,16 +79,17 @@ public final class HoodieLocalEngineContext extends HoodieEngineContext {
 
     @Override
     public <I, O> List<O> map(List<I> data, SerializableFunction<I, O> func, int parallelism) {
-        return data.stream().parallel().map(throwingMapWrapper(func)).collect(toList());
+        return data.stream().parallel().map(FunctionWrapper.throwingMapWrapper(func)).collect(Collectors.toList());
     }
 
     @Override
     public <I, K, V> List<V> mapToPairAndReduceByKey(
             List<I> data, SerializablePairFunction<I, K, V> mapToPairFunc, SerializableBiFunction<V, V, V> reduceFunc,
             int parallelism) {
-        return data.stream().parallel().map(throwingMapToPairWrapper(mapToPairFunc))
+        return data.stream().parallel().map(FunctionWrapper.throwingMapToPairWrapper(mapToPairFunc))
                 .collect(Collectors.groupingBy(p -> p.getKey())).values().stream()
-                .map(list -> list.stream().map(e -> e.getValue()).reduce(throwingReduceWrapper(reduceFunc)).get())
+                .map(list -> list.stream().map(e -> e.getValue())
+                        .reduce(FunctionWrapper.throwingReduceWrapper(reduceFunc)).get())
                 .collect(Collectors.toList());
     }
 
@@ -99,10 +97,10 @@ public final class HoodieLocalEngineContext extends HoodieEngineContext {
     public <I, K, V> Stream<ImmutablePair<K, V>> mapPartitionsToPairAndReduceByKey(
             Stream<I> data, SerializablePairFlatMapFunction<Iterator<I>, K, V> flatMapToPairFunc,
             SerializableBiFunction<V, V, V> reduceFunc, int parallelism) {
-        return throwingFlatMapToPairWrapper(flatMapToPairFunc).apply(data.parallel().iterator())
+        return FunctionWrapper.throwingFlatMapToPairWrapper(flatMapToPairFunc).apply(data.parallel().iterator())
                 .collect(Collectors.groupingBy(Pair::getKey)).entrySet().stream()
                 .map(entry -> new ImmutablePair<>(entry.getKey(), entry.getValue().stream().map(
-                        Pair::getValue).reduce(throwingReduceWrapper(reduceFunc)).orElse(null)))
+                        Pair::getValue).reduce(FunctionWrapper.throwingReduceWrapper(reduceFunc)).orElse(null)))
                 .filter(Objects::nonNull);
     }
 
@@ -111,7 +109,8 @@ public final class HoodieLocalEngineContext extends HoodieEngineContext {
             List<Pair<K, V>> data, SerializableBiFunction<V, V, V> reduceFunc, int parallelism) {
         return data.stream().parallel()
                 .collect(Collectors.groupingBy(p -> p.getKey())).values().stream()
-                .map(list -> list.stream().map(e -> e.getValue()).reduce(throwingReduceWrapper(reduceFunc))
+                .map(list -> list.stream().map(e -> e.getValue())
+                        .reduce(FunctionWrapper.throwingReduceWrapper(reduceFunc))
                         .orElse(null))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
@@ -119,17 +118,18 @@ public final class HoodieLocalEngineContext extends HoodieEngineContext {
 
     @Override
     public <I, O> List<O> flatMap(List<I> data, SerializableFunction<I, Stream<O>> func, int parallelism) {
-        return data.stream().parallel().flatMap(throwingFlatMapWrapper(func)).collect(toList());
+        return data.stream().parallel().flatMap(FunctionWrapper.throwingFlatMapWrapper(func))
+                .collect(Collectors.toList());
     }
 
     @Override
     public <I> void foreach(List<I> data, SerializableConsumer<I> consumer, int parallelism) {
-        data.stream().forEach(throwingForeachWrapper(consumer));
+        data.stream().forEach(FunctionWrapper.throwingForeachWrapper(consumer));
     }
 
     @Override
     public <I, K, V> Map<K, V> mapToPair(List<I> data, SerializablePairFunction<I, K, V> func, Integer parallelism) {
-        return data.stream().map(throwingMapToPairWrapper(func)).collect(
+        return data.stream().map(FunctionWrapper.throwingMapToPairWrapper(func)).collect(
                 Collectors.toMap(Pair::getLeft, Pair::getRight, (oldVal, newVal) -> newVal));
     }
 
