@@ -290,7 +290,7 @@ public:
                                "Method insert_many_raw_data is not supported for " + get_name());
     }
 
-    void insert_many_data(const char* pos, size_t length, size_t data_num) {
+    void insert_data_repeatedly(const char* pos, size_t length, size_t data_num) {
         for (size_t i = 0; i < data_num; ++i) {
             insert_data(pos, length);
         }
