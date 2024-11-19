@@ -219,6 +219,8 @@ public:
     }
 
     /// Appends one element from other column with the same type multiple times.
+    /// we should make sure position is less than src's size and length is less than src's size,
+    /// and position + length is less than src's size
     virtual void insert_many_from(const IColumn& src, size_t position, size_t length) {
         for (size_t i = 0; i < length; ++i) {
             insert_from(src, position);
@@ -229,6 +231,7 @@ public:
                                           std::vector<size_t> positions);
 
     /// Appends a batch elements from other column with the same type
+    /// Also here should make sure indices_end is bigger than indices_begin
     /// indices_begin + indices_end represent the row indices of column src
     virtual void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                      const uint32_t* indices_end) = 0;
@@ -492,11 +495,12 @@ public:
     virtual Ptr replicate(const Offsets& offsets) const = 0;
 
     /// Appends one field multiple times. Can be optimized in inherited classes.
-    virtual void insert_many(const Field& field, size_t length) {
-        for (size_t i = 0; i < length; ++i) {
-            insert(field);
-        }
-    }
+    // this function has not used ??
+    //    virtual void insert_many(const Field& field, size_t length) {
+    //        for (size_t i = 0; i < length; ++i) {
+    //            insert(field);
+    //        }
+    //    }
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
@@ -522,6 +526,7 @@ public:
 
     /// Resize memory for specified amount of elements. If reservation isn't possible, does nothing.
     /// It affects performance only (not correctness).
+    /// Note. resize means not only change column self but also sub-columns if have.
     virtual void resize(size_t /*n*/) {}
 
     /// Size of column data in memory (may be approximate) - for profiling. Zero, if could not be determined.
