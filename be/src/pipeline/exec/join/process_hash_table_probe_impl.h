@@ -455,8 +455,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
     for (size_t i = 0; i != row_count; ++i) {
         bool not_matched_before = _parent->_last_probe_match != _probe_indexs[i];
         if (_build_indexs[i] == 0) {
-            bool has_null_mark_value = _parent->_last_probe_null_mark == _probe_indexs[i];
             if (not_matched_before) {
+                bool has_null_mark_value = _parent->_last_probe_null_mark == _probe_indexs[i];
                 filter_map[i] = true;
                 mark_null_map[i] = has_null_mark_value || should_be_null_if_build_side_has_null;
                 mark_filter_data[i] = false;
@@ -464,11 +464,9 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
         } else {
             if (mark_null_map[i]) { // is null
                 _parent->_last_probe_null_mark = _probe_indexs[i];
-            } else {
-                if (mark_filter_data[i] && not_matched_before) {
-                    _parent->_last_probe_match = _probe_indexs[i];
-                    filter_map[i] = true;
-                }
+            } else if (mark_filter_data[i] && not_matched_before) {
+                _parent->_last_probe_match = _probe_indexs[i];
+                filter_map[i] = true;
             }
         }
     }
@@ -678,11 +676,16 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     JoinProbeMethod method = hash_table_ctx.hash_table->template get_method<JoinOpType>(
             !_parent->_mark_join_conjuncts.empty(), is_mark_join, have_other_join_conjunct);
     // need_keep_null_bucket_idx is true means hash_table_ctx.bucket_nums may contains 'bucket_size' value
-    bool need_keep_null_bucket_idx =
-            (null_map && (method == JoinProbeMethod::FIND_NULL_AWARE_WITH_OTHER_CONJUNCTS ||
-                          method == JoinProbeMethod::FIND_BATCH_LEFT_SEMI_ANTI ||
-                          method == JoinProbeMethod::FIND_BATCH_CONJUNCT ||
-                          method == JoinProbeMethod::FIND_BATCH_CONJUNCT_MATCH_ONE));
+    bool need_keep_null_bucket_idx = false;
+    if (null_map) {
+        if ((method == JoinProbeMethod::FIND_BATCH_CONJUNCT ||
+             method == JoinProbeMethod::FIND_BATCH_CONJUNCT_MATCH_ONE) &&
+            JoinOpType != TJoinOp::RIGHT_ANTI_JOIN && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
+            need_keep_null_bucket_idx = true;
+        } else if (method == JoinProbeMethod::FIND_BATCH_LEFT_SEMI_ANTI) {
+            need_keep_null_bucket_idx = true;
+        }
+    }
 
     Status res;
     std::visit(
