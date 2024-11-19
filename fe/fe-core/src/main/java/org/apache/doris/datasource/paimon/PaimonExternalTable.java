@@ -95,7 +95,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable()).orElse(null);
     }
 
-    public PaimonPartitionInfo getPartitionInfoFromCache() {
+    private PaimonPartitionInfo getPartitionInfoFromCache() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         if (!schemaCacheValue.isPresent()) {
@@ -104,7 +104,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         return ((PaimonSchemaCacheValue) schemaCacheValue.get()).getPartitionInfo();
     }
 
-    public List<Column> getPartitionColumnsFromCache() {
+    private List<Column> getPartitionColumnsFromCache() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         if (!schemaCacheValue.isPresent()) {

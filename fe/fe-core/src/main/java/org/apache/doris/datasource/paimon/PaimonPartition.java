@@ -17,12 +17,18 @@
 
 package org.apache.doris.datasource.paimon;
 
+// https://paimon.apache.org/docs/0.9/maintenance/system-tables/#partitions-table
 public class PaimonPartition {
-    private String partitionValues;
-    private long recordCount;
-    private long fileSizeInBytes;
-    private long fileCount;
-    private long lastUpdateTime;
+    // Partition values, for example: [1, dd]
+    private final String partitionValues;
+    // The amount of data in the partition
+    private final long recordCount;
+    // Partition file size
+    private final long fileSizeInBytes;
+    // Number of partition files
+    private final long fileCount;
+    // Last update time of partition
+    private final long lastUpdateTime;
 
     public PaimonPartition(String partitionValues, long recordCount, long fileSizeInBytes, long fileCount,
             long lastUpdateTime) {
