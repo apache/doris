@@ -1447,8 +1447,13 @@ void FragmentMgr::cancel_worker() {
                          std::string("Coordinator dead."));
         }
 
-        for (auto it : brpc_stub_with_queries) {
-            _check_brpc_available(it.first, it.second);
+        if (config::enable_brpc_connection_check) {
+            for (auto it : brpc_stub_with_queries) {
+                if (!it.first) {
+                    continue;
+                }
+                _check_brpc_available(it.first, it.second);
+            }
         }
     } while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::fragment_mgr_cancel_worker_interval_seconds)));
