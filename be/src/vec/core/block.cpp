@@ -1215,7 +1215,7 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
     for (auto idx : char_type_idx) {
         if (idx < data.size()) {
             auto& col_and_name = this->get_by_position(idx);
-            col_and_name.column = col_and_name.column->assume_mutable()->get_shrinked_column();
+            col_and_name.column->assume_mutable()->shrink_padding_chars();
         }
     }
 }
