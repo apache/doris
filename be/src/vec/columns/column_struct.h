@@ -151,8 +151,7 @@ public:
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
 
     void reserve(size_t n) override;
     void resize(size_t n) override;

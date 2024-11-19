@@ -130,7 +130,8 @@ void VExplodeSplitTableFunction::get_same_many_values(MutableColumnPtr& column, 
     if (current_empty()) {
         column->insert_many_defaults(length);
     } else {
-        column->insert_many_data(_backup[_cur_offset].data, _backup[_cur_offset].size, length);
+        column->insert_data_repeatedly(_backup[_cur_offset].data, _backup[_cur_offset].size,
+                                       length);
     }
 }
 
