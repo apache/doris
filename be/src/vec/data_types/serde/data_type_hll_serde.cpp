@@ -49,28 +49,17 @@ Status DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int64_t
 Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                     BufferWritable& bw,
                                                     FormatOptions& options) const {
-    if (!options._output_object_data) {
-        /**
-         * For null values in ordinary types, we use \N to represent them;
-         * for null values in nested types, we use null to represent them, just like the json format.
-         */
-        if (_nesting_level >= 2) {
-            bw.write(DataTypeNullableSerDe::NULL_IN_COMPLEX_TYPE.c_str(),
-                     strlen(NULL_IN_COMPLEX_TYPE.c_str()));
-        } else {
-            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
-                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
-        }
-        return Status::OK();
+    /**
+    * For null values in ordinary types, we use \N to represent them;
+    * for null values in nested types, we use null to represent them, just like the json format.
+    */
+    if (_nesting_level >= 2) {
+        bw.write(DataTypeNullableSerDe::NULL_IN_COMPLEX_TYPE.c_str(),
+                 strlen(NULL_IN_COMPLEX_TYPE.c_str()));
+    } else {
+        bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                 strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
     }
-    auto col_row = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = col_row.first;
-    row_num = col_row.second;
-    auto& data = const_cast<HyperLogLog&>(assert_cast<const ColumnHLL&>(*ptr).get_element(row_num));
-    std::unique_ptr<char[]> buf =
-            std::make_unique_for_overwrite<char[]>(data.max_serialized_size());
-    size_t size = data.serialize((uint8*)buf.get());
-    bw.write(buf.get(), size);
     return Status::OK();
 }
 

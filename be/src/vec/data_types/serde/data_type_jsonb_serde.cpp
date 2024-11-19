@@ -142,7 +142,25 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
                                                int64_t end,
                                                std::vector<StringRef>& buffer_list) const {
-    return Status::NotSupported("write_column_to_orc with type [{}]", column.get_name());
+    auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+    const auto& string_column = assert_cast<const ColumnString&>(column);
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            std::string_view string_ref = string_column.get_data_at(row_id).to_string_view();
+            auto* serialized_value = new std::string();
+            *serialized_value =
+                    JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
+            auto len = serialized_value->length();
+            StringRef bufferRef(*serialized_value);
+            buffer_list.emplace_back(bufferRef);
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data);
+            cur_batch->length[row_id] = len;
+        }
+    }
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,

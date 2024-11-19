@@ -28,12 +28,36 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
+#include "vec/data_types/serde/data_type_nullable_serde.h"
 
 namespace doris {
 
 namespace vectorized {
 class IColumn;
 #include "common/compile_check_begin.h"
+
+Status DataTypeBitMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
+                                                     int end_idx, BufferWritable& bw,
+                                                     FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+Status DataTypeBitMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                       BufferWritable& bw,
+                                                       FormatOptions& options) const {
+    /**
+    * For null values in ordinary types, we use \N to represent them;
+    * for null values in nested types, we use null to represent them, just like the json format.
+    */
+    if (_nesting_level >= 2) {
+        bw.write(DataTypeNullableSerDe::NULL_IN_COMPLEX_TYPE.c_str(),
+                 strlen(NULL_IN_COMPLEX_TYPE.c_str()));
+    } else {
+        bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                 strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
+    }
+    return Status::OK();
+}
 
 Status DataTypeBitMapSerDe::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, int* num_deserialized,

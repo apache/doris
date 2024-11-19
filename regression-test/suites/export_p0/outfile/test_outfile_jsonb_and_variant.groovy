@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_outfile_complex_type", "p0") {
+suite("test_outfile_jsonb_and_variant", "p0") {
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
-    def export_table_name = "test_outfile_complex_type_table"
-    def outFilePath = "${bucket}/outfile/complex_type/exp_"
+    def export_table_name = "test_outfile_jsonb_and_variant_table"
+    def outFilePath = "${bucket}/outfile/jsonb_and_variant/exp_"
 
     def outfile_to_S3 = { format ->
         // select ... into outfile ...
@@ -47,11 +47,9 @@ suite("test_outfile_complex_type", "p0") {
         CREATE TABLE `${export_table_name}` (
             `dt` int(11) NULL COMMENT "",
             `id` int(11) NULL COMMENT "",
-            `price` quantile_state QUANTILE_UNION NOT NULL COMMENT "",
-            `hll_t` hll hll_union,
-            `device_id` bitmap BITMAP_UNION
+            `json_col` JSON NULL COMMENT "",
+            `variant_col` variant NULL COMMENT ""
         ) ENGINE=OLAP
-        AGGREGATE KEY(`dt`, `id`)
         DISTRIBUTED BY HASH(`dt`)
         PROPERTIES (
             "replication_num" = "1"
@@ -60,18 +58,18 @@ suite("test_outfile_complex_type", "p0") {
 
     sql """
         INSERT INTO `${export_table_name}` values
-        (20220201,0, to_quantile_state(1, 2048), hll_hash(1), to_bitmap(243)),
-        (20220201,1, to_quantile_state(-1, 2048), hll_hash(2), bitmap_from_array([1,2,3,4,5,434543])),
-        (20220201,2, to_quantile_state(0, 2048), hll_hash(3), to_bitmap(1234566)),
-        (20220201,3, to_quantile_state(1, 2048), hll_hash(4), to_bitmap(8888888888888)),
-        (20220201,4, to_quantile_state(2, 2048), hll_hash(5), to_bitmap(98392819412234)),
-        (20220201,5, to_quantile_state(3, 2048), hll_hash(6), to_bitmap(253234234));
+        (20220201,0, '{"k1": "100"}', '{"k1": "100"}'),
+        (20220201,1, '{"k1": "100", "k2": "123"}', '{"k1": "100", "k2": "123"}'),
+        (20220201,2, '{"k1": "100", "abc": "567"}', '{"k1": "100", "abc": "567"}'),
+        (20220201,3, '{"k1": "100", "k3": 123}', '{"k1": "100", "k3": 123}'),
+        (20220201,4, '{"k1": "100", "doris": "nereids"}', '{"k1": "100", "doris": "nereids"}'),
+        (20220201,5, '{"k1": "100", "doris": "pipeline"}', '{"k1": "100", "doris": "pipeline"}');
         """
 
     // parquet file format
     def format = "parquet"
     def outfile_url = outfile_to_S3("${format}")
-    qt_select_load_parquet """ SELECT dt, id, hex(price), hex(hll_t), hex(device_id) FROM S3 (
+    qt_select_load_parquet """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
@@ -83,7 +81,7 @@ suite("test_outfile_complex_type", "p0") {
     // orc file foramt
     format = "orc"
     outfile_url = outfile_to_S3("${format}")
-    qt_select_load_orc """ SELECT dt, id, hex(price), hex(hll_t), hex(device_id) FROM S3 (
+    qt_select_load_orc """ SELECT * FROM S3 (
                 "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.${format}",
                 "ACCESS_KEY"= "${ak}",
                 "SECRET_KEY" = "${sk}",
