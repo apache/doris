@@ -48,8 +48,8 @@ public class ReplaceTableOperationLogTest {
         Assert.assertTrue(readLog.getNewTblId() == log.getNewTblId());
         Assert.assertTrue(readLog.getOrigTblId() == log.getOrigTblId());
         Assert.assertTrue(readLog.isSwapTable() == log.isSwapTable());
-        Assert.assertTrue(readLog.getOrigTblName() == log.getOrigTblName());
-        Assert.assertTrue(readLog.getNewTblName() == log.getNewTblName());
+        Assert.assertTrue(readLog.getOrigTblName().equals(log.getOrigTblName()));
+        Assert.assertTrue(readLog.getNewTblName().equals(log.getNewTblName()));
 
         // 3. delete files
         dis.close();
