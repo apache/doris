@@ -494,12 +494,11 @@ public class CreateTableStmt extends DdlStmt {
             columnDef.analyze(engineName.equals("olap"));
 
             if (columnDef.getType().isComplexType() && engineName.equals("olap")) {
-                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
-                        && columnDef.getAggregateType() != AggregateType.REPLACE
-                        && columnDef.getAggregateType() != AggregateType.REPLACE_IF_NOT_NULL) {
-                    throw new AnalysisException(
-                            columnDef.getType().getPrimitiveType() + " column can't support aggregation "
-                                    + columnDef.getAggregateType());
+                if (columnDef.getAggregateType() != null
+                        && columnDef.getAggregateType() != AggregateType.NONE
+                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
+                    throw new AnalysisException(columnDef.getType().getPrimitiveType()
+                            + " column can't support aggregation " + columnDef.getAggregateType());
                 }
                 if (columnDef.isKey()) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
