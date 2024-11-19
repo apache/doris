@@ -291,7 +291,7 @@ void QueryContext::register_query_statistics(std::shared_ptr<QueryStatistics> qs
 void QueryContext::register_query_context() {
     auto ctx_ptr = std::make_shared<QueryContext>(this->_query_id, this->_exec_env,
                            this->_query_options, this->coord_addr,
-                           this->_is_pipeline, this->_is_nereids, this->current_connect_fe,
+                           this->_is_nereids, this->current_connect_fe,
                            this->_query_source);
 
     _exec_env->runtime_query_statistics_mgr()->register_query_context(ctx_ptr);
