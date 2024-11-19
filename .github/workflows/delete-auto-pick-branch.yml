@@ -23,7 +23,7 @@ on:
 
 jobs:
   delete-branch:
-    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'branch2.1' && github.event.pull_request.user.login == 'github-actions[bot]' && startsWith(github.event.pull_request.head.ref, 'auto-pick')
+    if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'branch-2.1' && github.event.pull_request.user.login == 'github-actions[bot]' && startsWith(github.event.pull_request.head.ref, 'auto-pick')
     runs-on: ubuntu-latest
 
     steps:
