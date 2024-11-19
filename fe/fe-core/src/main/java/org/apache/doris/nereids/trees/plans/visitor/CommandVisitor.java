@@ -77,6 +77,7 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshCatalogCommand;
 
 /** CommandVisitor. */
 public interface CommandVisitor<R, C> {
@@ -253,6 +254,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitSetDefaultStorageVault(SetDefaultStorageVaultCommand setDefaultStorageVaultCommand, C context) {
         return visitCommand(setDefaultStorageVaultCommand, context);
+    }
+
+    default R visitRefreshCatalogCommand(RefreshCatalogCommand refreshCatalogCommand, C context) {
+        return visitCommand(refreshCatalogCommand, context);
     }
 
     default R visitShowLastInsertCommand(ShowLastInsertCommand showLastInsertCommand, C context) {
