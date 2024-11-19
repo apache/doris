@@ -553,7 +553,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
-    public static final String ENABLE_QUERY_SPILL = "enable_query_spill";
+    public static final String ENABLE_SPILL = "enable_spill";
     public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
     public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
@@ -2140,12 +2140,12 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableReserveMemory = true;
 
     @VariableMgr.VarAttr(
-            name = ENABLE_QUERY_SPILL,
+            name = ENABLE_SPILL,
             description = {"控制是否启用查询算子落盘。默认为 false。",
                     "Controls whether to enable spill to disk for query. "
                             + "The default value is false."},
             needForward = true, fuzzy = true)
-    public boolean enableQuerySpill = false;
+    public boolean enableSpill = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_FORCE_SPILL,
@@ -2407,7 +2407,7 @@ public class SessionVariable implements Serializable, Writable {
         // for spill to disk
         if (Config.pull_request_id > 10000) {
             if (Config.pull_request_id % 2 == 0) {
-                this.enableQuerySpill = true;
+                this.enableSpill = true;
                 this.enableReserveMemory = true;
                 randomInt = random.nextInt(4);
                 switch (randomInt) {
@@ -2425,7 +2425,7 @@ public class SessionVariable implements Serializable, Writable {
                         break;
                 }
             } else {
-                this.enableQuerySpill = false;
+                this.enableSpill = false;
                 this.enableReserveMemory = false;
             }
         }
@@ -3840,7 +3840,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
         tResult.setEnableReserveMemory(enableReserveMemory);
-        tResult.setEnableQuerySpill(enableQuerySpill);
+        tResult.setEnableSpill(enableSpill);
         tResult.setEnableForceSpill(enableForceSpill);
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
         tResult.setMinRevocableMem(minRevocableMem);

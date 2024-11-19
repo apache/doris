@@ -360,7 +360,7 @@ struct TQueryOptions {
 
   140: optional bool enable_auto_create_when_overwrite = false;
 
-  141: optional bool enable_query_spill = false
+  141: optional bool enable_spill = false
 
   142: optional bool enable_reserve_memory = true
 

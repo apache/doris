@@ -313,7 +313,7 @@ public:
             }
 
             if (is_low_watermark &&
-                (_query_options.__isset.enable_query_spill && _query_options.enable_query_spill)) {
+                (_query_options.__isset.enable_spill && _query_options.enable_spill)) {
                 LOG(INFO) << "Query " << print_id(_query_id)
                           << " goes to low memory mode due to workload group low water mark "
                              "reached and the query enable spill";

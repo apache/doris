@@ -565,9 +565,9 @@ public:
         return _query_options.__isset.enable_reserve_memory && _query_options.enable_reserve_memory;
     }
 
-    bool enable_query_spill() const {
+    bool enable_spill() const {
         return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_query_spill && _query_options.enable_query_spill);
+               (_query_options.__isset.enable_spill && _query_options.enable_spill);
     }
 
     bool enable_force_spill() const {
