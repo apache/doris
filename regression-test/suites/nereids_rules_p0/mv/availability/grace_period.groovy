@@ -160,8 +160,7 @@ suite("grace_period") {
         l_suppkey;
     """, mv_partition_consistent_name)
     // force consistency when partition table, and query doesn't use the partition changed, should success
-    // fail because RBO rule EliminateGroupByKeyByUniform
-    mv_rewrite_fail("""
+    mv_rewrite_success("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -248,8 +247,7 @@ suite("grace_period") {
     """
 
     // allow 10s staleness when partition table, and query use the partition changed, should success
-    // fail because RBO rule EliminateGroupByKeyByUniform
-    /*mv_rewrite_success ("""
+    mv_rewrite_success ("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -275,12 +273,12 @@ suite("grace_period") {
         l_partkey,
         l_suppkey;
         """, mv_partition_allow_staleness_name, true,
-            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))*/
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     sql "SET enable_materialized_view_rewrite=false"
     // allow 10s staleness when partition table, and query use the partition changed, should success,
     // but disable materialized view rewrite, should fail
     mv_not_part_in(
-        """
+            """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -295,7 +293,7 @@ suite("grace_period") {
     // allow 10s staleness when partition table, and query doesn't use the partition changed,
     // but disable materialized view rewrite, should fail
     mv_not_part_in(
-        """
+            """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -311,7 +309,7 @@ suite("grace_period") {
     Thread.sleep(15000);
     // after 10s when partition table, and query use the partition changed, should fail
     mv_rewrite_fail(
-        """
+            """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -324,8 +322,7 @@ suite("grace_period") {
         l_suppkey;
         """, mv_partition_allow_staleness_name)
     // after 10s when partition table, and query doesn't use the partition changed, should success
-    // fail because RBO rule EliminateGroupByKeyByUniform
-    /*mv_rewrite_success ("""
+    mv_rewrite_success ("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -337,7 +334,7 @@ suite("grace_period") {
         l_partkey,
         l_suppkey;
         """, mv_partition_allow_staleness_name, true,
-            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))*/
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_partition_allow_staleness_name]))
     sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_partition_allow_staleness_name}"""
 
 
@@ -362,8 +359,7 @@ suite("grace_period") {
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
     // allow 10s staleness when un partition table should success
-    // fail because RBO rule EliminateGroupByKeyByUniform
-    /*mv_rewrite_success ("""
+    mv_rewrite_success ("""
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -378,7 +374,7 @@ suite("grace_period") {
             is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))
     // allow 10s staleness when un partition table, should success
     mv_rewrite_success (
-        """
+            """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -390,7 +386,7 @@ suite("grace_period") {
         l_partkey,
         l_suppkey;
         """, mv_un_partition_allow_staleness_name, true,
-            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))*/
+            is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))
     sql "SET enable_materialized_view_rewrite=false"
     // allow 10s staleness when un partition table, but disable materialized view rewrite, should fail
     mv_not_part_in("""
@@ -422,7 +418,7 @@ suite("grace_period") {
     Thread.sleep(15000);
     // after 10s when un partition table, and query use the partition changed, should fail
     mv_not_part_in(
-        """
+            """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -436,7 +432,7 @@ suite("grace_period") {
         """, mv_un_partition_allow_staleness_name)
     // after 10s when un partition table, and query doesn't use the partition changed, should fail
     mv_not_part_in(
-        """
+            """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
