@@ -103,47 +103,26 @@ echo "USER: ${USER}"
 echo "DB: ${DB}"
 echo "SF: ${SCALE_FACTOR}"
 
-if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE IF NOT EXISTS ${DB}" 2>&1; then
-    echo "Error: Failed to create database ${DB}." >&2
-    exit 1
-fi
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE IF NOT EXISTS ${DB}"
 # shellcheck disable=SC2292
 if [ "${SCALE_FACTOR}" -eq 1 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf1.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf1.sql 2>&1; then
-        printf "Error: Failed to execute create-ssb-tables-sf1.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf1.sql
 
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf1.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-flat-tables-sf1.sql 2>&1; then
-        printf "Error: Failed to execute create-ssb-flat-tables-sf1.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-flat-tables-sf1.sql
 elif [ "${SCALE_FACTOR}" -eq 100 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf100.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf100.sql 2>&1; then
-        printf "Error: Failed to execute create-ssb-tables-sf100.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf100.sql
 
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf100.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-flat-tables-sf100.sql" 2>&1; then
-        printf "Error: Failed to execute create-ssb-flat-tables-sf100.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-flat-tables-sf100.sql"
 elif [ "${SCALE_FACTOR}" -eq 1000 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf1000.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-tables-sf1000.sql" 2>&1; then
-        printf "Error: Failed to execute create-ssb-tables-sf1000.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-tables-sf1000.sql"
 
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf1000.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-flat-tables-sf1000.sql" 2>&1; then
-        printf "Error: Failed to execute create-ssb-flat-tables-sf1000.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-flat-tables-sf1000.sql"
 else
     printf "%s scale is NOT supported currently\n" "${SCALE_FACTOR}"
 fi

@@ -102,57 +102,29 @@ echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
 echo "DB: ${DB}"
 echo "SF: ${SCALE_FACTOR}"
-if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "DROP DATABASE IF EXISTS ${DB}" 2>&1; then
-    printf "Error: Failed to drop the database %s.\n" "${DB}" >&2
-    exit 1
-fi
 
-if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE ${DB}" 2>&1; then
-    printf "Error: Failed to create the database %s.\n" "${DB}" >&2
-    exit 1
-fi
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "DROP DATABASE IF EXISTS ${DB}"
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE ${DB}"
 # shellcheck disable=SC2292
 if [ "${SCALE_FACTOR}" -eq 1 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf1.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf1.sql" 2>&1; then
-        printf "Error: Failed to execute create-tpcds-tables-sf1.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf1.sql"
 elif [ "${SCALE_FACTOR}" -eq 100 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf100.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf100.sql" 2>&1; then
-        printf "Error: Failed to execute create-tpcds-tables-sf100.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf100.sql"
 elif [ "${SCALE_FACTOR}" -eq 1000 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf1000.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf1000.sql" 2>&1; then
-        printf "Error: Failed to execute create-tpcds-tables-sf1000.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf1000.sql"
 elif [ "${SCALE_FACTOR}" -eq 10000 ]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpcds-tables-sf10000.sql"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf10000.sql" 2>&1; then
-        printf "Error: Failed to execute create-tpcds-tables-sf10000.sql.\n" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-tpcds-tables-sf10000.sql"
 else
     echo "${SCALE_FACTOR} scale is NOT supported currently" >&2
 fi
 
 echo "Build constraints"
-if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../constraints/build-pk-constraints.sql" 2>&1; then
-    printf "Error: Failed to execute build-pk-constraints.sql.\n" >&2
-    exit 1
-fi
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../constraints/build-pk-constraints.sql"
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../constraints/build-uk-constraints.sql"
+mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../constraints/build-fk-constraints.sql"
 
-if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../constraints/build-uk-constraints.sql" 2>&1; then
-    printf "Error: Failed to execute build-uk-constraints.sql.\n" >&2
-    exit 1
-fi
-
-if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../constraints/build-fk-constraints.sql" 2>&1; then
-    printf "Error: Failed to execute build-fk-constraints.sql.\n" >&2
-    exit 1
-fi
 echo "tpcds tables has been created"

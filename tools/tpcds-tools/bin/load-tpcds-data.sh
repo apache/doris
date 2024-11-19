@@ -220,11 +220,8 @@ echo "Finish load tpcds data, Time taken: $((end_time - start_time)) seconds"
 echo '============================================'
 echo "analyze database ${DB}"
 run_sql() {
-    printf "%s\n" "$*"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*" 2>&1; then
-        printf "Error: Failed to execute the SQL command: '%s'\n" "$*" >&2
-        exit 1
-    fi
+    echo "$*"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
 start=$(date +%s)
 run_sql "analyze database ${DB} with full with sync;"

@@ -120,36 +120,13 @@ echo "DB: ${DB:='tpcds'}"
 echo "Time Unit: ms"
 
 run_sql() {
-    printf "%s\n" "$*"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*" 2>&1; then
-        printf "Error: Failed to execute the SQL command: '%s'\n" "$*" >&2
-        exit 1
-    fi
+    echo "$*"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "$*"
 }
 get_session_variable() {
     k="$1"
-    if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" \
-        -e "show variables like '${k}'\G" 2>&1); then
-        printf "%s\n" "${output}" >&2
-        printf "Error: Failed to execute SQL command: 'show variables like %s\\G'\n" "${k}" >&2
-        exit 1
-    fi
-    if ! grep_output=$(grep " Value: " <<<"${output}" 2>&1); then
-        printf "Warning: No match for 'Value: ' found in the output of the query for variable '%s'.\n" "${k}" >&2
-        return 1
-    fi
-
-    if ! v=$(awk '{print $2}' <<<"${grep_output}" 2>&1); then
-        printf "%s\n" "${v}" >&2
-        printf "Error: awk command failed while processing the grep output for variable '%s'.\n" "${k}" >&2
-        exit 1
-    fi
-
-    if [[ -z ${v} ]]; then
-        printf "Warning: No value found for variable '%s'. The 'Value:' might be missing or empty.\n" "${k}" >&2
-        exit 1
-    fi
-    echo "${v}"
+    v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+    echo "${v/*Value: /}"
 }
 backup_session_variables_file="${CURDIR}/../conf/opt/backup_session_variables.sql"
 backup_session_variables() {
@@ -165,10 +142,7 @@ backup_session_variables() {
 clean_up() {
     echo "restore session variables:"
     cat "${backup_session_variables_file}"
-    if ! mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "source ${backup_session_variables_file};" 2>&1; then
-        printf "Error: Failed to restore session variables from '%s'.\n" "${backup_session_variables_file}" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "source ${backup_session_variables_file};"
 }
 backup_session_variables
 

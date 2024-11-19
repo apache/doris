@@ -95,10 +95,7 @@ echo "DB: ${DB:='ssb'}"
 
 run_sql() {
     printf "%s\n" "$@"
-    if ! mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D"${DB}" -e "$@" 2>&1; then
-        printf "Error: Failed to execute the SQL command: %s\n" "$@" >&2
-        exit 1
-    fi
+    mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D"${DB}" -e "$@"
 }
 
 echo '============================================'

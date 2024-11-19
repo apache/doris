@@ -111,23 +111,8 @@ function check_doris_conf() {
         exit 1
     fi
 
-    if ! grep_output=$(grep 'stream_load_default_timeout_second' <<< "$output" 2>&1); then
-        printf "Warning: No match for 'stream_load_default_timeout_second' found in the output.\n" >&2
-        exit 1
-    fi
-
-    if ! cv=$(awk '{print $2}' <<< "$grep_output" 2>&1); then
-        printf "%s\n" "${cv}" >&2
-        printf "Error: awk command failed while processing the grep output.\n" >&2
-        exit 1
-    fi
-
-    if [ -z "$cv" ]; then
-        printf "Warning: No lines containing 'stream_load_default_timeout_second' were found.\n" >&2
-        exit 1
-    fi
-
-    if ((cv < 3600)); then
+    cv=$(grep 'stream_load_default_timeout_second' "${output}" | awk '{print $2}')
+    if (($cv < 3600)); then
         printf "advise: revise your Doris FE's conf to set 'stream_load_default_timeout_second=3600' or above\n"
     fi
 
@@ -137,22 +122,8 @@ function check_doris_conf() {
         exit 1
     fi
 
-    if ! grep_output=$(grep 'streaming_load_max_mb' <<< "$output" 2>&1); then
-        printf "Warning: No match found for 'streaming_load_max_mb' in the output.\n" >&2
-        exit 1
-    fi
-    if ! cv=$(awk -F'=' '{print $2}' <<< "$grep_output" 2>&1); then
-        printf "%s\n" "${cv}" >&2
-        printf "Error: awk command failed while processing the grep output.\n" >&2
-        exit 1
-    fi
-
-    if [ -z "$cv" ]; then
-        printf "Warning: No lines containing 'streaming_load_max_mb' were found.\n" >&2
-        exit 1
-    fi
-
-    if ((cv < 16000)); then
+    cv=$(grep 'streaming_load_max_mb' <<< "${output}" | awk -F'=' '{print $2}')
+    if (($cv < 16000)); then
         printf "advise: revise your Doris BE's conf to set 'streaming_load_max_mb=16000' or above and 'flush_thread_num_per_store=5' to speed up load.\n"
     fi
 }
@@ -212,11 +183,8 @@ end=$(date +%s)
 echo "load cost time: $((end - start)) seconds"
 
 run_sql() {
-  printf "%s\n" "$@"
-  if ! mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "$*" 2>&1; then
-    printf "Error: Failed to execute the SQL command: %s\n" "$*" >&2
-    exit 1
-  fi
+  echo $@
+  mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "$@"
 }
 
 echo '============================================'
