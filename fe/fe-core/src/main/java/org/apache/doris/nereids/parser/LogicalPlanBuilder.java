@@ -4080,7 +4080,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         } else if (parts.size() == 2) {  // [ctl,db].
             return new RefreshDatabaseCommand(parts.get(0), dbName, properties);
         }
-        throw new IllegalArgumentException("Only one dot can be in the name:{}" + String.join(".", parts));
+        throw new IllegalArgumentException("Only one dot can be in the name: " + String.join(".", parts));
     }
 
     public LogicalPlan visitShowLastInsert(ShowLastInsertContext ctx) {
