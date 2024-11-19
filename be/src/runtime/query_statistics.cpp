@@ -44,11 +44,11 @@ void QueryStatistics::merge(const QueryStatistics& other) {
     if (other_memory_used > 0) {
         this->current_used_memory_bytes = other_memory_used;
     }
-    for (const auto& [node_id, exec_stats_item] : other._exec_stats_items) {
-        update_exec_stats_item(node_id, exec_stats_item->push_rows, exec_stats_item->pull_rows,
-                                exec_stats_item->pred_filter_rows, exec_stats_item->index_filter_rows,
-                                exec_stats_item->rf_filter_rows);
-    }
+    //for (const auto& [node_id, exec_stats_item] : other._exec_stats_items) {
+    //    update_exec_stats_item(node_id, exec_stats_item->push_rows, exec_stats_item->pull_rows,
+    //                            exec_stats_item->pred_filter_rows, exec_stats_item->index_filter_rows,
+    //                            exec_stats_item->rf_filter_rows);
+    //}
 }
 
 void QueryStatistics::update_exec_stats_item(uint32_t node_id, int64_t push, int64_t pull, int64_t pred_filter,

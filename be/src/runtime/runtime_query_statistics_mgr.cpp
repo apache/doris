@@ -324,7 +324,6 @@ void RuntimeQueryStatisticsMgr::_report_query_profiles_function() {
 
 void QueryStatisticsCtx::collect_query_statistics(TQueryStatistics* tq_s, std::shared_ptr<QueryContext> query_context) {
     QueryStatistics tmp_qs;
-    // where is the _qs_list take effective?
     for (auto& qs_ptr : _qs_list) {
         tmp_qs.merge(*qs_ptr);
     }
