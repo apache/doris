@@ -33,7 +33,7 @@
 
 namespace doris {
 class RowsetMetaCloudPB;
-}
+} // namespace doris
 
 namespace doris::cloud {
 class StorageVaultAccessor;
@@ -98,6 +98,9 @@ public:
     int do_delete_bitmap_inverted_check();
 
     // checks if https://github.com/apache/doris/pull/40204 works as expected
+    // the stale delete bitmap will be cleared in MS when BE delete expired stale rowsets
+    // NOTE: stale rowsets will be lost after BE restarts, so there may be some stale delete bitmaps
+    // which will not be cleared.
     int do_delete_bitmap_storage_optimize_check();
 
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
@@ -114,19 +117,10 @@ private:
     // returns 0 for success otherwise error
     int init_storage_vault_accessors(const InstanceInfoPB& instance);
 
-    using Version = std::pair<int64_t, int64_t>;
-    struct RowsetDigest {
-        std::string rowset_id;
-        Version version;
-
-        std::string to_string() const;
-        bool operator<(const RowsetDigest& other) const {
-            // these rowsets should be non-overlapping
-            return version.second < other.version.second;
-        }
-    };
-
     int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
+    int traverse_rowset_delete_bitmaps(
+            int64_t tablet_id, std::string rowset_id,
+            const std::function<int(int64_t, std::string_view, int64_t, int64_t)>& callback);
     int collect_tablet_rowsets(
             int64_t tablet_id,
             const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);

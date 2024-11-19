@@ -257,12 +257,13 @@ static int create_committed_rowset(TxnKv* txn_kv, StorageVaultAccessor* accessor
 
 static int create_committed_rowset_with_rowset_id(TxnKv* txn_kv, StorageVaultAccessor* accessor,
                                                   const std::string& resource_id, int64_t tablet_id,
-                                                  int64_t version, std::string rowset_id,
-                                                  int num_segments = 1) {
+                                                  int64_t start_version, int64_t end_version,
+                                                  std::string rowset_id, bool segments_overlap,
+                                                  int num_segments) {
     std::string key;
     std::string val;
 
-    MetaRowsetKeyInfo key_info {instance_id, tablet_id, version};
+    MetaRowsetKeyInfo key_info {instance_id, tablet_id, end_version};
     meta_rowset_key(key_info, &key);
 
     doris::RowsetMetaCloudPB rowset_pb;
@@ -272,8 +273,9 @@ static int create_committed_rowset_with_rowset_id(TxnKv* txn_kv, StorageVaultAcc
     rowset_pb.set_tablet_id(tablet_id);
     rowset_pb.set_resource_id(resource_id);
     rowset_pb.set_creation_time(current_time);
-    rowset_pb.set_start_version(version);
-    rowset_pb.set_end_version(version);
+    rowset_pb.set_start_version(start_version);
+    rowset_pb.set_end_version(end_version);
+    rowset_pb.set_segments_overlap_pb(segments_overlap ? OVERLAPPING : NONOVERLAPPING);
     rowset_pb.SerializeToString(&val);
 
     std::unique_ptr<Transaction> txn;
@@ -2641,7 +2643,7 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
         for (int ver = 2; ver <= 10; ++ver) {
             std::string rowset_id = std::to_string(rowset_start_id++);
             create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                   ver, rowset_id, 1);
+                                                   ver, ver, rowset_id, false, 1);
             if (ver >= 5) {
                 auto delete_bitmap_key =
                         meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
@@ -2665,7 +2667,7 @@ TEST(CheckerTest, delete_bitmap_inverted_check_normal) {
         for (int ver = 2; ver < 10; ++ver) {
             std::string rowset_id = std::to_string(rowset_start_id++);
             create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                   ver, rowset_id, 1);
+                                                   ver, ver, rowset_id, false, 1);
         }
     }
 
@@ -2731,7 +2733,7 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
             if (ver >= 10) {
                 // only create rowsets for some versions
                 create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                       ver, rowset_id, 1);
+                                                       ver, ver, rowset_id, false, 1);
             } else {
                 expected_leaked_delete_bitmaps[tablet_id].insert({rowset_id, ver, 0});
             }
@@ -2759,7 +2761,7 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
         for (int ver = 2; ver < 6; ++ver) {
             std::string rowset_id = std::to_string(rowset_start_id++);
             create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                   ver, rowset_id, 1);
+                                                   ver, ver, rowset_id, false, 1);
             auto delete_bitmap_key =
                     meta_delete_bitmap_key({instance_id, tablet_id, rowset_id, ver, 0});
             std::string delete_bitmap_val {"test2"};
@@ -2777,7 +2779,7 @@ TEST(CheckerTest, delete_bitmap_inverted_check_abnormal) {
         for (int ver = 2; ver < 10; ++ver) {
             std::string rowset_id = std::to_string(rowset_start_id++);
             create_committed_rowset_with_rowset_id(txn_kv.get(), accessor.get(), "1", tablet_id,
-                                                   ver, rowset_id, 1);
+                                                   ver, ver, rowset_id, false, 1);
         }
     }
 
