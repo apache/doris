@@ -446,12 +446,6 @@ public:
     void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
-    // Not implemented
-    MutableColumnPtr get_shrinked_column() override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "get_shrinked_column" + get_name());
-    }
-
     Int64 get_int(size_t /*n*/) const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "get_int" + get_name());
     }

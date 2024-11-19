@@ -80,6 +80,13 @@ public class SqlBlockRuleMgr implements Writable {
      **/
     public List<SqlBlockRule> getSqlBlockRule(ShowSqlBlockRuleStmt stmt) throws AnalysisException {
         String ruleName = stmt.getRuleName();
+        return getSqlBlockRule(ruleName);
+    }
+
+    /**
+     * Get SqlBlockRule by rulename.
+     **/
+    public List<SqlBlockRule> getSqlBlockRule(String ruleName) throws AnalysisException {
         if (StringUtils.isNotEmpty(ruleName)) {
             if (nameToSqlBlockRuleMap.containsKey(ruleName)) {
                 SqlBlockRule sqlBlockRule = nameToSqlBlockRuleMap.get(ruleName);
