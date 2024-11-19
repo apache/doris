@@ -17,11 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import com.google.common.base.Strings;
-import org.apache.doris.analysis.CreateJobStmt;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
@@ -36,15 +32,16 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Strings;
+
 /**
  * base class for all drop commands
  */
 public abstract class AlterJobStatusCommand extends Command implements ForwardWithSync {
-    private final Expression wildWhere;
-    private String jobName;
-
     // exclude job name prefix, which is used by inner job
     private static final String excludeJobNamePrefix = "inner_";
+    private final Expression wildWhere;
+    private String jobName;
 
     public AlterJobStatusCommand(PlanType type, Expression wildWhere) {
         super(type);

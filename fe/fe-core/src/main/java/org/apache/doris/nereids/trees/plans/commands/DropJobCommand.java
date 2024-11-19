@@ -29,6 +29,7 @@ import org.apache.doris.qe.StmtExecutor;
  */
 public class DropJobCommand extends AlterJobStatusCommand implements ForwardWithSync {
     private final boolean ifExists;
+
     public DropJobCommand(Expression wildWhere, boolean ifExists) {
         super(PlanType.DROP_JOB_COMMAND, wildWhere);
         this.ifExists = ifExists;

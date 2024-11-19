@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import lombok.Getter;
-import org.apache.doris.analysis.CancelJobTaskStmt;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -27,9 +25,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -41,17 +37,15 @@ import org.apache.doris.qe.StmtExecutor;
  * base class for all drop commands
  */
 public class CancelJobTaskCommand extends Command implements ForwardWithSync {
-    @Getter
-    private String jobName;
-
-    @Getter
-    private Long taskId;
-
-    private Expression expr;
-
     private static final String jobNameKey = "jobName";
 
     private static final String taskIdKey = "taskId";
+
+    private String jobName;
+
+    private Long taskId;
+
+    private Expression expr;
 
     public CancelJobTaskCommand(Expression expr) {
         super(PlanType.CANCEL_JOB_COMMAND);
@@ -76,8 +70,8 @@ public class CancelJobTaskCommand extends Command implements ForwardWithSync {
         if (!(expr instanceof And)) {
             throw new AnalysisException("Only allow compound predicate with operator AND");
         }
-        if (!(expr.child(0).child(0) instanceof UnboundSlot) &&
-                jobNameKey.equals(((UnboundSlot) expr.child(0).child(0)).getName())) {
+        if (!(expr.child(0).child(0) instanceof UnboundSlot)
+                && jobNameKey.equals(((UnboundSlot) expr.child(0).child(0)).getName())) {
             throw new AnalysisException("Current not support " + ((UnboundSlot) expr.child(0).child(0)).getName());
         }
 
@@ -97,7 +91,7 @@ public class CancelJobTaskCommand extends Command implements ForwardWithSync {
 
     public void doRun(ConnectContext ctx) throws Exception {
         try {
-            ctx.getEnv().getJobManager().cancelTaskById(getJobName(), taskId);
+            ctx.getEnv().getJobManager().cancelTaskById(jobName, taskId);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }
