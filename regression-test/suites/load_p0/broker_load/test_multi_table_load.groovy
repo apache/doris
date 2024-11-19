@@ -137,7 +137,6 @@ suite("test_multi_table_load", "load_p0") {
                 "provider" = "${getS3Provider()}"
             )
             properties(
-                "use_new_load_scan_node" = "true",
                 "max_filter_ratio" = "1.0"
             )
             """
@@ -186,7 +185,6 @@ suite("test_multi_table_load", "load_p0") {
             "provider" = "${getS3Provider()}"
         )
         properties(
-            "use_new_load_scan_node" = "true",
             "max_filter_ratio" = "1.0"
         )
         """

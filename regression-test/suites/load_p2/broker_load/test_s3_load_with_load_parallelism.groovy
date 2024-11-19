@@ -164,7 +164,6 @@ class LoadAttributes {
         this.isExceptFailed = isExceptFailed
 
         properties = new HashMap<>()
-        properties.put("use_new_load_scan_node", "true")
     }
 
     LoadAttributes addProperties(String k, String v) {

@@ -17,15 +17,13 @@
 
 #pragma once
 
-#include <stddef.h>
-#include <stdint.h>
-
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <type_traits>
 
-#include "agent/be_exec_version_manager.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
@@ -35,8 +33,8 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/io/io_helper.h"
 
-namespace doris {
-namespace vectorized {
+namespace doris::vectorized {
+
 class Arena;
 class BufferReadable;
 class BufferWritable;
@@ -44,14 +42,10 @@ template <typename T>
 class ColumnDecimal;
 template <typename>
 class ColumnVector;
-} // namespace vectorized
-} // namespace doris
-
-namespace doris::vectorized {
 
 template <typename T, bool is_stddev>
 struct BaseData {
-    BaseData() : mean(0.0), m2(0.0), count(0) {}
+    BaseData() = default;
     virtual ~BaseData() = default;
 
     void write(BufferWritable& buf) const {
@@ -126,13 +120,13 @@ struct BaseData {
         count += 1;
     }
 
-    double mean;
-    double m2;
-    int64_t count;
+    double mean {};
+    double m2 {};
+    int64_t count {};
 };
 
-template <typename T, typename Data>
-struct PopData : Data {
+template <typename T, typename Name, bool is_stddev>
+struct PopData : BaseData<T, is_stddev>, Name {
     using ColVecResult =
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
@@ -151,28 +145,8 @@ struct PopData : Data {
 // because the operations involve squaring,
 // which can easily exceed the range of the Decimal type.
 
-template <typename Data>
-struct StddevName : Data {
-    static const char* name() { return "stddev"; }
-};
-
-template <typename Data>
-struct VarianceName : Data {
-    static const char* name() { return "variance"; }
-};
-
-template <typename Data>
-struct VarianceSampName : Data {
-    static const char* name() { return "variance_samp"; }
-};
-
-template <typename Data>
-struct StddevSampName : Data {
-    static const char* name() { return "stddev_samp"; }
-};
-
-template <typename T, typename Data>
-struct SampData : Data {
+template <typename T, typename Name, bool is_stddev>
+struct SampData : BaseData<T, is_stddev>, Name {
     using ColVecResult =
             std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128V2>, ColumnFloat64>;
     void insert_result_into(IColumn& to) const {
@@ -191,14 +165,25 @@ struct SampData : Data {
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeNumber<Float64>>(); }
 };
 
-template <bool is_pop, typename Data, bool is_nullable>
+struct StddevName {
+    static const char* name() { return "stddev"; }
+};
+struct VarianceName {
+    static const char* name() { return "variance"; }
+};
+struct VarianceSampName {
+    static const char* name() { return "variance_samp"; }
+};
+struct StddevSampName {
+    static const char* name() { return "stddev_samp"; }
+};
+
+template <typename Data>
 class AggregateFunctionSampVariance
-        : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>> {
 public:
     AggregateFunctionSampVariance(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<
-                      Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>>(
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSampVariance<Data>>(
                       argument_types_) {}
 
     String get_name() const override { return Data::name(); }
@@ -207,18 +192,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {
-        if constexpr (is_pop) {
-            this->data(place).add(columns[0], row_num);
-        } else {
-            if constexpr (is_nullable) { //this if check could remove with old function
-                const auto* nullable_column = check_and_get_column<ColumnNullable>(columns[0]);
-                if (!nullable_column->is_null_at(row_num)) {
-                    this->data(place).add(&nullable_column->get_nested_column(), row_num);
-                }
-            } else {
-                this->data(place).add(columns[0], row_num);
-            }
-        }
+        this->data(place).add(columns[0], row_num);
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
@@ -240,21 +214,6 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
     }
-};
-
-template <typename Data, bool is_nullable>
-class AggregateFunctionSamp final : public AggregateFunctionSampVariance<false, Data, is_nullable> {
-public:
-    AggregateFunctionSamp(const DataTypes& argument_types_)
-            : AggregateFunctionSampVariance<false, Data, is_nullable>(argument_types_) {}
-};
-
-//pop function have use AggregateFunctionNullBase function, so needn't processing null values
-template <typename Data, bool is_nullable>
-class AggregateFunctionPop final : public AggregateFunctionSampVariance<true, Data, is_nullable> {
-public:
-    AggregateFunctionPop(const DataTypes& argument_types_)
-            : AggregateFunctionSampVariance<true, Data, is_nullable>(argument_types_) {}
 };
 
 } // namespace doris::vectorized

@@ -103,9 +103,6 @@ suite("test_seq_load", "load_p0") {
                 "AWS_ENDPOINT" = "${getS3Endpoint()}",
                 "AWS_REGION" = "${getS3Region()}"
             )
-            properties(
-                "use_new_load_scan_node" = "true"
-            )
             """
     logger.info("submit sql: ${sql_str}");
     sql """${sql_str}"""

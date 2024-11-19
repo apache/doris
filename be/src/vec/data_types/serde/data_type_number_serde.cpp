@@ -78,12 +78,21 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
     auto arrow_null_map = revert_null_map(null_map, start, end);
     auto arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
     if constexpr (std::is_same_v<T, UInt8>) {
-        ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        checkArrowStatus(
-                builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
-                                     end - start,
-                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name());
+        auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
+        if (null_builder) {
+            for (size_t i = start; i < end; ++i) {
+                checkArrowStatus(null_builder->AppendNull(), column.get_name(),
+                                 null_builder->type()->name());
+            }
+        } else {
+            ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
+            checkArrowStatus(
+                    builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
+                                         end - start,
+                                         reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                    column.get_name(), array_builder->type()->name());
+        }
+
     } else if constexpr (std::is_same_v<T, Int128>) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {

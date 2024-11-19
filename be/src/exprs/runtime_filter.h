@@ -203,8 +203,8 @@ public:
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
               registration_time_(MonotonicMillis()),
-              _wait_infinitely(_state->runtime_filter_wait_infinitely),
-              _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
+              _wait_infinitely(_state->get_query_ctx()->runtime_filter_wait_infinitely()),
+              _rf_wait_time_ms(_state->get_query_ctx()->runtime_filter_wait_time_ms()),
               _runtime_filter_type(get_runtime_filter_type(desc)),
               _profile(
                       new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
@@ -225,7 +225,7 @@ public:
 
     // publish filter
     // push filter to remote node or push down it to scan_node
-    Status publish(bool publish_local = false);
+    Status publish(RuntimeState* state, bool publish_local = false);
 
     Status send_filter_size(RuntimeState* state, uint64_t local_filter_size);
 
@@ -293,7 +293,7 @@ public:
     bool need_sync_filter_size();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(const TNetworkAddress* addr);
+    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr);
 
     void init_profile(RuntimeProfile* parent_profile);
 
@@ -335,7 +335,7 @@ public:
     int32_t wait_time_ms() const {
         int32_t res = 0;
         if (wait_infinitely()) {
-            res = _state->execution_timeout;
+            res = _state->get_query_ctx()->execution_timeout();
             // Convert to ms
             res *= 1000;
         } else {

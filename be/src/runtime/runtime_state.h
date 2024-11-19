@@ -449,6 +449,8 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
+    std::weak_ptr<QueryContext> get_query_ctx_weak();
+
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
@@ -559,7 +561,6 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge,
                                             std::shared_ptr<IRuntimeFilter>* producer_filter,
                                             bool build_bf_exactly);
 
