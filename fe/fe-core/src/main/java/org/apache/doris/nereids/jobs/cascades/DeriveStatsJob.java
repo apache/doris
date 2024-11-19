@@ -27,7 +27,6 @@ import org.apache.doris.nereids.metrics.EventProducer;
 import org.apache.doris.nereids.metrics.consumer.LogConsumer;
 import org.apache.doris.nereids.metrics.event.StatsStateEvent;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
-import org.apache.doris.nereids.stats.HboStatsCalculator;
 import org.apache.doris.nereids.stats.HistoryBasedPlanStatisticsCalculator;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.CTEId;

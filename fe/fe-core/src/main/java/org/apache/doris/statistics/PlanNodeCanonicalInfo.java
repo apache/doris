@@ -61,26 +61,4 @@ public class PlanNodeCanonicalInfo
     {
         return Objects.hash(System.identityHashCode(hash), inputTableStatistics);
     }
-
-    public static List<CanonicalPlanWithInfo> getCanonicalInfo(
-            Session session,
-            PlanNode root,
-            PlanCanonicalInfoProvider planCanonicalInfoProvider)
-    {
-        ImmutableList.Builder<CanonicalPlanWithInfo> result = ImmutableList.builder();
-        for (PlanCanonicalizationStrategy strategy : historyBasedPlanCanonicalizationStrategyList(session)) {
-            for (PlanNode node : forTree(PlanNode::getSources).depthFirstPreOrder(root)) {
-                if (!node.getStatsEquivalentPlanNode().isPresent()) {
-                    continue;
-                }
-                PlanNode statsEquivalentPlanNode = node.getStatsEquivalentPlanNode().get();
-                Optional<String> hash = planCanonicalInfoProvider.hash(session, statsEquivalentPlanNode, strategy, true);
-                Optional<List<PlanStatistics>> inputTableStatistics = planCanonicalInfoProvider.getInputTableStatistics(session, statsEquivalentPlanNode, strategy, true);
-                if (hash.isPresent() && inputTableStatistics.isPresent()) {
-                    result.add(new CanonicalPlanWithInfo(new CanonicalPlan(statsEquivalentPlanNode, strategy), new PlanNodeCanonicalInfo(hash.get(), inputTableStatistics.get())));
-                }
-            }
-        }
-        return result.build();
-    }
 }

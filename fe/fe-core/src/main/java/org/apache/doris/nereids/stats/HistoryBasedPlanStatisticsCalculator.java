@@ -82,7 +82,7 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
     @Override
     protected Statistics computeFilter(Filter filter) {
         Statistics childStats = groupExpression.childStatistics(0);
-        return getHistoricalStatistics(filter, childStats);
+        return getHistoricalStatistics((PlanNode) filter, childStats);
     }
 
     @Override
@@ -90,13 +90,13 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
         Statistics legacyStats = JoinEstimation.estimate(
                 groupExpression.childStatistics(0),
                 groupExpression.childStatistics(1), join);
-        return getHistoricalStatistics(join, legacyStats);
+        return getHistoricalStatistics((PlanNode) join, legacyStats);
     }
 
     @Override
     protected Statistics computeAggregate(Aggregate<? extends Plan> aggregate) {
         Statistics childStats = groupExpression.childStatistics(0);
-        return getHistoricalStatistics(aggregate, childStats);
+        return getHistoricalStatistics((PlanNode) aggregate, childStats);
     }
 
     private Statistics getHistoricalStatistics(PlanNode planNode, Statistics delegateStats)
@@ -122,7 +122,6 @@ public class HistoryBasedPlanStatisticsCalculator extends StatsCalculator {
             // todo: choose which one is the output rows count
             delegateStats.withRowCountAndEnforceValid(predictedPlanStatistics.getPushRows());
         }
-        return delegateStats;
 
         /*
         double historyMatchingThreshold = 10;//getHistoryInputTableStatisticsMatchingThreshold(session);
