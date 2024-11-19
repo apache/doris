@@ -55,9 +55,19 @@ public class ApproxTopK extends NullableAggregateFunction
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        if (arity() < 1) {
+        if (arity() < 3) {
             throw new AnalysisException(
-                    "Function requires at least 1 parameter: " + this.toSql());
+                    "Function requires at least 3 parameters: " + this.toSql());
+        }
+
+        if (!getArgument(arity() - 2).isConstant() || !getArgumentType(arity() - 2).isIntegerLikeType()) {
+            throw new AnalysisException(
+                    "The second to last parameter must be a constant Integer Type: " + this.toSql());
+        }
+
+        if (!getArgument(arity() - 1).isConstant() || !getArgumentType(arity() - 1).isIntegerLikeType()) {
+            throw new AnalysisException(
+                    "The last parameter must be a constant Integer Type: " + this.toSql());
         }
     }
 

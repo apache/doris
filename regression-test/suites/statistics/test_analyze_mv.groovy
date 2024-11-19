@@ -671,7 +671,7 @@ suite("test_analyze_mv") {
     verifyTaskStatus(result_sample, "mva_MIN__`value3`", "mv3")
     verifyTaskStatus(result_sample, "mva_SUM__CAST(`value1` AS bigint)", "mv3")
 
-    // Test row count report and report for nereids
+    // * Test row count report and report for nereids
     sql """truncate table mvTestDup"""
     result_row = sql """show index stats mvTestDup mv3"""
     assertEquals(1, result_row.size())
@@ -679,6 +679,18 @@ suite("test_analyze_mv") {
     assertEquals("mv3", result_row[0][1])
     assertEquals("0", result_row[0][3])
     assertEquals("-1", result_row[0][4])
+
+    // ** Embedded test for skip auto analyze when table is empty
+    sql """analyze table mvTestDup properties ("use.auto.analyzer" = "true")"""
+    def empty_test = sql """show auto analyze mvTestDup"""
+    assertEquals(0, empty_test.size())
+    empty_test = sql """show column stats mvTestDup"""
+    assertEquals(0, empty_test.size())
+    // ** End of embedded test
+
+    sql """analyze table mvTestDup with sync"""
+    empty_test = sql """show column stats mvTestDup"""
+    assertEquals(12, empty_test.size())
 
     for (int i = 0; i < 120; i++) {
         result_row = sql """show index stats mvTestDup mv3"""
@@ -694,6 +706,23 @@ suite("test_analyze_mv") {
     assertEquals("mv3", result_row[0][1])
     assertEquals("0", result_row[0][3])
     assertEquals("0", result_row[0][4])
+
+    // ** Embedded test for skip auto analyze when table is empty again
+    sql """analyze table mvTestDup properties ("use.auto.analyzer" = "true")"""
+    empty_test = sql """show auto analyze mvTestDup"""
+    assertEquals(0, empty_test.size())
+    empty_test = sql """show column stats mvTestDup"""
+    for (int i = 0; i < 100; i++) {
+        empty_test = sql """show column stats mvTestDup"""
+        if (empty_test.size() != 0) {
+            logger.info("async delete is not finished yet.")
+            Thread.sleep(1000)
+        }
+        break
+    }
+    assertEquals(0, empty_test.size())
+    // ** End of embedded test
+
     sql """insert into mvTestDup values (1, 2, 3, 4, 5), (1, 2, 3, 4, 5), (10, 20, 30, 40, 50), (10, 20, 30, 40, 50), (100, 200, 300, 400, 500), (1001, 2001, 3001, 4001, 5001);"""
     result_row = sql """show index stats mvTestDup mv3"""
     assertEquals(1, result_row.size())
