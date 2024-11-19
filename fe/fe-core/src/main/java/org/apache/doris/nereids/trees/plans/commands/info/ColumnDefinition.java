@@ -330,17 +330,6 @@ public class ColumnDefinition {
                     throw new AnalysisException("agg state not enable, need set enable_agg_state=true");
                 }
             }
-        } else if (isOlap && !isKey) {
-            Preconditions.checkState(keysType != null, "keysType is null");
-            if (keysType.equals(KeysType.DUP_KEYS)) {
-                aggType = AggregateType.NONE;
-            } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
-                aggType = AggregateType.NONE;
-            } else if (!keysType.equals(KeysType.AGG_KEYS)) {
-                aggType = AggregateType.REPLACE;
-            } else {
-                throw new AnalysisException("should set aggregation type to non-key column when in aggregate key");
-            }
         }
 
         if (isOlap) {
