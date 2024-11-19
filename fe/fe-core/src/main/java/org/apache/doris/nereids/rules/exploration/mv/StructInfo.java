@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -49,6 +50,8 @@ import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand.PredicateAdder;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -71,6 +74,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -740,9 +744,15 @@ public class StructInfo {
                 for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
                     tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId));
                 }
+            } else if (catalogRelation instanceof LogicalFileScan) {
+                LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
+                SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
+                for (Entry<Long, PartitionItem> partitionEntry : selectedPartitions.selectedPartitions.entrySet()) {
+                    // logicalFileScan.getTable().getPartition(partitionEntry.getValue());
+                }
+                targetTablePartitionMap.clear();
             } else {
-                // todo Support other type partition table
-                // Not support to partition check now when query external catalog table, support later.
+                // Not support to partition check now, doesn't try to compensate when part partition become invalid
                 targetTablePartitionMap.clear();
             }
             return catalogRelation;
