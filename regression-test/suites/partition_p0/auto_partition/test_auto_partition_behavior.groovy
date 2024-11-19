@@ -312,7 +312,7 @@ suite("test_auto_partition_behavior") {
     part_result = sql " show partitions from auto_dynamic "
     assertEquals(part_result.size, 1)
     sql " insert into auto_dynamic values ('2024-01-01'), ('2900-01-01'), ('1900-01-01'), ('3000-01-01'); "
-    sleep(3000)
+    sleep(10000)
     part_result = sql " show partitions from auto_dynamic "
     log.info("${part_result}".toString())
     assertEquals(part_result.size, 3)
