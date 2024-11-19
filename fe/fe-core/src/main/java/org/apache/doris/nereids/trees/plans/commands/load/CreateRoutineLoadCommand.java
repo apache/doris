@@ -79,7 +79,7 @@ public class CreateRoutineLoadCommand extends Command implements NoForward {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         createRoutineLoadInfo.validate(ctx);
-        CreateRoutineLoadStmt createRoutineLoadStmt = createRoutineLoadInfo.(ctx);
+        CreateRoutineLoadStmt createRoutineLoadStmt = createRoutineLoadInfo.translateToLegacyStmt(ctx);
         Env.getCurrentEnv().getRoutineLoadManager().createRoutineLoadJob(createRoutineLoadStmt);
     }
 
