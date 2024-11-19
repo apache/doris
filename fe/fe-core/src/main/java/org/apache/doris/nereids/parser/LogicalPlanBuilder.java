@@ -4061,6 +4061,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new RefreshCatalogCommand(catalogName, properties);
         }
         throw new AnalysisException("catalog name can not be null");
+    }
 
     public LogicalPlan visitShowLastInsert(ShowLastInsertContext ctx) {
         return new ShowLastInsertCommand();
