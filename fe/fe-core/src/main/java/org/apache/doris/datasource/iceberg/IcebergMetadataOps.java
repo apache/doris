@@ -68,7 +68,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
         nsCatalog = (SupportsNamespaces) catalog;
-        this.preExecutionAuthenticator = dorisCatalog.preExecutionAuthenticator;
+        this.preExecutionAuthenticator = dorisCatalog.getPreExecutionAuthenticator();
 
         if (dorisCatalog.getProperties().containsKey(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME)) {
             externalCatalogName =

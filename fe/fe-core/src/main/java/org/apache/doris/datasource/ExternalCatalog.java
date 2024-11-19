@@ -936,4 +936,8 @@ public abstract class ExternalCatalog
             tableAutoAnalyzePolicy.put(key, policy);
         }
     }
+
+    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        return preExecutionAuthenticator;
+    }
 }
