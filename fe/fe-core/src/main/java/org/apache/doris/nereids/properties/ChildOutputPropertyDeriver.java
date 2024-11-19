@@ -549,30 +549,10 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
         ShuffleType rightShuffleType = rightHashSpec.getShuffleType();
         switch (leftShuffleType) {
             case EXECUTION_BUCKETED:
-                if (rightShuffleType == ShuffleType.EXECUTION_BUCKETED) {
-                    return ShuffleSide.BOTH;
-                }
-                break;
             case STORAGE_BUCKETED:
-                if (rightShuffleType == ShuffleType.NATURAL) {
-                    // use storage hash to shuffle left to right to do bucket shuffle join
-                    return ShuffleSide.LEFT;
-                }
-                break;
+                return rightShuffleType == ShuffleType.NATURAL ? ShuffleSide.LEFT : ShuffleSide.BOTH;
             case NATURAL:
-                switch (rightShuffleType) {
-                    case NATURAL:
-                        // colocate join
-                        return ShuffleSide.NONE;
-                    case STORAGE_BUCKETED:
-                        // use storage hash to shuffle right to left to do bucket shuffle join
-                        return ShuffleSide.RIGHT;
-                    case EXECUTION_BUCKETED:
-                        // compatible old ut
-                        return ShuffleSide.RIGHT;
-                    default:
-                }
-                break;
+                return rightShuffleType == ShuffleType.NATURAL ? ShuffleSide.NONE : ShuffleSide.RIGHT;
             default:
         }
         throw new IllegalStateException(
