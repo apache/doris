@@ -85,6 +85,7 @@ private:
     /// For convenience, every string ends with terminating zero byte. Note that strings could contain zero bytes in the middle.
     Chars chars;
 
+    // Start position of i-th element.
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
 
     /// Size of i-th element, including terminating zero.
@@ -117,8 +118,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override { return true; }
+    void shrink_padding_chars() override;
 
     Field operator[](size_t n) const override {
         assert(n < size());
