@@ -77,7 +77,7 @@ class DataTypeTimeV2 final : public DataTypeNumberBase<Float64> {
 public:
     DataTypeTimeV2(int scale = 0) : _scale(scale) {
         if (UNLIKELY(scale > 6)) {
-            LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
+            throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Scale {} is out of bounds", scale);
         }
         if (scale == -1) {
             _scale = 0;

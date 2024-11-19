@@ -573,7 +573,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         break;
     }
     default: {
-        LOG(FATAL) << fmt::format("Unknown data type: {}", pcolumn.type());
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unknown data type: {}", pcolumn.type());
         return nullptr;
     }
     }

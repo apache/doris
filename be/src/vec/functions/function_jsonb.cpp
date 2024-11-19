@@ -1099,7 +1099,8 @@ private:
                 res[i] = 0;
             }
         } else {
-            LOG(FATAL) << "unexpected type ";
+            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
+                                   "unexpected type in JsonbExtractImpl");
             __builtin_unreachable();
         }
     }

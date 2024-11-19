@@ -299,7 +299,8 @@ public:
     template <typename U>
     T scale_factor_for(const DataTypeDecimal<U>& x, bool) const {
         if (get_scale() < x.get_scale()) {
-            LOG(FATAL) << "Decimal result's scale is less then argiment's one";
+            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                                   "Decimal result's scale is less then argument's one");
             __builtin_unreachable();
         }
 
