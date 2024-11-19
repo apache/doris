@@ -4074,12 +4074,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Preconditions.checkArgument(size > 0, "database name can't be empty");
         String dbName = parts.get(size - 1);
 
+        // [db].
         if (size == 1) {
             return new RefreshDatabaseCommand(dbName, properties);
-        } else if (parts.size() == 2) {  // [ctl,db] or [db]
+        } else if (parts.size() == 2) {  // [ctl,db].
             return new RefreshDatabaseCommand(parts.get(0), dbName, properties);
         }
-        throw new IllegalArgumentException("Only one dot can be in the name:{}" + ctx.name);
+        throw new IllegalArgumentException("Only one dot can be in the name:{}" + String.join(".", parts));
     }
 
     public LogicalPlan visitShowLastInsert(ShowLastInsertContext ctx) {
