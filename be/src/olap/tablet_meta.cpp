@@ -1209,9 +1209,10 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::
                 }
                 auto start_bmk = std::get<1>(delete_bitmap_tuple);
                 auto end_bmk = std::get<2>(delete_bitmap_tuple);
+                //to remove delete bitmap doesn't contains end_bmk
                 remove(start_bmk, end_bmk);
                 to_delete.emplace_back(std::make_tuple(std::get<0>(start_bmk).to_string(), 0,
-                                                       std::get<2>(end_bmk)));
+                                                       std::get<2>(end_bmk) - 1));
             }
             _stale_delete_bitmap.erase(version_str);
         }
