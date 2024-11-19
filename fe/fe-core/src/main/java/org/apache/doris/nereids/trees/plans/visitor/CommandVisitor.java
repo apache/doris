@@ -18,10 +18,12 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
@@ -35,16 +37,19 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
@@ -159,6 +164,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropConstraintCommand, context);
     }
 
+    default R visitDropJobCommand(DropJobCommand dropJobCommand, C context) {
+        return visitCommand(dropJobCommand, context);
+    }
+
     default R visitShowConstraintsCommand(ShowConstraintsCommand showConstraintsCommand, C context) {
         return visitCommand(showConstraintsCommand, context);
     }
@@ -171,8 +180,16 @@ public interface CommandVisitor<R, C> {
         return visitCommand(dropMTMVCommand, context);
     }
 
+    default R visitPauseJobCommand(PauseJobCommand pauseJobCommand, C context) {
+        return visitCommand(pauseJobCommand, context);
+    }
+
     default R visitPauseMTMVCommand(PauseMTMVCommand pauseMTMVCommand, C context) {
         return visitCommand(pauseMTMVCommand, context);
+    }
+
+    default R visitResumeJobCommand(ResumeJobCommand resumeJobCommand, C context) {
+        return visitCommand(resumeJobCommand, context);
     }
 
     default R visitResumeMTMVCommand(ResumeMTMVCommand resumeMTMVCommand, C context) {
@@ -185,6 +202,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCancelMTMVTaskCommand(CancelMTMVTaskCommand cancelMTMVTaskCommand, C context) {
         return visitCommand(cancelMTMVTaskCommand, context);
+    }
+
+    default R visitCancelTaskCommand(CancelJobTaskCommand cancelJobTaskCommand, C context) {
+        return visitCommand(cancelJobTaskCommand, context);
     }
 
     default R visitCallCommand(CallCommand callCommand, C context) {
@@ -209,6 +230,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitCreateViewCommand(CreateViewCommand createViewCommand, C context) {
         return visitCommand(createViewCommand, context);
+    }
+
+    default R visitAlterJobStatusCommand(AlterJobStatusCommand alterJobStatusCommand, C context) {
+        return visitCommand(alterJobStatusCommand, context);
     }
 
     default R visitAlterViewCommand(AlterViewCommand alterViewCommand, C context) {

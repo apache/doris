@@ -416,6 +416,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
+import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
@@ -431,6 +432,7 @@ import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropCatalogRecycleBinCommand.IdType;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
@@ -438,10 +440,12 @@ import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.PauseJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.ResumeJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetOptionsCommand;
@@ -664,6 +668,43 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         CreateJobInfo createJobInfo = new CreateJobInfo(label, atTime, interval, intervalUnit, startTime,
                 endsTime, immediateStartOptional, comment, executeSql);
         return new CreateJobCommand(createJobInfo);
+    }
+
+    @Override
+    public LogicalPlan visitPauseJob(DorisParser.PauseJobContext ctx) {
+        Expression wildWhere = null;
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        return new PauseJobCommand(wildWhere);
+    }
+
+    @Override
+    public LogicalPlan visitDropJob(DorisParser.DropJobContext ctx) {
+        Expression wildWhere = null;
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        boolean ifExists = ctx.EXISTS() != null;
+        return new DropJobCommand(wildWhere, ifExists);
+    }
+
+    @Override
+    public LogicalPlan visitResumeJob(DorisParser.ResumeJobContext ctx) {
+        Expression wildWhere = null;
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        return new ResumeJobCommand(wildWhere);
+    }
+
+    @Override
+    public LogicalPlan visitCancelJobTask(DorisParser.CancelJobTaskContext ctx) {
+        Expression wildWhere = null;
+        if (ctx.wildWhere() != null) {
+            wildWhere = getWildWhere(ctx.wildWhere());
+        }
+        return new CancelJobTaskCommand(wildWhere);
     }
 
     @Override
@@ -4126,6 +4167,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         } else {
             return new ShowVariablesCommand(type, null);
+        }
+    }
+
+    private Expression getWildWhere(DorisParser.WildWhereContext ctx) {
+        if (ctx.LIKE() != null) {
+            String pattern = ctx.STRING_LITERAL().getText();
+            return new Like(new UnboundSlot("ProcedureName"), new StringLiteral(pattern));
+        } else if (ctx.WHERE() != null) {
+            return getExpression(ctx.expression());
+        } else {
+            throw new AnalysisException("Wild where should contain like or where " + ctx.getText());
         }
     }
 
