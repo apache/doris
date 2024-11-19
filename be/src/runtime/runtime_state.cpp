@@ -518,10 +518,13 @@ RuntimeFilterMgr* RuntimeState::global_runtime_filter_mgr() {
 Status RuntimeState::register_producer_runtime_filter(
         const TRuntimeFilterDesc& desc, std::shared_ptr<IRuntimeFilter>* producer_filter,
         bool build_bf_exactly) {
-    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merge_producer_filter(
+    // Producers are created by local runtime filter mgr and shared by global runtime filter manager.
+    // When RF is published, consumers in both global and local RF mgr will be found.
+    RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(
             desc, query_options(), producer_filter, build_bf_exactly));
-    return local_runtime_filter_mgr()->register_producer_filter(desc, query_options(),
-                                                                producer_filter, build_bf_exactly);
+    RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merge_producer_filter(
+            desc, query_options(), *producer_filter, build_bf_exactly));
+    return Status::OK();
 }
 
 Status RuntimeState::register_consumer_runtime_filter(
