@@ -73,7 +73,6 @@ CONF_Int32(recycle_pool_parallelism, "40");
 // Currently only used for recycler test
 CONF_Bool(enable_inverted_check, "false");
 // Currently only used for recycler test
-CONF_Bool(enable_delete_bitmap_integrity_check, "false");
 CONF_Bool(enable_delete_bitmap_inverted_check, "false");
 // checks if https://github.com/apache/doris/pull/40204 works as expected
 CONF_Bool(enable_delete_bitmap_storage_optimize_check, "false");

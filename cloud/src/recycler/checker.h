@@ -93,11 +93,6 @@ public:
     int do_check();
 
     // Return 0 if success.
-    // Return 1 if delete bitmap loss is identified.
-    // Return negative if a temporary error occurred during the check process.
-    int do_delete_bitmap_integrity_check();
-
-    // Return 0 if success.
     // Return 1 if delete bitmap leak is identified.
     // Return negative if a temporary error occurred during the check process.
     int do_delete_bitmap_inverted_check();
@@ -136,9 +131,6 @@ private:
             int64_t tablet_id,
             const std::function<void(const doris::RowsetMetaCloudPB&)>& collect_cb);
     int traverse_delete_bitmaps(const std::function<int(int64_t)>& check_func);
-
-    // check if all the visible rowsets have a corresponding delete bitmap
-    int check_delete_bitmap_integrity(int64_t tablet_id);
 
     int check_delete_bitmap_storage_optimize(int64_t tablet_id);
 

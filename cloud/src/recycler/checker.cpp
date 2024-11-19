@@ -176,12 +176,6 @@ int Checker::start() {
                 }
             }
 
-            if (config::enable_delete_bitmap_integrity_check) {
-                if (ret == 0) {
-                    ret = checker->do_delete_bitmap_integrity_check();
-                }
-            }
-
             if (config::enable_delete_bitmap_inverted_check) {
                 if (ret == 0) {
                     ret = checker->do_delete_bitmap_inverted_check();
@@ -770,98 +764,6 @@ std::string InstanceChecker::RowsetDigest::to_string() const {
     return fmt::format("rowset_id={}, version=[{}-{}]", rowset_id, version.first, version.second);
 }
 
-int InstanceChecker::check_delete_bitmap_integrity(int64_t tablet_id) {
-    // number of rowsets which doesn't have a delete bitmap in MS
-    int64_t abnormal_rowsets_num {0};
-
-    std::vector<RowsetDigest> tablet_rowsets {};
-    // Get all visible rowsets of this tablet
-    auto collect_cb = [&tablet_rowsets](const doris::RowsetMetaCloudPB& rowset) {
-        tablet_rowsets.emplace_back(
-                rowset.rowset_id_v2(),
-                std::make_pair<int64_t, int64_t>(rowset.start_version(), rowset.end_version()));
-        ;
-    };
-    if (int ret = collect_tablet_rowsets(tablet_id, collect_cb); ret != 0) {
-        return ret;
-    }
-
-    // Check
-    std::unique_ptr<Transaction> txn;
-    TxnErrorCode err = txn_kv_->create_txn(&txn);
-    if (err != TxnErrorCode::TXN_OK) {
-        LOG(WARNING) << "failed to create txn";
-        return -1;
-    }
-
-    for (const auto& rowset : tablet_rowsets) {
-        if (rowset.version.second <= 1) {
-            // skip dummy rowset [0-1]
-            continue;
-        }
-        std::string rowset_id = rowset.rowset_id;
-        auto begin = meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id, 0, 0});
-        auto end = meta_delete_bitmap_key({instance_id_, tablet_id, rowset_id,
-                                           std::numeric_limits<int64_t>::max(),
-                                           std::numeric_limits<int64_t>::max()});
-        std::unique_ptr<RangeGetIterator> it;
-        TxnErrorCode err = txn->get(begin, end, &it);
-        if (err != TxnErrorCode::TXN_OK) {
-            LOG(WARNING) << "failed to get delete bitmap kv for rowset_id=" << rowset.rowset_id
-                         << ", err=" << err;
-            return -1;
-        }
-        if (!it->has_next()) {
-            TEST_SYNC_POINT_CALLBACK(
-                    "InstanceChecker::check_delete_bitmap_integrity.get_abnormal_rowset",
-                    &tablet_id, &rowset_id);
-            ++abnormal_rowsets_num;
-            LOG(WARNING) << fmt::format(
-                    "[delete bitmap check fails] can't find corresponding delete bitmap for "
-                    "instance_id={}, tablet_id={}, {}",
-                    instance_id_, tablet_id, rowset.to_string());
-        }
-    }
-
-    if (abnormal_rowsets_num > 0) {
-        LOG(WARNING) << fmt::format(
-                "[delete bitmap checker] can't find corresponding delete bitmap for "
-                "instance_id={}, tablet_id={}, rowsets_num={}, abnormal_rowsets_num={}",
-                instance_id_, tablet_id, tablet_rowsets.size(), abnormal_rowsets_num);
-        return 1;
-    }
-
-    LOG(INFO) << fmt::format(
-            "[delete bitmap checker] check delete bitmap integrity for tablet={} successfully. "
-            "rowsets_num={}",
-            tablet_id, tablet_rowsets.size());
-    return 0;
-}
-
-int InstanceChecker::do_delete_bitmap_integrity_check() {
-    int64_t total_tablets_num {0};
-    int64_t failed_tablets_num {0};
-
-    // check that for every visible rowset, there exists at least delete one bitmap in MS
-    int ret = traverse_mow_tablet([&](int64_t tablet_id) {
-        ++total_tablets_num;
-        int res = check_delete_bitmap_integrity(tablet_id);
-        failed_tablets_num += (res != 0);
-        return res;
-    });
-
-    if (ret < 0) {
-        return ret;
-    }
-
-    LOG(INFO) << fmt::format(
-            "[delete bitmap checker] check delete bitmap integrity for instance_id={}, "
-            "total_tablets_num={}, failed_tablets_num={}",
-            instance_id_, total_tablets_num, failed_tablets_num);
-
-    return (failed_tablets_num > 0) ? 1 : 0;
-}
-
 int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& check_func) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -910,7 +812,7 @@ int InstanceChecker::traverse_mow_tablet(const std::function<int(int64_t)>& chec
                 // only check merge-on-write table
                 int ret = check_func(tablet_id);
                 if (ret < 0) {
-                    // return immediately when encounter unecpected error,
+                    // return immediately when encounter unexpected error,
                     // otherwise, we continue to check the next tablet
                     return ret;
                 }
@@ -1122,7 +1024,6 @@ int InstanceChecker::check_delete_bitmap_storage_optimize(int64_t tablet_id) {
     std::sort(tablet_rowsets.begin(), tablet_rowsets.end());
 
     // find right-most rowset which
-
     return 0;
 }
 
@@ -1133,7 +1034,7 @@ int InstanceChecker::do_delete_bitmap_storage_optimize_check() {
     // check that for every visible rowset, there exists at least delete one bitmap in MS
     int ret = traverse_mow_tablet([&](int64_t tablet_id) {
         ++total_tablets_num;
-        int res = check_delete_bitmap_integrity(tablet_id);
+        int res = check_delete_bitmap_storage_optimize(tablet_id);
         failed_tablets_num += (res != 0);
         return res;
     });
