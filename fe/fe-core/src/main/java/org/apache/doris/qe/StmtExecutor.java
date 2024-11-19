@@ -899,7 +899,9 @@ public class StmtExecutor {
 
     public void finalizeQuery() {
         // right place to return hbo related info
-        historyBasedPlanStatisticsTracker.updateStatistics();
+        if (context != null && context.getSessionVariable().isEnableHboTracker()) {
+            historyBasedPlanStatisticsTracker.updateStatistics();
+        }
         // The final profile report occurs after be returns the query data, and the profile cannot be
         // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
         // for the profile before unregisterQuery().

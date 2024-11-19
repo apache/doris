@@ -1394,14 +1394,14 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     @VariableMgr.VarAttr(name = ENABLE_HBO_OPTIMIZATION)
-    private boolean enableHboOptimzation = true;
+    private boolean enableHboOptimzation = false;
 
     public boolean isEnableHboTracker() {
         return enableHboTracker;
     }
 
     @VariableMgr.VarAttr(name = ENABLE_HBO_TRACKER)
-    private boolean enableHboTracker = true;
+    private boolean enableHboTracker = false;
 
 
     /**

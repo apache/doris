@@ -314,7 +314,9 @@ public class NereidsPlanner extends Planner {
         MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
         NereidsTracer.output(statementContext.getConnectContext());
         // hbo related
-        if (statementContext.getConnectContext().getExecutor() != null) {
+        if (statementContext.getConnectContext().getExecutor() != null
+            && statementContext.getConnectContext().getExecutor()
+                .getHistoryBasedPlanStatisticsTracker() != null) {
             statementContext.getConnectContext().getExecutor()
                     .getHistoryBasedPlanStatisticsTracker().setContext(cascadesContext, physicalPlan);
         }
