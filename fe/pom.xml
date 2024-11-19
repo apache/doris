@@ -317,7 +317,7 @@ under the License.
         <avro.version>1.11.4</avro.version>
         <arrow.version>17.0.0</arrow.version>
         <!-- hudi -->
-        <hudi.version>0.14.1</hudi.version>
+        <hudi.version>0.15.0</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
