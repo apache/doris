@@ -66,6 +66,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowProcCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowProcedureStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRepositoriesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
@@ -278,6 +279,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowBackendsCommand(ShowBackendsCommand showBackendsCommand, C context) {
         return visitCommand(showBackendsCommand, context);
+    }
+
+    default R visitShowSqlBlockRuleCommand(ShowSqlBlockRuleCommand showblockruleCommand, C context) {
+        return visitCommand(showblockruleCommand, context);
     }
 
     default R visitShowPluginsCommand(ShowPluginsCommand showPluginsCommand, C context) {
