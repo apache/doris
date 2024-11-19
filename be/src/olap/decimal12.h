@@ -24,6 +24,7 @@
 #include "olap/utils.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // the sign of integer must be same as fraction
 struct decimal12_t {
@@ -145,3 +146,5 @@ inline std::ostream& operator<<(std::ostream& os, const decimal12_t& val) {
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

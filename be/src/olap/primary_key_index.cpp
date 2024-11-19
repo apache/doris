@@ -32,6 +32,7 @@
 #include "olap/types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static bvar::Adder<size_t> g_primary_key_index_memory_bytes("doris_primary_key_index_memory_bytes");
 

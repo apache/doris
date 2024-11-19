@@ -29,6 +29,7 @@
 #include "olap/schema.h"
 
 namespace roaring {
+#include "common/compile_check_begin.h"
 class Roaring;
 } // namespace roaring
 
@@ -89,3 +90,4 @@ private:
 } // namespace doris
 
 #endif
+#include "common/compile_check_end.h"

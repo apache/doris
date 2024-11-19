@@ -20,6 +20,7 @@
 #include <string.h>
 
 namespace roaring {
+#include "common/compile_check_begin.h"
 class Roaring;
 } // namespace roaring
 

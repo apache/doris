@@ -31,6 +31,7 @@
 #include "vec/common/arena.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class TypeInfo;
 
@@ -135,3 +136,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

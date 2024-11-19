@@ -24,6 +24,7 @@
 #include "olap/rowset/pending_rowset_helper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class DataDir;
 
@@ -68,3 +69,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

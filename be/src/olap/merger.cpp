@@ -58,6 +58,7 @@
 #include "vec/olap/vertical_merge_iterator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
                               const TabletSchema& cur_tablet_schema,

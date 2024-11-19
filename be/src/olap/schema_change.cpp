@@ -89,6 +89,7 @@
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class CollectionValue;
 
 using namespace ErrorCode;

@@ -20,6 +20,7 @@
 #include <glog/logging.h>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 void BlockSplitBloomFilter::add_hash(uint64_t hash) {

@@ -53,6 +53,7 @@ struct std::equal_to<doris::uint24_t> {
 };
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /**
  * Use HybridSetType can avoid virtual function call in the loop.
@@ -665,3 +666,5 @@ ColumnPredicate* create_in_list_predicate(uint32_t column_id,
 }
 
 } //namespace doris
+
+#include "common/compile_check_end.h"

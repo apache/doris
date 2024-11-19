@@ -20,6 +20,7 @@
 #include "olap/olap_common.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 PendingRowsetGuard::~PendingRowsetGuard() {
     if (_pending_rowset_set) {

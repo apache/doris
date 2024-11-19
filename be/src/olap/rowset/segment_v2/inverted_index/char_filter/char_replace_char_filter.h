@@ -23,6 +23,7 @@
 #include <bitset>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class CharReplaceCharFilter : public lucene::analysis::CharFilter {
 public:
@@ -48,3 +49,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

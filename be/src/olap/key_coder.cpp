@@ -22,6 +22,7 @@
 #include <utility>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 template <typename TraitsType>
 KeyCoder::KeyCoder(TraitsType traits)

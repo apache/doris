@@ -23,6 +23,7 @@
 #include "util/frame_of_reference_coding.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 // Encode page use frame-of-reference coding
@@ -173,3 +174,4 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+#include "common/compile_check_end.h"

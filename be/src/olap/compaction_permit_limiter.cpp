@@ -21,6 +21,7 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 CompactionPermitLimiter::CompactionPermitLimiter() : _used_permits(0) {}
 

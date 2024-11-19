@@ -32,6 +32,7 @@
 #include "vec/common/arena.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class BlockCompressionCodec;
 class KeyCoder;
@@ -123,3 +124,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

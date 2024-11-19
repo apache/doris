@@ -25,6 +25,7 @@
 #include "runtime/thread_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // For unique key merge on write table, we should update delete bitmap
 // of destination rowset when compaction finished.
@@ -156,3 +157,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

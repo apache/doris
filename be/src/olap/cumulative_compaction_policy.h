@@ -29,6 +29,7 @@
 #include "olap/rowset/rowset_meta.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Tablet;
 struct Version;
@@ -194,3 +195,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

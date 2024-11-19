@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/empty_segment_iterator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Block;
 } // namespace vectorized

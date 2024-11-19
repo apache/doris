@@ -34,6 +34,7 @@
 #include "util/runtime_profile.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class MemTrackerLimiter;
 class RowsetWriter;
@@ -194,3 +195,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

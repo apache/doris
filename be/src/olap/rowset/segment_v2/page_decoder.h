@@ -21,6 +21,7 @@
 #include "vec/columns/column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 // PageDecoder is used to decode page.
@@ -100,3 +101,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

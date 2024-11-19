@@ -25,6 +25,7 @@
 #include <string>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 // Here are some unified definitions
 // The length of the Signature returned by the command
 static const uint32_t OLAP_COMMAND_SIGNATURE_LEN = 4;
@@ -199,3 +200,5 @@ const std::string REMOTE_TABLET_GC_PREFIX = "tgc_";
 #endif
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

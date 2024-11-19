@@ -39,6 +39,7 @@
 class CLuceneError;
 
 namespace lucene::store {
+#include "common/compile_check_begin.h"
 class RAMDirectory;
 } // namespace lucene::store
 
@@ -118,3 +119,5 @@ public:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

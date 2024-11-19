@@ -34,6 +34,7 @@
 #include "olap/olap_common.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 static const std::string DELETE_SIGN = "__DORIS_DELETE_SIGN__";
 static const std::string WHERE_SIGN = "__DORIS_WHERE_SIGN__";
 static const std::string VERSION_COL = "__DORIS_VERSION_COL__";
@@ -264,3 +265,5 @@ struct GlobalRowLoacation {
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

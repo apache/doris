@@ -20,6 +20,7 @@
 #include <memory>
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 TermQuery::~TermQuery() {
     if (_term_docs) {

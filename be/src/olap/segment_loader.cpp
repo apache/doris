@@ -26,6 +26,7 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 SegmentLoader* SegmentLoader::instance() {
     return ExecEnv::GetInstance()->segment_loader();

@@ -26,6 +26,7 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 Status InvertedIndexFileReader::init(int32_t read_buffer_size) {
     if (!_inited) {

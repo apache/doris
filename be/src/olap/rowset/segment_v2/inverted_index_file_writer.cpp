@@ -29,6 +29,7 @@
 #include "olap/tablet_schema.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 Status InvertedIndexFileWriter::initialize(InvertedIndexDirectoryMap& indices_dirs) {
     _indices_dirs = std::move(indices_dirs);

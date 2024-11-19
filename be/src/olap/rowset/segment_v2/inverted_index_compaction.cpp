@@ -24,6 +24,7 @@
 #include "util/debug_points.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 Status compact_column(int64_t index_id,
                       std::vector<std::unique_ptr<DorisCompoundReader>>& src_index_dirs,
                       std::vector<lucene::store::Directory*>& dest_index_dirs,

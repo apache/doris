@@ -29,6 +29,7 @@
 #include "segment_v2/segment.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class Schema;
 
 namespace segment_v2 {
@@ -111,3 +112,5 @@ private:
     std::atomic<bool> _is_compacting_state_mutable = true;
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

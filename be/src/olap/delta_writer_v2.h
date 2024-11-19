@@ -43,6 +43,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class FlushToken;
 class MemTable;
@@ -116,3 +117,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

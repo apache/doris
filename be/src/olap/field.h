@@ -35,6 +35,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // A Field is used to represent a column in memory format.
 // User can use this class to access or deal with column data in memory.
@@ -624,3 +625,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

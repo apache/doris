@@ -36,6 +36,7 @@
 #include "vec/common/schema_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 RowsetMeta::~RowsetMeta() {
     if (_handle) {

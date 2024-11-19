@@ -31,6 +31,7 @@
 #include "io/fs/remote_file_system.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowsetMeta;
 
 namespace cloud {
@@ -108,3 +109,5 @@ void delete_storage_resource(int64_t resource_id);
 std::vector<std::pair<std::string, int64_t>> get_storage_resource_ids();
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

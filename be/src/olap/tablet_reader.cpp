@@ -57,6 +57,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void TabletReader::ReaderParams::check_validation() const {

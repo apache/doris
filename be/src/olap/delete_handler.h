@@ -30,6 +30,7 @@
 #include "vec/common/arena.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class AndBlockColumnPredicate;
 class ColumnPredicate;
@@ -132,3 +133,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

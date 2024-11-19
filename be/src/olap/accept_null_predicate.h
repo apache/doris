@@ -28,6 +28,7 @@
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /**
  * A wrapper predicate that delegate to nested predicate
@@ -190,3 +191,5 @@ private:
 };
 
 } //namespace doris
+
+#include "common/compile_check_end.h"

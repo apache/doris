@@ -23,6 +23,7 @@
 // This namespace has wrappers for the Bitshuffle library which do runtime dispatch to
 // either AVX2-accelerated or regular SSE2 implementations based on the available CPU.
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace bitshuffle {
 
 // See <bitshuffle.h> for documentation on these functions.
@@ -32,3 +33,5 @@ int64_t decompress_lz4(void* in, void* out, size_t size, size_t elem_size, size_
 
 } // namespace bitshuffle
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -26,6 +26,7 @@
 #include "olap/olap_common.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class CumulativeCompaction final : public CompactionMixin {
 public:
@@ -51,3 +52,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

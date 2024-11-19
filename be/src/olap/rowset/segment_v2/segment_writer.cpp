@@ -71,6 +71,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 using namespace ErrorCode;

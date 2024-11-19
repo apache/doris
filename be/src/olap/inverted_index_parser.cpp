@@ -21,6 +21,7 @@
 #include "util/string_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 std::string inverted_index_parser_type_to_string(InvertedIndexParserType parser_type) {
     switch (parser_type) {

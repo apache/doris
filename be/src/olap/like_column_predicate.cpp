@@ -25,6 +25,7 @@
 #include "vec/functions/like.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 LikeColumnPredicate<T>::LikeColumnPredicate(bool opposite, uint32_t column_id,

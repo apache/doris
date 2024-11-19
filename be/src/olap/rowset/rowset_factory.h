@@ -25,6 +25,7 @@
 #include "olap/tablet_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RowsetWriter;
 struct RowsetWriterContext;
@@ -52,3 +53,5 @@ public:
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_FACTORY_H
+
+#include "common/compile_check_end.h"

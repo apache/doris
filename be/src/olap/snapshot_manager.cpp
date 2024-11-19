@@ -65,6 +65,7 @@ using std::stringstream;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 SnapshotManager::SnapshotManager(StorageEngine& engine) : _engine(engine) {

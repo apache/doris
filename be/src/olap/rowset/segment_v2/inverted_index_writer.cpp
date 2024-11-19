@@ -69,6 +69,7 @@
     } catch (...) {                   \
     }
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;

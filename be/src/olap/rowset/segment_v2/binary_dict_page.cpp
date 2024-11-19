@@ -34,6 +34,7 @@
 #include "vec/columns/column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct StringRef;
 
 namespace segment_v2 {

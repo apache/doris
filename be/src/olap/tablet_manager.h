@@ -42,6 +42,7 @@
 #include "olap/tablet_meta.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class DataDir;
 class CumulativeCompactionPolicy;
@@ -281,3 +282,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

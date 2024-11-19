@@ -48,6 +48,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class DeltaWriter;
 class OlapMeta;
 struct TabletPublishStatistics;
@@ -343,3 +344,5 @@ inline TxnManager::txn_tablet_delta_writer_map_t& TxnManager::_get_txn_tablet_de
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

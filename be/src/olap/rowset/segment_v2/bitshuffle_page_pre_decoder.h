@@ -23,6 +23,7 @@
 #include "olap/rowset/segment_v2/encoding_info.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 template <bool USED_IN_DICT_ENCODING>
@@ -97,3 +98,5 @@ struct BitShufflePagePreDecoder : public DataPagePreDecoder {
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

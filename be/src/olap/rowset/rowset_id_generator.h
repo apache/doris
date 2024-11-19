@@ -20,6 +20,7 @@
 #include "olap/olap_common.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // all implementations must be thread-safe
 class RowsetIdGenerator {
@@ -34,3 +35,5 @@ public:
 }; // RowsetIdGenerator
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

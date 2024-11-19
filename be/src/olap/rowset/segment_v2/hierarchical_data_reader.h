@@ -44,6 +44,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 // Reader for hierarchical data for variant, merge with root(sparse encoded columns)
 class HierarchicalDataReader : public ColumnIterator {
@@ -292,3 +293,5 @@ private:
 };
 
 } // namespace doris::segment_v2
+
+#include "common/compile_check_end.h"

@@ -23,6 +23,7 @@
 #include "olap/rowset/segment_v2/inverted_index_query_type.h"
 
 namespace lucene {
+#include "common/compile_check_begin.h"
 namespace util {
 class Reader;
 }
@@ -52,3 +53,4 @@ public:
             const std::map<std::string, std::string>& properties);
 };
 } // namespace doris::segment_v2::inverted_index
+#include "common/compile_check_end.h"

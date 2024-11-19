@@ -29,6 +29,7 @@ using std::string;
 using std::stringstream;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 HyperLogLog::HyperLogLog(const Slice& src) {
     // When deserialize return false, we make this object a empty

@@ -20,6 +20,7 @@
 #include <boost/algorithm/string/replace.hpp>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 CharReplaceCharFilter::CharReplaceCharFilter(lucene::util::Reader* in, const std::string& pattern,
                                              const std::string& replacement)

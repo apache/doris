@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query.h"
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 Status BooleanQuery::Builder::set_op(OperatorType type) {
     _op = DORIS_TRY(OperatorFactory::create(type));

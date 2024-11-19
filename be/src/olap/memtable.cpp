@@ -41,6 +41,7 @@
 #include "vec/columns/column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
 bvar::Adder<int64_t> g_memtable_input_block_allocated_size("memtable_input_block_allocated_size");

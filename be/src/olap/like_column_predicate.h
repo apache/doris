@@ -37,6 +37,7 @@
 #include "vec/functions/like.h"
 
 namespace roaring {
+#include "common/compile_check_begin.h"
 class Roaring;
 } // namespace roaring
 
@@ -179,3 +180,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

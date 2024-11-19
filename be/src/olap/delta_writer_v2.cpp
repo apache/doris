@@ -63,6 +63,7 @@
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,

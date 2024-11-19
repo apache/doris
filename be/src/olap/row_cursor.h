@@ -32,6 +32,7 @@
 #include "olap/tablet_schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class Field;
 
 // Delegate the operation of a row of data
@@ -142,3 +143,5 @@ private:
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

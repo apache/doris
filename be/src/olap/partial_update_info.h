@@ -30,6 +30,7 @@
 #include "vec/columns/column.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TabletSchema;
 class PartialUpdateInfoPB;
 class BitmapValue;
@@ -185,3 +186,5 @@ struct PartialUpdateStats {
     int64_t num_rows_filtered {0};
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

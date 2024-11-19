@@ -25,6 +25,7 @@
 #include "vec/common/custom_allocator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Simple verion of rowid conversion, for segcompaction
 // convert rows from several segments to rows in 1 segment
@@ -83,3 +84,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

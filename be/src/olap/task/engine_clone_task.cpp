@@ -74,6 +74,7 @@ using strings::Split;
 using strings::SkipWhitespace;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 namespace {

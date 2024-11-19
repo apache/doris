@@ -46,6 +46,7 @@
 #include "vec/runtime/ipv6_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 uint32_t olap_adler32_init() {

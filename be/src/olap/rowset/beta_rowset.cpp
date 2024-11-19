@@ -48,6 +48,7 @@
 #include "util/doris_metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 std::string BetaRowset::local_segment_path_segcompacted(const std::string& tablet_path,

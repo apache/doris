@@ -52,6 +52,7 @@
 #include "util/countdown_latch.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class DataDir;
 class EngineTask;
@@ -579,3 +580,5 @@ struct DirInfo {
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

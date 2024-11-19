@@ -26,6 +26,7 @@
 #include "olap/tablet_schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RowsetWriterContextBuilder;
 using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
@@ -153,3 +154,5 @@ struct RowsetWriterContext {
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

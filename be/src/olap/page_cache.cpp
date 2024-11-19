@@ -24,6 +24,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 template <typename TAllocator>
 PageBase<TAllocator>::PageBase(size_t b, bool use_cache, segment_v2::PageTypePB page_type)
         : LRUCacheValueBase(), _size(b), _capacity(b) {

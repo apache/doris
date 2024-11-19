@@ -44,6 +44,7 @@
 #include "util/threadpool.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
     struct ScanWalInfo {
@@ -158,3 +159,5 @@ private:
 // see https://github.com/apache/doris/pull/32299
 constexpr inline uint32_t WAL_VERSION = 1;
 } // namespace doris
+
+#include "common/compile_check_end.h"

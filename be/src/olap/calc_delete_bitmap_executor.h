@@ -33,6 +33,7 @@
 #include "util/threadpool.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class DataDir;
 class Tablet;
@@ -86,3 +87,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

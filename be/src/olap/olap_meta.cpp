@@ -53,6 +53,7 @@ using rocksdb::Iterator;
 using rocksdb::NewFixedPrefixTransform;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;

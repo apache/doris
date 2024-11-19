@@ -32,6 +32,7 @@
 using namespace doris::segment_v2;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Schema;
 
@@ -363,3 +364,5 @@ protected:
 };
 
 } //namespace doris
+
+#include "common/compile_check_end.h"

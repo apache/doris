@@ -27,6 +27,7 @@
 CL_NS_USE(search)
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class PhrasePrefixQuery : public Query {
 public:
@@ -45,3 +46,4 @@ private:
 };
 
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

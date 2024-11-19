@@ -23,6 +23,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 RowsetId next_rowset_id() {
     return ExecEnv::GetInstance()->storage_engine().next_rowset_id();

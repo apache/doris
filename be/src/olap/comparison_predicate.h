@@ -28,6 +28,7 @@
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
@@ -635,3 +636,5 @@ private:
 };
 
 } //namespace doris
+
+#include "common/compile_check_end.h"

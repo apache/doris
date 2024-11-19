@@ -53,6 +53,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class ObjectPool;
 class MatchPredicate;
@@ -492,3 +493,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

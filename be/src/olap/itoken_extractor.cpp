@@ -22,6 +22,7 @@
 #include "util/simd/vstring_function.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bool NgramTokenExtractor::next_in_string(const char* data, size_t length, size_t* __restrict pos,
                                          size_t* __restrict token_start,

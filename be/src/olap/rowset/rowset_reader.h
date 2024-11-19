@@ -29,6 +29,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace vectorized {
 class Block;
@@ -97,3 +98,5 @@ public:
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_H
+
+#include "common/compile_check_end.h"

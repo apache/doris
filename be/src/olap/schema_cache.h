@@ -33,6 +33,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace segment_v2 {
 class Segment;
@@ -94,3 +95,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

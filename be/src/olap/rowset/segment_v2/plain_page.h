@@ -26,6 +26,7 @@
 #include "util/faststring.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 static const size_t PLAIN_PAGE_HEADER_SIZE = sizeof(uint32_t);
@@ -221,3 +222,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

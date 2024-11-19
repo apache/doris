@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Block;
 } // namespace vectorized
@@ -64,3 +65,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

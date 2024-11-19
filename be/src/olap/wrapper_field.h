@@ -30,6 +30,7 @@
 #include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 enum class FieldType;
 
 class WrapperField {
@@ -104,3 +105,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

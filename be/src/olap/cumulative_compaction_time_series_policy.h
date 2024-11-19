@@ -20,6 +20,7 @@
 #include "olap/cumulative_compaction_policy.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 inline constexpr std::string_view CUMULATIVE_TIME_SERIES_POLICY = "time_series";
 
@@ -67,3 +68,4 @@ public:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

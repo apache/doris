@@ -20,6 +20,7 @@
 #include <memory>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Rowset;
 using RowsetSharedPtr = std::shared_ptr<Rowset>;
@@ -29,3 +30,5 @@ class RowsetReader;
 using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

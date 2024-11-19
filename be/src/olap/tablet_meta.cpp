@@ -57,6 +57,7 @@ using std::unordered_map;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 TabletMetaSharedPtr TabletMeta::create(

@@ -23,6 +23,7 @@
 #include "olap/olap_common.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 // {tmp_dir}/{rowset_id}_{seg_id}_{index_id}@{suffix}
 std::string InvertedIndexDescriptor::get_temporary_index_path(std::string_view tmp_dir_path,

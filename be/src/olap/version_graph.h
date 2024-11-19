@@ -31,6 +31,7 @@
 #include "olap/rowset/rowset_meta.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 /// VersionGraph class which is implemented to build and maintain total versions of rowsets.
 /// This class use adjacency-matrix represent rowsets version and links. A vertex is a version
 /// and a link is the _version object of a rowset (from start version to end version + 1).
@@ -221,3 +222,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

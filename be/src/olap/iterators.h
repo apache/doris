@@ -32,6 +32,7 @@
 #include "vec/exprs/vexpr.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RowCursor;
 class Schema;
@@ -191,3 +192,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

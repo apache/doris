@@ -31,6 +31,7 @@
 #include "util/rle_encoding.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 // This contains information when one page is loaded, and ready for read
@@ -115,3 +116,5 @@ struct ParsedPage {
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

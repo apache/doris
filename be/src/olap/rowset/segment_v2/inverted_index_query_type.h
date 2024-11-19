@@ -20,6 +20,7 @@
 #include <string>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 enum class InvertedIndexReaderType {
@@ -141,3 +142,5 @@ inline std::string query_type_to_string(InvertedIndexQueryType query_type) {
 }
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

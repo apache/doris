@@ -48,6 +48,7 @@
     }
 
 namespace lucene {
+#include "common/compile_check_begin.h"
 namespace store {
 class Directory;
 } // namespace store
@@ -486,3 +487,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

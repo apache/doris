@@ -26,6 +26,7 @@
 #include "util/crc32c.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const char* k_wal_magic = "WAL1";
 const uint32_t k_wal_magic_length = 4;

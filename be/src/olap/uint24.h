@@ -25,6 +25,7 @@
 #include "olap/olap_common.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // 24bit int type, used to store date type in storage
 struct uint24_t {
@@ -154,3 +155,5 @@ inline std::ostream& operator<<(std::ostream& os, const uint24_t& val) {
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

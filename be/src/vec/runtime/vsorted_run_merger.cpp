@@ -17,6 +17,7 @@
 
 #include "vec/runtime/vsorted_run_merger.h"
 
+#include <algorithm>
 #include <utility>
 #include <vector>
 

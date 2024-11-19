@@ -31,6 +31,7 @@
 #include "common/logging.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 void TimestampedVersionTracker::_construct_versioned_tracker(

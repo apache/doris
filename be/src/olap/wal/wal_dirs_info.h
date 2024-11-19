@@ -29,6 +29,7 @@
 #include "common/status.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class WalDirInfo {
     ENABLE_FACTORY_CREATOR(WalDirInfo);
 
@@ -87,3 +88,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

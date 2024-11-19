@@ -33,6 +33,7 @@
 #include "util/metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct RowSetSplits;
 struct RowsetWriterContext;
 class RowsetWriter;
@@ -354,3 +355,5 @@ public:
 };
 
 } /* namespace doris */
+
+#include "common/compile_check_end.h"

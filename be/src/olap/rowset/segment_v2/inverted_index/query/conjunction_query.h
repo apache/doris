@@ -23,6 +23,7 @@ CL_NS_USE(index)
 CL_NS_USE(search)
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class ConjunctionQuery : public Query {
 public:
@@ -56,3 +57,4 @@ public:
 };
 
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

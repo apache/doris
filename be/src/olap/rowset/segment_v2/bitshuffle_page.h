@@ -43,6 +43,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 enum { BITSHUFFLE_PAGE_HEADER_SIZE = 16 };
@@ -464,3 +465,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

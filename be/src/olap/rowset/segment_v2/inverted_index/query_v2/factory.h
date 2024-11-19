@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/node.h"
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 enum class QueryType;
 enum class OperatorType;
@@ -39,3 +40,4 @@ public:
 };
 
 } // namespace doris::segment_v2::idx_query_v2
+#include "common/compile_check_end.h"

@@ -31,6 +31,7 @@
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 
 namespace doris::segment_v2::inverted_index {
+#include "common/compile_check_begin.h"
 
 std::unique_ptr<lucene::util::Reader> InvertedIndexAnalyzer::create_reader(
         CharFilterMap& char_filter_map) {

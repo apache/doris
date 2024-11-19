@@ -22,6 +22,7 @@
 #include "olap/rowset/segment_v2/column_reader.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 // This file Defined ColumnIterator and ColumnReader for reading variant subcolumns. The types from read schema and from storage are
 // different, so we need to wrap the ColumnIterator from execution phase and storage column reading phase.And we also
@@ -51,3 +52,4 @@ struct SubcolumnReader {
 using SubcolumnColumnReaders = vectorized::SubcolumnsTree<SubcolumnReader>;
 
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

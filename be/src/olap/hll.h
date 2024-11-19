@@ -30,6 +30,7 @@
 #include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 struct Slice;
 
@@ -357,3 +358,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

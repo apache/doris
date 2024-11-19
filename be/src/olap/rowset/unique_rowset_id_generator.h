@@ -23,6 +23,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class UniqueRowsetIdGenerator : public RowsetIdGenerator {
 public:
@@ -40,3 +41,5 @@ private:
 }; // UniqueRowsetIdGenerator
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

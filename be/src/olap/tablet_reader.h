@@ -47,6 +47,7 @@
 #include "olap/tablet_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RuntimeState;
 class BitmapFilterFuncBase;
@@ -314,3 +315,5 @@ protected:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

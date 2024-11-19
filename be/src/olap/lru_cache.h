@@ -25,6 +25,7 @@
 #include "util/metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 #define OLAP_CACHE_STRING_TO_BUF(cur, str, r_len)                  \
     do {                                                           \
@@ -481,3 +482,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

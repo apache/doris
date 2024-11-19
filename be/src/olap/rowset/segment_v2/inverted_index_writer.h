@@ -35,6 +35,7 @@
 #include "olap/options.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class CollectionValue;
 
 class Field;
@@ -109,3 +110,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

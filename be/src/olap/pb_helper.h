@@ -22,6 +22,7 @@
 #include "common/status.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 template <typename PB>
 Status read_pb(const std::string& pb_filename, PB* pb) {
     std::fstream pb_file_stream(pb_filename, std::ios::in | std::ios::binary);
@@ -71,3 +72,5 @@ Status write_pb(const std::string& pb_filename, const PB& pb) {
     return Status::OK();
 }
 } // namespace doris
+
+#include "common/compile_check_end.h"

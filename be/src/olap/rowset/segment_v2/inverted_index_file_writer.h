@@ -33,6 +33,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TabletIndex;
 
 namespace segment_v2 {
@@ -170,3 +171,5 @@ private:
 };
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

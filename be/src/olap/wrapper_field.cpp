@@ -31,6 +31,7 @@
 #include "util/expected.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const size_t DEFAULT_STRING_LENGTH = 50;
 

@@ -37,6 +37,7 @@
 #include "vec/data_types/data_type_array.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 MatchPredicate::MatchPredicate(uint32_t column_id, const std::string& value, MatchType match_type)
         : ColumnPredicate(column_id), _value(value), _match_type(match_type) {}

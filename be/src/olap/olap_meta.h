@@ -27,6 +27,7 @@
 #include "common/status.h"
 
 namespace rocksdb {
+#include "common/compile_check_begin.h"
 class ColumnFamilyHandle;
 class DB;
 class WriteBatch;
@@ -81,3 +82,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

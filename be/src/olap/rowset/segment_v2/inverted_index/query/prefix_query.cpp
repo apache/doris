@@ -18,6 +18,7 @@
 #include "prefix_query.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 void PrefixQuery::get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
                                    const std::string& prefix,

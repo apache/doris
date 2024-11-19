@@ -27,6 +27,7 @@
 #include "olap/tablet_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RowsetMetaPB;
 class TSnapshotRequest;
 struct RowsetId;
@@ -89,3 +90,5 @@ private:
 }; // SnapshotManager
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

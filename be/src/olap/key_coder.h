@@ -37,6 +37,7 @@
 #include "vec/core/types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using strings::Substitute;
 
@@ -346,3 +347,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

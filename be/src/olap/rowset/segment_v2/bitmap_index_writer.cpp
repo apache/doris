@@ -35,6 +35,7 @@
 #include "vec/common/arena.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 namespace {

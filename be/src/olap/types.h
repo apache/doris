@@ -60,6 +60,7 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace segment_v2 {
 class ColumnMetaPB;
@@ -1540,3 +1541,5 @@ inline const TypeInfo* get_collection_type_info<FieldType::OLAP_FIELD_TYPE_ARRAY
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

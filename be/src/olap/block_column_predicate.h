@@ -35,6 +35,7 @@
 #include "vec/columns/column.h"
 
 namespace roaring {
+#include "common/compile_check_begin.h"
 class Roaring;
 } // namespace roaring
 
@@ -238,3 +239,5 @@ public:
 };
 
 } //namespace doris
+
+#include "common/compile_check_end.h"

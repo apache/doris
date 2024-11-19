@@ -27,6 +27,7 @@
 #include "util/metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memtable_memory_limiter_mem_consumption, MetricUnit::BYTES, "",
                                    memtable_memory_limiter_mem_consumption,
                                    Labels({{"type", "load"}}));

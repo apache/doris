@@ -34,6 +34,7 @@
 #include "vec/common/arena.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace io {
 class FileWriter;
@@ -176,3 +177,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

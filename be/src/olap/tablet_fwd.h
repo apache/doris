@@ -20,6 +20,7 @@
 #include <memory>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class BaseTablet;
 class Tablet;
@@ -36,3 +37,5 @@ using TabletMetaSharedPtr = std::shared_ptr<TabletMeta>;
 using DeleteBitmapPtr = std::shared_ptr<DeleteBitmap>;
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

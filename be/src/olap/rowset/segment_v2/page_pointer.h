@@ -26,6 +26,7 @@
 #include "util/faststring.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 struct PagePointer {
@@ -80,3 +81,5 @@ inline std::ostream& operator<<(std::ostream& os, const PagePointer& pp) {
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -35,6 +35,7 @@
 #include "olap/rowset/segment_v2/inverted_index_file_writer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TabletIndex;
 namespace segment_v2 {
 class ReaderFileEntry;
@@ -87,3 +88,4 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+#include "common/compile_check_end.h"

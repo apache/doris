@@ -22,6 +22,7 @@
 #include "olap/olap_common.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class PendingRowsetSet;
 
@@ -73,3 +74,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

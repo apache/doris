@@ -25,6 +25,7 @@
 #include "common/status.h"
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 class ConjunctionOp;
 class DisjunctionOp;
@@ -126,3 +127,4 @@ struct Cost {
 };
 
 } // namespace doris::segment_v2::idx_query_v2
+#include "common/compile_check_end.h"

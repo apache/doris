@@ -23,6 +23,7 @@
 #include "olap/tablet_schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_tablet_column_cache_count("tablet_column_cache_count");
 bvar::Adder<int64_t> g_tablet_column_cache_hit_count("tablet_column_cache_hit_count");

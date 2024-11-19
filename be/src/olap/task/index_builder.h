@@ -29,6 +29,7 @@
 #include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 class InvertedIndexColumnWriter;
 class InvertedIndexFileWriter;
@@ -95,3 +96,5 @@ private:
 using IndexBuilderSharedPtr = std::shared_ptr<IndexBuilder>;
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

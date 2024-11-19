@@ -27,6 +27,7 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class RowCursor;
 class DeleteBitmap;
@@ -88,3 +89,5 @@ struct RowsetReaderContext {
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
+
+#include "common/compile_check_end.h"

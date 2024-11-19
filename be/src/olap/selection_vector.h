@@ -22,6 +22,7 @@
 #include "util/bitmap.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Bit-vector representing the selection status of each row in a row block.
 //
@@ -163,3 +164,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

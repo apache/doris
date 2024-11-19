@@ -25,6 +25,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /// Interface for string parsers.
 struct ITokenExtractor {
@@ -96,3 +97,5 @@ private:
 } // namespace doris
 
 #endif //DORIS_ITOKEN_EXTRACTOR_H
+
+#include "common/compile_check_end.h"

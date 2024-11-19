@@ -26,6 +26,7 @@
 #include "wal_writer.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 WalReader::WalReader(const std::string& file_name) : _file_name(file_name), _offset(0) {}
 

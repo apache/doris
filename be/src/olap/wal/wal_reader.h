@@ -22,6 +22,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class WalReader {
 public:
@@ -43,3 +44,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

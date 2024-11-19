@@ -34,6 +34,7 @@
 #include "inverted_index_query_type.h"
 
 namespace lucene {
+#include "common/compile_check_begin.h"
 namespace search {
 class IndexSearcher;
 } // namespace search
@@ -79,3 +80,4 @@ public:
                  OptionalIndexSearcherPtr& output_searcher) override;
 };
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

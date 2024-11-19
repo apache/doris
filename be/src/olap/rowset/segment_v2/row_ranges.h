@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/common.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 // RowRange stands for range[From, To), From is inclusive,
@@ -271,3 +272,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

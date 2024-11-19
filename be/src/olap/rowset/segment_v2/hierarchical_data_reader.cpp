@@ -31,6 +31,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,

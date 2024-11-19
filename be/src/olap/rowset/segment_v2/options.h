@@ -20,6 +20,7 @@
 #include <cstddef>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 static constexpr size_t DEFAULT_PAGE_SIZE = 1024 * 1024; // default size: 1M
@@ -43,3 +44,5 @@ struct PageDecoderOptions {
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

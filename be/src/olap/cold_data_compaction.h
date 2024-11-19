@@ -24,6 +24,7 @@
 #include "olap/compaction.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class ColdDataCompaction final : public CompactionMixin {
 public:
@@ -45,3 +46,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

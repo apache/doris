@@ -50,6 +50,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class IDataType;
 }
@@ -307,3 +308,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

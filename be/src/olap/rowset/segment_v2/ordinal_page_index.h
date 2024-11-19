@@ -33,6 +33,7 @@
 #include "util/once.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace io {
 class FileWriter;
@@ -149,3 +150,5 @@ OrdinalPageIndexIterator OrdinalIndexReader::end() {
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -23,6 +23,7 @@
 #include "util/slice.h" // for Slice
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 // When a column page is read into memory, we use this to store it.
@@ -94,3 +95,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

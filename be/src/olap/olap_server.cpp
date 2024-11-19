@@ -91,6 +91,7 @@
 using std::string;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using io::Path;
 

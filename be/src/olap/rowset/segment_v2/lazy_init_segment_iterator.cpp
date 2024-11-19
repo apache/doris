@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/lazy_init_segment_iterator.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 LazyInitSegmentIterator::LazyInitSegmentIterator(std::shared_ptr<Segment> segment,
                                                  SchemaSPtr schema, const StorageReadOptions& opts)

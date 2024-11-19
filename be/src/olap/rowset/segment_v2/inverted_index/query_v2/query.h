@@ -31,6 +31,7 @@
 #include "common/status.h"
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 enum class QueryType { TERM_QUERY, PHRASE_QUERY, ROARING_QUERY };
 
@@ -50,3 +51,4 @@ public:
 };
 
 } // namespace doris::segment_v2::idx_query_v2
+#include "common/compile_check_end.h"

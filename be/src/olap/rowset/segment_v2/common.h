@@ -23,6 +23,7 @@
 #include "util/alignment.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 // One segment file could store at most INT32_MAX rows,
@@ -32,3 +33,5 @@ using ordinal_t = uint64_t;
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

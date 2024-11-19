@@ -30,6 +30,7 @@ bvar::Adder<int64_t> g_tablet_schema_cache_columns_count("tablet_schema_cache_co
 bvar::Adder<int64_t> g_tablet_schema_cache_hit_count("tablet_schema_cache_hit_count");
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // to reduce the memory consumption of the serialized TabletSchema as key.
 // use sha256 to prevent from hash collision

@@ -36,6 +36,7 @@
 #include "olap/types.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 struct EncodingMapHash {

@@ -29,6 +29,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 Status BloomFilterIndexReader::load(bool use_page_cache, bool kept_in_memory,

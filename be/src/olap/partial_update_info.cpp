@@ -32,6 +32,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void PartialUpdateInfo::init(const TabletSchema& tablet_schema,
                              UniqueKeyUpdateModePB unique_key_update_mode,

@@ -29,6 +29,7 @@
 #include "vec/exec/scan/new_olap_scanner.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace pipeline {
 class OlapScanLocalState;
@@ -96,3 +97,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

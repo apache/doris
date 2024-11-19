@@ -43,6 +43,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 ColdDataCompaction::ColdDataCompaction(StorageEngine& engine, const TabletSharedPtr& tablet)

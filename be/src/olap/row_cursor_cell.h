@@ -18,6 +18,7 @@
 #pragma once
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 struct RowCursorCell {
     RowCursorCell(void* ptr) : _ptr(ptr) {}
@@ -34,3 +35,4 @@ private:
 };
 
 } // namespace doris
+#include "common/compile_check_end.h"

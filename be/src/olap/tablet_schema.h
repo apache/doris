@@ -49,6 +49,7 @@
 #include "vec/json/path_in_data.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Block;
 class PathInData;
@@ -591,3 +592,5 @@ bool operator!=(const TabletSchema& a, const TabletSchema& b);
 using TabletSchemaSPtr = std::shared_ptr<TabletSchema>;
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

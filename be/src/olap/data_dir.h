@@ -35,6 +35,7 @@
 #include "util/metrics.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Tablet;
 class TabletManager;
@@ -204,3 +205,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

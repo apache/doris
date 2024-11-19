@@ -27,6 +27,7 @@
 #include "olap/tablet_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class KeyBoundsPB;
 class RowIdConversion;
 class RowsetWriter;
@@ -90,3 +91,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

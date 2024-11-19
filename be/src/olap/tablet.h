@@ -52,6 +52,7 @@
 #include "util/slice.h"
 
 namespace bvar {
+#include "common/compile_check_begin.h"
 template <typename T>
 class Adder;
 }
@@ -761,3 +762,5 @@ inline int64_t Tablet::avg_rs_meta_serialize_size() const {
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

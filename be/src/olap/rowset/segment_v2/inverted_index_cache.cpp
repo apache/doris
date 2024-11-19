@@ -30,6 +30,7 @@
 #include "util/defer_op.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
         size_t capacity, uint32_t num_shards) {

@@ -24,6 +24,7 @@
 #include "olap/tablet_meta.h"
 #include "util/time.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 
 uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(Tablet* tablet) {
     uint32_t score = 0;

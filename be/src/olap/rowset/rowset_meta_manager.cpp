@@ -37,6 +37,7 @@
 #include "util/debug_points.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using namespace ErrorCode;
 

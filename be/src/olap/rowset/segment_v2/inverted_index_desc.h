@@ -22,6 +22,7 @@
 #include <string>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct RowsetId;
 
 namespace segment_v2 {
@@ -54,3 +55,4 @@ public:
 
 } // namespace segment_v2
 } // namespace doris
+#include "common/compile_check_end.h"

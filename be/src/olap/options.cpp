@@ -40,6 +40,7 @@
 #include "util/string_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 using std::string;

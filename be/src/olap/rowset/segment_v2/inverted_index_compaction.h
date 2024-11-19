@@ -26,6 +26,7 @@
 #include "inverted_index_compound_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TabletIndex;
 namespace segment_v2 {
 class InvertedIndexFileWriter;
@@ -39,3 +40,5 @@ Status compact_column(int64_t index_id,
                       const std::vector<uint32_t>& dest_segment_num_rows);
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -35,6 +35,7 @@ CL_NS_USE(search)
 CL_NS_USE(util)
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 struct InvertedIndexQueryInfo {
     std::wstring field_name;
@@ -72,3 +73,4 @@ public:
 };
 
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

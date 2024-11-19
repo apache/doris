@@ -29,6 +29,7 @@
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
 class BloomFilterColumnPredicate : public ColumnPredicate {
@@ -116,3 +117,5 @@ uint16_t BloomFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColum
 }
 
 } //namespace doris
+
+#include "common/compile_check_end.h"

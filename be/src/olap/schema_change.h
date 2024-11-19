@@ -53,6 +53,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class DeleteHandler;
 class Field;
 class TAlterInvertedIndexReq;
@@ -333,3 +334,5 @@ private:
     std::string _job_id;
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

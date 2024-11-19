@@ -32,6 +32,7 @@
 #include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 // IndexPage is the building block for IndexedColumn's ordinal index and value index.
@@ -158,3 +159,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -24,6 +24,7 @@
 #include <vector>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class TupleDescriptor;
 class SlotDescriptor;
@@ -47,3 +48,5 @@ struct WriteRequest {
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

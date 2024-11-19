@@ -88,6 +88,7 @@ using std::stringstream;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 extern void get_round_robin_stores(int64 curr_index, const std::vector<DirInfo>& dir_infos,
                                    std::vector<DataDir*>& stores);

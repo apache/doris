@@ -25,6 +25,7 @@
 #include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 template <typename Derived>
 bool PhraseMatcherBase<Derived>::matches(int32_t doc) {

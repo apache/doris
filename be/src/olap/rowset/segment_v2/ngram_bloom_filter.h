@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/bloom_filter.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 enum HashStrategyPB : int;
 
@@ -63,3 +64,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

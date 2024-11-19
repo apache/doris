@@ -25,6 +25,7 @@
 #include "util/parse_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 const std::string& WalDirInfo::get_wal_dir() const {
     return _wal_dir;

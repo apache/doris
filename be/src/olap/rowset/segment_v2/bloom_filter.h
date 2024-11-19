@@ -31,6 +31,7 @@
 #include "util/murmur_hash3.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 inline bvar::Adder<int64_t> g_total_bloom_filter_num("doris_total_bloom_filter_num");
@@ -233,3 +234,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -23,6 +23,7 @@
 
 #include "olap/tablet_schema.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class WrapperField;
 
@@ -44,3 +45,5 @@ struct ColumnMapping {
 using SchemaMapping = std::vector<ColumnMapping>;
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

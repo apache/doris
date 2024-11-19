@@ -33,6 +33,7 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 Status RowsetFactory::create_rowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,

@@ -26,6 +26,7 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class TPushReq;
 class TTabletInfo;
 class StorageEngine;
@@ -70,3 +71,5 @@ private:
 }; // class EngineBatchLoadTask
 } // namespace doris
 #endif // DORIS_BE_SRC_OLAP_TASK_ENGINE_BATCH_LOAD_TASK_H
+
+#include "common/compile_check_end.h"

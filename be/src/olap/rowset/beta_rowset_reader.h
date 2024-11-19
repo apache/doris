@@ -36,6 +36,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeProfile;
 class Schema;
 struct RowLocation;
@@ -130,3 +131,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

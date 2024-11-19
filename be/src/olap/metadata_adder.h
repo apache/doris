@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 inline bvar::Adder<int64_t> g_rowset_meta_mem_bytes("doris_rowset_meta_mem_bytes");
 inline bvar::Adder<int64_t> g_rowset_meta_num("doris_rowset_meta_num");
@@ -225,3 +226,4 @@ void MetadataAdder<T>::add_num(int64_t val) {
 }
 
 }; // namespace doris
+#include "common/compile_check_end.h"

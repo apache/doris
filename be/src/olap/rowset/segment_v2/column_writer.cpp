@@ -51,6 +51,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 class NullBitmapBuilder {
 public:

@@ -23,6 +23,7 @@
 #include "vec/core/block.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 using namespace vectorized;
 
@@ -65,3 +66,4 @@ private:
     RowwiseIteratorUPtr _inner_iterator;
 };
 } // namespace doris::segment_v2
+#include "common/compile_check_end.h"

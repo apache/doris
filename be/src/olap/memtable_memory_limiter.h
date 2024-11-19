@@ -25,6 +25,7 @@
 #include "util/stopwatch.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class MemTableWriter;
 struct WriterMemItem {
     std::weak_ptr<MemTableWriter> writer;
@@ -81,3 +82,5 @@ private:
     std::vector<std::weak_ptr<MemTableWriter>> _active_writers;
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

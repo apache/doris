@@ -33,6 +33,7 @@
 #include "olap/tablet_schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class BetaRowset;
 
@@ -112,3 +113,5 @@ private:
 } // namespace doris
 
 #endif //DORIS_SRC_OLAP_ROWSET_BETA_ROWSET_H_
+
+#include "common/compile_check_end.h"

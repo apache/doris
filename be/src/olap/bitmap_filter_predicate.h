@@ -30,6 +30,7 @@
 #include "vec/exprs/vruntimefilter_wrapper.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 template <PrimitiveType T>
 class BitmapFilterColumnPredicate : public ColumnPredicate {
 public:
@@ -123,3 +124,5 @@ uint16_t BitmapFilterColumnPredicate<T>::_evaluate_inner(const vectorized::IColu
     return new_size;
 }
 } //namespace doris
+
+#include "common/compile_check_end.h"

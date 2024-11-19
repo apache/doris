@@ -32,6 +32,7 @@
 #include "olap/rowset/rowset_meta.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class OlapMeta;
 class RowsetMetaPB;
 class PartialUpdateInfoPB;
@@ -119,3 +120,5 @@ private:
 } // namespace doris
 
 #endif // DORIS_BE_SRC_OLAP_ROWSET_ROWSET_META_MANAGER_H
+
+#include "common/compile_check_end.h"

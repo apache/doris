@@ -34,6 +34,7 @@
 #include "vec/common/allocator_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class PageCacheHandle;
 
@@ -225,3 +226,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

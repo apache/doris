@@ -37,6 +37,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class SegmentCacheHandle;
 class BetaRowset;
@@ -183,3 +184,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

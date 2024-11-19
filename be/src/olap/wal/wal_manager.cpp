@@ -38,6 +38,7 @@
 #include "vec/exec/format/wal/wal_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 bvar::Status<size_t> g_wal_total_count("wal_total_count", 0);
 

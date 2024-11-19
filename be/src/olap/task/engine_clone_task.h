@@ -29,6 +29,7 @@
 #include "olap/task/engine_task.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class DataDir;
 class TCloneReq;
 class TTabletInfo;
@@ -99,3 +100,5 @@ private:
 }; // EngineTask
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

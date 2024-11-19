@@ -21,6 +21,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 enum class OperatorType;
 class BooleanQuery : public Query {
@@ -54,3 +55,4 @@ private:
 };
 
 } // namespace doris::segment_v2::idx_query_v2
+#include "common/compile_check_end.h"

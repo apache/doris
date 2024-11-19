@@ -23,6 +23,7 @@
 #include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // TabletColumnObjectPool is a cache for TabletColumn objects. It is used to reduce memory consumption
 // when there are a large number of identical TabletColumns in the cluster, which usually occurs
@@ -56,3 +57,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

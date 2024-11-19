@@ -22,6 +22,7 @@
 #include "olap/schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Block;
 } // namespace vectorized
@@ -43,3 +44,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -26,6 +26,7 @@
 #include "util/trace.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static bvar::Adder<size_t> g_total_rowset_num("doris_total_rowset_num");
 

@@ -25,6 +25,7 @@
 #include "olap/tablet_schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 void (*FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>::set_to_max)(void*) = nullptr;
 

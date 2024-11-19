@@ -24,6 +24,7 @@
 #include "gutil/strings/substitute.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 static constexpr uint64_t SEED_GEN = 217728422;

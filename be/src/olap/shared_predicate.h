@@ -28,6 +28,7 @@
 #include "vec/columns/column_dictionary.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // SharedPredicate only used on topn runtime predicate.
 // Runtime predicate globally share one predicate, to ensure that updates can be real-time.
@@ -177,3 +178,5 @@ private:
 };
 
 } //namespace doris
+
+#include "common/compile_check_end.h"

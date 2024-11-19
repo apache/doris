@@ -31,6 +31,7 @@
 #include "util/once.h"
 
 namespace roaring {
+#include "common/compile_check_begin.h"
 class Roaring;
 } // namespace roaring
 
@@ -120,3 +121,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

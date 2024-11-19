@@ -38,6 +38,7 @@
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class DescriptorTbl;
 class RuntimeProfile;
@@ -158,3 +159,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

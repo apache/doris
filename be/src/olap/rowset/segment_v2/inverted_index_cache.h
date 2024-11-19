@@ -40,6 +40,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 class InvertedIndexCacheHandle;
 
@@ -281,3 +282,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

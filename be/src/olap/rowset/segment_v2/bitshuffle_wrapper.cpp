@@ -46,6 +46,7 @@
 using base::CPU;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace bitshuffle {
 
 // Function pointers which will be assigned the correct implementation

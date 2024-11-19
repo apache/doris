@@ -38,6 +38,7 @@
 #include "olap/tablet_schema.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Rowset;
 
@@ -360,3 +361,5 @@ protected:
 Status check_version_continuity(const std::vector<RowsetSharedPtr>& rowsets);
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

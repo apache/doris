@@ -34,6 +34,7 @@
 #include "util/debug_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using FixedFileHeader = struct _FixedFileHeader {
     // the length of the entire file
@@ -245,3 +246,5 @@ Status FileHeader<MessageType, ExtraType>::validate() {
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

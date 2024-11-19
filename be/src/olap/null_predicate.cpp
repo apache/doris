@@ -31,6 +31,7 @@
 using namespace doris::vectorized;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 NullPredicate::NullPredicate(uint32_t column_id, bool is_null, bool opposite)
         : ColumnPredicate(column_id), _is_null(opposite != is_null) {}

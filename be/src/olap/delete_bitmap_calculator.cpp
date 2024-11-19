@@ -22,6 +22,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 Status MergeIndexDeleteBitmapCalculatorContext::get_current_key(Slice& slice) {
     if (_cur_row_id >= _num_rows) {

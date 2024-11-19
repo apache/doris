@@ -55,6 +55,7 @@ using std::string;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace {
 constexpr uint32_t PUSH_MAX_RETRY = 1;
 constexpr uint32_t MAX_RETRY = 3;

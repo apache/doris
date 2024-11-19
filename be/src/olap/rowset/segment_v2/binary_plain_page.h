@@ -41,6 +41,7 @@
 #include "vec/columns/column_nullable.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace segment_v2 {
 
 template <FieldType Type>
@@ -372,3 +373,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

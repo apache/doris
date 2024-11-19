@@ -44,6 +44,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 static constexpr int64_t MAX_ROWSET_ID = 1L << 56;
 static constexpr int64_t LOW_56_BITS = 0x00ffffffffffffff;
@@ -562,3 +563,5 @@ struct std::hash<doris::RowsetId> {
         return seed;
     }
 };
+
+#include "common/compile_check_end.h"

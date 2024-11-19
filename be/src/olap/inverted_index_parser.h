@@ -24,6 +24,7 @@
 #include "util/debug_points.h"
 
 namespace lucene {
+#include "common/compile_check_begin.h"
 namespace analysis {
 class Analyzer;
 }
@@ -120,3 +121,5 @@ std::string get_parser_stopwords_from_properties(
         const std::map<std::string, std::string>& properties);
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

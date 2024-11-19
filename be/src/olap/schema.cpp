@@ -40,6 +40,7 @@
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 Schema::Schema(const Schema& other) {
     _copy_from(other);

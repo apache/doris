@@ -29,6 +29,7 @@
 #include "util/uid_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 struct StorePath {
     StorePath() : capacity_bytes(-1), storage_medium(TStorageMedium::HDD) {}
@@ -84,3 +85,5 @@ struct EngineOptions {
     UniqueId backend_uid {0, 0};
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -22,6 +22,7 @@
 #include "runtime/memory/lru_cache_policy.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class TabletSchemaCache : public LRUCachePolicy {
 public:
@@ -54,3 +55,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

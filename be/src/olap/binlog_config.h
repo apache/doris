@@ -22,6 +22,7 @@
 #include <string>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class TBinlogConfig;
 class BinlogConfigPB;
@@ -66,3 +67,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

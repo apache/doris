@@ -36,6 +36,7 @@
 #include "util/slice.h"  // for OwnedSlice
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class BlockCompressionCodec;
 class TabletColumn;
@@ -464,3 +465,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -23,6 +23,7 @@
 #include "gen_cpp/olap_file.pb.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 BinlogConfig& BinlogConfig::operator=(const TBinlogConfig& config) {
     if (config.__isset.enable) {
         _enable = config.enable;

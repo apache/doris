@@ -20,6 +20,7 @@
 #include "common/status.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class MemTrackerLimiter;
 
@@ -35,3 +36,5 @@ public:
 };
 
 } // end namespace doris
+
+#include "common/compile_check_end.h"

@@ -24,6 +24,7 @@
 #include <mutex>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 /*
     This class is used to control compaction permission. To some extent, it can be used to control memory consumption.
@@ -49,3 +50,5 @@ private:
     std::condition_variable _permits_cv;
 };
 } // namespace doris
+
+#include "common/compile_check_end.h"

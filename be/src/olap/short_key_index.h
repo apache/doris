@@ -31,6 +31,7 @@
 #include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // Encode a segment short key indices to one ShortKeyPage. This version
 // only accepts binary key, client should assure that input key is sorted,
@@ -211,3 +212,5 @@ inline bool ShortKeyIndexIterator::valid() const {
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

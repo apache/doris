@@ -30,6 +30,7 @@
 #include "olap/tablet_meta.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,

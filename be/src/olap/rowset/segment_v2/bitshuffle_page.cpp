@@ -18,6 +18,7 @@
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 namespace segment_v2 {
 

@@ -28,6 +28,7 @@
 #include "vec/exec/scan/new_olap_scanner.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using namespace vectorized;
 

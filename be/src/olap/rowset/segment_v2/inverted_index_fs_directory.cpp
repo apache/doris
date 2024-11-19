@@ -80,6 +80,7 @@
     } while (0)
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 const char* const DorisFSDirectory::WRITE_LOCK_FILE = "write.lock";
 

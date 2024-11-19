@@ -21,6 +21,7 @@
 #include <vector>
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class OlapTuple {
 public:
@@ -85,3 +86,5 @@ inline std::ostream& operator<<(std::ostream& os, const OlapTuple& tuple) {
 }
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

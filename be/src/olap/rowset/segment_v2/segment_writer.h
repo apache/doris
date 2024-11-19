@@ -41,6 +41,7 @@
 #include "util/slice.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Block;
 class IOlapColumnDataAccessor;
@@ -264,3 +265,5 @@ private:
 
 } // namespace segment_v2
 } // namespace doris
+
+#include "common/compile_check_end.h"

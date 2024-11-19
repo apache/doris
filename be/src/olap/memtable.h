@@ -40,6 +40,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Schema;
 class SlotDescriptor;
@@ -276,3 +277,5 @@ private:
 }; // class MemTable
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

@@ -56,6 +56,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 
 template <PrimitiveType PT>
 Status InvertedIndexQueryParamFactory::create_query_value(

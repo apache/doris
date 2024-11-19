@@ -25,6 +25,7 @@
 #include "olap/olap_common.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 constexpr std::string_view kBinlogPrefix = "binlog_";
 constexpr std::string_view kBinlogMetaPrefix = "binlog_meta_";
 constexpr std::string_view kBinlogDataPrefix = "binlog_data_";
@@ -96,3 +97,5 @@ inline std::string get_binlog_data_key_from_meta_key(const std::string_view meta
     return fmt::format("{}data_{}", kBinlogPrefix, meta_key.substr(kBinlogMetaPrefix.length()));
 }
 } // namespace doris
+
+#include "common/compile_check_end.h"

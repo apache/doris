@@ -35,6 +35,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace vectorized {
 class Block;
 } // namespace vectorized
@@ -231,3 +232,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

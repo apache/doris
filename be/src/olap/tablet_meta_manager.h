@@ -27,6 +27,7 @@
 #include "olap/tablet_meta.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class DataDir;
 class OlapMeta;
 
@@ -89,3 +90,5 @@ public:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

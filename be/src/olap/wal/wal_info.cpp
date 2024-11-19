@@ -18,6 +18,7 @@
 #include "olap/wal/wal_info.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 WalInfo::WalInfo(int64_t wal_id, std::string wal_path, int64_t retry_num, int64_t start_time_ms)
         : _wal_id(wal_id),
           _wal_path(wal_path),

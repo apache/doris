@@ -42,6 +42,7 @@ using std::string;
 using ::google::protobuf::RepeatedPtrField;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // construct sub condition from TCondition
 std::string construct_sub_predicate(const TCondition& condition) {

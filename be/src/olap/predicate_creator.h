@@ -36,6 +36,7 @@
 #include "util/string_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 template <typename ConditionType>
 class PredicateCreator {
@@ -330,3 +331,5 @@ inline ColumnPredicate* parse_to_predicate(const TabletColumn& column, uint32_t 
 }
 
 } //namespace doris
+
+#include "common/compile_check_end.h"

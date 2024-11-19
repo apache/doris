@@ -37,6 +37,7 @@
 #include "vec/data_types/data_type.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 struct uint24_t;
 
 namespace segment_v2 {

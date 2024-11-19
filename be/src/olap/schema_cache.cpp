@@ -34,6 +34,7 @@
 #include "util/time.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 SchemaCache* SchemaCache::instance() {
     return ExecEnv::GetInstance()->schema_cache();

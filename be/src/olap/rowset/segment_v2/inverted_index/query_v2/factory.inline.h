@@ -20,6 +20,7 @@
 #include "olap/rowset/segment_v2/inverted_index/query_v2/term_query.h"
 
 namespace doris::segment_v2::idx_query_v2 {
+#include "common/compile_check_begin.h"
 
 template <typename... Args>
 Result<Node> QueryFactory::create(QueryType query_type, Args&&... args) {
@@ -45,3 +46,4 @@ Result<Node> QueryFactory::create(QueryType query_type, Args&&... args) {
 }
 
 } // namespace doris::segment_v2::idx_query_v2
+#include "common/compile_check_end.h"

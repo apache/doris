@@ -26,6 +26,7 @@
 #include "olap/rowset/segment_v2/inverted_index_fs_directory.h"
 
 namespace doris::segment_v2 {
+#include "common/compile_check_begin.h"
 Status FulltextIndexSearcherBuilder::build(lucene::store::Directory* directory,
                                            OptionalIndexSearcherPtr& output_searcher) {
     auto close_directory = true;

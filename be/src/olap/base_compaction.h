@@ -25,6 +25,7 @@
 #include "olap/compaction.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 // BaseCompaction is derived from Compaction.
 // BaseCompaction will implements
@@ -52,3 +53,5 @@ private:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"

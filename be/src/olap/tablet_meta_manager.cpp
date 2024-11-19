@@ -39,6 +39,7 @@
 #include "olap/utils.h"
 
 namespace rocksdb {
+#include "common/compile_check_begin.h"
 class Iterator;
 class Slice;
 class Status;

@@ -37,6 +37,7 @@
 #include "vec/core/block.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 struct SegmentStatistics {
     int64_t row_num;
@@ -193,3 +194,5 @@ protected:
 };
 
 } // namespace doris
+
+#include "common/compile_check_end.h"
