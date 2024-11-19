@@ -190,11 +190,11 @@ public class MTMV extends OlapTable {
     }
 
     public void addTaskResult(MTMVTask task, MTMVRelation relation,
-            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots) {
+            Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots, boolean isReplay) {
         MTMVCache mtmvCache = null;
         boolean needUpdateCache = false;
         if (task.getStatus() == TaskStatus.SUCCESS && !Env.isCheckpointThread()
-                && !Config.enable_check_compatibility_mode) {
+                && !Config.enable_check_compatibility_mode && !isReplay) {
             needUpdateCache = true;
             try {
                 // shouldn't do this while holding mvWriteLock

@@ -113,5 +113,7 @@ suite("test_paimon_mtmv", "p0,external,mtmv,external_docker,external_docker_dori
     order_qt_not_partition "SELECT * FROM ${mvName} "
     order_qt_not_partition_after "select SyncWithBaseTables from mv_infos('database'='${dbName}') where Name='${mvName}'"
     sql """drop materialized view if exists ${mvName};"""
+    sql """drop catalog if exists ${catalogName}"""
+
 }
 
