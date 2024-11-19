@@ -112,14 +112,14 @@ private:
     // Helper functions specific to write_v1
     std::pair<int64_t, int32_t> calculate_header_length(const std::vector<FileInfo>& sorted_files,
                                                         lucene::store::Directory* directory);
-    std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
+    virtual std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
     create_output_stream_v1(int64_t index_id, const std::string& index_suffix);
     virtual void write_header_and_data_v1(lucene::store::IndexOutput* output,
                                           const std::vector<FileInfo>& sorted_files,
                                           lucene::store::Directory* directory,
                                           int64_t header_length, int32_t header_file_count);
     // Helper functions specific to write_v2
-    std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
+    virtual std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
     create_output_stream_v2();
     void write_version_and_indices_count(lucene::store::IndexOutput* output);
     struct FileMetadata {

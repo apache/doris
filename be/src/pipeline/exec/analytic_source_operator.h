@@ -150,6 +150,8 @@ private:
     size_t _align_aggregate_states = 1;
 
     std::vector<bool> _change_to_nullable_flags;
+    const size_t _partition_exprs_size;
+    const size_t _order_by_exprs_size;
 };
 
 } // namespace pipeline
