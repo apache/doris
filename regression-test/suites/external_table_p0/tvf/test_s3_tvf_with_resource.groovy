@@ -99,7 +99,6 @@ suite("test_s3_tvf_with_resource", "p0") {
 
     // test outfile to s3
     def outfile_url = outfile_to_S3()
-    // outfile_url like: s3://doris-build-hk-1308700295/est_s3_tvf/export_test/exp_f2cb650bbb94431a-ab0bc3e6f3e89f04_*
 
     // 1. normal
     try {
