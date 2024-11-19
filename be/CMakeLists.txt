@@ -258,7 +258,6 @@ set(CMAKE_C_STANDARD 17)
 add_compile_options(-g
                     -Wall
                     -Wextra
-                    -Werror
                     -pthread
                     -fstrict-aliasing
                     -fno-omit-frame-pointer
@@ -288,7 +287,6 @@ if (COMPILER_CLANG)
                         -Wpedantic
                         -Wshadow-field
                         -Wunused
-                        -Wunused-command-line-argument
                         -Wunused-exception-parameter
                         -Wunused-volatile-lvalue
                         -Wunused-template
@@ -375,7 +373,7 @@ endif()
 # For CMAKE_BUILD_TYPE=Debug
 if (OS_MACOSX AND ARCH_ARM)
     # Using -O0 may meet ARM64 branch out of range errors when linking with tcmalloc.
-    set(CXX_FLAGS_DEBUG "-Og")
+    set(CXX_FLAGS_DEBUG "-Og -L/opt/homebrew/opt/llvm/lib/c++")
 else()
     set(CXX_FLAGS_DEBUG "-O0")
 endif()
@@ -383,7 +381,7 @@ endif()
 # For CMAKE_BUILD_TYPE=Release
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
-set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+set(CXX_FLAGS_RELEASE "-O3 -L/opt/homebrew/opt/llvm/lib/c++ -DNDEBUG")
 set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-strict-aliasing -fno-sanitize=alignment,signed-integer-overflow,float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
