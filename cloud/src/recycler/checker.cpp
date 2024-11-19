@@ -852,7 +852,7 @@ int InstanceChecker::traverse_rowset_delete_bitmaps(
             auto segment_id = std::get<std::int64_t>(std::get<0>(out[6]));
 
             int ret = callback(tablet_id, rowset_id, version, segment_id);
-            if (ret < 0) {
+            if (ret != 0) {
                 return ret;
             }
 
@@ -1145,10 +1145,11 @@ int InstanceChecker::check_delete_bitmap_storage_optimize(int64_t tablet_id) {
 
     LOG(INFO) << fmt::format(
             "[delete bitmap checker] finish check delete bitmap storage optimize for "
-            "instance_id={}, tablet_id={}, rowsets_num={}, abnormal_rowsets_num={}",
-            instance_id_, tablet_id, tablet_rowsets.size(), abnormal_rowsets_num);
+            "instance_id={}, tablet_id={}, rowsets_num={}, abnormal_rowsets_num={}, "
+            "pre_min_version={}",
+            instance_id_, tablet_id, tablet_rowsets.size(), abnormal_rowsets_num, pre_min_version);
 
-    return 0;
+    return (abnormal_rowsets_num > 1 ? 1 : 0);
 }
 
 int InstanceChecker::do_delete_bitmap_storage_optimize_check() {
