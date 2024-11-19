@@ -42,11 +42,6 @@ public class HistoryBasedStatisticsCacheManager
     // Cache historical statistics of plan node.
     private final Map<String, LoadingCache<PlanNodeWithHash, HistoricalPlanStatistics>> statisticsCache = new ConcurrentHashMap<>();
 
-    // Cache hashes of plan node.
-    //private final Map<String, Map<CachingPlanCanonicalInfoProvider.CacheKey, PlanNodeCanonicalInfo>> canonicalInfoCache = new ConcurrentHashMap<>();
-
-    //private final Map<String, Map<CachingPlanCanonicalInfoProvider.InputTableCacheKey, PlanStatistics>> inputTableStatistics = new ConcurrentHashMap<>();
-
     // Stores query IDs which timeout during history optimizer registration
     private final Set<String> queryIdsRegistrationTimeOut = ConcurrentHashMap.newKeySet();
 
@@ -77,36 +72,11 @@ public class HistoryBasedStatisticsCacheManager
                 }));
     }
 
-    //public Map<CachingPlanCanonicalInfoProvider.CacheKey, PlanNodeCanonicalInfo> getCanonicalInfoCache(String queryId)
-    //{
-    //    return canonicalInfoCache.computeIfAbsent(queryId, ignored -> new ConcurrentHashMap());
-    //}
-
-    //public Map<CachingPlanCanonicalInfoProvider.InputTableCacheKey, PlanStatistics> getInputTableStatistics(String queryId)
-    //{
-    //    return inputTableStatistics.computeIfAbsent(queryId, ignored -> new ConcurrentHashMap());
-    //}
-
     public void invalidate(String queryId)
     {
         statisticsCache.remove(queryId);
         //canonicalInfoCache.remove(queryId);
         //inputTableStatistics.remove(queryId);
         queryIdsRegistrationTimeOut.remove(queryId);
-    }
-
-    //public Map<String, Map<CachingPlanCanonicalInfoProvider.CacheKey, PlanNodeCanonicalInfo>> getCanonicalInfoCache()
-    //{
-    //    return canonicalInfoCache;
-    //}
-
-    public boolean historyBasedQueryRegistrationTimeout(String queryId)
-    {
-        return queryIdsRegistrationTimeOut.contains(queryId);
-    }
-
-    public void setHistoryBasedQueryRegistrationTimeout(String queryId)
-    {
-        queryIdsRegistrationTimeOut.add(queryId);
     }
 }
