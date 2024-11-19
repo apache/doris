@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
+import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
@@ -318,6 +319,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAlterRoleCommand(AlterRoleCommand alterRoleCommand, C context) {
         return visitCommand(alterRoleCommand, context);
+    }
+
+    default R visitCleanAllProfileCommand(CleanAllProfileCommand cleanAllProfileCommand, C context) {
+        return visitCommand(cleanAllProfileCommand, context);
     }
 
     default R visitShowFrontendsCommand(ShowFrontendsCommand showFrontendsCommand, C context) {

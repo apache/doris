@@ -70,6 +70,7 @@ import org.apache.doris.nereids.DorisParser.BuildModeContext;
 import org.apache.doris.nereids.DorisParser.CallProcedureContext;
 import org.apache.doris.nereids.DorisParser.CancelMTMVTaskContext;
 import org.apache.doris.nereids.DorisParser.CastDataTypeContext;
+import org.apache.doris.nereids.DorisParser.CleanAllProfileContext;
 import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
@@ -416,6 +417,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
+import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
@@ -4191,6 +4193,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalPlan visitShowFrontends(ShowFrontendsContext ctx) {
         String detail = (ctx.name != null) ? ctx.name.getText() : null;
         return new ShowFrontendsCommand(detail);
+    }
+
+    @Override
+    public LogicalPlan visitCleanAllProfile(CleanAllProfileContext ctx) {
+        return new CleanAllProfileCommand();
     }
 
     @Override
