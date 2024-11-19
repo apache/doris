@@ -104,27 +104,27 @@ echo "DB: ${DB}"
 echo "SF: ${SCALE_FACTOR}"
 
 mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE IF NOT EXISTS ${DB}"
-# shellcheck disable=SC2292
-if [ "${SCALE_FACTOR}" -eq 1 ]; then
+
+if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf1.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf1.sql
 
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf1.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-flat-tables-sf1.sql
-elif [ "${SCALE_FACTOR}" -eq 100 ]; then
+elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf100.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf100.sql
 
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf100.sql"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-flat-tables-sf100.sql"
-elif [ "${SCALE_FACTOR}" -eq 1000 ]; then
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-flat-tables-sf100.sql
+elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf1000.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-tables-sf1000.sql"
 
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf1000.sql"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-flat-tables-sf1000.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf1000.sql
 else
-    printf "%s scale is NOT supported currently\n" "${SCALE_FACTOR}"
+    echo "${SCALE_FACTOR} scale is NOT supported currently"
 fi
 
 echo "ssb tables has been created"

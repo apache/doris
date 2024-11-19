@@ -103,13 +103,7 @@ run_sql() {
 
 get_session_variable() {
   k="$1"
-  if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "show variables like '${k}'\G" 2>&1); then
-      printf "%s\n" "$output" >&2
-      printf "Error: Failed to execute SQL command: show variables like '%s'\G\n" "$k" >&2
-      exit 1
-  fi
-
-  v=$(grep " Value: " <<< "${output}")
+  v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
   echo "${v/*Value: /}"
 }
 

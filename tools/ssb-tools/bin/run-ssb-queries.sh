@@ -94,7 +94,7 @@ echo "USER: ${USER:='root'}"
 echo "DB: ${DB:='ssb'}"
 
 run_sql() {
-    printf "%s\n" "$@"
+    echo "$@"
     mysql -h"${FE_HOST}" -P"${FE_QUERY_PORT}" -u"${USER}" -D"${DB}" -e "$@"
 }
 

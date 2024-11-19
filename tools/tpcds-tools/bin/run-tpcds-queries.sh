@@ -142,7 +142,7 @@ backup_session_variables() {
 clean_up() {
     echo "restore session variables:"
     cat "${backup_session_variables_file}"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e "source ${backup_session_variables_file};"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"source ${backup_session_variables_file};"
 }
 backup_session_variables
 

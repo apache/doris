@@ -110,8 +110,7 @@ function check_doris_conf() {
         printf "Error: Failed to execute 'admin show frontend config' on MySQL server.\n" >&2
         exit 1
     fi
-
-    cv=$(grep 'stream_load_default_timeout_second' "${output}" | awk '{print $2}')
+    cv=$(grep 'stream_load_default_timeout_second' <<< "${output}" | awk '{print $2}')
     if (($cv < 3600)); then
         printf "advise: revise your Doris FE's conf to set 'stream_load_default_timeout_second=3600' or above\n"
     fi
@@ -121,10 +120,9 @@ function check_doris_conf() {
         printf "Error: Failed to execute curl to fetch BE's configuration.\n" >&2
         exit 1
     fi
-
     cv=$(grep 'streaming_load_max_mb' <<< "${output}" | awk -F'=' '{print $2}')
     if (($cv < 16000)); then
-        printf "advise: revise your Doris BE's conf to set 'streaming_load_max_mb=16000' or above and 'flush_thread_num_per_store=5' to speed up load.\n"
+        echo -e "advise: revise your Doris BE's conf to set 'streaming_load_max_mb=16000' or above and 'flush_thread_num_per_store=5' to speed up load."
     fi
 }
 

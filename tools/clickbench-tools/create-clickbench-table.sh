@@ -91,7 +91,8 @@ echo "USER: $USER"
 echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
-mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -e "CREATE DATABASE IF NOT EXISTS $DB"
-mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" < "$CURDIR/sql/create-clickbench-table.sql"
-mysql -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "SHOW CREATE TABLE hits;" 2>&1
+mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -e "CREATE DATABASE IF NOT EXISTS $DB"
+mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB <$CURDIR/sql/create-clickbench-table.sql
+mysql -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "show create table hits;"
+
 echo "DONE."
