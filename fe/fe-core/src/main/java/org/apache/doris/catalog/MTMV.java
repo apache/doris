@@ -194,11 +194,15 @@ public class MTMV extends OlapTable {
         MTMVCache mtmvCache = null;
         boolean needUpdateCache = false;
         if (task.getStatus() == TaskStatus.SUCCESS && !Env.isCheckpointThread()
-                && !Config.enable_check_compatibility_mode && !isReplay) {
+                && !Config.enable_check_compatibility_mode) {
             needUpdateCache = true;
             try {
-                // shouldn't do this while holding mvWriteLock
-                mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
+                // The replay thread may not have initialized the catalog yet to avoid getting stuck due
+                // to connection issues such as S3, so it is directly set to null
+                if (!isReplay) {
+                    // shouldn't do this while holding mvWriteLock
+                    mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
+                }
             } catch (Throwable e) {
                 mtmvCache = null;
                 LOG.warn("generate cache failed", e);
