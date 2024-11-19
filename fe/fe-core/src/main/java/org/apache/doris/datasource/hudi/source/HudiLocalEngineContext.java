@@ -17,20 +17,11 @@
 
 package org.apache.doris.datasource.hudi.source;
 
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
-
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hudi.common.config.SerializableConfiguration;
 import org.apache.hudi.common.data.HoodieAccumulator;
 import org.apache.hudi.common.data.HoodieAtomicLongAccumulator;
 import org.apache.hudi.common.data.HoodieData;
 import org.apache.hudi.common.data.HoodieData.HoodieDataCacheKey;
 import org.apache.hudi.common.data.HoodieListData;
-import org.apache.hudi.common.engine.EngineProperty;
-import org.apache.hudi.common.engine.HoodieEngineContext;
-import org.apache.hudi.common.engine.LocalTaskContextSupplier;
-import org.apache.hudi.common.engine.TaskContextSupplier;
-import org.apache.hudi.common.function.FunctionWrapper;
 import org.apache.hudi.common.function.SerializableBiFunction;
 import org.apache.hudi.common.function.SerializableConsumer;
 import org.apache.hudi.common.function.SerializableFunction;
@@ -39,7 +30,7 @@ import org.apache.hudi.common.function.SerializablePairFunction;
 import org.apache.hudi.common.util.Option;
 import org.apache.hudi.common.util.collection.ImmutablePair;
 import org.apache.hudi.common.util.collection.Pair;
-import org.apache.hudi.exception.HoodieException;
+import org.apache.hudi.storage.StorageConfiguration;
 
 import java.util.Collections;
 import java.util.Iterator;
@@ -49,19 +40,29 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-/**
- * This file is copied from org.apache.hudi.common.engine.HoodieLocalEngineContext.
- * Because we need set ugi in thread pool
- * A java based engine context, use this implementation on the query engine integrations if needed.
- */
-public final class HudiLocalEngineContext extends HoodieEngineContext {
+import static java.util.stream.Collectors.toList;
+import static org.apache.hudi.common.function.FunctionWrapper.throwingFlatMapToPairWrapper;
+import static org.apache.hudi.common.function.FunctionWrapper.throwingFlatMapWrapper;
+import static org.apache.hudi.common.function.FunctionWrapper.throwingForeachWrapper;
+import static org.apache.hudi.common.function.FunctionWrapper.throwingMapToPairWrapper;
+import static org.apache.hudi.common.function.FunctionWrapper.throwingMapWrapper;
+import static org.apache.hudi.common.function.FunctionWrapper.throwingReduceWrapper;
 
-    public HudiLocalEngineContext(Configuration conf) {
+/**
+ * This file is copied from
+ * org.apache.hudi.common.engine.HoodieLocalEngineContext.
+ * Because we need set ugi in thread pool
+ * A java based engine context, use this implementation on the query engine
+ * integrations if needed.
+ */
+public final class HoodieLocalEngineContext extends HoodieEngineContext {
+
+    public HoodieLocalEngineContext(StorageConfiguration<?> conf) {
         this(conf, new LocalTaskContextSupplier());
     }
 
-    public HudiLocalEngineContext(Configuration conf, TaskContextSupplier taskContextSupplier) {
-        super(new SerializableConfiguration(conf), taskContextSupplier);
+    public HoodieLocalEngineContext(StorageConfiguration<?> conf, TaskContextSupplier taskContextSupplier) {
+        super(conf, taskContextSupplier);
     }
 
     @Override
@@ -81,69 +82,55 @@ public final class HudiLocalEngineContext extends HoodieEngineContext {
 
     @Override
     public <I, O> List<O> map(List<I> data, SerializableFunction<I, O> func, int parallelism) {
-        return data.stream().parallel().map(v1 -> {
-            try {
-                return HiveMetaStoreClientHelper.ugiDoAs(getHadoopConf().get(), () -> func.apply(v1));
-            } catch (Exception e) {
-                throw new HoodieException("Error occurs when executing map", e);
-            }
-        }).collect(Collectors.toList());
+        return data.stream().parallel().map(throwingMapWrapper(func)).collect(toList());
     }
 
     @Override
     public <I, K, V> List<V> mapToPairAndReduceByKey(
-            List<I> data,
-            SerializablePairFunction<I, K, V> mapToPairFunc,
-            SerializableBiFunction<V, V, V> reduceFunc, int parallelism) {
-        return data.stream().parallel().map(FunctionWrapper.throwingMapToPairWrapper(mapToPairFunc))
-            .collect(Collectors.groupingBy(p -> p.getKey())).values().stream()
-            .map(list ->
-                    list.stream()
-                        .map(e -> e.getValue())
-                        .reduce(FunctionWrapper.throwingReduceWrapper(reduceFunc)).get())
-            .collect(Collectors.toList());
+            List<I> data, SerializablePairFunction<I, K, V> mapToPairFunc, SerializableBiFunction<V, V, V> reduceFunc,
+            int parallelism) {
+        return data.stream().parallel().map(throwingMapToPairWrapper(mapToPairFunc))
+                .collect(Collectors.groupingBy(p -> p.getKey())).values().stream()
+                .map(list -> list.stream().map(e -> e.getValue()).reduce(throwingReduceWrapper(reduceFunc)).get())
+                .collect(Collectors.toList());
     }
 
     @Override
     public <I, K, V> Stream<ImmutablePair<K, V>> mapPartitionsToPairAndReduceByKey(
             Stream<I> data, SerializablePairFlatMapFunction<Iterator<I>, K, V> flatMapToPairFunc,
             SerializableBiFunction<V, V, V> reduceFunc, int parallelism) {
-        return FunctionWrapper.throwingFlatMapToPairWrapper(flatMapToPairFunc).apply(data.parallel().iterator())
-            .collect(Collectors.groupingBy(Pair::getKey)).entrySet().stream()
-            .map(entry -> new ImmutablePair<>(entry.getKey(), entry.getValue().stream().map(
-                Pair::getValue).reduce(FunctionWrapper.throwingReduceWrapper(reduceFunc)).orElse(null)))
-            .filter(Objects::nonNull);
+        return throwingFlatMapToPairWrapper(flatMapToPairFunc).apply(data.parallel().iterator())
+                .collect(Collectors.groupingBy(Pair::getKey)).entrySet().stream()
+                .map(entry -> new ImmutablePair<>(entry.getKey(), entry.getValue().stream().map(
+                        Pair::getValue).reduce(throwingReduceWrapper(reduceFunc)).orElse(null)))
+                .filter(Objects::nonNull);
     }
 
     @Override
     public <I, K, V> List<V> reduceByKey(
             List<Pair<K, V>> data, SerializableBiFunction<V, V, V> reduceFunc, int parallelism) {
         return data.stream().parallel()
-            .collect(Collectors.groupingBy(p -> p.getKey())).values().stream()
-            .map(list ->
-                list.stream()
-                    .map(e -> e.getValue())
-                    .reduce(FunctionWrapper.throwingReduceWrapper(reduceFunc)).orElse(null))
-            .filter(Objects::nonNull)
-            .collect(Collectors.toList());
+                .collect(Collectors.groupingBy(p -> p.getKey())).values().stream()
+                .map(list -> list.stream().map(e -> e.getValue()).reduce(throwingReduceWrapper(reduceFunc))
+                        .orElse(null))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
     }
 
     @Override
     public <I, O> List<O> flatMap(List<I> data, SerializableFunction<I, Stream<O>> func, int parallelism) {
-        return
-            data.stream().parallel().flatMap(FunctionWrapper.throwingFlatMapWrapper(func)).collect(Collectors.toList());
+        return data.stream().parallel().flatMap(throwingFlatMapWrapper(func)).collect(toList());
     }
 
     @Override
     public <I> void foreach(List<I> data, SerializableConsumer<I> consumer, int parallelism) {
-        data.stream().forEach(FunctionWrapper.throwingForeachWrapper(consumer));
+        data.stream().forEach(throwingForeachWrapper(consumer));
     }
 
     @Override
     public <I, K, V> Map<K, V> mapToPair(List<I> data, SerializablePairFunction<I, K, V> func, Integer parallelism) {
-        return data.stream().map(FunctionWrapper.throwingMapToPairWrapper(func)).collect(
-            Collectors.toMap(Pair::getLeft, Pair::getRight, (oldVal, newVal) -> newVal)
-        );
+        return data.stream().map(throwingMapToPairWrapper(func)).collect(
+                Collectors.toMap(Pair::getLeft, Pair::getRight, (oldVal, newVal) -> newVal));
     }
 
     @Override
