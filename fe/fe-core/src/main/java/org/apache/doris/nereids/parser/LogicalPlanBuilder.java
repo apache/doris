@@ -162,6 +162,7 @@ import org.apache.doris.nereids.DorisParser.QualifyClauseContext;
 import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.QueryTermContext;
+import org.apache.doris.nereids.DorisParser.RecoverDatabaseContext;
 import org.apache.doris.nereids.DorisParser.RefreshCatalogContext;
 import org.apache.doris.nereids.DorisParser.RefreshDatabaseContext;
 import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
@@ -4048,7 +4049,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-
     public Object visitRefreshCatalog(RefreshCatalogContext ctx) {
         if (ctx.name != null) {
             String catalogName = ctx.name.getText();
@@ -4057,6 +4057,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return new RefreshCatalogCommand(catalogName, properties);
         }
         throw new AnalysisException("catalog name can not be null");
+    }
+
+    @Override
+    public RefreshDatabaseCommand visitRefreshDatabase(RefreshDatabaseContext ctx) {
+        Map<String, String> properties = visitPropertyClause(ctx.propertyClause()) == null ? Maps.newHashMap()
+                : visitPropertyClause(ctx.propertyClause());
+        List<String> parts = visitMultipartIdentifier(ctx.name);
+        int size = parts.size();
+        Preconditions.checkArgument(size > 0, "database name can't be empty");
+        String dbName = parts.get(size - 1);
+
+        if (size == 1) {
+            return new RefreshDatabaseCommand(dbName, properties);
+        } else if (parts.size() == 2) {  // [ctl,db] or [db]
+            return new RefreshDatabaseCommand(parts.get(0), dbName, properties);
+        }
+        throw new IllegalArgumentException("Only one dot can be in the name:{}" + ctx.name);
     }
 
     public LogicalPlan visitShowLastInsert(ShowLastInsertContext ctx) {
@@ -4070,7 +4087,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             partitionId = Long.parseLong(ctx.partitionId.getText());
         }
         return new ShowPartitionIdCommand(partitionId);
-
     }
 
     @Override
@@ -4186,23 +4202,5 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitShowPrivileges(ShowPrivilegesContext ctx) {
         return new ShowPrivilegesCommand();
-    }
-
-    @Override
-    public RefreshDatabaseCommand visitRefreshDatabase(RefreshDatabaseContext ctx) {
-        Map<String, String> properties = visitPropertyClause(ctx.propertyClause()) == null ? Maps.newHashMap()
-                : visitPropertyClause(ctx.propertyClause());
-        List<String> parts = visitMultipartIdentifier(ctx.name);
-        int size = parts.size();
-        Preconditions.checkArgument(size > 0, "database name can't be empty");
-        String dbName = parts.get(size - 1);
-
-        if (size == 1) {
-            return new RefreshDatabaseCommand(dbName, properties);
-        } else if (parts.size() == 2) {  // [ctl,db] or [db]
-            return new RefreshDatabaseCommand(parts.get(0), dbName, properties);
-        }
-        throw new IllegalArgumentException("Only one dot can be in the name:{}" + ctx.name);
-
     }
 }
