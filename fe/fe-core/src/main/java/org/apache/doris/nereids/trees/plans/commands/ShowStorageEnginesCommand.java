@@ -27,8 +27,6 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.Lists;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -36,7 +34,6 @@ import java.util.List;
  * show storage engines command
  */
 public class ShowStorageEnginesCommand extends ShowCommand {
-    public static final Logger LOG = LogManager.getLogger(ShowStorageEnginesCommand.class);
 
     /**
      * constructor

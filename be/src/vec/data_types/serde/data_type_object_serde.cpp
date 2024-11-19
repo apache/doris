@@ -19,6 +19,8 @@
 
 #include <rapidjson/stringbuffer.h>
 
+#include <cstdint>
+
 #include "common/exception.h"
 #include "common/status.h"
 #include "vec/columns/column.h"
@@ -37,11 +39,12 @@
 namespace doris {
 
 namespace vectorized {
+#include "common/compile_check_begin.h"
 
 template <bool is_binary_format>
 Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
                                                    MysqlRowBuffer<is_binary_format>& row_buffer,
-                                                   int row_idx, bool col_const,
+                                                   int64_t row_idx, bool col_const,
                                                    const FormatOptions& options) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     if (!variant.is_finalized()) {
@@ -70,27 +73,27 @@ Status DataTypeObjectSerDe::_write_column_to_mysql(const IColumn& column,
 }
 
 Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<true>& row_buffer, int row_idx,
+                                                  MysqlRowBuffer<true>& row_buffer, int64_t row_idx,
                                                   bool col_const,
                                                   const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 Status DataTypeObjectSerDe::write_column_to_mysql(const IColumn& column,
-                                                  MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                  bool col_const,
+                                                  MysqlRowBuffer<false>& row_buffer,
+                                                  int64_t row_idx, bool col_const,
                                                   const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 void DataTypeObjectSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result,
                                                   Arena* mem_pool, int32_t col_id,
-                                                  int row_num) const {
+                                                  int64_t row_num) const {
     const auto& variant = assert_cast<const ColumnObject&>(column);
     if (!variant.is_finalized()) {
         const_cast<ColumnObject&>(variant).finalize();
     }
-    result.writeKey(col_id);
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     std::string value_str;
     if (!variant.serialize_one_row_to_string(row_num, &value_str)) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
@@ -129,7 +132,7 @@ void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     variant.insert(field);
 }
 
-Status DataTypeObjectSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeObjectSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
     const auto* var = check_and_get_column<ColumnObject>(column);
@@ -140,8 +143,8 @@ Status DataTypeObjectSerDe::serialize_one_cell_to_json(const IColumn& column, in
 }
 
 void DataTypeObjectSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int start,
-                                                int end, const cctz::time_zone& ctz) const {
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
     const auto* var = check_and_get_column<ColumnObject>(column);
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
