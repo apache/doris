@@ -90,8 +90,10 @@ bool MergeIndexDeleteBitmapCalculatorContext::Comparator::operator()(
     // std::proiroty_queue is a max heap, and function should return the result of `lhs < rhs`
     // so if the result of the function is true, rhs will be popped before lhs
     Slice key1, key2;
-    RETURN_IF_ERROR(lhs->get_current_key(key1));
-    RETURN_IF_ERROR(rhs->get_current_key(key2));
+    // MergeIndexDeleteBitmapCalculatorContext::get_current_key may return non-OK status if encounter
+    // memory allocation failure, we can only throw exception here to propagate error in this situation
+    THROW_IF_ERROR(lhs->get_current_key(key1));
+    THROW_IF_ERROR(rhs->get_current_key(key2));
     if (_sequence_length == 0 && _rowid_length == 0) {
         auto cmp_result = key1.compare(key2);
         // when key1 is the same as key2,
@@ -209,16 +211,18 @@ Status MergeIndexDeleteBitmapCalculator::calculate_one(RowLocation& loc) {
 }
 
 Status MergeIndexDeleteBitmapCalculator::calculate_all(DeleteBitmapPtr delete_bitmap) {
-    RowLocation loc;
-    while (true) {
-        auto st = calculate_one(loc);
-        if (st.is<ErrorCode::END_OF_FILE>()) {
-            break;
+    RETURN_IF_CATCH_EXCEPTION({
+        RowLocation loc;
+        while (true) {
+            auto st = calculate_one(loc);
+            if (st.is<ErrorCode::END_OF_FILE>()) {
+                break;
+            }
+            RETURN_IF_ERROR(st);
+            delete_bitmap->add({_rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
+                               loc.row_id);
         }
-        RETURN_IF_ERROR(st);
-        delete_bitmap->add({_rowset_id, loc.segment_id, DeleteBitmap::TEMP_VERSION_COMMON},
-                           loc.row_id);
-    }
+    });
     return Status::OK();
 }
 
