@@ -60,7 +60,7 @@ touch "$lockfile2"
 if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
     echo "/mnt/scripts/tpch1.db does not exist"
     cd /mnt/scripts/
-    curl -O https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/datalake/pipeline_data/tpch1.db.tar.gz
+    curl -O https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/tpch1.db.tar.gz
     tar -zxf tpch1.db.tar.gz
     rm -rf tpch1.db.tar.gz
     cd -
