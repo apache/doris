@@ -669,7 +669,7 @@ class Config {
             if (config.s3Source == "aliyun") {
                 s3BucketName = "doris-regression-hk"
             } else if (config.s3Source == "aliyun-internal") {
-                s3BucketName = "doris-regression"
+                s3BucketName = "doris-regression-bj"
             } else if (config.s3Source == "tencent") {
                 s3BucketName = "doris-build-1308700295"
             } else if (config.s3Source == "huawei") {
