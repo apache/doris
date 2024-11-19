@@ -188,6 +188,12 @@ int Checker::start() {
                 }
             }
 
+            if (config::enable_delete_bitmap_storage_optimize_check) {
+                if (ret == 0) {
+                    ret = checker->do_delete_bitmap_storage_optimize_check();
+                }
+            }
+
             if (ret < 0) {
                 // If ret < 0, it means that a temporary error occurred during the check process.
                 // The check job should not be considered finished, and the next round of check job
@@ -1095,6 +1101,53 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
                 instance_id_, total_delete_bitmap_keys);
     }
     return (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) ? 1 : 0;
+}
+
+int InstanceChecker::check_delete_bitmap_storage_optimize(int64_t tablet_id) {
+    // number of rowsets which may have problems
+    int64_t abnormal_rowsets_num {0};
+
+    std::vector<RowsetDigest> tablet_rowsets {};
+    // Get all visible rowsets of this tablet
+    auto collect_cb = [&tablet_rowsets](const doris::RowsetMetaCloudPB& rowset) {
+        tablet_rowsets.emplace_back(
+                rowset.rowset_id_v2(),
+                std::make_pair<int64_t, int64_t>(rowset.start_version(), rowset.end_version()));
+        ;
+    };
+    if (int ret = collect_tablet_rowsets(tablet_id, collect_cb); ret != 0) {
+        return ret;
+    }
+
+    std::sort(tablet_rowsets.begin(), tablet_rowsets.end());
+
+    // find right-most rowset which
+
+    return 0;
+}
+
+int InstanceChecker::do_delete_bitmap_storage_optimize_check() {
+    int64_t total_tablets_num {0};
+    int64_t failed_tablets_num {0};
+
+    // check that for every visible rowset, there exists at least delete one bitmap in MS
+    int ret = traverse_mow_tablet([&](int64_t tablet_id) {
+        ++total_tablets_num;
+        int res = check_delete_bitmap_integrity(tablet_id);
+        failed_tablets_num += (res != 0);
+        return res;
+    });
+
+    if (ret < 0) {
+        return ret;
+    }
+
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] check delete bitmap optimize for instance_id={}, "
+            "total_tablets_num={}, failed_tablets_num={}",
+            instance_id_, total_tablets_num, failed_tablets_num);
+
+    return (failed_tablets_num > 0) ? 1 : 0;
 }
 
 } // namespace doris::cloud

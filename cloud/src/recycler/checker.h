@@ -102,7 +102,8 @@ public:
     // Return negative if a temporary error occurred during the check process.
     int do_delete_bitmap_inverted_check();
 
-    // 4. check that https://github.com/apache/doris/pull/40204 works as expected
+    // checks if https://github.com/apache/doris/pull/40204 works as expected
+    int do_delete_bitmap_storage_optimize_check();
 
     // If there are multiple buckets, return the minimum lifecycle; if there are no buckets (i.e.
     // all accessors are HdfsAccessor), return INT64_MAX.
@@ -124,6 +125,10 @@ private:
         Version version;
 
         std::string to_string() const;
+        bool operator<(const RowsetDigest& other) const {
+            // these rowsets should be non-overlapping
+            return version.second < other.version.second;
+        }
     };
 
     int traverse_mow_tablet(const std::function<int(int64_t)>& check_func);
@@ -134,6 +139,8 @@ private:
 
     // check if all the visible rowsets have a corresponding delete bitmap
     int check_delete_bitmap_integrity(int64_t tablet_id);
+
+    int check_delete_bitmap_storage_optimize(int64_t tablet_id);
 
     std::atomic_bool stopped_ {false};
     std::shared_ptr<TxnKv> txn_kv_;
