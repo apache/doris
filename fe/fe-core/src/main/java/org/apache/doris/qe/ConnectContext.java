@@ -58,7 +58,6 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
-import org.apache.doris.system.Backend;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultSinkType;
@@ -225,7 +224,6 @@ public class ConnectContext {
     private Map<String, String> resultAttachedInfo = Maps.newHashMap();
 
     private String workloadGroupName = "";
-    private Map<Long, Backend> insertGroupCommitTableToBeMap = new HashMap<>();
     private boolean isGroupCommitStreamLoadSql;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
@@ -1137,14 +1135,6 @@ public class ConnectContext {
 
     public String getWorkloadGroupName() {
         return this.workloadGroupName;
-    }
-
-    public void setInsertGroupCommit(long tableId, Backend backend) {
-        insertGroupCommitTableToBeMap.put(tableId, backend);
-    }
-
-    public Backend getInsertGroupCommit(long tableId) {
-        return insertGroupCommitTableToBeMap.get(tableId);
     }
 
     public boolean isSkipAuth() {
