@@ -71,17 +71,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
 
     private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
-
-    // snapshotId ==> SchemaCacheValue
-    private Map<Long, PaimonSchemaCacheValue> snapshotCache = Maps.newHashMap();
-    // snapshotId ==> refNum
-    private Map<Long, AtomicInteger> snapshotIdRefs = Maps.newHashMap();
 
     public PaimonExternalTable(long id, String name, String dbName, PaimonExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.PAIMON_EXTERNAL_TABLE);
@@ -141,18 +135,10 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     private PaimonSchemaCacheValue getSchemaCacheBySnapshotId(long snapshotId) throws DdlException {
-        if (snapshotCache.containsKey(snapshotId)) {
-            return snapshotCache.get(snapshotId);
-        }
-        Optional<PaimonSchemaCacheValue> latestSchemaCache = getLatestSchemaCache();
-        if (latestSchemaCache.isPresent() && latestSchemaCache.get().getSnapshootId() == snapshotId) {
-            snapshotCache.put(snapshotId, latestSchemaCache.get());
-            return latestSchemaCache.get();
-        }
-        throw new DdlException("schema can not find by snapshotId: " + snapshotId);
+        return PaimonSnapshotCache.getSchemaCacheBySnapshotId(this, snapshotId);
     }
 
-    private Optional<PaimonSchemaCacheValue> getLatestSchemaCache() {
+    public Optional<PaimonSchemaCacheValue> getLatestSchemaCache() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         if (schemaCacheValue.isPresent()) {
@@ -172,20 +158,12 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public synchronized void ref(long snapshotId) {
-        if (snapshotIdRefs.containsKey(snapshotId)) {
-            snapshotIdRefs.get(snapshotId).getAndIncrement();
-        } else {
-            snapshotIdRefs.put(snapshotId, new AtomicInteger(1));
-        }
+    public void ref(long snapshotId) {
+        PaimonSnapshotCache.ref(this, snapshotId);
     }
 
-    public synchronized void unref(long snapshotId) {
-        int i = snapshotIdRefs.get(snapshotId).decrementAndGet();
-        if (i == 0) {
-            snapshotIdRefs.remove(snapshotId);
-            snapshotCache.remove(snapshotId);
-        }
+    public void unref(long snapshotId) {
+        PaimonSnapshotCache.unref(this, snapshotId);
     }
 
     @Override
