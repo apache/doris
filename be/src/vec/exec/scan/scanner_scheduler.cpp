@@ -277,6 +277,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
             bool first_read = true;
             // If the first block is full, then it is true. Or the first block + second block > batch_size
             bool has_first_full_block = false;
+            size_t block_avg_bytes = ctx->batch_size();
 
             // During low memory mode, every scan task will return at most 2 block to reduce memory usage.
             while (!eos && raw_bytes_read < raw_bytes_threshold &&
@@ -291,7 +292,25 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     config::doris_scanner_max_run_time_ms * 1e6) {
                     break;
                 }
-                BlockUPtr free_block = ctx->get_free_block(first_read);
+                DEFER_RELEASE_RESERVED();
+                BlockUPtr free_block;
+                if (first_read) {
+                    free_block = ctx->get_free_block(first_read);
+                } else {
+                    if (state->enable_reserve_memory()) {
+                        status = thread_context()->try_reserve_memory(block_avg_bytes);
+                        if (!status.ok()) {
+                            LOG(INFO) << "query: " << print_id(state->query_id())
+                                      << ", scanner try to reserve: "
+                                      << PrettyPrinter::print(block_avg_bytes, TUnit::BYTES)
+                                      << ", failed: " << status.to_string() << ", debug info: "
+                                      << GlobalMemoryArbitrator::process_mem_log_str();
+                            ctx->clear_free_blocks();
+                            break;
+                        }
+                    }
+                    free_block = ctx->get_free_block(first_read);
+                }
                 if (free_block == nullptr) {
                     break;
                 }
@@ -337,6 +356,12 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     }
                     ctx->inc_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
+                }
+                if (scan_task->cached_blocks.back().first->rows() > 0) {
+                    block_avg_bytes = (scan_task->cached_blocks.back().first->allocated_bytes() +
+                                       scan_task->cached_blocks.back().first->rows() - 1) /
+                                      scan_task->cached_blocks.back().first->rows() *
+                                      ctx->batch_size();
                 }
             } // end for while
 

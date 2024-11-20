@@ -553,9 +553,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
-    public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
-    public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
-    public static final String ENABLE_AGG_SPILL = "enable_agg_spill";
+    public static final String ENABLE_SPILL = "enable_spill";
+    public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
     public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
@@ -2133,28 +2132,20 @@ public class SessionVariable implements Serializable, Writable {
     public int maxFetchRemoteTabletCount = 512;
 
     @VariableMgr.VarAttr(
-            name = ENABLE_JOIN_SPILL,
-            description = {"控制是否启用join算子落盘。默认为 false。",
-                    "Controls whether to enable spill to disk of join operation. "
-                            + "The default value is false."},
+            name = ENABLE_RESERVE_MEMORY,
+            description = {"控制是否启用分配内存前先reverve memory的功能。默认为 true。",
+                    "Controls whether to enable reserve memory before allocating memory. "
+                            + "The default value is true."},
             needForward = true, fuzzy = true)
-    public boolean enableJoinSpill = false;
+    public boolean enableReserveMemory = true;
 
     @VariableMgr.VarAttr(
-            name = ENABLE_SORT_SPILL,
-            description = {"控制是否启用排序算子落盘。默认为 false。",
-                    "Controls whether to enable spill to disk of sort operation. "
+            name = ENABLE_SPILL,
+            description = {"控制是否启用查询算子落盘。默认为 false。",
+                    "Controls whether to enable spill to disk for query. "
                             + "The default value is false."},
             needForward = true, fuzzy = true)
-    public boolean enableSortSpill = false;
-
-    @VariableMgr.VarAttr(
-            name = ENABLE_AGG_SPILL,
-            description = {"控制是否启用聚合算子落盘。默认为 false。",
-                    "Controls whether to enable spill to disk of aggregation operation. "
-                            + "The default value is false."},
-            needForward = true, fuzzy = true)
-    public boolean enableAggSpill = false;
+    public boolean enableSpill = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_FORCE_SPILL,
@@ -2287,18 +2278,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableESParallelScroll;
     }
 
-    public boolean isEnableJoinSpill() {
-        return enableJoinSpill;
-    }
-
-    public void setEnableJoinSpill(boolean enableJoinSpill) {
-        this.enableJoinSpill = enableJoinSpill;
-    }
-
-    public boolean isEnableSortSpill() {
-        return enableSortSpill;
-    }
-
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     @SuppressWarnings("checkstyle:Indentation")
@@ -2428,10 +2407,8 @@ public class SessionVariable implements Serializable, Writable {
         // for spill to disk
         if (Config.pull_request_id > 10000) {
             if (Config.pull_request_id % 2 == 0) {
-                this.enableJoinSpill = true;
-                this.enableSortSpill = true;
-                this.enableAggSpill = true;
-
+                this.enableSpill = true;
+                this.enableReserveMemory = true;
                 randomInt = random.nextInt(4);
                 switch (randomInt) {
                     case 0:
@@ -2448,9 +2425,8 @@ public class SessionVariable implements Serializable, Writable {
                         break;
                 }
             } else {
-                this.enableJoinSpill = false;
-                this.enableSortSpill = false;
-                this.enableAggSpill = false;
+                this.enableSpill = false;
+                this.enableReserveMemory = false;
             }
         }
     }
@@ -3863,9 +3839,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
-        tResult.setEnableJoinSpill(enableJoinSpill);
-        tResult.setEnableSortSpill(enableSortSpill);
-        tResult.setEnableAggSpill(enableAggSpill);
+        tResult.setEnableReserveMemory(enableReserveMemory);
+        tResult.setEnableSpill(enableSpill);
         tResult.setEnableForceSpill(enableForceSpill);
         tResult.setExternalAggPartitionBits(externalAggPartitionBits);
         tResult.setMinRevocableMem(minRevocableMem);

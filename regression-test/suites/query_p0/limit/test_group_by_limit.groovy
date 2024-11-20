@@ -17,7 +17,7 @@
 
 suite("test_group_by_limit", "query") {
 
-sql 'set enable_agg_spill=false'
+sql 'set enable_spill=false'
 
 sql 'set enable_force_spill=false'
 

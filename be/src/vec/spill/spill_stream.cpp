@@ -116,7 +116,9 @@ Status SpillStream::prepare() {
 }
 
 SpillReaderUPtr SpillStream::create_separate_reader() const {
-    return std::make_unique<SpillReader>(stream_id_, writer_->get_file_path());
+    return std::make_unique<SpillReader>(
+            state_->get_query_ctx()->get_mem_tracker()->get_query_statistics(), stream_id_,
+            writer_->get_file_path());
 }
 
 const TUniqueId& SpillStream::query_id() const {

@@ -561,19 +561,13 @@ public:
                                             std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
-    bool enable_join_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_join_spill && _query_options.enable_join_spill);
+    bool enable_reserve_memory() const {
+        return _query_options.__isset.enable_reserve_memory && _query_options.enable_reserve_memory;
     }
 
-    bool enable_sort_spill() const {
+    bool enable_spill() const {
         return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill);
-    }
-
-    bool enable_agg_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
+               (_query_options.__isset.enable_spill && _query_options.enable_spill);
     }
 
     bool enable_force_spill() const {

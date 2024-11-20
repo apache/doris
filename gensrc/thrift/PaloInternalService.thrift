@@ -281,10 +281,13 @@ struct TQueryOptions {
 
   100: optional bool enable_distinct_streaming_aggregation = true;
 
+  // deprecated
   101: optional bool enable_join_spill = false
 
+  // deprecated
   102: optional bool enable_sort_spill = false
 
+  // deprecated
   103: optional bool enable_agg_spill = false
 
   104: optional i64 min_revocable_mem = 0
@@ -356,6 +359,11 @@ struct TQueryOptions {
   139: optional i32 query_slot_count = 0;
 
   140: optional bool enable_auto_create_when_overwrite = false;
+
+  141: optional bool enable_spill = false
+
+  142: optional bool enable_reserve_memory = true
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

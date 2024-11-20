@@ -1288,7 +1288,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
         /// PartitionedAggSourceOperatorX does not support "group by limit opt(#29641)" yet.
         /// If `group_by_limit_opt` is true, then it might not need to spill at all.
-        const bool enable_spill = _runtime_state->enable_agg_spill() &&
+        const bool enable_spill = _runtime_state->enable_spill() &&
                                   !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt;
 
         if (tnode.agg_node.aggregate_functions.empty() && !enable_spill &&
@@ -1382,8 +1382,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::HASH_JOIN_NODE: {
         const auto is_broadcast_join = tnode.hash_join_node.__isset.is_broadcast_join &&
                                        tnode.hash_join_node.is_broadcast_join;
-        const auto enable_join_spill = _runtime_state->enable_join_spill();
-        if (enable_join_spill && !is_broadcast_join) {
+        const auto enable_spill = _runtime_state->enable_spill();
+        if (enable_spill && !is_broadcast_join) {
             auto tnode_ = tnode;
             /// TODO: support rf in partitioned hash join
             tnode_.runtime_filters.clear();
@@ -1499,7 +1499,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        const auto should_spill = _runtime_state->enable_sort_spill() &&
+        const auto should_spill = _runtime_state->enable_spill() &&
                                   tnode.sort_node.algorithm == TSortAlgorithm::FULL_SORT;
         if (should_spill) {
             op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));

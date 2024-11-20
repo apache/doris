@@ -1154,7 +1154,7 @@ Status StreamingAggOperatorX::init(const TPlanNode& tnode, RuntimeState* state) 
         _aggregate_evaluators.push_back(evaluator);
     }
 
-    if (state->enable_agg_spill()) {
+    if (state->enable_spill()) {
         // If spill enabled, the streaming agg should not occupy too much memory.
         _spill_streaming_agg_mem_limit =
                 state->query_options().__isset.spill_streaming_agg_mem_limit
