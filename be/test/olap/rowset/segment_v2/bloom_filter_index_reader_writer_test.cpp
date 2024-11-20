@@ -32,6 +32,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "olap/decimal12.h"
+#include "olap/itoken_extractor.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_reader.h"
@@ -342,6 +343,204 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_primary_key_bloom_filter_index_int
     EXPECT_FALSE(st.ok());
     EXPECT_EQ(st.code(), TStatusCode::NOT_IMPLEMENTED_ERROR);
     delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_datev2) {
+    size_t num = 1024 * 3 - 1;
+    uint32_t* val = new uint32_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = 20210101 + i; // YYYYMMDD
+    }
+
+    std::string file_name = "bloom_filter_datev2";
+    uint32_t not_exist_value = 20211231;
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATEV2>(
+            file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_datetimev2) {
+    size_t num = 1024 * 3 - 1;
+    uint64_t* val = new uint64_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = 20210101000000 + i; // YYYYMMDDHHMMSS
+    }
+
+    std::string file_name = "bloom_filter_datetimev2";
+    uint64_t not_exist_value = 20211231235959;
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(
+            file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_decimal32) {
+    size_t num = 1024 * 3 - 1;
+    int32_t* val = new int32_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = static_cast<int32_t>(i * 100 + 1);
+    }
+
+    std::string file_name = "bloom_filter_decimal32";
+    int32_t not_exist_value = 99999;
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL32>(
+            file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
+void test_ngram_bloom_filter_index_reader_writer(const std::string& file_name, Slice* values,
+                                                 size_t num_values, uint8_t gram_size,
+                                                 uint16_t bf_size) {
+    ColumnIndexMetaPB meta;
+    {
+        auto type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_VARCHAR>();
+        auto fs = io::global_local_filesystem();
+        std::string fname = dname + "/" + file_name;
+        io::FileWriterPtr file_writer;
+        Status st = fs->create_file(fname, &file_writer);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+
+        BloomFilterOptions bf_options;
+        std::unique_ptr<BloomFilterIndexWriter> bf_index_writer;
+        st = NGramBloomFilterIndexWriterImpl::create(bf_options, type_info, gram_size, bf_size,
+                                                     &bf_index_writer);
+        EXPECT_TRUE(st.ok());
+
+        size_t i = 0;
+        {
+            size_t num = std::min(static_cast<size_t>(1024), num_values - i);
+            st = bf_index_writer->add_values(values + i, num);
+            EXPECT_TRUE(st.ok());
+            st = bf_index_writer->flush();
+            EXPECT_TRUE(st.ok());
+            i += num;
+        }
+        if (i < num_values) {
+            size_t num = num_values - i;
+            st = bf_index_writer->add_values(values + i, num);
+            EXPECT_TRUE(st.ok());
+            st = bf_index_writer->flush();
+            EXPECT_TRUE(st.ok());
+            i += num;
+        }
+
+        st = bf_index_writer->finish(file_writer.get(), &meta);
+        EXPECT_TRUE(st.ok()) << "writer finish status:" << st.to_string();
+        EXPECT_TRUE(file_writer->close().ok());
+    }
+    {
+        BloomFilterIndexReader* reader = nullptr;
+        std::unique_ptr<BloomFilterIndexIterator> iter;
+        get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
+
+        std::vector<std::string> test_patterns = {"ngram15", "ngram1000", "ngram1499",
+                                                  "non-existent-string"};
+
+        NgramTokenExtractor extractor(gram_size);
+        uint16_t gram_bf_size = bf_size;
+
+        {
+            std::unique_ptr<BloomFilter> bf;
+            auto st = iter->read_bloom_filter(0, &bf);
+            EXPECT_TRUE(st.ok());
+
+            for (const auto& pattern : test_patterns) {
+                std::unique_ptr<BloomFilter> query_bf;
+                st = BloomFilter::create(NGRAM_BLOOM_FILTER, &query_bf, gram_bf_size);
+                EXPECT_TRUE(st.ok());
+
+                if (extractor.string_like_to_bloom_filter(pattern.data(), pattern.size(),
+                                                          *query_bf)) {
+                    bool contains = bf->contains(*query_bf);
+                    bool expected = false;
+                    if (pattern == "ngram15" || pattern == "ngram1000") {
+                        expected = true;
+                    }
+                    EXPECT_EQ(contains, expected) << "Pattern: " << pattern;
+                }
+            }
+        }
+        {
+            if (num_values > 1024) {
+                std::unique_ptr<BloomFilter> bf;
+                auto st = iter->read_bloom_filter(1, &bf);
+                EXPECT_TRUE(st.ok());
+
+                for (const auto& pattern : test_patterns) {
+                    std::unique_ptr<BloomFilter> query_bf;
+                    st = BloomFilter::create(NGRAM_BLOOM_FILTER, &query_bf, gram_bf_size);
+                    EXPECT_TRUE(st.ok());
+
+                    if (extractor.string_like_to_bloom_filter(pattern.data(), pattern.size(),
+                                                              *query_bf)) {
+                        bool contains = bf->contains(*query_bf);
+                        bool expected = false;
+                        if (pattern == "ngram1499") {
+                            expected = true;
+                        }
+                        EXPECT_EQ(contains, expected) << "Pattern: " << pattern;
+                    }
+                }
+            }
+        }
+        delete reader;
+    }
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_ngram_bloom_filter) {
+    size_t num = 1500;
+    std::vector<std::string> val(num);
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = "ngram" + std::to_string(i);
+    }
+    std::vector<Slice> slices(num);
+    for (size_t i = 0; i < num; ++i) {
+        slices[i] = Slice(val[i].data(), val[i].size());
+    }
+
+    std::string file_name = "bloom_filter_ngram";
+    uint8_t gram_size = 5;
+    uint16_t bf_size = 65535;
+
+    test_ngram_bloom_filter_index_reader_writer(file_name, slices.data(), num, gram_size, bf_size);
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_empty_input) {
+    size_t num = 0;
+    int* val = nullptr;
+
+    std::string file_name = "bloom_filter_empty";
+    int not_exist_value = 0;
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_INT>(
+            file_name, val, num, 0, &not_exist_value);
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_null_values_only) {
+    size_t num = 0;
+    int* val = nullptr;
+
+    std::string file_name = "bloom_filter_null_only";
+    //int not_exist_value = 0;
+    ColumnIndexMetaPB meta;
+    write_bloom_filter_index_file<FieldType::OLAP_FIELD_TYPE_INT>(file_name, val, num, 1000, &meta);
+
+    BloomFilterIndexReader* reader = nullptr;
+    std::unique_ptr<BloomFilterIndexIterator> iter;
+    get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
+
+    std::unique_ptr<BloomFilter> bf;
+    auto st = iter->read_bloom_filter(0, &bf);
+    EXPECT_TRUE(st.ok());
+    EXPECT_TRUE(bf->has_null());
+    delete reader;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_unsupported_type) {
+    auto type_info = get_scalar_type_info<FieldType::OLAP_FIELD_TYPE_FLOAT>();
+    BloomFilterOptions bf_options;
+    std::unique_ptr<BloomFilterIndexWriter> bloom_filter_index_writer;
+    auto st = BloomFilterIndexWriter::create(bf_options, type_info, &bloom_filter_index_writer);
+    EXPECT_FALSE(st.ok());
+    EXPECT_EQ(st.code(), TStatusCode::NOT_IMPLEMENTED_ERROR);
 }
 
 } // namespace segment_v2
