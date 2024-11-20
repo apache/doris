@@ -83,13 +83,17 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
@@ -99,7 +103,6 @@ import java.util.stream.Collectors;
  * table info in creating table.
  */
 public class CreateTableInfo {
-
     public static final String ENGINE_OLAP = "olap";
     public static final String ENGINE_JDBC = "jdbc";
     public static final String ENGINE_ELASTICSEARCH = "elasticsearch";
@@ -110,6 +113,8 @@ public class CreateTableInfo {
     public static final String ENGINE_ICEBERG = "iceberg";
     private static final ImmutableSet<AggregateType> GENERATED_COLUMN_ALLOW_AGG_TYPE =
             ImmutableSet.of(AggregateType.REPLACE, AggregateType.REPLACE_IF_NOT_NULL);
+
+    private static final Logger LOG = LogManager.getLogger(CreateTableInfo.class);
 
     private final boolean ifNotExists;
     private String ctlName;
@@ -420,6 +425,35 @@ public class CreateTableInfo {
                         throw new AnalysisException(e.getMessage(), e.getCause());
                     }
                 }
+            }
+
+            try {
+                if (Config.random_add_cluster_keys_for_mow && isEnableMergeOnWrite && clusterKeysColumnNames.isEmpty()
+                        && PropertyAnalyzer.analyzeUseLightSchemaChange(new HashMap<>(properties))) {
+                    // exclude columns whose data type can not be cluster key, see {@link ColumnDefinition#validate}
+                    List<ColumnDefinition> clusterKeysCandidates = columns.stream().filter(c -> {
+                        DataType type = c.getType();
+                        return !(type.isFloatLikeType() || type.isStringType() || type.isArrayType()
+                                || type.isBitmapType() || type.isHllType() || type.isQuantileStateType()
+                                || type.isJsonType()
+                                || type.isVariantType()
+                                || type.isMapType()
+                                || type.isStructType());
+                    }).collect(Collectors.toList());
+                    if (clusterKeysCandidates.size() > 0) {
+                        clusterKeysColumnNames = new ArrayList<>();
+                        Random random = new Random();
+                        int randomClusterKeysCount = random.nextInt(clusterKeysCandidates.size()) + 1;
+                        Collections.shuffle(clusterKeysCandidates);
+                        for (int i = 0; i < randomClusterKeysCount; i++) {
+                            clusterKeysColumnNames.add(clusterKeysCandidates.get(i).getName());
+                        }
+                        LOG.info("Randomly add cluster keys for table {}.{}: {}",
+                                dbName, tableName, clusterKeysColumnNames);
+                    }
+                }
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage(), e.getCause());
             }
 
             validateKeyColumns();
@@ -830,7 +864,7 @@ public class CreateTableInfo {
                     break;
                 }
             }
-            if (sameKey) {
+            if (sameKey && !Config.random_add_cluster_keys_for_mow) {
                 throw new AnalysisException("Unique keys and cluster keys should be different.");
             }
             // check that cluster key column exists

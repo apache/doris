@@ -502,27 +502,9 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
-bool ColumnMap::could_shrinked_column() {
-    return keys_column->could_shrinked_column() || values_column->could_shrinked_column();
-}
-
-MutableColumnPtr ColumnMap::get_shrinked_column() {
-    MutableColumns new_columns(2);
-
-    if (keys_column->could_shrinked_column()) {
-        new_columns[0] = keys_column->get_shrinked_column();
-    } else {
-        new_columns[0] = keys_column->get_ptr();
-    }
-
-    if (values_column->could_shrinked_column()) {
-        new_columns[1] = values_column->get_shrinked_column();
-    } else {
-        new_columns[1] = values_column->get_ptr();
-    }
-
-    return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
-                             offsets_column->assume_mutable());
+void ColumnMap::shrink_padding_chars() {
+    keys_column->shrink_padding_chars();
+    values_column->shrink_padding_chars();
 }
 
 void ColumnMap::reserve(size_t n) {

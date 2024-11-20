@@ -1566,6 +1566,10 @@ Status BaseTablet::check_rowid_conversion(
         VLOG_DEBUG << "check_rowid_conversion, location_map is empty";
         return Status::OK();
     }
+    if (!tablet_schema()->cluster_key_idxes().empty()) {
+        VLOG_DEBUG << "skip check_rowid_conversion for mow tables with cluster keys";
+        return Status::OK();
+    }
     std::vector<segment_v2::SegmentSharedPtr> dst_segments;
 
     RETURN_IF_ERROR(

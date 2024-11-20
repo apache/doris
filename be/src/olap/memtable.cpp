@@ -385,8 +385,12 @@ Status MemTable::_sort_by_cluster_keys() {
     for (int i = 0; i < row_in_blocks.size(); i++) {
         row_pos_vec.emplace_back(row_in_blocks[i]->_row_pos);
     }
+    std::vector<int> column_offset;
+    for (int i = 0; i < _column_offset.size(); ++i) {
+        column_offset.emplace_back(i);
+    }
     return _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
-                                          row_pos_vec.data() + in_block.rows(), &_column_offset);
+                                          row_pos_vec.data() + in_block.rows(), &column_offset);
 }
 
 void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
