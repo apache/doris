@@ -1416,7 +1416,7 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
     }
 }
 
-Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) const {
+Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1432,7 +1432,7 @@ Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) c
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
+Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1447,7 +1447,7 @@ Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
+Status ColumnObject::serialize_one_row_to_json_format(int64_t row, rapidjson::StringBuffer* output,
                                                       bool* is_null) const {
     CHECK(is_finalized());
     if (subcolumns.empty()) {

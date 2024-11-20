@@ -82,6 +82,16 @@ suite("test_sql_block_rule", "nonConcurrent") {
         exception "sql match regex sql block rule: test_rule_sql"
     }
 
+    checkNereidsExecute("SHOW SQL_BLOCK_RULE")
+
+    qt_select1 """
+                SHOW SQL_BLOCK_RULE
+              """
+
+    qt_select2 """
+                SHOW SQL_BLOCK_RULE FOR test_rule_sql
+              """
+
     sql """
                 DROP SQL_BLOCK_RULE if exists test_rule_sql
               """
@@ -100,7 +110,7 @@ suite("test_sql_block_rule", "nonConcurrent") {
         exception "sql hits sql block rule: test_rule_num, reach tablet_num : 1"
     }
 */
-    qt_select """
+    qt_select3 """
                 SHOW SQL_BLOCK_RULE
               """
 

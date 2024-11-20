@@ -315,7 +315,9 @@ public:
         return false;
     }
 
-    uint32_t writeString(const char* str, uint32_t len) {
+    // TODO: here changed length to uint64_t, as some api also need changed, But the thirdparty api is uint_32t
+    // need consider a better way to handle case.
+    uint64_t writeString(const char* str, uint64_t len) {
         if (kvState_ == WS_String) {
             os_->write(str, len);
             return len;
@@ -324,9 +326,7 @@ public:
         return 0;
     }
 
-    uint32_t writeString(const std::string& str) {
-        return writeString(str.c_str(), (uint32_t)str.size());
-    }
+    uint32_t writeString(const std::string& str) { return writeString(str.c_str(), str.size()); }
     uint32_t writeString(char ch) {
         if (kvState_ == WS_String) {
             os_->put(ch);
@@ -372,7 +372,7 @@ public:
         return false;
     }
 
-    uint32_t writeBinary(const char* bin, uint32_t len) {
+    uint64_t writeBinary(const char* bin, uint64_t len) {
         if (kvState_ == WS_Binary) {
             os_->write(bin, len);
             return len;
@@ -483,8 +483,7 @@ public:
     }
 
     JsonbValue* getValue() {
-        return JsonbDocument::createValue(getOutput()->getBuffer(),
-                                          (uint32_t)getOutput()->getSize());
+        return JsonbDocument::createValue(getOutput()->getBuffer(), getOutput()->getSize());
     }
 
     bool writeEnd() {

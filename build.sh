@@ -506,9 +506,6 @@ fi
 
 # Assesmble FE modules
 FE_MODULES=''
-# TODO: docs are temporarily removed, so this var is always OFF
-# Fix it later
-BUILD_DOCS='OFF'
 modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
@@ -646,14 +643,6 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
     "${BUILD_SYSTEM}" install
     cd "${DORIS_HOME}"
     echo "Build cloud done"
-fi
-
-if [[ "${BUILD_DOCS}" = "ON" ]]; then
-    # Build docs, should be built before Frontend
-    echo "Build docs"
-    cd "${DORIS_HOME}/docs"
-    ./build_help_zip.sh
-    cd "${DORIS_HOME}"
 fi
 
 function build_ui() {
