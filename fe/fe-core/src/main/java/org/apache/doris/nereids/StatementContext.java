@@ -176,7 +176,7 @@ public class StatementContext implements Closeable {
 
     private Backend groupCommitMergeBackend;
 
-    private final Map<MvccTable,Long> refSnapshotIds = Maps.newHashMap();
+    private final Map<MvccTable, Long> refSnapshotIds = Maps.newHashMap();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -512,6 +512,11 @@ public class StatementContext implements Closeable {
         this.plannerHooks.add(plannerHook);
     }
 
+    /**
+     * refTables
+     *
+     * @param cascadesContext cascadesContext
+     */
     public void refTables(CascadesContext cascadesContext) {
         Map<List<String>, TableIf> tables = cascadesContext.getTables();
         if (tables == null) {
@@ -526,6 +531,9 @@ public class StatementContext implements Closeable {
         }
     }
 
+    /**
+     * unrefTables
+     */
     public void unrefTables() {
         for (Entry<MvccTable, Long> entry : refSnapshotIds.entrySet()) {
             entry.getKey().unref(entry.getValue());
@@ -540,10 +548,22 @@ public class StatementContext implements Closeable {
         return refSnapshotIds.get(mvccTable);
     }
 
+    /**
+     * setSnapshotId
+     *
+     * @param mvccTable mvccTable
+     * @param snapshotId snapshotId
+     */
     public void setSnapshotId(MvccTable mvccTable, long snapshotId) {
         refSnapshotIds.put(mvccTable, snapshotId);
     }
 
+    /**
+     * getSnapshotId
+     *
+     * @param mvccTable mvccTable
+     * @return snapshotId
+     */
     public long getSnapshotId(MvccTable mvccTable) {
         return refSnapshotIds.get(mvccTable);
     }
