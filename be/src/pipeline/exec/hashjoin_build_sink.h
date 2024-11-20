@@ -212,7 +212,7 @@ struct ProcessHashTableBuild {
         if ((JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
              JoinOpType == TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN) &&
             with_other_conjuncts) {
-            //null aware join with other conjuncts
+            // null aware join with other conjuncts
             keep_null_key = true;
         } else if (_parent->_shared_state->is_null_safe_eq_join.size() == 1 &&
                    _parent->_shared_state->is_null_safe_eq_join[0]) {

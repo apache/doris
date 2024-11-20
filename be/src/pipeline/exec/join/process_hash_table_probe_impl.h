@@ -195,7 +195,7 @@ template <int JoinOpType>
 template <bool need_judge_null, typename HashTableType, bool with_other_conjuncts,
           bool is_mark_join>
 Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_ctx,
-                                                     vectorized::ConstNullMapPtr null_map,
+                                                     const uint8_t* null_map,
                                                      vectorized::MutableBlock& mutable_block,
                                                      vectorized::Block* output_block,
                                                      uint32_t probe_rows, JoinProbeMethod method) {
@@ -208,8 +208,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     auto last_probe_index = probe_index;
     {
         SCOPED_TIMER(_init_probe_side_timer);
-        _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts,
-                                        null_map ? null_map->data() : nullptr, need_judge_null);
+        _init_probe_side<HashTableType>(hash_table_ctx, probe_rows, with_other_conjuncts, null_map,
+                                        need_judge_null);
     }
 
     auto& mcol = mutable_block.mutable_columns();
@@ -287,8 +287,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     output_block->swap(mutable_block.to_block());
 
     if constexpr (is_mark_join && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
-        return do_mark_join_conjuncts<with_other_conjuncts>(
-                output_block, hash_table_ctx.hash_table->get_bucket_size());
+        return do_mark_join_conjuncts<with_other_conjuncts>(output_block, null_map);
     } else if constexpr (with_other_conjuncts) {
         return do_other_join_conjuncts(output_block, hash_table_ctx.hash_table->get_visited(),
                                        hash_table_ctx.hash_table->has_null_key());
@@ -357,7 +356,7 @@ uint32_t ProcessHashTableProbe<JoinOpType>::_process_probe_null_key(uint32_t pro
 template <int JoinOpType>
 template <bool with_other_conjuncts>
 Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Block* output_block,
-                                                                 size_t hash_table_bucket_size) {
+                                                                 const uint8_t* null_map) {
     DCHECK(JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
            JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
            JoinOpType == TJoinOp::LEFT_SEMI_JOIN ||
@@ -378,6 +377,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
     auto& mark_column = assert_cast<vectorized::ColumnNullable&>(*mark_column_mutable);
     vectorized::IColumn::Filter& filter =
             assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column()).get_data();
+    uint8_t* mark_filter_data = nullptr;
+    uint8_t* mark_null_map = nullptr;
 
     if (_parent->_mark_join_conjuncts.empty()) {
         // For null aware anti/semi join, if the equal conjuncts was not matched and the build side has null value,
@@ -387,40 +388,46 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
         const bool should_be_null_if_build_side_has_null = *_has_null_in_build_side;
 
         mark_column.resize(row_count);
-        auto* filter_data = assert_cast<vectorized::ColumnUInt8&>(mark_column.get_nested_column())
-                                    .get_data()
-                                    .data();
-        auto* mark_null_map = mark_column.get_null_map_data().data();
+        mark_filter_data = filter.data();
+        mark_null_map = mark_column.get_null_map_data().data();
+
         int last_probe_matched = -1;
         for (size_t i = 0; i != row_count; ++i) {
-            filter_data[i] = _build_indexs[i] != 0 && _build_indexs[i] != hash_table_bucket_size;
+            mark_filter_data[i] = _build_indexs[i] != 0;
             if constexpr (is_null_aware_join) {
                 if constexpr (with_other_conjuncts) {
                     mark_null_map[i] = _null_flags[i];
                 } else {
-                    if (filter_data[i]) {
+                    if (mark_filter_data[i]) {
                         last_probe_matched = _probe_indexs[i];
                         mark_null_map[i] = false;
-                    } else if (_build_indexs[i] == 0) {
-                        mark_null_map[i] = should_be_null_if_build_side_has_null &&
-                                           last_probe_matched != _probe_indexs[i];
-                    } else if (_build_indexs[i] == hash_table_bucket_size) {
-                        mark_null_map[i] = true;
+                    } else {
+                        mark_null_map[i] = (should_be_null_if_build_side_has_null &&
+                                            last_probe_matched != _probe_indexs[i]);
                     }
                 }
+            } else {
+                mark_null_map[i] = false;
             }
         }
-        if constexpr (!is_null_aware_join) {
-            memset(mark_null_map, 0, row_count);
+
+        if (is_null_aware_join && null_map) {
+            for (size_t i = 0; i != row_count; ++i) {
+                mark_null_map[i] |= null_map[_probe_indexs[i]];
+            }
         }
     } else {
         RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
                 _parent->_mark_join_conjuncts, output_block, mark_column.get_null_map_column(),
                 filter));
-    }
-    auto* mark_null_map = mark_column.get_null_map_data().data();
 
-    auto* mark_filter_data = filter.data();
+        mark_filter_data = filter.data();
+        mark_null_map = mark_column.get_null_map_data().data();
+        // _build_idx is 0 mean mocked and not nullable
+        for (size_t i = 0; i != row_count; ++i) {
+            mark_null_map[i] &= _build_indexs[i] != 0;
+        }
+    }
 
     if constexpr (with_other_conjuncts) {
         vectorized::IColumn::Filter other_conjunct_filter(row_count, 1);
@@ -458,7 +465,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
             if (not_matched_before) {
                 bool has_null_mark_value = _parent->_last_probe_null_mark == _probe_indexs[i];
                 filter_map[i] = true;
-                mark_null_map[i] = has_null_mark_value || should_be_null_if_build_side_has_null;
+                mark_null_map[i] |= has_null_mark_value || should_be_null_if_build_side_has_null;
                 mark_filter_data[i] = false;
             }
         } else {
@@ -678,11 +685,17 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     // need_keep_null_bucket_idx is true means hash_table_ctx.bucket_nums may contains 'bucket_size' value
     bool need_keep_null_bucket_idx = false;
     if (null_map) {
-        if ((method == JoinProbeMethod::FIND_BATCH_CONJUNCT ||
-             method == JoinProbeMethod::FIND_BATCH_CONJUNCT_MATCH_ONE) &&
-            JoinOpType != TJoinOp::RIGHT_ANTI_JOIN && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
-            need_keep_null_bucket_idx = true;
-        } else if (method == JoinProbeMethod::FIND_BATCH_LEFT_SEMI_ANTI) {
+        if (!hash_table_ctx.hash_table->keep_null_key()) {
+            if ((method == JoinProbeMethod::FIND_BATCH_CONJUNCT ||
+                 method == JoinProbeMethod::FIND_BATCH_CONJUNCT_MATCH_ONE) &&
+                JoinOpType != TJoinOp::RIGHT_ANTI_JOIN && JoinOpType != TJoinOp::RIGHT_SEMI_JOIN) {
+                need_keep_null_bucket_idx = true;
+            } else if (method == JoinProbeMethod::FIND_BATCH_LEFT_SEMI_ANTI &&
+                       JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+                need_keep_null_bucket_idx = true;
+            }
+        }
+        if (method == JoinProbeMethod::FIND_NULL_AWARE_WITH_OTHER_CONJUNCTS) {
             need_keep_null_bucket_idx = true;
         }
     }
@@ -691,7 +704,8 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     std::visit(
             [&](auto is_mark_join, auto have_other_join_conjunct, auto need_judge_null) {
                 res = do_process<need_judge_null, HashTableType, have_other_join_conjunct,
-                                 is_mark_join>(hash_table_ctx, null_map, mutable_block,
+                                 is_mark_join>(hash_table_ctx,
+                                               null_map ? null_map->data() : nullptr, mutable_block,
                                                output_block, probe_rows, method);
             },
             vectorized::make_bool_variant(is_mark_join),

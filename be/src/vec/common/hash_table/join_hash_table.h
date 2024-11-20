@@ -93,6 +93,7 @@ public:
         if (!keep_null_key) {
             first[bucket_size] = 0; // index = bucket_size means null
         }
+        _keep_null_key = keep_null_key;
     }
 
     template <int JoinOpType>
@@ -285,6 +286,8 @@ public:
     }
 
     bool has_null_key() { return _has_null_key; }
+
+    bool keep_null_key() { return _keep_null_key; }
 
     void pre_build_idxs(std::vector<uint32>& buckets, const uint8_t* null_map) const {
         if (null_map) {
@@ -498,6 +501,7 @@ private:
     mutable uint32_t iter_idx = 1;
     vectorized::Arena* pool;
     bool _has_null_key = false;
+    bool _keep_null_key = false;
     bool _empty_build_side = true;
 };
 
