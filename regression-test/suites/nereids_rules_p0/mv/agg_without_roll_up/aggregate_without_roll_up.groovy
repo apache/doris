@@ -150,10 +150,10 @@ suite("aggregate_without_roll_up") {
             o_shippriority,
             o_comment;
             """
-    order_qt_query1_0_before "${query1_0}"
-    async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
-    order_qt_query1_0_after "${query1_0}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
+     order_qt_query1_0_before "${query1_0}"
+     async_mv_rewrite_success(db, mv1_0, query1_0, "mv1_0")
+     order_qt_query1_0_after "${query1_0}"
+     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
 
     def mv1_1 = "select O_SHIPPRIORITY, O_COMMENT, O_ORDERDATE, " +
@@ -1073,7 +1073,7 @@ suite("aggregate_without_roll_up") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_2"""
 
 
-    def mv22_0 = """
+        def mv22_0 = """
             select
             o_orderdate,
             l_partkey,
@@ -1106,7 +1106,7 @@ suite("aggregate_without_roll_up") {
     order_qt_query22_0_after "${query22_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22_0"""
 
-    // test combinator aggregate function rewrite
+   // test combinator aggregate function rewrite
     sql """set enable_agg_state=true"""
     // query has no combinator and mv has combinator
     // mv is union
