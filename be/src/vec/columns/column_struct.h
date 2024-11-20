@@ -80,7 +80,6 @@ public:
     static MutablePtr create(Arg&& arg) {
         return Base::create(std::forward<Arg>(arg));
     }
-    bool is_variable_length() const override { return true; }
     std::string get_name() const override;
     bool is_column_struct() const override { return true; }
     const char* get_family_name() const override { return "Struct"; }
@@ -89,7 +88,7 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
 
-    bool is_variable_length() const override { return true; }
+    [[nodiscard]] bool is_variable_length() const override { return true; }
 
     bool is_exclusive() const override {
         for (const auto& col : columns) {
