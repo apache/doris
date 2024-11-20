@@ -168,12 +168,7 @@ public:
         }
     }
 
-    ~MergeRangeFileReader() override {
-        delete[] _read_slice;
-        for (char* box : _boxes) {
-            delete[] box;
-        }
-    }
+    ~MergeRangeFileReader() override = default;
 
     Status close() override {
         if (!_closed) {
@@ -246,8 +241,8 @@ private:
     bool _closed = false;
     size_t _remaining;
 
-    char* _read_slice = nullptr;
-    std::vector<char*> _boxes;
+    std::unique_ptr<OwnedSlice> _read_slice;
+    std::vector<OwnedSlice> _boxes;
     int16 _last_box_ref = -1;
     uint32 _last_box_usage = 0;
     std::vector<int16> _box_ref;
