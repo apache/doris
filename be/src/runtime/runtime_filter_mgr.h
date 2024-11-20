@@ -102,10 +102,11 @@ public:
 
     Status register_local_merge_producer_filter(const TRuntimeFilterDesc& desc,
                                                 const TQueryOptions& options,
-                                                std::shared_ptr<IRuntimeFilter>* producer_filter,
+                                                std::shared_ptr<IRuntimeFilter> producer_filter,
                                                 bool build_bf_exactly = false);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeFilters** local_merge_filters);
+    LocalMergeFilters* get_local_merge_producer_filters(int filter_id);
 
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     std::shared_ptr<IRuntimeFilter>* producer_filter,
