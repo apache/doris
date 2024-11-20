@@ -20,6 +20,7 @@ require "logstash/outputs/base"
 require "logstash/namespace"
 require "logstash/json"
 require "logstash/util/shortname_resolver"
+require 'logstash/util/formater'
 require "uri"
 require "securerandom"
 require "json"
@@ -209,7 +210,15 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       rescue => _
         @logger.warn("doris stream load response: #{response} is not a valid JSON")
       end
-      if response_json["Status"] == "Success" || response_json["Status"] == "Publish Timeout"
+
+      status = response_json['Status']
+
+      if status == 'Label Already Exists'
+        @logger.warn("Label already exists: #{response_json['Label']}")
+        break
+      end
+
+      if status == "Success" || status == "Publish Timeout"
         @total_bytes.addAndGet(documents.size)
         @total_rows.addAndGet(event_num)
         break
@@ -309,12 +318,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
     elsif mapping.is_a?(Array)
       mapping.map { |elem| convert_mapping(elem, event) }
     else
-      s = event.sprintf(mapping)
-      if s == mapping
-        return nil
-      else
-        return s
-      end
+      Formater.sprintf(event, mapping)
     end
   end
 
