@@ -5,5 +5,11 @@ test_rule_sql	SELECT abcd FROM table_2	NULL	0	0	0	true	true
 -- !select2 --
 test_rule_sql	SELECT abcd FROM table_2	NULL	0	0	0	true	true
 
--- !select3 --
+-- !select3_notexist --
+
+-- !select4_exist --
+test_rule_sql	SELECT \\* FROM table_2	NULL	0	0	0	true	true
+test_rule_sql1	SELECT \\* FROM table_2	NULL	0	0	0	true	true
+
+-- !select5_not_exist --
 

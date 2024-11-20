@@ -20,53 +20,41 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.base.Strings;
+import java.util.List;
 
 /**
- * recover database command
+ * drop sql block rule command
  */
-public class RecoverDatabaseCommand extends RecoverCommand {
-    private final String dbName;
-    private final long dbId;
-    private final String newDbName;
+public class DropSqlBlockRuleCommand extends DropCommand {
+    private final boolean ifExists;
+    private List<String> ruleNames;
 
     /**
      * constructor
      */
-
-    public RecoverDatabaseCommand(String dbName, long dbId, String newDbName) {
-        super(PlanType.RECOVER_DATABASE_COMMAND);
-        this.dbName = dbName;
-        this.dbId = dbId;
-        this.newDbName = newDbName;
+    public DropSqlBlockRuleCommand(List<String> ruleNames, boolean ifExists) {
+        super(PlanType.DROP_SQL_BLOCK_RULE_COMMAND);
+        this.ruleNames = ruleNames;
+        this.ifExists = ifExists;
     }
 
     @Override
-    public void doRun(ConnectContext ctx, StmtExecutor executor) throws UserException {
-        if (Strings.isNullOrEmpty(dbName)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
+    public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // check auth
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
-
-        if (!Env.getCurrentEnv().getAccessManager()
-                .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
-                        PrivPredicate.ALTER_CREATE)) {
-            ErrorReport.reportAnalysisException(
-                    ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), dbName);
-        }
-
-        Env.getCurrentEnv().recoverDatabase(dbName, dbId, newDbName);
+        Env.getCurrentEnv().getSqlBlockRuleMgr().dropSqlBlockRule(ruleNames, ifExists);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitRecoverDatabaseCommand(this, context);
+        return visitor.visitDropSqlBlockRuleCommand(this, context);
     }
 }
