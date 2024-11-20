@@ -834,7 +834,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue, Block& bl
                     }
                     return Status::OK();
                 }
-                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
+                _set_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
                 column_ptr->insert_default();
             } else {
                 // not found, filling with default value
@@ -1619,7 +1619,7 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
                     }
                     return Status::OK();
                 }
-                _process_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
+                _set_skip_bitmap_mark(slot_desc, column_ptr, block, cur_row_count, valid);
                 column_ptr->insert_default();
             } else {
                 RETURN_IF_ERROR(_fill_missing_column(slot_desc, _serdes[i], column_ptr, valid));
@@ -2127,7 +2127,7 @@ void NewJsonReader::_append_empty_skip_bitmap_value(Block& block, size_t cur_row
     DCHECK(skip_bitmap_col_ptr->size() == cur_row_count + 1);
 }
 
-void NewJsonReader::_process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr,
+void NewJsonReader::_set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr,
                                               Block& block, size_t cur_row_count, bool* valid) {
     // we record the missing column's column unique id in skip bitmap
     // to indicate which columns need to do the alignment process
