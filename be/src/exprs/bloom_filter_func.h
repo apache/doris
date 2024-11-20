@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "exprs/block_bloom_filter.hpp"
 #include "exprs/runtime_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter.h" // IWYU pragma: keep
@@ -205,7 +207,7 @@ public:
 
     bool contain_null() const {
         if (!_bloom_filter) {
-            throw Status::InternalError("_bloom_filter is nullptr");
+            throw Exception(ErrorCode::INTERNAL_ERROR, "_bloom_filter is nullptr");
         }
         return _bloom_filter->contain_null();
     }
