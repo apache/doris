@@ -29,6 +29,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.MvccTable;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
@@ -70,6 +71,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -140,6 +142,7 @@ public class MTMVTask extends AbstractTask {
     private MTMVRelation relation;
     private StmtExecutor executor;
     private Map<String, MTMVRefreshPartitionSnapshot> partitionSnapshots;
+    private final Map<MvccTable, Long> refSnapshotIds = Maps.newHashMap();
 
     public MTMVTask() {
     }
@@ -218,6 +221,9 @@ public class MTMVTask extends AbstractTask {
             throws Exception {
         ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
         StatementContext statementContext = new StatementContext();
+        for (Entry<MvccTable, Long> entry : refSnapshotIds.entrySet()) {
+            statementContext.setSnapshotId(entry.getKey(), entry.getValue());
+        }
         ctx.setStatementContext(statementContext);
         TUniqueId queryId = generateQueryId();
         lastQueryId = DebugUtil.printId(queryId);
@@ -304,6 +310,12 @@ public class MTMVTask extends AbstractTask {
             if (tableIf instanceof MTMVBaseTableIf) {
                 MTMVBaseTableIf baseTableIf = (MTMVBaseTableIf) tableIf;
                 baseTableIf.beforeMTMVRefresh(mtmv);
+            }
+            if (tableIf instanceof MvccTable) {
+                MvccTable mvccTable = (MvccTable) tableIf;
+                long latestSnapshotId = mvccTable.getLatestSnapshotId();
+                refSnapshotIds.put(mvccTable, latestSnapshotId);
+                mvccTable.ref(latestSnapshotId);
             }
         }
     }
@@ -398,6 +410,9 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void after() {
+        for (Entry<MvccTable, Long> entry : refSnapshotIds.entrySet()) {
+            entry.getKey().unref(entry.getValue());
+        }
         if (mtmv != null) {
             Env.getCurrentEnv()
                     .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation,

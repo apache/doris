@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.MvccTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVRefreshContext;
@@ -47,6 +48,7 @@ import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.schema.TableSchema;
@@ -63,16 +65,23 @@ import org.apache.paimon.types.RowType;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf {
+public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
 
     private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
+
+    // snapshotId ==> SchemaCacheValue
+    private Map<Long, PaimonSchemaCacheValue> snapshotCache = Maps.newHashMap();
+    // snapshotId ==> refNum
+    private Map<Long, AtomicInteger> snapshotIdRefs = Maps.newHashMap();
 
     public PaimonExternalTable(long id, String name, String dbName, PaimonExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.PAIMON_EXTERNAL_TABLE);
@@ -89,10 +98,14 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         }
     }
 
-    public Table getPaimonTable() {
+    public Table getPaimonTable(long snapshotId) {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue.map(value -> ((PaimonSchemaCacheValue) value).getPaimonTable()).orElse(null);
+        if (!schemaCacheValue.isPresent()) {
+            return null;
+        }
+        return ((PaimonSchemaCacheValue) schemaCacheValue.get()).getPaimonTable().copy(
+                Collections.singletonMap(CoreOptions.SCAN_VERSION.key(), String.valueOf(snapshotId)));
     }
 
     private PaimonPartitionInfo getPartitionInfoFromCache() {
@@ -120,6 +133,59 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             throw new AnalysisException("not present");
         }
         return ((PaimonSchemaCacheValue) schemaCacheValue.get()).getSnapshootId();
+    }
+
+    // need ref/unref
+    public Map<String, PartitionItem> getPartitions(long snapshotId) throws DdlException {
+        return getSchemaCacheBySnapshotId(snapshotId).getPartitionInfo().getNameToPartitionItem();
+    }
+
+    private PaimonSchemaCacheValue getSchemaCacheBySnapshotId(long snapshotId) throws DdlException {
+        if (snapshotCache.containsKey(snapshotId)) {
+            return snapshotCache.get(snapshotId);
+        }
+        Optional<PaimonSchemaCacheValue> latestSchemaCache = getLatestSchemaCache();
+        if (latestSchemaCache.isPresent() && latestSchemaCache.get().getSnapshootId() == snapshotId) {
+            snapshotCache.put(snapshotId, latestSchemaCache.get());
+            return latestSchemaCache.get();
+        }
+        throw new DdlException("schema can not find by snapshotId: " + snapshotId);
+    }
+
+    private Optional<PaimonSchemaCacheValue> getLatestSchemaCache() {
+        makeSureInitialized();
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
+        if (schemaCacheValue.isPresent()) {
+            return Optional.of((PaimonSchemaCacheValue) schemaCacheValue.get());
+        } else {
+            return Optional.empty();
+        }
+    }
+
+    @Override
+    public long getLatestSnapshotId() {
+        try {
+            return getLatestSnapshotIdFromCache();
+        } catch (AnalysisException e) {
+            return -1L;
+        }
+    }
+
+    @Override
+    public synchronized void ref(long snapshotId) {
+        if (snapshotIdRefs.containsKey(snapshotId)) {
+            snapshotIdRefs.get(snapshotId).getAndIncrement();
+        } else {
+            snapshotIdRefs.put(snapshotId, new AtomicInteger(1));
+        }
+    }
+
+    public synchronized void unref(long snapshotId) {
+        int i = snapshotIdRefs.get(snapshotId).decrementAndGet();
+        if (i == 0) {
+            snapshotIdRefs.remove(snapshotId);
+            snapshotCache.remove(snapshotId);
+        }
     }
 
     @Override

@@ -24,6 +24,7 @@ import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.MvccTable;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
@@ -69,6 +70,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Stack;
@@ -173,6 +175,8 @@ public class StatementContext implements Closeable {
     private String disableJoinReorderReason;
 
     private Backend groupCommitMergeBackend;
+
+    private final Map<MvccTable,Long> refSnapshotIds = Maps.newHashMap();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -506,6 +510,42 @@ public class StatementContext implements Closeable {
 
     public void addPlannerHook(PlannerHook plannerHook) {
         this.plannerHooks.add(plannerHook);
+    }
+
+    public void refTables(CascadesContext cascadesContext) {
+        Map<List<String>, TableIf> tables = cascadesContext.getTables();
+        if (tables == null) {
+            return;
+        }
+        for (TableIf tableIf : tables.values()) {
+            if (tableIf instanceof MvccTable) {
+                MvccTable mvccTable = (MvccTable) tableIf;
+                long snapshotId = fetchSnapshotIdIfNotExist(mvccTable);
+                mvccTable.ref(snapshotId);
+            }
+        }
+    }
+
+    public void unrefTables() {
+        for (Entry<MvccTable, Long> entry : refSnapshotIds.entrySet()) {
+            entry.getKey().unref(entry.getValue());
+        }
+    }
+
+    private long fetchSnapshotIdIfNotExist(MvccTable mvccTable) {
+        if (!refSnapshotIds.containsKey(mvccTable)) {
+            long snapshotId = mvccTable.getLatestSnapshotId();
+            refSnapshotIds.put(mvccTable, snapshotId);
+        }
+        return refSnapshotIds.get(mvccTable);
+    }
+
+    public void setSnapshotId(MvccTable mvccTable, long snapshotId) {
+        refSnapshotIds.put(mvccTable, snapshotId);
+    }
+
+    public long getSnapshotId(MvccTable mvccTable) {
+        return refSnapshotIds.get(mvccTable);
     }
 
     private static class CloseableResource implements Closeable {
