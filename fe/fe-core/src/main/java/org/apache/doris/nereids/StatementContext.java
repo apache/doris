@@ -515,10 +515,9 @@ public class StatementContext implements Closeable {
     /**
      * refTables
      *
-     * @param cascadesContext cascadesContext
+     * @param tables tables
      */
-    public void refTables(CascadesContext cascadesContext) {
-        Map<List<String>, TableIf> tables = cascadesContext.getTables();
+    public void refTables(Map<List<String>, TableIf> tables) {
         if (tables == null) {
             return;
         }

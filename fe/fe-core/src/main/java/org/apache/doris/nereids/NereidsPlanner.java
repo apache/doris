@@ -216,7 +216,7 @@ public class NereidsPlanner extends Planner {
             plan = preprocess(plan);
 
             initCascadesContext(plan, requireProperties);
-            statementContext.refTables(cascadesContext);
+            statementContext.refTables(cascadesContext.getOrExtractTables(plan));
             try (Lock lock = new Lock(plan, cascadesContext)) {
                 Plan resultPlan = planWithoutLock(plan, explainLevel, showPlanProcess, requireProperties);
                 lockCallback.accept(resultPlan);
