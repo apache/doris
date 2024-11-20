@@ -70,6 +70,7 @@ import org.apache.doris.statistics.StatisticsBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
+import org.apache.commons.collections.MapUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -463,7 +464,7 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public Map<List<String>, TableIf> getOrExtractTables(LogicalPlan logicalPlan) {
-        if (tables == null) {
+        if (MapUtils.isEmpty(tables)) {
             extractTables(logicalPlan);
         }
         return tables;
