@@ -434,7 +434,7 @@ DEFINE_mInt32(multi_get_max_threads, "10");
 DEFINE_mInt64(total_permits_for_compaction_score, "10000");
 
 // sleep interval in ms after generated compaction tasks
-DEFINE_mInt32(generate_compaction_tasks_interval_ms, "10");
+DEFINE_mInt32(generate_compaction_tasks_interval_ms, "100");
 
 // sleep interval in second after update replica infos
 DEFINE_mInt32(update_replica_infos_interval_seconds, "60");
