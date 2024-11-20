@@ -963,7 +963,7 @@ public class BindExpression implements AnalysisRuleFactory {
     private Scope toScope(CascadesContext cascadesContext, List<? extends Slot> slots) {
         Optional<Scope> outerScope = cascadesContext.getOuterScope();
         if (outerScope.isPresent()) {
-            return new Scope(outerScope, slots, outerScope.get().getSubquery());
+            return new Scope(outerScope, slots);
         } else {
             return new Scope(slots);
         }

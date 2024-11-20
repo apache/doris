@@ -20,6 +20,7 @@
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/functions/function.h"
+#include <atomic>
 
 namespace doris {
 namespace vectorized {
@@ -57,7 +58,7 @@ public:
 
     Status execute(VExprContext* context, Block* block, int* result_column_id) override {
         DCHECK(_open_finished || _getting_const_col);
-        *result_column_id = _column_id;
+        *result_column_id = _column_id + _gap;
         return Status::OK();
     }
 
@@ -66,6 +67,12 @@ public:
     int column_id() const { return _column_id; }
 
     const std::string& expr_name() const override { return _column_name; }
+
+    void set_gap(int gap) {
+        if (_gap == 0) {
+            _gap = gap;
+        }
+    }
 
     std::string debug_string() const override {
         std::stringstream out;
@@ -76,6 +83,7 @@ public:
 
 private:
     int _column_id;
+    std::atomic<int> _gap = 0;
     std::string _column_name;
 };
 } // namespace vectorized
