@@ -32,6 +32,7 @@ OPTS="$(getopt \
     -l 'daemon' \
     -l 'console' \
     -l 'version' \
+    -l 'benchmark' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -39,6 +40,8 @@ eval set -- "${OPTS}"
 RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
+RUN_BENCHMARK=0
+
 while true; do
     case "$1" in
     --daemon)
@@ -51,6 +54,10 @@ while true; do
         ;;
     --version)
         RUN_VERSION=1
+        shift
+        ;;
+    --benchmark)
+        RUN_BENCHMARK=1
         shift
         ;;
     --)
@@ -293,7 +300,7 @@ fi
 
 pidfile="${PID_DIR}/be.pid"
 
-if [[ -f "${pidfile}" ]]; then
+if [[ -f "${pidfile}" && "${RUN_BENCHMARK}" -eq 0 ]]; then
     if kill -0 "$(cat "${pidfile}")" >/dev/null 2>&1; then
         echo "Backend is already running as process $(cat "${pidfile}"), stop it first"
         exit 1
@@ -419,7 +426,13 @@ else
     export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
 fi
 
-if [[ "${RUN_DAEMON}" -eq 1 ]]; then
+if [[ "${RUN_BENCHMARK}" -eq 1 ]]; then
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+    else
+        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+    fi
+elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         nohup env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
     else
