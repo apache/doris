@@ -278,7 +278,7 @@ suite("grace_period") {
     // allow 10s staleness when partition table, and query use the partition changed, should success,
     // but disable materialized view rewrite, should fail
     mv_not_part_in(
-            """
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -293,7 +293,7 @@ suite("grace_period") {
     // allow 10s staleness when partition table, and query doesn't use the partition changed,
     // but disable materialized view rewrite, should fail
     mv_not_part_in(
-            """
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -309,7 +309,7 @@ suite("grace_period") {
     Thread.sleep(15000);
     // after 10s when partition table, and query use the partition changed, should fail
     mv_rewrite_fail(
-            """
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -374,7 +374,7 @@ suite("grace_period") {
             is_partition_statistics_ready(db, ["lineitem_partition", "orders_partition", mv_un_partition_allow_staleness_name]))
     // allow 10s staleness when un partition table, should success
     mv_rewrite_success (
-            """
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -418,7 +418,7 @@ suite("grace_period") {
     Thread.sleep(15000);
     // after 10s when un partition table, and query use the partition changed, should fail
     mv_not_part_in(
-            """
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
@@ -432,7 +432,7 @@ suite("grace_period") {
         """, mv_un_partition_allow_staleness_name)
     // after 10s when un partition table, and query doesn't use the partition changed, should fail
     mv_not_part_in(
-            """
+        """
         select l_shipdate, o_orderdate, l_partkey,
         l_suppkey, sum(o_totalprice) as sum_total
         from lineitem_partition
