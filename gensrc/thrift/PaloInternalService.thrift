@@ -281,10 +281,13 @@ struct TQueryOptions {
 
   100: optional bool enable_distinct_streaming_aggregation = true;
 
+  // deprecated
   101: optional bool enable_join_spill = false
 
+  // deprecated
   102: optional bool enable_sort_spill = false
 
+  // deprecated
   103: optional bool enable_agg_spill = false
 
   104: optional i64 min_revocable_mem = 0
@@ -333,9 +336,7 @@ struct TQueryOptions {
   125: optional bool enable_segment_cache = true;
 
   126: optional i32 runtime_bloom_filter_max_size = 16777216;
-
   127: optional i32 in_list_value_count_threshold = 10;
-
   // We need this two fields to make sure thrift id on master is compatible with other branch.
   128: optional bool enable_verbose_profile = false;
   129: optional i32 rpc_verbose_profile_max_instance_count = 0;
@@ -350,7 +351,7 @@ struct TQueryOptions {
   135: optional bool enable_parallel_outfile = false;
 
   136: optional bool enable_phrase_query_sequential_opt = true;
-
+  
   137: optional bool enable_auto_create_when_overwrite = false;
 
   138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
@@ -358,6 +359,15 @@ struct TQueryOptions {
   140: optional i64 orc_max_merge_distance_bytes = 1048576;
 
   141: optional bool ignore_runtime_filter_error = false;
+
+  // The minimum memory that an operator required to run.
+  142: optional i32 minimum_operator_memory_required_kb = 1024;
+
+  143: optional bool enable_mem_overcommit = true;
+  144: optional i32 query_slot_count = 0;
+  145: optional bool enable_spill = false
+  146: optional bool enable_reserve_memory = true
+
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

@@ -118,7 +118,7 @@ DEFINE_String(mem_limit, "90%");
 DEFINE_Double(soft_mem_limit_frac, "0.9");
 
 // Cache capacity reduce mem limit as a fraction of soft mem limit.
-DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.6");
+DEFINE_mDouble(cache_capacity_reduce_mem_limit_frac, "0.7");
 
 // Schema change memory limit as a fraction of soft memory limit.
 DEFINE_Double(schema_change_mem_limit_frac, "0.6");

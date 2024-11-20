@@ -19,10 +19,14 @@
 
 #include <string>
 
+#include "common/cast_set.h"
+#include "common/exception.h"
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_task.h"
+#include "util/pretty_printer.h"
+#include "vec/core/block.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -106,6 +110,87 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(_open_timer);
     RETURN_IF_ERROR(JoinBuildSinkLocalState::open(state));
     return Status::OK();
+}
+
+size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    if (!_should_build_hash_table) {
+        return 0;
+    }
+
+    if (_shared_state->build_block) {
+        return 0;
+    }
+
+    size_t size_to_reserve = 0;
+
+    const size_t build_block_rows = _build_side_mutable_block.rows();
+    if (build_block_rows != 0) {
+        const auto bytes = _build_side_mutable_block.bytes();
+        const auto allocated_bytes = _build_side_mutable_block.allocated_bytes();
+        const auto bytes_per_row = bytes / build_block_rows;
+        const auto estimated_size_of_next_block = bytes_per_row * state->batch_size();
+        // If the new size is greater than 85% of allocalted bytes, it maybe need to realloc.
+        if (((estimated_size_of_next_block + bytes) * 100 / allocated_bytes) >= 85) {
+            size_to_reserve += static_cast<size_t>(static_cast<double>(allocated_bytes) * 1.15);
+        }
+    }
+
+    if (eos) {
+        const size_t rows = build_block_rows + state->batch_size();
+        const auto bucket_size = JoinHashTable<StringRef>::calc_bucket_size(rows);
+
+        size_to_reserve += bucket_size * sizeof(uint32_t); // JoinHashTable::first
+        size_to_reserve += rows * sizeof(uint32_t);        // JoinHashTable::next
+
+        auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
+        if (p._join_op == TJoinOp::FULL_OUTER_JOIN || p._join_op == TJoinOp::RIGHT_OUTER_JOIN ||
+            p._join_op == TJoinOp::RIGHT_ANTI_JOIN || p._join_op == TJoinOp::RIGHT_SEMI_JOIN) {
+            size_to_reserve += rows * sizeof(uint8_t); // JoinHashTable::visited
+        }
+        size_to_reserve += _evaluate_mem_usage;
+
+        vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
+
+        if (build_block_rows > 0) {
+            auto block = _build_side_mutable_block.to_block();
+            Defer defer([&]() {
+                _build_side_mutable_block = vectorized::MutableBlock(std::move(block));
+            });
+            vectorized::ColumnUInt8::MutablePtr null_map_val;
+            if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
+                _convert_block_to_null(block);
+                // first row is mocked
+                for (int i = 0; i < block.columns(); i++) {
+                    auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
+                    assert_cast<vectorized::ColumnNullable*>(column->assume_mutable().get())
+                            ->get_null_map_column()
+                            .get_data()
+                            .data()[0] = 1;
+                }
+            }
+
+            null_map_val = vectorized::ColumnUInt8::create();
+            null_map_val->get_data().assign(build_block_rows, (uint8_t)0);
+
+            // Get the key column that needs to be built
+            Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
+            if (!st.ok()) {
+                throw Exception(st);
+            }
+
+            std::visit(vectorized::Overload {[&](std::monostate& arg) {
+                                                 LOG(FATAL) << "FATAL: uninited hash table";
+                                                 __builtin_unreachable();
+                                             },
+                                             [&](auto&& hash_map_context) {
+                                                 size_to_reserve += hash_map_context.estimated_size(
+                                                         raw_ptrs, block.rows(), true, true,
+                                                         bucket_size);
+                                             }},
+                       _shared_state->hash_table_variants->method_variant);
+        }
+    }
+    return size_to_reserve;
 }
 
 Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_status) {
@@ -202,6 +287,7 @@ Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
                                                  vectorized::VExprContextSPtrs& exprs,
                                                  RuntimeProfile::Counter& expr_call_timer,
                                                  std::vector<int>& res_col_ids) {
+    auto origin_size = block.allocated_bytes();
     for (size_t i = 0; i < exprs.size(); ++i) {
         int result_col_id = -1;
         // execute build column
@@ -215,6 +301,8 @@ Status HashJoinBuildSinkLocalState::_do_evaluate(vectorized::Block& block,
                 block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
         res_col_ids[i] = result_col_id;
     }
+
+    _evaluate_mem_usage = block.allocated_bytes() - origin_size;
     return Status::OK();
 }
 
@@ -265,6 +353,11 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     if (UNLIKELY(rows == 0)) {
         return Status::OK();
     }
+
+    LOG(INFO) << "build block rows: " << block.rows() << ", columns count: " << block.columns()
+              << ", bytes/allocated_bytes: " << PrettyPrinter::print_bytes(block.bytes()) << "/"
+              << PrettyPrinter::print_bytes(block.allocated_bytes());
+
     block.replace_if_overflow();
 
     vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
@@ -289,9 +382,9 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     }
 
     // Get the key column that needs to be built
-    Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
+    RETURN_IF_ERROR(_extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids));
 
-    st = std::visit(
+    Status st = std::visit(
             vectorized::Overload {
                     [&](std::monostate& arg, auto join_op,
                         auto short_circuit_for_null_in_build_side,
@@ -320,7 +413,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
             _shared_state->hash_table_variants->method_variant, _shared_state->join_op_variants,
             vectorized::make_bool_variant(p._short_circuit_for_null_in_build_side),
             vectorized::make_bool_variant((p._have_other_join_conjunct)));
-
     return st;
 }
 
@@ -578,6 +670,16 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     }
 
     return Status::OK();
+}
+
+size_t HashJoinBuildSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state.get_reserve_mem_size(state, eos);
+}
+
+size_t HashJoinBuildSinkOperatorX::get_memory_usage(RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return local_state._memory_used_counter->value();
 }
 
 } // namespace doris::pipeline

@@ -45,6 +45,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "runtime/task_execution_context.h"
+#include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/columns_number.h"
@@ -61,6 +62,7 @@ class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
 class PipelineTask;
+class Dependency;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -450,6 +452,7 @@ public:
     QueryContext* get_query_ctx() { return _query_ctx; }
 
     std::weak_ptr<QueryContext> get_query_ctx_weak();
+    WorkloadGroupPtr workload_group();
 
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
@@ -569,19 +572,13 @@ public:
                                             std::shared_ptr<IRuntimeFilter>* producer_filter);
     bool is_nereids() const;
 
-    bool enable_join_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_join_spill && _query_options.enable_join_spill);
+    bool enable_reserve_memory() const {
+        return _query_options.__isset.enable_reserve_memory && _query_options.enable_reserve_memory;
     }
 
-    bool enable_sort_spill() const {
+    bool enable_spill() const {
         return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_sort_spill && _query_options.enable_sort_spill);
-    }
-
-    bool enable_agg_spill() const {
-        return (_query_options.__isset.enable_force_spill && _query_options.enable_force_spill) ||
-               (_query_options.__isset.enable_agg_spill && _query_options.enable_agg_spill);
+               (_query_options.__isset.enable_spill && _query_options.enable_spill);
     }
 
     bool enable_force_spill() const {
@@ -598,6 +595,15 @@ public:
             return std::max(_query_options.min_revocable_mem, (int64_t)1);
         }
         return 1;
+    }
+
+    size_t minimum_operator_memory_required_bytes() const {
+        if (_query_options.__isset.minimum_operator_memory_required_kb) {
+            return _query_options.minimum_operator_memory_required_kb * 1024;
+        } else {
+            // refer other database
+            return 100 * 1024;
+        }
     }
 
     void set_max_operator_id(int max_operator_id) { _max_operator_id = max_operator_id; }

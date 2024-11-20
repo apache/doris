@@ -245,13 +245,23 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
 }
 
 void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
-    if (block->mem_reuse() && _block_memory_usage < _max_bytes_in_queue) {
+    // If under low memory mode, should not return the freeblock, it will occupy too much memory.
+    if (!_local_state->low_memory_mode() && block->mem_reuse() &&
+        _block_memory_usage < _max_bytes_in_queue) {
         size_t block_size_to_reuse = block->allocated_bytes();
         _block_memory_usage += block_size_to_reuse;
         _scanner_memory_used_counter->set(_block_memory_usage);
         block->clear_column_data();
         _free_blocks.enqueue(std::move(block));
     }
+}
+
+void ScannerContext::clear_free_blocks() {
+    vectorized::BlockUPtr block;
+    while (_free_blocks.try_dequeue(block)) {
+        // do nothing
+    }
+    block.reset();
 }
 
 Status ScannerContext::submit_scan_task(std::shared_ptr<ScanTask> scan_task) {
@@ -332,37 +342,54 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 _num_finished_scanners++;
                 std::weak_ptr<ScannerDelegate> next_scanner;
                 // submit one of the remaining scanners
-                if (_scanners.try_dequeue(next_scanner)) {
-                    auto submit_status = submit_scan_task(std::make_shared<ScanTask>(next_scanner));
+                // If under low memory mode, then there should be at most 4 scanner running
+                if (_num_running_scanners > low_memory_mode_scanners() &&
+                    _local_state->low_memory_mode()) {
+                    _num_running_scanners--;
+                } else {
+                    if (_scanners.try_dequeue(next_scanner)) {
+                        auto submit_status =
+                                submit_scan_task(std::make_shared<ScanTask>(next_scanner));
+                        if (!submit_status.ok()) {
+                            _process_status = submit_status;
+                            _set_scanner_done();
+                            return _process_status;
+                        }
+                    } else {
+                        // no more scanner to be scheduled
+                        // `_free_blocks` serve all running scanners, maybe it's too large for the remaining scanners
+                        int free_blocks_for_each =
+                                _free_blocks.size_approx() / _num_running_scanners;
+                        _num_running_scanners--;
+                        for (int i = 0; i < free_blocks_for_each; ++i) {
+                            vectorized::BlockUPtr removed_block;
+                            if (_free_blocks.try_dequeue(removed_block)) {
+                                _block_memory_usage -= block->allocated_bytes();
+                            }
+                        }
+                    }
+                }
+            } else {
+                if (_local_state->low_memory_mode() &&
+                    _num_running_scanners > low_memory_mode_scanners()) {
+                    _num_running_scanners--;
+                    // push the scanner to the stack since it is not eos
+                    _scanners.enqueue(scan_task->scanner);
+                } else {
+                    // resubmit current running scanner to read the next block
+                    Status submit_status = submit_scan_task(scan_task);
                     if (!submit_status.ok()) {
                         _process_status = submit_status;
                         _set_scanner_done();
                         return _process_status;
                     }
-                } else {
-                    // no more scanner to be scheduled
-                    // `_free_blocks` serve all running scanners, maybe it's too large for the remaining scanners
-                    int free_blocks_for_each = _free_blocks.size_approx() / _num_running_scanners;
-                    _num_running_scanners--;
-                    for (int i = 0; i < free_blocks_for_each; ++i) {
-                        vectorized::BlockUPtr removed_block;
-                        if (_free_blocks.try_dequeue(removed_block)) {
-                            _block_memory_usage -= block->allocated_bytes();
-                        }
-                    }
-                }
-            } else {
-                // resubmit current running scanner to read the next block
-                Status submit_status = submit_scan_task(scan_task);
-                if (!submit_status.ok()) {
-                    _process_status = submit_status;
-                    _set_scanner_done();
-                    return _process_status;
                 }
             }
         }
-        // scale up
-        RETURN_IF_ERROR(_try_to_scale_up());
+        if (!_local_state->low_memory_mode()) {
+            // scale up
+            RETURN_IF_ERROR(_try_to_scale_up());
+        }
     }
 
     if (_num_finished_scanners == _all_scanners.size() && _tasks_queue.empty()) {
@@ -534,6 +561,10 @@ void ScannerContext::_set_scanner_done() {
 
 void ScannerContext::update_peak_running_scanner(int num) {
     _local_state->_peak_running_scanner->add(num);
+}
+
+bool ScannerContext::low_memory_mode() const {
+    return _local_state->low_memory_mode();
 }
 
 } // namespace doris::vectorized

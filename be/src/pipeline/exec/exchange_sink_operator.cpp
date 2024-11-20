@@ -107,7 +107,7 @@ void ExchangeSinkLocalState::on_channel_finished(InstanceLoId channel_id) {
     std::lock_guard<std::mutex> lock(_finished_channels_mutex);
 
     if (_finished_channels.contains(channel_id)) {
-        LOG(WARNING) << "query: " << print_id(_state->query_id())
+        LOG(WARNING) << "Query: " << print_id(_state->query_id())
                      << ", on_channel_finished on already finished channel: " << channel_id;
         return;
     } else {
@@ -151,7 +151,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 
     if (!only_local_exchange) {
         _sink_buffer = std::make_unique<ExchangeSinkBuffer>(id, p._dest_node_id, _sender_id,
-                                                            _state->be_number(), state, this);
+                                                            _parent->node_id(), _state->be_number(),
+                                                            state, this);
         register_channels(_sink_buffer.get());
         _queue_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
                                                       "ExchangeSinkQueueDependency", true);
@@ -162,7 +163,6 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
         !only_local_exchange) {
         _broadcast_dependency = Dependency::create_shared(
                 _parent->operator_id(), _parent->node_id(), "BroadcastDependency", true);
-        _sink_buffer->set_broadcast_dependency(_broadcast_dependency);
         _broadcast_pb_mem_limiter =
                 vectorized::BroadcastPBlockHolderMemLimiter::create_shared(_broadcast_dependency);
     } else if (local_size > 0) {
@@ -386,6 +386,11 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         return Status::EndOfFile("all data stream channels EOF");
     }
 
+    // When `local_state.only_local_exchange` the `sink_buffer` is nullptr.
+    if (state->get_query_ctx()->low_memory_mode() && local_state._sink_buffer != nullptr) {
+        local_state._sink_buffer->set_low_memory_mode();
+    }
+
     if (_part_type == TPartitionType::UNPARTITIONED || local_state.channels.size() == 1) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
@@ -424,6 +429,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                         block_holder->reset_block();
                     }
 
+                    if (state->get_query_ctx()->low_memory_mode()) {
+                        local_state._broadcast_pb_mem_limiter->set_low_memory_mode();
+                    }
                     local_state._broadcast_pb_mem_limiter->acquire(*block_holder);
 
                     size_t idx = 0;

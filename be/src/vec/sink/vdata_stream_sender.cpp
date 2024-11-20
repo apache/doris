@@ -102,9 +102,7 @@ Status Channel::open(RuntimeState* state) {
         }
     }
     _be_number = state->be_number();
-
     _brpc_timeout_ms = get_execution_rpc_timeout_ms(state->execution_timeout());
-
     _serializer.set_is_local(_is_local);
 
     // In bucket shuffle join will set fragment_instance_id (-1, -1)

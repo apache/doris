@@ -371,6 +371,8 @@ public:
 
     [[nodiscard]] virtual bool is_file_scan_operator() const { return false; }
 
+    [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state) override;
+
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;
     }

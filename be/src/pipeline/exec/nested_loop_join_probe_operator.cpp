@@ -479,6 +479,7 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
                                           bool eos) const {
     auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state._probe_rows_counter, block->rows());
+    SCOPED_PEAK_MEM(&local_state.estimate_memory_usage());
     local_state._cur_probe_row_visited_flags.resize(block->rows());
     std::fill(local_state._cur_probe_row_visited_flags.begin(),
               local_state._cur_probe_row_visited_flags.end(), 0);
@@ -506,10 +507,12 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                                           bool* eos) const {
     auto& local_state = get_local_state(state);
     if (_is_output_left_side_only) {
+        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
         RETURN_IF_ERROR(local_state._build_output_block(local_state._child_block.get(), block));
         *eos = local_state._shared_state->left_side_eos;
         local_state._need_more_input_data = !local_state._shared_state->left_side_eos;
     } else {
+        SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
         *eos = ((_match_all_build || _is_right_semi_anti)
                         ? local_state._output_null_idx_build_side ==
                                           local_state._shared_state->build_blocks.size() &&
@@ -521,9 +524,10 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
             local_state.add_tuple_is_null_column(&local_state._join_block);
             {
                 SCOPED_TIMER(local_state._join_filter_timer);
-                RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
-                        local_state._conjuncts, &local_state._join_block,
-                        local_state._join_block.columns()));
+
+                RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts,
+                                                         &local_state._join_block,
+                                                         local_state._join_block.columns()));
             }
             RETURN_IF_ERROR(
                     local_state._build_output_block(&local_state._join_block, block, false));
@@ -539,6 +543,7 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
                                 state, join_op_variants);
             };
             SCOPED_TIMER(local_state._loop_join_timer);
+            SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
             RETURN_IF_ERROR(std::visit(
                     func, local_state._shared_state->join_op_variants,
                     vectorized::make_bool_variant(_match_all_build || _is_right_semi_anti),

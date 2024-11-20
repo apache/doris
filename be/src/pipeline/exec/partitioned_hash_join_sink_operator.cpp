@@ -17,9 +17,20 @@
 
 #include "partitioned_hash_join_sink_operator.h"
 
+#include <glog/logging.h>
+
+#include <algorithm>
+#include <memory>
+#include <mutex>
+
+#include "common/logging.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/spill_utils.h"
+#include "pipeline/pipeline_task.h"
 #include "runtime/fragment_mgr.h"
 #include "util/mem_info.h"
+#include "util/runtime_profile.h"
+#include "vec/spill/spill_stream.h"
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
@@ -33,12 +44,20 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
     _shared_state->partitioned_build_blocks.resize(p._partition_count);
     _shared_state->spilled_streams.resize(p._partition_count);
 
+    _rows_in_partitions.assign(p._partition_count, 0);
+
+    _spill_dependency = Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                  "HashJoinBuildSpillDependency", true);
+    state->get_task()->add_spill_dependency(_spill_dependency.get());
+
     _internal_runtime_profile.reset(new RuntimeProfile("internal_profile"));
 
-    _partition_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile(), "PartitionTime", "Spill", 1);
-    _partition_shuffle_timer =
-            ADD_CHILD_TIMER_WITH_LEVEL(profile(), "PartitionShuffleTime", "Spill", 1);
-    _spill_build_timer = ADD_CHILD_TIMER_WITH_LEVEL(profile(), "SpillBuildTime", "Spill", 1);
+    _partition_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillPartitionTime", 1);
+    _partition_shuffle_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillPartitionShuffleTime", 1);
+    _spill_build_timer = ADD_TIMER_WITH_LEVEL(profile(), "SpillBuildTime", 1);
+    _in_mem_rows_counter = ADD_COUNTER_WITH_LEVEL(profile(), "SpillInMemRow", TUnit::UNIT, 1);
+    _memory_usage_reserved =
+            ADD_COUNTER_WITH_LEVEL(profile(), "MemoryUsageReserved", TUnit::BYTES, 1);
 
     return Status::OK();
 }
@@ -46,6 +65,7 @@ Status PartitionedHashJoinSinkLocalState::init(doris::RuntimeState* state,
 Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    _shared_state->setup_shared_profile(_profile);
     RETURN_IF_ERROR(PipelineXSpillSinkLocalState::open(state));
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
     for (uint32_t i = 0; i != p._partition_count; ++i) {
@@ -54,10 +74,6 @@ Status PartitionedHashJoinSinkLocalState::open(RuntimeState* state) {
                 state, spilling_stream, print_id(state->query_id()),
                 fmt::format("hash_build_sink_{}", i), _parent->node_id(),
                 std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(), _profile));
-        RETURN_IF_ERROR(spilling_stream->prepare_spill());
-        spilling_stream->set_write_counters(_spill_serialize_block_timer, _spill_block_count,
-                                            _spill_data_size, _spill_write_disk_timer,
-                                            _spill_write_wait_io_timer);
     }
     return p._partitioner->clone(state, _partitioner);
 }
@@ -76,9 +92,9 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
     /// If no need to spill, all rows were sunk into the `_inner_sink_operator` without partitioned.
     if (!_shared_state->need_to_spill) {
         if (_shared_state->inner_shared_state) {
-            auto inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
+            auto* inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
             if (inner_sink_state_) {
-                auto inner_sink_state =
+                auto* inner_sink_state =
                         assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state_);
                 return inner_sink_state->_build_blocks_memory_usage->value();
             }
@@ -99,29 +115,83 @@ size_t PartitionedHashJoinSinkLocalState::revocable_mem_size(RuntimeState* state
     return mem_size;
 }
 
-Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeState* state) {
+void PartitionedHashJoinSinkLocalState::update_memory_usage() {
+    if (!_shared_state->need_to_spill) {
+        if (_shared_state->inner_shared_state) {
+            auto* inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
+            if (inner_sink_state_) {
+                auto* inner_sink_state =
+                        assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state_);
+                COUNTER_SET(_memory_used_counter, inner_sink_state->_memory_used_counter->value());
+            }
+        }
+        return;
+    }
+
+    int64_t mem_size = 0;
+    auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
+    for (auto& block : partitioned_blocks) {
+        if (block) {
+            mem_size += block->allocated_bytes();
+        }
+    }
+    COUNTER_SET(_memory_used_counter, mem_size);
+}
+
+size_t PartitionedHashJoinSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    size_t size_to_reserve = 0;
     auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
+    if (_shared_state->need_to_spill) {
+        size_to_reserve = p._partition_count * vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM;
+    } else {
+        if (_shared_state->inner_runtime_state) {
+            size_to_reserve = p._inner_sink_operator->get_reserve_mem_size(
+                    _shared_state->inner_runtime_state.get(), eos);
+        }
+    }
+
+    COUNTER_SET(_memory_usage_reserved, int64_t(size_to_reserve));
+    return size_to_reserve;
+}
+
+Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(
+        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
+    auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
+    HashJoinBuildSinkLocalState* inner_sink_state {nullptr};
+    if (auto* tmp_sink_state = _shared_state->inner_runtime_state->get_sink_local_state()) {
+        inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(tmp_sink_state);
+    }
     _shared_state->inner_shared_state->hash_table_variants.reset();
+    if (inner_sink_state) {
+        COUNTER_UPDATE(_memory_used_counter,
+                       -(inner_sink_state->_hash_table_memory_usage->value() +
+                         inner_sink_state->_build_arena_memory_usage->value()));
+    }
     auto row_desc = p._child->row_desc();
     const auto num_slots = row_desc.num_slots();
     vectorized::Block build_block;
-    auto inner_sink_state_ = _shared_state->inner_runtime_state->get_sink_local_state();
-    if (inner_sink_state_) {
-        auto inner_sink_state = assert_cast<HashJoinBuildSinkLocalState*>(inner_sink_state_);
+    int64_t block_old_mem = 0;
+    if (inner_sink_state) {
         build_block = inner_sink_state->_build_side_mutable_block.to_block();
+        block_old_mem = build_block.allocated_bytes();
     }
 
     if (build_block.rows() <= 1) {
         LOG(WARNING) << "has no data to revoke, node: " << _parent->node_id()
                      << ", task: " << state->task_id();
+        if (spill_context) {
+            spill_context->on_task_finished();
+        }
         return Status::OK();
     }
 
     if (build_block.columns() > num_slots) {
-        build_block.erase(num_slots);
+        vectorized::Block::erase_useless_column(&build_block, num_slots);
+        COUNTER_UPDATE(_memory_used_counter, build_block.allocated_bytes() - block_old_mem);
     }
 
     auto spill_func = [build_block = std::move(build_block), state, this]() mutable {
+        Defer defer1 {[&]() { update_memory_usage(); }};
         auto& p = _parent->cast<PartitionedHashJoinSinkOperatorX>();
         auto& partitioned_blocks = _shared_state->partitioned_build_blocks;
         std::vector<std::vector<uint32_t>> partitions_indexes(p._partition_count);
@@ -129,21 +199,6 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
         const size_t reserved_size = 4096;
         std::for_each(partitions_indexes.begin(), partitions_indexes.end(),
                       [](std::vector<uint32_t>& indices) { indices.reserve(reserved_size); });
-
-        auto flush_rows = [&state, this](std::unique_ptr<vectorized::MutableBlock>& partition_block,
-                                         vectorized::SpillStreamSPtr& spilling_stream) {
-            auto block = partition_block->to_block();
-            auto status = spilling_stream->spill_block(state, block, false);
-
-            if (!status.ok()) {
-                std::unique_lock<std::mutex> lock(_spill_lock);
-                _spill_status = status;
-                _spill_status_ok = false;
-                _dependency->set_ready();
-                return false;
-            }
-            return true;
-        };
 
         size_t total_rows = build_block.rows();
         size_t offset = 1;
@@ -155,6 +210,10 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                 sub_block.get_by_position(i).column =
                         build_block.get_by_position(i).column->cut(offset, this_run);
             }
+            int64_t sub_blocks_memory_usage = sub_block.allocated_bytes();
+            COUNTER_UPDATE(_memory_used_counter, sub_blocks_memory_usage);
+            Defer defer2 {
+                    [&]() { COUNTER_UPDATE(_memory_used_counter, -sub_blocks_memory_usage); }};
 
             offset += this_run;
             const auto is_last_block = offset == total_rows;
@@ -180,52 +239,41 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
                             vectorized::MutableBlock::create_unique(build_block.clone_empty());
                 }
 
+                int64_t old_mem = partition_block->allocated_bytes();
                 {
                     SCOPED_TIMER(_partition_shuffle_timer);
-                    Status st = partition_block->add_rows(&sub_block, begin, end);
-                    if (!st.ok()) {
-                        std::unique_lock<std::mutex> lock(_spill_lock);
-                        _spill_status = st;
-                        _spill_status_ok = false;
-                        _dependency->set_ready();
-                        return;
-                    }
+                    RETURN_IF_ERROR(partition_block->add_rows(&sub_block, begin, end));
                     partitions_indexes[partition_idx].clear();
                 }
+                int64_t new_mem = partition_block->allocated_bytes();
 
                 if (partition_block->rows() >= reserved_size || is_last_block) {
-                    if (!flush_rows(partition_block, spilling_stream)) {
-                        return;
-                    }
+                    auto block = partition_block->to_block();
+                    RETURN_IF_ERROR(spilling_stream->spill_block(state, block, false));
                     partition_block =
                             vectorized::MutableBlock::create_unique(build_block.clone_empty());
+                    COUNTER_UPDATE(_memory_used_counter, -new_mem);
+                } else {
+                    COUNTER_UPDATE(_memory_used_counter, new_mem - old_mem);
                 }
             }
         }
 
-        _dependency->set_ready();
+        return Status::OK();
     };
 
-    auto exception_catch_func = [spill_func, this]() mutable {
-        auto status = [&]() {
-            RETURN_IF_CATCH_EXCEPTION(spill_func());
-            return Status::OK();
-        }();
-
-        if (!status.ok()) {
-            std::unique_lock<std::mutex> lock(_spill_lock);
-            _spill_status = status;
-            _spill_status_ok = false;
-            _dependency->set_ready();
-        }
+    auto exception_catch_func = [spill_func]() mutable {
+        auto status = [&]() { RETURN_IF_CATCH_EXCEPTION(return spill_func()); }();
+        return status;
     };
 
-    auto spill_runnable = std::make_shared<SpillRunnable>(state, _shared_state->shared_from_this(),
-                                                          exception_catch_func);
+    auto spill_runnable = std::make_shared<SpillSinkRunnable>(
+            state, spill_context, _spill_dependency, _profile, _shared_state->shared_from_this(),
+            exception_catch_func);
 
     auto* thread_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
 
-    _dependency->block();
+    _spill_dependency->block();
     DBUG_EXECUTE_IF(
             "fault_inject::partitioned_hash_join_sink::revoke_unpartitioned_block_submit_func", {
                 return Status::Error<INTERNAL_ERROR>(
@@ -235,20 +283,56 @@ Status PartitionedHashJoinSinkLocalState::_revoke_unpartitioned_block(RuntimeSta
     return thread_pool->submit(std::move(spill_runnable));
 }
 
-Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
-    LOG(INFO) << "hash join sink " << _parent->node_id() << " revoke_memory"
-              << ", eos: " << _child_eos;
-    DCHECK_EQ(_spilling_streams_count, 0);
+Status PartitionedHashJoinSinkLocalState::revoke_memory(
+        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
+    SCOPED_TIMER(_spill_total_timer);
+    VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", task: " << state->task_id()
+               << " hash join sink " << _parent->node_id() << " revoke_memory"
+               << ", eos: " << _child_eos;
+    DCHECK_EQ(_spilling_task_count, 0);
+    CHECK_EQ(_spill_dependency->is_blocked_by(nullptr), nullptr);
 
     if (!_shared_state->need_to_spill) {
         profile()->add_info_string("Spilled", "true");
         _shared_state->need_to_spill = true;
-        return _revoke_unpartitioned_block(state);
+        return _revoke_unpartitioned_block(state, spill_context);
     }
 
-    _spilling_streams_count = _shared_state->partitioned_build_blocks.size();
+    _spilling_task_count = _shared_state->partitioned_build_blocks.size();
 
     auto query_id = state->query_id();
+
+    auto* spill_io_pool = ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
+    DCHECK(spill_io_pool != nullptr);
+
+    auto spill_fin_cb = [this, state, query_id, spill_context]() {
+        if (_spilling_task_count.fetch_sub(1) != 1) {
+            return Status::OK();
+        }
+
+        Status status;
+        if (_child_eos) {
+            VLOG_DEBUG << "Query:" << print_id(this->state()->query_id()) << ", hash join sink "
+                       << _parent->node_id() << " set_ready_to_read"
+                       << ", task id: " << state->task_id();
+            std::for_each(_shared_state->partitioned_build_blocks.begin(),
+                          _shared_state->partitioned_build_blocks.end(), [&](auto& block) {
+                              if (block) {
+                                  COUNTER_UPDATE(_in_mem_rows_counter, block->rows());
+                              }
+                          });
+            status = _finish_spilling();
+            _dependency->set_ready_to_read();
+        }
+
+        if (spill_context) {
+            spill_context->on_task_finished();
+        }
+
+        std::lock_guard<std::mutex> lock(_spill_mutex);
+        _spill_dependency->set_ready();
+        return status;
+    };
 
     for (size_t i = 0; i != _shared_state->partitioned_build_blocks.size(); ++i) {
         vectorized::SpillStreamSPtr& spilling_stream = _shared_state->spilled_streams[i];
@@ -256,15 +340,11 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
 
         if (!mutable_block ||
             mutable_block->allocated_bytes() < vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-            --_spilling_streams_count;
+            --_spilling_task_count;
             continue;
         }
 
         DCHECK(spilling_stream != nullptr);
-
-        auto* spill_io_pool =
-                ExecEnv::GetInstance()->spill_stream_mgr()->get_spill_io_thread_pool();
-        DCHECK(spill_io_pool != nullptr);
 
         MonotonicStopWatch submit_timer;
         submit_timer.start();
@@ -274,51 +354,78 @@ Status PartitionedHashJoinSinkLocalState::revoke_memory(RuntimeState* state) {
             st = Status::Error<INTERNAL_ERROR>(
                     "fault_inject partitioned_hash_join_sink revoke_memory submit_func failed");
         });
-
-        auto spill_runnable = std::make_shared<SpillRunnable>(
-                state, _shared_state->shared_from_this(),
-                [this, query_id, spilling_stream, i, submit_timer] {
+        // For every stream, the task counter is increased +1
+        // so that when a stream finished, it should desc -1
+        state->get_query_ctx()->increase_revoking_tasks_count();
+        auto spill_runnable = std::make_shared<SpillSinkRunnable>(
+                state, nullptr, nullptr, _profile, _shared_state->shared_from_this(),
+                [this, query_id, spilling_stream, i] {
                     DBUG_EXECUTE_IF(
                             "fault_inject::partitioned_hash_join_sink::revoke_memory_cancel", {
-                                ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
-                                        query_id, Status::InternalError(
-                                                          "fault_inject partitioned_hash_join_sink "
-                                                          "revoke_memory canceled"));
-                                return;
+                                auto status = Status::InternalError(
+                                        "fault_inject partitioned_hash_join_sink "
+                                        "revoke_memory canceled");
+                                ExecEnv::GetInstance()->fragment_mgr()->cancel_query(query_id,
+                                                                                     status);
+                                return status;
                             });
-                    _spill_wait_in_queue_timer->update(submit_timer.elapsed_time());
                     SCOPED_TIMER(_spill_build_timer);
 
                     auto status = [&]() {
-                        RETURN_IF_CATCH_EXCEPTION(_spill_to_disk(i, spilling_stream));
-                        return Status::OK();
+                        RETURN_IF_CATCH_EXCEPTION(return _spill_to_disk(i, spilling_stream));
                     }();
 
-                    if (!status.ok()) {
-                        std::unique_lock<std::mutex> lock(_spill_lock);
-                        _dependency->set_ready();
-                        _spill_status_ok = false;
-                        _spill_status = std::move(status);
-                    }
-                });
+                    _state->get_query_ctx()->decrease_revoking_tasks_count();
+                    return status;
+                },
+                spill_fin_cb);
         if (st.ok()) {
             st = spill_io_pool->submit(std::move(spill_runnable));
         }
 
         if (!st.ok()) {
-            --_spilling_streams_count;
+            --_spilling_task_count;
             return st;
         }
     }
 
-    if (_spilling_streams_count > 0) {
-        std::unique_lock<std::mutex> lock(_spill_lock);
-        if (_spilling_streams_count > 0) {
-            _dependency->block();
-        } else if (_child_eos) {
-            LOG(INFO) << "hash join sink " << _parent->node_id() << " set_ready_to_read"
-                      << ", task id: " << state->task_id();
-            _dependency->set_ready_to_read();
+    if (_spilling_task_count.load() > 0) {
+        std::lock_guard<std::mutex> lock(_spill_mutex);
+        if (_spilling_task_count.load() > 0) {
+            _spill_dependency->block();
+            return Status::OK();
+        }
+    }
+
+    if (_child_eos) {
+        VLOG_DEBUG << "Query:" << print_id(state->query_id()) << ", hash join sink "
+                   << _parent->node_id() << " set_ready_to_read"
+                   << ", task id: " << state->task_id();
+        std::for_each(_shared_state->partitioned_build_blocks.begin(),
+                      _shared_state->partitioned_build_blocks.end(), [&](auto& block) {
+                          if (block) {
+                              COUNTER_UPDATE(_in_mem_rows_counter, block->rows());
+                          }
+                      });
+        RETURN_IF_ERROR(_finish_spilling());
+        _dependency->set_ready_to_read();
+
+        if (spill_context) {
+            spill_context->on_task_finished();
+        }
+    }
+    return Status::OK();
+}
+
+Status PartitionedHashJoinSinkLocalState::_finish_spilling() {
+    bool expected = false;
+    if (!_spilling_finished.compare_exchange_strong(expected, true)) {
+        return Status::OK();
+    }
+
+    for (auto& stream : _shared_state->spilled_streams) {
+        if (stream) {
+            RETURN_IF_ERROR(stream->spill_eof());
         }
     }
     return Status::OK();
@@ -331,6 +438,7 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
     if (!rows) {
         return Status::OK();
     }
+    Defer defer {[&]() { update_memory_usage(); }};
     {
         /// TODO: DO NOT execute build exprs twice(when partition and building hash table)
         SCOPED_TIMER(_partition_timer);
@@ -359,38 +467,28 @@ Status PartitionedHashJoinSinkLocalState::_partition_block(RuntimeState* state,
         }
         RETURN_IF_ERROR(partitioned_blocks[i]->add_rows(in_block, partition_indexes[i].data(),
                                                         partition_indexes[i].data() + count));
+        _rows_in_partitions[i] += count;
     }
+
+    update_max_min_rows_counter();
 
     return Status::OK();
 }
 
-void PartitionedHashJoinSinkLocalState::_spill_to_disk(
+Status PartitionedHashJoinSinkLocalState::_spill_to_disk(
         uint32_t partition_index, const vectorized::SpillStreamSPtr& spilling_stream) {
     auto& partitioned_block = _shared_state->partitioned_build_blocks[partition_index];
 
-    if (_spill_status_ok) {
+    Status status = _shared_state->_spill_status.status();
+    if (status.ok()) {
         auto block = partitioned_block->to_block();
+        int64_t block_mem_usage = block.allocated_bytes();
+        Defer defer {[&]() { COUNTER_UPDATE(memory_used_counter(), -block_mem_usage); }};
         partitioned_block = vectorized::MutableBlock::create_unique(block.clone_empty());
-        auto st = spilling_stream->spill_block(state(), block, false);
-        if (!st.ok()) {
-            _spill_status_ok = false;
-            std::lock_guard<std::mutex> l(_spill_status_lock);
-            _spill_status = st;
-        }
+        status = spilling_stream->spill_block(state(), block, false);
     }
 
-    auto num = _spilling_streams_count.fetch_sub(1);
-    DCHECK_GE(_spilling_streams_count, 0);
-
-    if (num == 1) {
-        std::unique_lock<std::mutex> lock(_spill_lock);
-        _dependency->set_ready();
-        if (_child_eos) {
-            LOG(INFO) << "hash join sink " << _parent->node_id() << " set_ready_to_read"
-                      << ", task id: " << state()->task_id();
-            _dependency->set_ready_to_read();
-        }
-    }
+    return status;
 }
 
 PartitionedHashJoinSinkOperatorX::PartitionedHashJoinSinkOperatorX(ObjectPool* pool,
@@ -479,11 +577,11 @@ Status PartitionedHashJoinSinkOperatorX::_setup_internal_operator(RuntimeState* 
 Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                               bool eos) {
     auto& local_state = get_local_state(state);
+    CHECK_EQ(local_state._spill_dependency->is_blocked_by(nullptr), nullptr);
     local_state.inc_running_big_mem_op_num(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    if (!local_state._spill_status_ok) {
-        DCHECK_NE(local_state._spill_status.code(), 0);
-        return local_state._spill_status;
+    if (!local_state._shared_state->_spill_status.ok()) {
+        return local_state._shared_state->_spill_status.status();
     }
 
     local_state._child_eos = eos;
@@ -493,10 +591,13 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     const auto need_to_spill = local_state._shared_state->need_to_spill;
     if (rows == 0) {
         if (eos) {
-            LOG(INFO) << "hash join sink " << node_id() << " sink eos, set_ready_to_read"
-                      << ", task id: " << state->task_id();
+            VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", hash join sink "
+                       << node_id() << " sink eos, set_ready_to_read"
+                       << ", task id: " << state->task_id() << ", need spill: " << need_to_spill;
 
-            if (!need_to_spill) {
+            if (need_to_spill) {
+                return revoke_memory(state, nullptr);
+            } else {
                 if (UNLIKELY(!local_state._shared_state->inner_runtime_state)) {
                     RETURN_IF_ERROR(_setup_internal_operator(state));
                 }
@@ -505,9 +606,23 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                             "fault_inject partitioned_hash_join_sink "
                             "sink_eos failed");
                 });
+                Defer defer {[&]() { local_state.update_memory_usage(); }};
                 RETURN_IF_ERROR(_inner_sink_operator->sink(
                         local_state._shared_state->inner_runtime_state.get(), in_block, eos));
+                VLOG_DEBUG << "Query: " << print_id(state->query_id()) << "hash join sink "
+                           << node_id() << " sink eos, set_ready_to_read"
+                           << ", task id: " << state->task_id() << ", nonspill build usage: "
+                           << _inner_sink_operator->get_memory_usage(
+                                      local_state._shared_state->inner_runtime_state.get());
             }
+
+            std::for_each(local_state._shared_state->partitioned_build_blocks.begin(),
+                          local_state._shared_state->partitioned_build_blocks.end(),
+                          [&](auto& block) {
+                              if (block) {
+                                  COUNTER_UPDATE(local_state._in_mem_rows_counter, block->rows());
+                              }
+                          });
             local_state._dependency->set_ready_to_read();
         }
         return Status::OK();
@@ -516,10 +631,10 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (need_to_spill) {
         RETURN_IF_ERROR(local_state._partition_block(state, in_block, 0, rows));
-
-        const auto revocable_size = revocable_mem_size(state);
-        if (revocable_size > state->min_revocable_mem()) {
-            return local_state.revoke_memory(state);
+        if (eos) {
+            return revoke_memory(state, nullptr);
+        } else if (revocable_mem_size(state) > vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM) {
+            return revoke_memory(state, nullptr);
         }
     } else {
         if (UNLIKELY(!local_state._shared_state->inner_runtime_state)) {
@@ -530,14 +645,18 @@ Status PartitionedHashJoinSinkOperatorX::sink(RuntimeState* state, vectorized::B
                     "fault_inject partitioned_hash_join_sink "
                     "sink failed");
         });
+        Defer defer {[&]() { local_state.update_memory_usage(); }};
         RETURN_IF_ERROR(_inner_sink_operator->sink(
                 local_state._shared_state->inner_runtime_state.get(), in_block, eos));
-    }
 
-    if (eos) {
-        LOG(INFO) << "hash join sink " << node_id() << " sink eos, set_ready_to_read"
-                  << ", task id: " << state->task_id();
-        local_state._dependency->set_ready_to_read();
+        if (eos) {
+            VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", hash join sink "
+                       << node_id() << " sink eos, set_ready_to_read"
+                       << ", task id: " << state->task_id() << ", nonspill build usage: "
+                       << _inner_sink_operator->get_memory_usage(
+                                  local_state._shared_state->inner_runtime_state.get());
+            local_state._dependency->set_ready_to_read();
+        }
     }
 
     return Status::OK();
@@ -549,10 +668,16 @@ size_t PartitionedHashJoinSinkOperatorX::revocable_mem_size(RuntimeState* state)
     return local_state.revocable_mem_size(state);
 }
 
-Status PartitionedHashJoinSinkOperatorX::revoke_memory(RuntimeState* state) {
+Status PartitionedHashJoinSinkOperatorX::revoke_memory(
+        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    return local_state.revoke_memory(state);
+    return local_state.revoke_memory(state, spill_context);
+}
+
+size_t PartitionedHashJoinSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
+    auto& local_state = get_local_state(state);
+    return local_state.get_reserve_mem_size(state, eos);
 }
 
 } // namespace doris::pipeline

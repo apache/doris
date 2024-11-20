@@ -46,10 +46,18 @@ AttachTask::AttachTask(const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
 
 AttachTask::AttachTask(RuntimeState* runtime_state) {
     signal::set_signal_is_nereids(runtime_state->is_nereids());
-    QueryThreadContext query_thread_context = {runtime_state->query_id(),
-                                               runtime_state->query_mem_tracker(),
-                                               runtime_state->get_query_ctx()->workload_group()};
-    init(query_thread_context);
+    // RuntimeState not always has query ctx.
+    // For example during push handler or schema change
+    if (runtime_state->get_query_ctx() == nullptr) {
+        QueryThreadContext query_thread_context = {runtime_state->query_id(),
+                                                   runtime_state->query_mem_tracker()};
+        init(query_thread_context);
+    } else {
+        QueryThreadContext query_thread_context = {
+                runtime_state->query_id(), runtime_state->query_mem_tracker(),
+                runtime_state->get_query_ctx()->workload_group()};
+        init(query_thread_context);
+    }
 }
 
 AttachTask::AttachTask(const QueryThreadContext& query_thread_context) {

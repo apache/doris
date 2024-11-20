@@ -190,6 +190,24 @@ Status VectorizedFnCall::_do_execute(doris::vectorized::VExprContext* context,
     return Status::OK();
 }
 
+size_t VectorizedFnCall::estimate_memory(const size_t rows) {
+    if (is_const_and_have_executed()) { // const have execute in open function
+        return 0;
+    }
+
+    size_t estimate_size = 0;
+    for (auto& child : _children) {
+        estimate_size += child->estimate_memory(rows);
+    }
+
+    if (_data_type->have_maximum_size_of_value()) {
+        estimate_size += rows * _data_type->get_size_of_value_in_memory();
+    } else {
+        estimate_size += rows * 512; /// FIXME: estimated value...
+    }
+    return estimate_size;
+}
+
 Status VectorizedFnCall::execute_runtime_fitler(doris::vectorized::VExprContext* context,
                                                 doris::vectorized::Block* block,
                                                 int* result_column_id, ColumnNumbers& args) {

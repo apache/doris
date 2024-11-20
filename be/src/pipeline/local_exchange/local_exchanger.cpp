@@ -44,9 +44,9 @@ void Exchanger<BlockType>::_enqueue_data_and_set_ready(int channel_id,
         allocated_bytes = block->data_block.allocated_bytes();
     }
     std::unique_lock l(_m);
-    local_state._shared_state->add_mem_usage(channel_id, allocated_bytes,
-                                             !std::is_same_v<PartitionedBlock, BlockType> &&
-                                                     !std::is_same_v<BroadcastBlock, BlockType>);
+    constexpr bool update_mem_usage = !std::is_same_v<PartitionedBlock, BlockType> &&
+                                      !std::is_same_v<BroadcastBlock, BlockType>;
+    local_state._shared_state->add_mem_usage(channel_id, allocated_bytes, update_mem_usage);
     if (_data_queue[channel_id].enqueue(std::move(block))) {
         local_state._shared_state->set_ready_to_read(channel_id);
     } else {
@@ -78,11 +78,11 @@ bool Exchanger<BlockType>::_dequeue_data(LocalExchangeSourceLocalState& local_st
     if (_data_queue[channel_id].try_dequeue(block)) {
         if constexpr (std::is_same_v<PartitionedBlock, BlockType> ||
                       std::is_same_v<BroadcastBlock, BlockType>) {
-            local_state._shared_state->sub_mem_usage(channel_id,
-                                                     block.first->data_block.allocated_bytes());
+            const auto bytes = block.first->data_block.allocated_bytes();
+            local_state._shared_state->sub_mem_usage(channel_id, bytes);
         } else {
-            local_state._shared_state->sub_mem_usage(channel_id,
-                                                     block->data_block.allocated_bytes());
+            const auto bytes = block->data_block.allocated_bytes();
+            local_state._shared_state->sub_mem_usage(channel_id, bytes);
             data_block->swap(block->data_block);
             block->unref(local_state._shared_state, data_block->allocated_bytes(), channel_id);
             DCHECK_EQ(block->ref_value(), 0);
@@ -127,6 +127,8 @@ Status ShuffleExchanger::sink(RuntimeState* state, vectorized::Block* in_block, 
                                     local_state._partitioner->get_channel_ids().get<uint32_t>(),
                                     in_block, local_state));
     }
+
+    local_state._memory_used_counter->set(local_state._shared_state->mem_usage);
 
     return Status::OK();
 }
@@ -200,8 +202,9 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
     if (new_block_wrapper->data_block.empty()) {
         return Status::OK();
     }
-    local_state._shared_state->add_total_mem_usage(new_block_wrapper->data_block.allocated_bytes(),
-                                                   local_state._channel_id);
+
+    const auto block_bytes = new_block_wrapper->data_block.allocated_bytes();
+    local_state._shared_state->add_total_mem_usage(block_bytes, local_state._channel_id);
     auto bucket_seq_to_instance_idx =
             local_state._parent->cast<LocalExchangeSinkOperatorX>()._bucket_seq_to_instance_idx;
     if (get_type() == ExchangeType::HASH_SHUFFLE) {
@@ -259,6 +262,8 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
     auto channel_id = (local_state._channel_id++) % _num_partitions;
     _enqueue_data_and_set_ready(channel_id, local_state, std::move(wrapper));
 
+    local_state._memory_used_counter->set(local_state._shared_state->mem_usage);
+
     return Status::OK();
 }
 
@@ -303,6 +308,8 @@ Status PassToOneExchanger::sink(RuntimeState* state, vectorized::Block* in_block
     BlockWrapperSPtr wrapper = BlockWrapper::create_shared(std::move(new_block));
     _enqueue_data_and_set_ready(0, local_state, std::move(wrapper));
 
+    local_state._memory_used_counter->set(local_state._shared_state->mem_usage);
+
     return Status::OK();
 }
 
@@ -333,6 +340,8 @@ Status LocalMergeSortExchanger::sink(RuntimeState* state, vectorized::Block* in_
     if (eos) {
         local_state._shared_state->source_deps[local_state._channel_id]->set_always_ready();
     }
+
+    local_state._memory_used_counter->set(local_state._shared_state->mem_usage);
     return Status::OK();
 }
 
@@ -411,8 +420,8 @@ Status BroadcastExchanger::sink(RuntimeState* state, vectorized::Block* in_block
     }
     new_block.swap(*in_block);
     auto wrapper = BlockWrapper::create_shared(std::move(new_block));
-    local_state._shared_state->add_total_mem_usage(wrapper->data_block.allocated_bytes(),
-                                                   local_state._channel_id);
+    const auto block_bytes = wrapper->data_block.allocated_bytes();
+    local_state._shared_state->add_total_mem_usage(block_bytes, local_state._channel_id);
     wrapper->ref(_num_partitions);
     for (int i = 0; i < _num_partitions; i++) {
         _enqueue_data_and_set_ready(i, local_state, {wrapper, {0, wrapper->data_block.rows()}});
@@ -462,6 +471,7 @@ Status AdaptivePassthroughExchanger::_passthrough_sink(RuntimeState* state,
     _enqueue_data_and_set_ready(channel_id, local_state,
                                 BlockWrapper::create_shared(std::move(new_block)));
 
+    local_state._memory_used_counter->set(local_state._shared_state->mem_usage);
     return Status::OK();
 }
 
@@ -481,7 +491,10 @@ Status AdaptivePassthroughExchanger::_shuffle_sink(RuntimeState* state, vectoriz
             std::iota(channel_ids.begin() + i, channel_ids.end(), 0);
         }
     }
-    return _split_rows(state, channel_ids.data(), block, local_state);
+
+    RETURN_IF_ERROR(_split_rows(state, channel_ids.data(), block, local_state));
+    local_state._memory_used_counter->set(local_state._shared_state->mem_usage);
+    return Status::OK();
 }
 
 Status AdaptivePassthroughExchanger::_split_rows(RuntimeState* state,

@@ -28,7 +28,7 @@ LocalExchangeSinkLocalState::~LocalExchangeSinkLocalState() = default;
 std::vector<Dependency*> LocalExchangeSinkLocalState::dependencies() const {
     auto deps = Base::dependencies();
 
-    auto dep = _shared_state->get_sink_dep_by_channel_id(_channel_id);
+    auto* dep = _shared_state->get_sink_dep_by_channel_id(_channel_id);
     if (dep != nullptr) {
         deps.push_back(dep);
     }
@@ -144,6 +144,11 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
+
+    if (state->get_query_ctx()->low_memory_mode()) {
+        local_state._shared_state->set_low_memory_mode();
+    }
+
     RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, eos, local_state));
 
     // If all exchange sources ended due to limit reached, current task should also finish

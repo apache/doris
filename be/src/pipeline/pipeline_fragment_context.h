@@ -69,6 +69,8 @@ public:
 
     ~PipelineFragmentContext();
 
+    void print_profile(const std::string& extra_info);
+
     std::vector<std::shared_ptr<TRuntimeProfileTree>> collect_realtime_profile() const;
     std::shared_ptr<TRuntimeProfileTree> collect_realtime_load_channel_profile() const;
 
@@ -114,6 +116,26 @@ public:
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
     [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id--; }
+
+    [[nodiscard]] size_t get_revocable_size(bool* has_running_task) const;
+
+    [[nodiscard]] std::vector<PipelineTask*> get_revocable_tasks() const;
+
+    void set_memory_sufficient(bool sufficient);
+
+    void instance_ids(std::vector<TUniqueId>& ins_ids) const {
+        ins_ids.resize(_fragment_instance_ids.size());
+        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
+            ins_ids[i] = _fragment_instance_ids[i];
+        }
+    }
+
+    void instance_ids(std::vector<string>& ins_ids) const {
+        ins_ids.resize(_fragment_instance_ids.size());
+        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
+            ins_ids[i] = print_id(_fragment_instance_ids[i]);
+        }
+    }
 
     void clear_finished_tasks() {
         for (size_t j = 0; j < _tasks.size(); j++) {

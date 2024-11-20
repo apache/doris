@@ -22,6 +22,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <pthread.h>
 
+#include <algorithm>
 #include <cstdlib>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <fmt/format.h>
@@ -189,6 +190,9 @@ void PipelineFragmentContext::cancel(const Status reason) {
                     debug_string());
     }
 
+    if (reason.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || reason.is<ErrorCode::MEM_ALLOC_FAILED>()) {
+        print_profile("cancel pipeline, reason: " + reason.to_string());
+    }
     _query_ctx->cancel(reason, _fragment_id);
     if (reason.is<ErrorCode::LIMIT_REACH>()) {
         _is_report_on_cancel = false;
@@ -1262,7 +1266,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
 
         /// PartitionedAggSourceOperatorX does not support "group by limit opt(#29641)" yet.
         /// If `group_by_limit_opt` is true, then it might not need to spill at all.
-        const bool enable_spill = _runtime_state->enable_agg_spill() &&
+        const bool enable_spill = _runtime_state->enable_spill() &&
                                   !tnode.agg_node.grouping_exprs.empty() && !group_by_limit_opt;
 
         if (tnode.agg_node.aggregate_functions.empty() && !enable_spill &&
@@ -1356,8 +1360,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
     case TPlanNodeType::HASH_JOIN_NODE: {
         const auto is_broadcast_join = tnode.hash_join_node.__isset.is_broadcast_join &&
                                        tnode.hash_join_node.is_broadcast_join;
-        const auto enable_join_spill = _runtime_state->enable_join_spill();
-        if (enable_join_spill && !is_broadcast_join) {
+        const auto enable_spill = _runtime_state->enable_spill();
+        if (enable_spill && !is_broadcast_join) {
             auto tnode_ = tnode;
             /// TODO: support rf in partitioned hash join
             tnode_.runtime_filters.clear();
@@ -1471,7 +1475,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         break;
     }
     case TPlanNodeType::SORT_NODE: {
-        const auto should_spill = _runtime_state->enable_sort_spill() &&
+        const auto should_spill = _runtime_state->enable_spill() &&
                                   tnode.sort_node.algorithm == TSortAlgorithm::FULL_SORT;
         if (should_spill) {
             op.reset(new SpillSortSourceOperatorX(pool, tnode, next_operator_id(), descs));
@@ -1690,6 +1694,21 @@ Status PipelineFragmentContext::submit() {
     }
 }
 
+void PipelineFragmentContext::print_profile(const std::string& extra_info) {
+    if (_runtime_state->enable_profile()) {
+        std::stringstream ss;
+        for (auto runtime_profile_ptr : _runtime_state->pipeline_id_to_profile()) {
+            runtime_profile_ptr->pretty_print(&ss);
+        }
+
+        if (_runtime_state->load_channel_profile()) {
+            _runtime_state->load_channel_profile()->pretty_print(&ss);
+        }
+
+        LOG_INFO("Query {} fragment {} {}, profile, {}", print_id(this->_query_id),
+                 this->_fragment_id, extra_info, ss.str());
+    }
+}
 // If all pipeline tasks binded to the fragment instance are finished, then we could
 // close the fragment instance.
 void PipelineFragmentContext::_close_fragment_instance() {
@@ -1791,6 +1810,56 @@ Status PipelineFragmentContext::send_report(bool done) {
 
     return _report_status_cb(
             req, std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
+}
+
+size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const {
+    size_t res = 0;
+    // _tasks will be cleared during ~PipelineFragmentContext, so that it's safe
+    // here to traverse the vector.
+    for (const auto& task_instances : _tasks) {
+        for (const auto& task : task_instances) {
+            if (task->is_running() || task->is_revoking()) {
+                LOG_EVERY_N(INFO, 50) << "Query: " << print_id(_query_id)
+                                      << " is running, task: " << (void*)task.get()
+                                      << ", task->is_revoking(): " << task->is_revoking() << ", "
+                                      << task->is_running();
+                *has_running_task = true;
+                return 0;
+            }
+
+            size_t revocable_size = task->get_revocable_size();
+            if (revocable_size > _runtime_state->min_revocable_mem()) {
+                res += revocable_size;
+            }
+        }
+    }
+    return res;
+}
+
+std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const {
+    std::vector<PipelineTask*> revocable_tasks;
+    for (const auto& task_instances : _tasks) {
+        for (const auto& task : task_instances) {
+            size_t revocable_size_ = task->get_revocable_size();
+            if (revocable_size_ > _runtime_state->min_revocable_mem()) {
+                revocable_tasks.emplace_back(task.get());
+            }
+        }
+    }
+    return revocable_tasks;
+}
+
+void PipelineFragmentContext::set_memory_sufficient(bool sufficient) {
+    for (const auto& task_instances : _tasks) {
+        for (const auto& task : task_instances) {
+            auto* dependency = task->get_memory_sufficient_dependency();
+            if (sufficient) {
+                dependency->set_ready();
+            } else {
+                dependency->block();
+            }
+        }
+    }
 }
 
 std::string PipelineFragmentContext::debug_string() {

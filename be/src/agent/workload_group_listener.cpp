@@ -17,6 +17,8 @@
 
 #include "agent/workload_group_listener.h"
 
+#include <thrift/protocol/TDebugProtocol.h>
+
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/mem_info.h"
@@ -32,6 +34,8 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
         if (!topic_info.__isset.workload_group_info) {
             continue;
         }
+        LOG(INFO) << "Received publish workload group info request: "
+                  << apache::thrift::ThriftDebugString(topic_info).c_str();
         is_set_workload_group_info = true;
 
         // 1 parse topic info to group info

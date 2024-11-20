@@ -27,6 +27,7 @@
 #include "util/simd/bits.h"
 #include "vec/columns/column_filter_helper.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris::pipeline {
@@ -497,7 +498,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(vectorized::Blo
 
 template <int JoinOpType>
 Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(vectorized::Block* output_block,
-                                                                  std::vector<uint8_t>& visited,
+                                                                  DorisVector<uint8_t>& visited,
                                                                   bool has_null_in_build_side) {
     // dispose the other join conjunct exec
     auto row_count = output_block->rows();

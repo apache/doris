@@ -47,8 +47,12 @@ namespace doris {
 const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
 const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
 const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
+
 const static int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 50;
 const static int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 80;
+// This is a invalid value, and should ignore this value during usage
+const static int TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE = 0;
+const static int LOAD_BUFFER_RATIO_DEFAULT_VALUE = 20;
 
 WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& wg_info) : WorkloadGroup(wg_info, true) {}
 
@@ -57,6 +61,7 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
           _name(tg_info.name),
           _version(tg_info.version),
           _memory_limit(tg_info.memory_limit),
+          _load_buffer_ratio(tg_info.write_buffer_ratio),
           _enable_memory_overcommit(tg_info.enable_memory_overcommit),
           _cpu_share(tg_info.cpu_share),
           _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM),
@@ -68,6 +73,8 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
           _memory_high_watermark(tg_info.memory_high_watermark),
           _scan_bytes_per_second(tg_info.read_bytes_per_second),
           _remote_scan_bytes_per_second(tg_info.remote_read_bytes_per_second),
+          _total_query_slot_count(tg_info.total_query_slot_count),
+          _slot_mem_policy(tg_info.slot_mem_policy),
           _need_create_query_thread_pool(need_create_query_thread_pool) {
     std::vector<DataDirInfo>& data_dir_list = io::BeConfDataDirReader::be_config_data_dir_list;
     for (const auto& data_dir : data_dir_list) {
@@ -87,31 +94,58 @@ WorkloadGroup::WorkloadGroup(const WorkloadGroupInfo& tg_info, bool need_create_
 
 std::string WorkloadGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
+    auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+    auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
     return fmt::format(
-            "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
-            "{}, version = {}, cpu_hard_limit = {}, scan_thread_num = "
+            "WorkloadGroup[id = {}, name = {}, version = {}, cpu_share = {}, "
+            "total_query_slot_count = {}, "
+            "memory_limit = {}, slot_memory_policy = {}, write_buffer_ratio= {}%, "
+            "enable_memory_overcommit = {}, total_mem_used = {} (write_buffer_size={}),"
+            "wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, cpu_hard_limit = {}, "
+            "scan_thread_num = "
             "{}, max_remote_scan_thread_num = {}, min_remote_scan_thread_num = {}, "
             "memory_low_watermark={}, memory_high_watermark={}, is_shutdown={}, query_num={}, "
             "read_bytes_per_second={}, remote_read_bytes_per_second={}]",
-            _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
-            _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit(),
-            _scan_thread_num, _max_remote_scan_thread_num, _min_remote_scan_thread_num,
-            _memory_low_watermark, _memory_high_watermark, _is_shutdown, _query_ctxs.size(),
-            _scan_bytes_per_second, _remote_scan_bytes_per_second);
+            _id, _name, _version, cpu_share(), _total_query_slot_count,
+            PrettyPrinter::print(_memory_limit, TUnit::BYTES), to_string(_slot_mem_policy),
+            _load_buffer_ratio, _enable_memory_overcommit ? "true" : "false",
+            PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
+            PrettyPrinter::print(_write_buffer_size.load(), TUnit::BYTES),
+            PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
+            mem_used_ratio, cpu_hard_limit(), _scan_thread_num, _max_remote_scan_thread_num,
+            _min_remote_scan_thread_num, _memory_low_watermark, _memory_high_watermark,
+            _is_shutdown, _query_ctxs.size(), _scan_bytes_per_second,
+            _remote_scan_bytes_per_second);
+}
+
+bool WorkloadGroup::add_wg_refresh_interval_memory_growth(int64_t size) {
+    auto realtime_total_mem_used =
+            _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
+    if ((realtime_total_mem_used >
+         ((double)_memory_limit * _memory_high_watermark.load(std::memory_order_relaxed) / 100))) {
+        // If a group is enable memory overcommit, then not need check the limit
+        // It is always true, and it will only fail when process memory is not
+        // enough.
+        return _enable_memory_overcommit;
+    } else {
+        _wg_refresh_interval_memory_growth.fetch_add(size);
+        return true;
+    }
 }
 
 std::string WorkloadGroup::memory_debug_string() const {
+    auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
+    auto mem_used_ratio = realtime_total_mem_used / ((double)_memory_limit + 1);
     return fmt::format(
-            "TG[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = "
-            "{}, weighted_memory_limit = {}, total_mem_used = {}, "
-            "wg_refresh_interval_memory_growth = {}, memory_low_watermark = {}, "
-            "memory_high_watermark = {}, version = {}, is_shutdown = {}, query_num = {}]",
+            "WorkloadGroup[id = {}, name = {}, memory_limit = {}, enable_memory_overcommit = {}, "
+            "total_mem_used = {}, wg_refresh_interval_memory_growth = {},  mem_used_ratio = {}, "
+            "memory_low_watermark = {}, memory_high_watermark = {}, version = {}, is_shutdown = "
+            "{}, query_num = {}]",
             _id, _name, PrettyPrinter::print(_memory_limit, TUnit::BYTES),
             _enable_memory_overcommit ? "true" : "false",
-            PrettyPrinter::print(_weighted_memory_limit, TUnit::BYTES),
-            PrettyPrinter::print(_total_mem_used, TUnit::BYTES),
-            PrettyPrinter::print(_wg_refresh_interval_memory_growth, TUnit::BYTES),
-            _memory_low_watermark, _memory_high_watermark, _version, _is_shutdown,
+            PrettyPrinter::print(_total_mem_used.load(), TUnit::BYTES),
+            PrettyPrinter::print(_wg_refresh_interval_memory_growth.load(), TUnit::BYTES),
+            mem_used_ratio, _memory_low_watermark, _memory_high_watermark, _version, _is_shutdown,
             _query_ctxs.size());
 }
 
@@ -141,6 +175,9 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
             _memory_high_watermark = tg_info.memory_high_watermark;
             _scan_bytes_per_second = tg_info.read_bytes_per_second;
             _remote_scan_bytes_per_second = tg_info.remote_read_bytes_per_second;
+            _total_query_slot_count = tg_info.total_query_slot_count;
+            _load_buffer_ratio = tg_info.write_buffer_ratio;
+            _slot_mem_policy = tg_info.slot_mem_policy;
         } else {
             return;
         }
@@ -148,9 +185,9 @@ void WorkloadGroup::check_and_update(const WorkloadGroupInfo& tg_info) {
 }
 
 // MemtrackerLimiter is not removed during query context release, so that should remove it here.
-int64_t WorkloadGroup::make_memory_tracker_snapshots(
-        std::list<std::shared_ptr<MemTrackerLimiter>>* tracker_snapshots) {
+int64_t WorkloadGroup::refresh_memory_usage() {
     int64_t used_memory = 0;
+    int64_t write_buffer_size = 0;
     for (auto& mem_tracker_group : _mem_tracker_limiter_pool) {
         std::lock_guard<std::mutex> l(mem_tracker_group.group_lock);
         for (auto trackerWptr = mem_tracker_group.trackers.begin();
@@ -159,26 +196,25 @@ int64_t WorkloadGroup::make_memory_tracker_snapshots(
             if (tracker == nullptr) {
                 trackerWptr = mem_tracker_group.trackers.erase(trackerWptr);
             } else {
-                if (tracker_snapshots != nullptr) {
-                    tracker_snapshots->insert(tracker_snapshots->end(), tracker);
-                }
                 used_memory += tracker->consumption();
+                write_buffer_size += tracker->write_buffer_size();
                 ++trackerWptr;
             }
         }
     }
     // refresh total memory used.
-    _total_mem_used = used_memory;
+    _total_mem_used = used_memory + write_buffer_size;
+    _write_buffer_size = write_buffer_size;
     // reserve memory is recorded in the query mem tracker
     // and _total_mem_used already contains all the current reserve memory.
     // so after refreshing _total_mem_used, reset _wg_refresh_interval_memory_growth.
     _wg_refresh_interval_memory_growth.store(0.0);
-    _mem_used_status->set_value(used_memory);
+    _mem_used_status->set_value(_total_mem_used);
     return used_memory;
 }
 
 int64_t WorkloadGroup::memory_used() {
-    return make_memory_tracker_snapshots(nullptr);
+    return refresh_memory_usage();
 }
 
 void WorkloadGroup::do_sweep() {
@@ -213,6 +249,91 @@ void WorkloadGroup::add_mem_tracker_limiter(std::shared_ptr<MemTrackerLimiter> m
     std::lock_guard<std::mutex> l(_mem_tracker_limiter_pool[group_num].group_lock);
     _mem_tracker_limiter_pool[group_num].trackers.insert(
             _mem_tracker_limiter_pool[group_num].trackers.end(), mem_tracker_ptr);
+}
+
+int64_t WorkloadGroup::free_overcommited_memory(int64_t need_free_mem, RuntimeProfile* profile) {
+    if (need_free_mem <= 0) {
+        return 0;
+    }
+    int64_t used_memory = memory_used();
+    // Change need free mem to exceed limit
+    need_free_mem = std::min<int64_t>(used_memory - _memory_limit, need_free_mem);
+    if (need_free_mem <= 0) {
+        return 0;
+    }
+
+    int64_t freed_mem = 0;
+
+    std::string cancel_str =
+            fmt::format("Kill overcommit query, wg id:{}, name:{}, used:{}, limit:{}, backend:{}.",
+                        _id, _name, MemCounter::print_bytes(used_memory),
+                        MemCounter::print_bytes(_memory_limit), BackendOptions::get_localhost());
+
+    auto cancel_top_overcommit_str = [cancel_str](int64_t mem_consumption,
+                                                  const std::string& label) {
+        return fmt::format(
+                "{} cancel top memory overcommit tracker <{}> consumption {}. details:{}, "
+                "Execute again after enough memory, details see be.INFO.",
+                cancel_str, label, MemCounter::print_bytes(mem_consumption),
+                GlobalMemoryArbitrator::process_limit_exceeded_errmsg_str());
+    };
+
+    LOG(INFO) << fmt::format(
+            "Workload group start gc, id:{} name:{}, memory limit: {}, used: {}, "
+            "need_free_mem: {}.",
+            _id, _name, _memory_limit, used_memory, need_free_mem);
+    Defer defer {[&]() {
+        LOG(INFO) << fmt::format(
+                "Workload group finished gc, id:{} name:{}, memory limit: {}, used: "
+                "{}, need_free_mem: {}, freed memory: {}.",
+                _id, _name, _memory_limit, used_memory, need_free_mem, freed_mem);
+    }};
+
+    // 1. free top overcommit query
+    RuntimeProfile* tmq_profile = profile->create_child(
+            fmt::format("FreeGroupTopOvercommitQuery:Name {}", _name), true, true);
+    freed_mem += MemTrackerLimiter::free_top_overcommit_query(
+            need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY, _mem_tracker_limiter_pool,
+            cancel_top_overcommit_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    // To be compatible with the non-group's gc logic, minorGC just gc overcommit query
+    if (freed_mem >= need_free_mem) {
+        return freed_mem;
+    }
+    auto cancel_top_usage_str = [cancel_str](int64_t mem_consumption, const std::string& label) {
+        return fmt::format(
+                "{} cancel top memory used tracker <{}> consumption {}. details:{}, Execute "
+                "again "
+                "after enough memory, details see be.INFO.",
+                cancel_str, label, MemCounter::print_bytes(mem_consumption),
+                GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str());
+    };
+    // 2. free top usage query
+    tmq_profile =
+            profile->create_child(fmt::format("FreeGroupTopUsageQuery:Name {}", _name), true, true);
+    freed_mem += MemTrackerLimiter::free_top_memory_query(
+            need_free_mem - freed_mem, MemTrackerLimiter::Type::QUERY, _mem_tracker_limiter_pool,
+            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    if (freed_mem >= need_free_mem) {
+        return freed_mem;
+    }
+
+    // 3. free top overcommit load
+    tmq_profile = profile->create_child(fmt::format("FreeGroupTopOvercommitLoad:Name {}", _name),
+                                        true, true);
+    freed_mem += MemTrackerLimiter::free_top_overcommit_query(
+            need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
+            cancel_top_overcommit_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    if (freed_mem >= need_free_mem) {
+        return freed_mem;
+    }
+
+    // 4. free top usage load
+    tmq_profile =
+            profile->create_child(fmt::format("FreeGroupTopUsageLoad:Name {}", _name), true, true);
+    freed_mem += MemTrackerLimiter::free_top_memory_query(
+            need_free_mem - freed_mem, MemTrackerLimiter::Type::LOAD, _mem_tracker_limiter_pool,
+            cancel_top_usage_str, tmq_profile, MemTrackerLimiter::GCType::WORK_LOAD_GROUP);
+    return freed_mem;
 }
 
 int64_t WorkloadGroup::gc_memory(int64_t need_free_mem, RuntimeProfile* profile, bool is_minor_gc) {
@@ -422,6 +543,24 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
         remote_read_bytes_per_second = tworkload_group_info.remote_read_bytes_per_second;
     }
 
+    // 16 total slots
+    int total_query_slot_count = TOTAL_QUERY_SLOT_COUNT_DEFAULT_VALUE;
+    if (tworkload_group_info.__isset.total_query_slot_count) {
+        total_query_slot_count = tworkload_group_info.total_query_slot_count;
+    }
+
+    // 17 load buffer memory limit
+    int write_buffer_ratio = LOAD_BUFFER_RATIO_DEFAULT_VALUE;
+    if (tworkload_group_info.__isset.write_buffer_ratio) {
+        write_buffer_ratio = tworkload_group_info.write_buffer_ratio;
+    }
+
+    // 18 slot memory policy
+    TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::DISABLED;
+    if (tworkload_group_info.__isset.slot_memory_policy) {
+        slot_mem_policy = tworkload_group_info.slot_memory_policy;
+    }
+
     return {.id = tg_id,
             .name = name,
             .cpu_share = cpu_share,
@@ -436,7 +575,10 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
             .memory_low_watermark = memory_low_watermark,
             .memory_high_watermark = memory_high_watermark,
             .read_bytes_per_second = read_bytes_per_second,
-            .remote_read_bytes_per_second = remote_read_bytes_per_second};
+            .remote_read_bytes_per_second = remote_read_bytes_per_second,
+            .total_query_slot_count = total_query_slot_count,
+            .slot_mem_policy = slot_mem_policy,
+            .write_buffer_ratio = write_buffer_ratio};
 }
 
 std::weak_ptr<CgroupCpuCtl> WorkloadGroup::get_cgroup_cpu_ctl_wptr() {

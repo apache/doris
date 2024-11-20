@@ -82,6 +82,9 @@ std::shared_ptr<MemTrackerLimiter> MemTrackerLimiter::create_shared(MemTrackerLi
                                                                     const std::string& label,
                                                                     int64_t byte_limit) {
     auto tracker = std::make_shared<MemTrackerLimiter>(type, label, byte_limit);
+    // Write tracker is only used to tracker the size, so limit == -1
+    auto write_tracker = std::make_shared<MemTrackerLimiter>(type, "Memtable" + label, -1);
+    tracker->_write_tracker.swap(write_tracker);
 #ifndef BE_TEST
     DCHECK(ExecEnv::tracking_memory());
     std::lock_guard<std::mutex> l(
@@ -133,7 +136,7 @@ MemTrackerLimiter::~MemTrackerLimiter() {
                    << ", mem tracker label: " << _label
                    << ", peak consumption: " << peak_consumption() << print_address_sanitizers();
     }
-    DCHECK(reserved_consumption() == 0);
+    DCHECK_EQ(reserved_consumption(), 0);
     memory_memtrackerlimiter_cnt << -1;
 }
 
@@ -541,7 +544,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                     seek_num++;
                     // 32M small query does not cancel
                     if (tracker->consumption() <= 33554432 ||
-                        tracker->consumption() < tracker->limit()) {
+                        tracker->consumption() < tracker->_limit) {
                         small_num++;
                         continue;
                     }
@@ -551,7 +554,7 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(
                         continue;
                     }
                     auto overcommit_ratio = int64_t(
-                            (static_cast<double>(tracker->consumption()) / tracker->limit()) *
+                            (static_cast<double>(tracker->consumption()) / tracker->_limit) *
                             10000);
                     max_pq.emplace(overcommit_ratio, tracker->label());
                     query_consumption[tracker->label()] = tracker->consumption();

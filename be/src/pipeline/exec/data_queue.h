@@ -72,6 +72,8 @@ public:
 
     void set_max_blocks_in_sub_queue(int64_t max_blocks) { _max_blocks_in_sub_queue = max_blocks; }
 
+    void set_low_memory_mode() { _max_blocks_in_sub_queue = 1; }
+
 private:
     std::vector<std::unique_ptr<std::mutex>> _queue_blocks_lock;
     std::vector<std::deque<std::unique_ptr<vectorized::Block>>> _queue_blocks;

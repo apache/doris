@@ -22,6 +22,7 @@
 #include <limits>
 
 #include "vec/columns/column_filter_helper.h"
+#include "vec/common/custom_allocator.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_table_allocator.h"
 
@@ -68,7 +69,7 @@ public:
 
     size_t size() const { return next.size(); }
 
-    std::vector<uint8_t>& get_visited() { return visited; }
+    DorisVector<uint8_t>& get_visited() { return visited; }
 
     void build(const Key* __restrict keys, const uint32_t* __restrict bucket_nums, size_t num_elem,
                bool keep_null_key) {
@@ -250,7 +251,7 @@ public:
 
     bool has_null_key() { return _has_null_key; }
 
-    void pre_build_idxs(std::vector<uint32>& buckets, const uint8_t* null_map) const {
+    void pre_build_idxs(DorisVector<uint32>& buckets, const uint8_t* null_map) const {
         if (null_map) {
             for (unsigned int& bucket : buckets) {
                 bucket = bucket == bucket_size ? bucket_size : first[bucket];
@@ -449,13 +450,13 @@ private:
     }
 
     const Key* __restrict build_keys;
-    std::vector<uint8_t> visited;
+    DorisVector<uint8_t> visited;
 
     uint32_t bucket_size = 1;
     int max_batch_size = 4064;
 
-    std::vector<uint32_t> first = {0};
-    std::vector<uint32_t> next = {0};
+    DorisVector<uint32_t> first = {0};
+    DorisVector<uint32_t> next = {0};
 
     // use in iter hash map
     mutable uint32_t iter_idx = 1;

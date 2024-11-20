@@ -565,9 +565,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_AGG_PARTITION_BITS = "external_agg_partition_bits";
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String MIN_REVOCABLE_MEM = "min_revocable_mem";
-    public static final String ENABLE_JOIN_SPILL = "enable_join_spill";
-    public static final String ENABLE_SORT_SPILL = "enable_sort_spill";
-    public static final String ENABLE_AGG_SPILL = "enable_agg_spill";
+    public static final String ENABLE_SPILL = "enable_spill";
+    public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
     public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
 
@@ -643,6 +642,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String BYPASS_WORKLOAD_GROUP = "bypass_workload_group";
 
+    public static final String QUERY_SLOT_COUNT = "query_slot_count";
+
+    public static final String ENABLE_MEM_OVERCOMMIT = "enable_mem_overcommit";
+
     public static final String MAX_COLUMN_READER_NUM = "max_column_reader_num";
 
     public static final String USE_MAX_LENGTH_OF_VARCHAR_IN_CTAS = "use_max_length_of_varchar_in_ctas";
@@ -682,6 +685,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ADAPTIVE_PIPELINE_TASK_SERIAL_READ_ON_LIMIT =
                                     "adaptive_pipeline_task_serial_read_on_limit";
     public static final String REQUIRE_SEQUENCE_IN_INSERT = "require_sequence_in_insert";
+
+    public static final String MINIMUM_OPERATOR_MEMORY_REQUIRED_KB = "minimum_operator_memory_required_kb";
 
     public static final String ENABLE_PHRASE_QUERY_SEQUENYIAL_OPT = "enable_phrase_query_sequential_opt";
 
@@ -735,7 +740,7 @@ public class SessionVariable implements Serializable, Writable {
     public long insertVisibleTimeoutMs = DEFAULT_INSERT_VISIBLE_TIMEOUT_MS;
 
     // max memory used on every backend.
-    @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT)
+    @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
     public long maxExecMemByte = 2147483648L;
 
     @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT,
@@ -828,6 +833,25 @@ public class SessionVariable implements Serializable, Writable {
             "查询是否绕开WorkloadGroup的限制，目前仅支持绕开查询排队的逻辑",
             "whether bypass workload group's limitation, currently only support bypass query queue"})
     public boolean bypassWorkloadGroup = false;
+
+    @VariableMgr.VarAttr(name = QUERY_SLOT_COUNT, needForward = true, checker = "checkQuerySlotCount",
+            description = {
+                "每个查询占用的slot的数量，workload group的query slot的总数等于设置的最大并发数",
+                "Number of slots occupied by each query, the total number of query slots "
+                        + "of the workload group equals the maximum number of concurrent requests"})
+    public int wgQuerySlotCount = 1;
+
+    public void checkQuerySlotCount(String slotCnt) {
+        Long slotCount = Long.valueOf(slotCnt);
+        if (slotCount < 1 || slotCount > 1025) {
+            throw new InvalidParameterException("query_slot_count should be between 1 and 1024)");
+        }
+    }
+
+    @VariableMgr.VarAttr(name = ENABLE_MEM_OVERCOMMIT, needForward = true, description = {
+            "是否通过硬限的方式来计算每个Query的内存资源",
+            "Whether to calculate the memory resources of each query by hard limit"})
+    public boolean enableMemOvercommit = true;
 
     @VariableMgr.VarAttr(name = MAX_COLUMN_READER_NUM)
     public int maxColumnReaderNum = 20000;
@@ -2081,6 +2105,11 @@ public class SessionVariable implements Serializable, Writable {
             description = {"对外表启用 count(*) 下推优化", "enable count(*) pushdown optimization for external table"})
     private boolean enableCountPushDownForExternalTable = true;
 
+    @VariableMgr.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
+            description = {"一个算子运行需要的最小的内存大小",
+                    "The minimum memory required to be used by an operator, if not meet, the operator will not run"})
+    public int minimumOperatorMemoryRequiredKB = 1000;
+
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
     public Set<Integer> getIgnoredRuntimeFilterIds() {
@@ -2174,20 +2203,12 @@ public class SessionVariable implements Serializable, Writable {
     public int maxFetchRemoteTabletCount = 512;
 
     @VariableMgr.VarAttr(
-            name = ENABLE_JOIN_SPILL,
-            description = {"控制是否启用join算子落盘。默认为 false。",
-                    "Controls whether to enable spill to disk of join operation. "
-                            + "The default value is false."},
+            name = ENABLE_RESERVE_MEMORY,
+            description = {"控制是否启用分配内存前先reverve memory的功能。默认为 true。",
+                    "Controls whether to enable reserve memory before allocating memory. "
+                            + "The default value is true."},
             needForward = true, fuzzy = true)
-    public boolean enableJoinSpill = false;
-
-    @VariableMgr.VarAttr(
-            name = ENABLE_SORT_SPILL,
-            description = {"控制是否启用排序算子落盘。默认为 false。",
-                    "Controls whether to enable spill to disk of sort operation. "
-                            + "The default value is false."},
-            needForward = true, fuzzy = true)
-    public boolean enableSortSpill = false;
+    public boolean enableReserveMemory = true;
 
     @VariableMgr.VarAttr(
             name = "ENABLE_COMPRESS_MATERIALIZE",
@@ -2199,12 +2220,12 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableCompressMaterialize = false;
 
     @VariableMgr.VarAttr(
-            name = ENABLE_AGG_SPILL,
-            description = {"控制是否启用聚合算子落盘。默认为 false。",
-                    "Controls whether to enable spill to disk of aggregation operation. "
+            name = ENABLE_SPILL,
+            description = {"控制是否启用查询算子落盘。默认为 false。",
+                    "Controls whether to enable spill to disk for query. "
                             + "The default value is false."},
             needForward = true, fuzzy = true)
-    public boolean enableAggSpill = false;
+    public boolean enableSpill = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_FORCE_SPILL,
@@ -2335,18 +2356,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableESParallelScroll() {
         return enableESParallelScroll;
-    }
-
-    public boolean isEnableJoinSpill() {
-        return enableJoinSpill;
-    }
-
-    public void setEnableJoinSpill(boolean enableJoinSpill) {
-        this.enableJoinSpill = enableJoinSpill;
-    }
-
-    public boolean isEnableSortSpill() {
-        return enableSortSpill;
     }
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
@@ -2481,10 +2490,8 @@ public class SessionVariable implements Serializable, Writable {
         // for spill to disk
         if (Config.pull_request_id > 10000) {
             if (Config.pull_request_id % 2 == 0) {
-                this.enableJoinSpill = true;
-                this.enableSortSpill = true;
-                this.enableAggSpill = true;
-
+                this.enableSpill = true;
+                this.enableReserveMemory = true;
                 randomInt = random.nextInt(4);
                 switch (randomInt) {
                     case 0:
@@ -2501,9 +2508,8 @@ public class SessionVariable implements Serializable, Writable {
                         break;
                 }
             } else {
-                this.enableJoinSpill = false;
-                this.enableSortSpill = false;
-                this.enableAggSpill = false;
+                this.enableSpill = false;
+                this.enableReserveMemory = false;
             }
         }
     }
@@ -3946,10 +3952,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setSkipBadTablet(skipBadTablet);
         tResult.setDisableFileCache(disableFileCache);
-        tResult.setEnableJoinSpill(enableJoinSpill);
-        tResult.setEnableSortSpill(enableSortSpill);
-        tResult.setEnableAggSpill(enableAggSpill);
+        tResult.setEnableReserveMemory(enableReserveMemory);
+        tResult.setEnableSpill(enableSpill);
         tResult.setEnableForceSpill(enableForceSpill);
+        tResult.setExternalAggPartitionBits(externalAggPartitionBits);
         tResult.setMinRevocableMem(minRevocableMem);
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
 
@@ -3964,6 +3970,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFallbackOnMissingInvertedIndex(enableFallbackOnMissingInvertedIndex);
         tResult.setHiveOrcUseColumnNames(hiveOrcUseColumnNames);
         tResult.setHiveParquetUseColumnNames(hiveParquetUseColumnNames);
+        tResult.setQuerySlotCount(wgQuerySlotCount);
+        tResult.setEnableMemOvercommit(enableMemOvercommit);
+
         tResult.setKeepCarriageReturn(keepCarriageReturn);
 
         tResult.setEnableSegmentCache(enableSegmentCache);
@@ -3978,7 +3987,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setOrcMaxMergeDistanceBytes(orcMaxMergeDistanceBytes);
         tResult.setOrcOnceMaxReadBytes(orcOnceMaxReadBytes);
         tResult.setIgnoreRuntimeFilterError(ignoreRuntimeFilterError);
-
+        tResult.setMinimumOperatorMemoryRequiredKb(minimumOperatorMemoryRequiredKB);
         return tResult;
     }
 
