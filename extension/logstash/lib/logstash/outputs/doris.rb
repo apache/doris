@@ -22,8 +22,8 @@ require "logstash/outputs/base"
 require "logstash/namespace"
 require "logstash/json"
 require "logstash/util/shortname_resolver"
+require 'logstash/util/formater'
 require "uri"
-require "logstash/plugin_mixins/http_client"
 require "securerandom"
 require "json"
 require "base64"
@@ -304,7 +304,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       elsif mapping.is_a?(Array)
         mapping.map { |elem| convert_mapping(elem, event) }
       else
-        event.sprintf(mapping)
+        Formater.sprintf(event, mapping)
       end
    end
 
