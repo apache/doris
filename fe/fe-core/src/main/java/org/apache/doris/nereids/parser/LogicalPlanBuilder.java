@@ -101,7 +101,6 @@ import org.apache.doris.nereids.DorisParser.DropConstraintContext;
 import org.apache.doris.nereids.DorisParser.DropMTMVContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.DropRoleContext;
-import org.apache.doris.nereids.DorisParser.DropSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.ElementAtContext;
 import org.apache.doris.nereids.DorisParser.ExceptContext;
 import org.apache.doris.nereids.DorisParser.ExceptOrReplaceContext;
@@ -164,8 +163,6 @@ import org.apache.doris.nereids.DorisParser.QueryContext;
 import org.apache.doris.nereids.DorisParser.QueryOrganizationContext;
 import org.apache.doris.nereids.DorisParser.QueryTermContext;
 import org.apache.doris.nereids.DorisParser.RecoverDatabaseContext;
-import org.apache.doris.nereids.DorisParser.RecoverPartitionContext;
-import org.apache.doris.nereids.DorisParser.RecoverTableContext;
 import org.apache.doris.nereids.DorisParser.RefreshCatalogContext;
 import org.apache.doris.nereids.DorisParser.RefreshMTMVContext;
 import org.apache.doris.nereids.DorisParser.RefreshMethodContext;
@@ -202,11 +199,9 @@ import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
-import org.apache.doris.nereids.DorisParser.ShowCreateCatalogContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
-import org.apache.doris.nereids.DorisParser.ShowCreateTableContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
@@ -221,7 +216,6 @@ import org.apache.doris.nereids.DorisParser.ShowRolesContext;
 import org.apache.doris.nereids.DorisParser.ShowSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.ShowStorageEnginesContext;
 import org.apache.doris.nereids.DorisParser.ShowTableIdContext;
-import org.apache.doris.nereids.DorisParser.ShowTabletsBelongContext;
 import org.apache.doris.nereids.DorisParser.ShowVariablesContext;
 import org.apache.doris.nereids.DorisParser.ShowViewContext;
 import org.apache.doris.nereids.DorisParser.ShowWhitelistContext;
@@ -478,6 +472,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
@@ -4068,6 +4063,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public SetDefaultStorageVaultCommand visitSetDefaultStorageVault(SetDefaultStorageVaultContext ctx) {
         return new SetDefaultStorageVaultCommand(stripQuotes(ctx.identifier().getText()));
+    }
+
+    @Override
+    public LogicalPlan visitShowTrash(ShowTrashContext ctx) {
+        return new ShowTrashCommand();
     }
 
     @Override
