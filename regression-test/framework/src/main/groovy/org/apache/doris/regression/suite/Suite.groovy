@@ -541,6 +541,10 @@ class Suite implements GroovyInterceptable {
         }
     }
 
+    String getCurDbName() {
+        return context.dbName
+    }
+
     long getDbId() {
         def dbInfo = sql "show proc '/dbs'"
         for(List<Object> row : dbInfo) {

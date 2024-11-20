@@ -37,7 +37,7 @@ suite("docs/table-design/row-store.md") {
         PROPERTIES (
             "enable_unique_key_merge_on_write" = "true",
             "light_schema_change" = "true",
-            "row_store_columns" = "key,v1,v3,v5,v7",
+--            "row_store_columns" = "key,v1,v3,v5,v7", -- 2.1 不支持
             "row_store_page_size" = "4096",
             "replication_num" = "1"
         );
