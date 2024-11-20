@@ -292,7 +292,8 @@ public class SchemaChangeHandler extends AlterHandler {
      * @throws DdlException
      */
     private boolean processDropColumn(DropColumnClause alterClause, OlapTable olapTable,
-                                      Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes)
+                                      Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
+                                      Map<String, String> propertyMap)
             throws DdlException {
 
         String dropColName = alterClause.getColName();
@@ -440,7 +441,9 @@ public class SchemaChangeHandler extends AlterHandler {
                         newBfCols.add(bfCol);
                     }
                 }
-                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
+                propertyMap.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, Joiner.on(",").join(newBfCols));
+                // drop bloom filter column, should write editlog and can not do light schema change
+                lightSchemaChange = false;
             }
 
             for (int i = 1; i < indexIds.size(); i++) {
@@ -2077,7 +2080,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else if (alterClause instanceof DropColumnClause) {
                     // drop column and drop indexes on this column
                     boolean clauseCanLigthSchemaChange = processDropColumn((DropColumnClause) alterClause, olapTable,
-                            indexSchemaMap, newIndexes);
+                            indexSchemaMap, newIndexes, propertyMap);
                     if (!clauseCanLigthSchemaChange) {
                         lightSchemaChange = false;
                     }
