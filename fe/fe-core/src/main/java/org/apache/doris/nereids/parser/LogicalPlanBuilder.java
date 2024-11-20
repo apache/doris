@@ -4288,7 +4288,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String wild = null;
         if (ctx.wildWhere() != null) {
             if (ctx.wildWhere().LIKE() != null) {
-                wild = ctx.wildWhere().STRING_LITERAL().getText().replace("'", "").trim();
+                wild = stripQuotes(ctx.wildWhere().STRING_LITERAL().getText());
             } else if (ctx.wildWhere().WHERE() != null) {
                 wild = ctx.wildWhere().expression().getText();
             }
