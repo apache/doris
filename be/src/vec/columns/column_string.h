@@ -552,18 +552,6 @@ public:
         offsets.clear();
     }
 
-    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method replace_column_data is not supported for " + get_name());
-    }
-
-    // should replace according to 0,1,2... ,size,0,1,2...
-    void replace_column_data_default(size_t self_row = 0) override {
-        throw doris::Exception(
-                ErrorCode::INTERNAL_ERROR,
-                "Method replace_column_data_default is not supported for " + get_name());
-    }
-
     void compare_internal(size_t rhs_row_id, const IColumn& rhs, int nan_direction_hint,
                           int direction, std::vector<uint8>& cmp_res,
                           uint8* __restrict filter) const override;

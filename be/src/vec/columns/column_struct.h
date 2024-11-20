@@ -80,7 +80,7 @@ public:
     static MutablePtr create(Arg&& arg) {
         return Base::create(std::forward<Arg>(arg));
     }
-
+    bool is_variable_length() const override { return true; }
     std::string get_name() const override;
     bool is_column_struct() const override { return true; }
     const char* get_family_name() const override { return "Struct"; }
@@ -141,15 +141,6 @@ public:
     }
     void append_data_by_selector(MutableColumnPtr& res, const Selector& selector) const override {
         return append_data_by_selector_impl<ColumnStruct>(res, selector);
-    }
-    void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method replace_column_data is not supported for " + get_name());
-    }
-
-    void replace_column_data_default(size_t self_row = 0) override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;

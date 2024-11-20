@@ -700,12 +700,18 @@ public:
       */
     String dump_structure() const;
 
-    // only used in agg value replace
-    // ColumnString should replace according to 0,1,2... ,size,0,1,2...
-    virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
+    // only used in agg value replace for column which is not variable length
+    virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) {
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
+    }
 
     // only used in ColumnNullable replace_column_data
-    virtual void replace_column_data_default(size_t self_row = 0) = 0;
+    virtual void replace_column_data_default(size_t self_row = 0) {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method replace_column_data_default is not supported for " + get_name());
+    }
 
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
