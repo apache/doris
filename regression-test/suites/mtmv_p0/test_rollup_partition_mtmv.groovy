@@ -21,7 +21,6 @@ suite("test_rollup_partition_mtmv") {
     def tableName = "t_test_rollup_partition_mtmv_user"
     def mvName = "multi_mv_test_rollup_partition_mtmv"
     def dbName = "regression_test_mtmv_p0"
-    sql "set enable_nereids_rules='ELIMINATE_GROUP_BY_KEY_BY_UNIFORM'"
 
     // list partition date type
     sql """drop table if exists `${tableName}`"""
