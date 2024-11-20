@@ -62,6 +62,8 @@ import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.hudi.common.table.view.HoodieTableFileSystemView;
 import org.apache.hudi.common.util.Option;
+import org.apache.hudi.storage.StoragePath;
+import org.apache.hudi.storage.StoragePathInfo;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -336,13 +338,13 @@ public class HudiScanNode extends HiveScanNode {
             globPath = hudiClient.getBasePathV2().toString() + "/*";
         } else {
             partitionName = FSUtils.getRelativePartitionPath(hudiClient.getBasePathV2(),
-                    new Path(partition.getPath()));
+                    new StoragePath(partition.getPath()));
             globPath = String.format("%s/%s/*", hudiClient.getBasePathV2().toString(), partitionName);
         }
-        List<FileStatus> statuses = FSUtils.getGlobStatusExcludingMetaFolder(
-                hudiClient.getRawFs(), new Path(globPath));
+        List<StoragePathInfo> statuses = FSUtils.getGlobStatusExcludingMetaFolder(
+                hudiClient.getRawHoodieStorage(), new StoragePath(globPath));
         HoodieTableFileSystemView fileSystemView = new HoodieTableFileSystemView(hudiClient,
-                timeline, statuses.toArray(new FileStatus[0]));
+                timeline, statuses);
 
         if (isCowOrRoTable) {
             fileSystemView.getLatestBaseFilesBeforeOrOn(partitionName, queryInstant).forEach(baseFile -> {
@@ -473,7 +475,7 @@ public class HudiScanNode extends HiveScanNode {
         fileSlice.getPartitionPath();
 
         List<String> logs = fileSlice.getLogFiles().map(HoodieLogFile::getPath)
-                .map(Path::toString)
+                .map(StoragePath::toString)
                 .collect(Collectors.toList());
         if (logs.isEmpty()) {
             noLogsSplitNum.incrementAndGet();
