@@ -4172,7 +4172,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private Expression getWildWhere(DorisParser.WildWhereContext ctx) {
         if (ctx.LIKE() != null) {
-            String pattern = ctx.STRING_LITERAL().getText();
+            String pattern = stripQuotes(ctx.STRING_LITERAL().getText());
             return new Like(new UnboundSlot("ProcedureName"), new StringLiteral(pattern));
         } else if (ctx.WHERE() != null) {
             return getExpression(ctx.expression());
