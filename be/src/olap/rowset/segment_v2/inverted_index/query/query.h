@@ -27,6 +27,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "io/io_common.h"
 #include "roaring/roaring.hh"
 
 CL_NS_USE(index)

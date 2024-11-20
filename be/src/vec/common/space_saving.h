@@ -244,10 +244,10 @@ public:
 
     void read(BufferReadable& rb) {
         destroy_elements();
-        size_t count = 0;
+        uint64_t count = 0;
         read_var_uint(count, rb);
 
-        for (size_t i = 0; i < count; ++i) {
+        for (UInt64 i = 0; i < count; ++i) {
             std::unique_ptr counter = std::make_unique<Counter>();
             counter->read(rb);
             counter->hash = counter_map.hash(counter->key);
@@ -259,7 +259,7 @@ public:
 
     // Reads the alpha map data from the provided readable buffer.
     void read_alpha_map(BufferReadable& rb) {
-        size_t alpha_size = 0;
+        uint64_t alpha_size = 0;
         read_var_uint(alpha_size, rb);
         for (size_t i = 0; i < alpha_size; ++i) {
             uint64_t alpha = 0;

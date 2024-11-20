@@ -1078,6 +1078,10 @@ public class Auth implements Writable {
         dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
     }
 
+    public void dropRole(String role, boolean ignoreIfNonExists) throws DdlException {
+        dropRoleInternal(role, ignoreIfNonExists, false);
+    }
+
     public void replayDropRole(PrivInfo info) {
         try {
             dropRoleInternal(info.getRole(), false, true);

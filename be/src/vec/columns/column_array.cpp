@@ -79,16 +79,8 @@ ColumnArray::ColumnArray(MutableColumnPtr&& nested_column) : data(std::move(nest
     offsets = ColumnOffsets::create();
 }
 
-bool ColumnArray::could_shrinked_column() {
-    return data->could_shrinked_column();
-}
-
-MutableColumnPtr ColumnArray::get_shrinked_column() {
-    if (could_shrinked_column()) {
-        return ColumnArray::create(data->get_shrinked_column(), offsets->assume_mutable());
-    } else {
-        return ColumnArray::create(data->assume_mutable(), offsets->assume_mutable());
-    }
+void ColumnArray::shrink_padding_chars() {
+    data->shrink_padding_chars();
 }
 
 std::string ColumnArray::get_name() const {

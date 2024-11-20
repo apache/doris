@@ -112,14 +112,12 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
 
     /** On the index i there is an offset to the beginning of the i + 1 -th element. */
     using ColumnOffsets = ColumnVector<Offset64>;
 
     std::string get_name() const override;
-    const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
     bool is_variable_length() const override { return true; }
 
@@ -195,14 +193,6 @@ public:
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return get_offsets()[i - 1]; }
     size_t ALWAYS_INLINE size_at(ssize_t i) const {
         return get_offsets()[i] - get_offsets()[i - 1];
-    }
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        return append_data_by_selector_impl<ColumnArray>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        return append_data_by_selector_impl<ColumnArray>(res, selector, begin, end);
     }
 
     void for_each_subcolumn(ColumnCallback callback) override {

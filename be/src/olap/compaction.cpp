@@ -613,11 +613,9 @@ Status Compaction::do_inverted_index_compaction() {
                 fs, std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path)},
                 _cur_tablet_schema->get_inverted_index_storage_format(),
                 rowset->rowset_meta()->inverted_index_file_info(seg_id));
-        bool open_idx_file_cache = false;
         RETURN_NOT_OK_STATUS_WITH_WARN(
-                inverted_index_file_reader->init(config::inverted_index_read_buffer_size,
-                                                 open_idx_file_cache),
-                "inverted_index_file_reader init failed");
+                inverted_index_file_reader->init(config::inverted_index_read_buffer_size),
+                "inverted_index_file_reader init faiqled");
         inverted_index_file_readers[m.second] = std::move(inverted_index_file_reader);
     }
 
@@ -785,9 +783,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                                     InvertedIndexDescriptor::get_index_file_path_prefix(*seg_path)},
                             _cur_tablet_schema->get_inverted_index_storage_format(),
                             rowset->rowset_meta()->inverted_index_file_info(i));
-                    bool open_idx_file_cache = false;
                     auto st = inverted_index_file_reader->init(
-                            config::inverted_index_read_buffer_size, open_idx_file_cache);
+                            config::inverted_index_read_buffer_size);
                     index_file_path = inverted_index_file_reader->get_index_file_path(index_meta);
                     DBUG_EXECUTE_IF(
                             "Compaction::construct_skip_inverted_index_index_file_reader_init_"

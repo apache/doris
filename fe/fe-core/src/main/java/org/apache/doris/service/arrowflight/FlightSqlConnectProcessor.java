@@ -137,9 +137,11 @@ public class FlightSqlConnectProcessor extends ConnectProcessor implements AutoC
                 throw new RuntimeException(String.format("fetch arrow flight schema failed, queryId: %s, errmsg: %s",
                         DebugUtil.printId(tid), resultStatus));
             }
-            if (pResult.hasBeArrowFlightIp() && pResult.hasBeArrowFlightPort()) {
-                publicAccessAddr.hostname = pResult.getBeArrowFlightIp().toStringUtf8();
-                publicAccessAddr.port = pResult.getBeArrowFlightPort();
+            if (pResult.hasBeArrowFlightIp()) {
+                publicAccessAddr.setHostname(pResult.getBeArrowFlightIp().toStringUtf8());
+            }
+            if (pResult.hasBeArrowFlightPort()) {
+                publicAccessAddr.setPort(pResult.getBeArrowFlightPort());
             }
             if (pResult.hasSchema() && pResult.getSchema().size() > 0) {
                 RootAllocator rootAllocator = new RootAllocator(Integer.MAX_VALUE);

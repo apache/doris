@@ -88,10 +88,7 @@ public:
     using Offsets = PaddedPODArray<Offset>;
 
     /// Name of a Column. It is used in info messages.
-    virtual std::string get_name() const { return get_family_name(); }
-
-    /// Name of a Column kind, without parameters (example: FixedString, Array).
-    virtual const char* get_family_name() const = 0;
+    virtual std::string get_name() const = 0;
 
     /** If column isn't constant, returns nullptr (or itself).
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
@@ -129,16 +126,9 @@ public:
         return nullptr;
     }
 
-    // shrink the end zeros for CHAR type or ARRAY<CHAR> type
-    virtual MutablePtr get_shrinked_column() {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method get_shrinked_column is not supported for " + get_name());
-        return nullptr;
-    }
-
-    // check the column whether could shrinked
-    // now support only in char type, or the nested type in complex type: array{char}, struct{char}, map{char}
-    virtual bool could_shrinked_column() { return false; }
+    // shrink the end zeros for ColumnStr(also for who has it nested). so nest column will call it for all nested.
+    // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
+    virtual void shrink_padding_chars() {}
 
     /// Some columns may require finalization before using of other operations.
     virtual void finalize() {}
@@ -228,8 +218,11 @@ public:
         }
     }
 
-    virtual void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
-                                          std::vector<size_t> positions);
+    // insert the data of target columns into self column according to positions
+    // positions[i] means index of srcs whitch need to insert_from
+    // the virtual function overhead of multiple calls to insert_from can be reduced to once
+    void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
+                                  std::vector<size_t> positions);
 
     /// Appends a batch elements from other column with the same type
     /// indices_begin + indices_end represent the row indices of column src
@@ -290,7 +283,7 @@ public:
                                "Method insert_many_raw_data is not supported for " + get_name());
     }
 
-    void insert_many_data(const char* pos, size_t length, size_t data_num) {
+    void insert_data_repeatedly(const char* pos, size_t length, size_t data_num) {
         for (size_t i = 0; i < data_num; ++i) {
             insert_data(pos, length);
         }
@@ -462,8 +455,7 @@ public:
       * For array/map/struct types, we compare with nested column element and offsets size
       */
     virtual int compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "compare_at for " + std::string(get_family_name()));
+        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "compare_at for " + get_name());
     }
 
     /**
@@ -485,7 +477,7 @@ public:
     virtual void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                  Permutation& res) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "get_permutation for " + std::string(get_family_name()));
+                               "get_permutation for " + get_name());
     }
 
     /** Copies each element according offsets parameter.
@@ -503,13 +495,17 @@ public:
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
-      * For default implementation, see scatter_impl.
+      * For default implementation, see column_impl.h
       */
     using ColumnIndex = UInt64;
     using Selector = PaddedPODArray<ColumnIndex>;
 
+    // The append_data_by_selector function requires the column to implement the insert_from function.
+    // In fact, this function is just calling insert_from but without the overhead of a virtual function.
+
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector) const = 0;
 
+    // Here, begin and end represent the range of the Selector.
     virtual void append_data_by_selector(MutablePtr& res, const Selector& selector, size_t begin,
                                          size_t end) const = 0;
 
@@ -574,8 +570,10 @@ public:
 
     /// Various properties on behaviour of column type.
 
-    /// True if column contains something nullable inside. It's true for ColumnNullable, can be true or false for ColumnConst, etc.
+    /// It's true for ColumnNullable only.
     virtual bool is_nullable() const { return false; }
+    /// It's true for ColumnNullable, can be true or false for ColumnConst, etc.
+    virtual bool is_concrete_nullable() const { return false; }
 
     virtual bool is_bitmap() const { return false; }
 
@@ -654,6 +652,20 @@ public:
     /// If the only value column can contain is NULL.
     virtual bool only_null() const { return false; }
 
+    /**
+     * ColumnSorter is used to sort each columns in a Block. In this sorting pattern, sorting a
+     * column will produce a list of EqualRange which has the same elements respectively. And for
+     * next column in this block, we only need to sort rows in those `range`.
+     *
+     * Besides, we do not materialize sorted data eagerly. Instead, the intermediate sorting results
+     * are represendted by permutation and data will be materialized after all of columns are sorted.
+     *
+     * @sorter: ColumnSorter is used to do sorting.
+     * @flags : indicates if current item equals to the previous one.
+     * @perms : permutation after sorting
+     * @range : EqualRange which has the same elements respectively.
+     * @last_column : indicates if this column is the last in this block.
+     */
     virtual void sort_column(const ColumnSorter* sorter, EqualFlags& flags,
                              IColumn::Permutation& perms, EqualRange& range,
                              bool last_column) const;
@@ -668,8 +680,11 @@ public:
 
     // only used in agg value replace
     // ColumnString should replace according to 0,1,2... ,size,0,1,2...
+    // usage: self_column.replace_column_data(other_column, other_column's row index, self_column's row index)
     virtual void replace_column_data(const IColumn&, size_t row, size_t self_row = 0) = 0;
-
+    // replace data to default value if null, used to avoid null data output decimal check failure
+    // usage: nested_column.replace_column_null_data(nested_null_map.data())
+    // only wrok on column_vector and column column decimal, there will be no behavior when other columns type call this method
     virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
 
     virtual bool is_date_type() const { return is_date; }

@@ -77,7 +77,6 @@ public:
     }
 
     std::string get_name() const override;
-    const char* get_family_name() const override { return "Map"; }
 
     void for_each_subcolumn(ColumnCallback callback) override {
         callback(keys_column);
@@ -119,8 +118,7 @@ public:
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
@@ -132,15 +130,6 @@ public:
                              const uint32_t* indices_end) override;
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override;
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        return append_data_by_selector_impl<ColumnMap>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        return append_data_by_selector_impl<ColumnMap>(res, selector, begin, end);
-    }
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,

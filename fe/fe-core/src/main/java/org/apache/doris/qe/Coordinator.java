@@ -1887,11 +1887,17 @@ public class Coordinator implements CoordInterface {
                             return scanNode.getId().asInt() == planNodeId;
                         }).findFirst();
 
+                        /**
+                         * Ignore storage data distribution iff:
+                         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
+                         * 2. Use Nereids planner.
+                         */
                         boolean sharedScan = true;
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
-                        boolean ignoreStorageDataDistribution = fragment.useSerialSource(context);
-                        if (ignoreStorageDataDistribution) {
+                        boolean ignoreStorageDataDistribution = node.isPresent()
+                                && fragment.useSerialSource(context);
+                        if (node.isPresent() && ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource

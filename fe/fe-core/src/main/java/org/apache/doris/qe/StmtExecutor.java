@@ -629,6 +629,8 @@ public class StmtExecutor {
                 }
                 parsedStmt = null;
                 planner = null;
+                isForwardedToMaster = null;
+                redirectStatus = null;
                 // Attention: currently exception from nereids does not mean an Exception to user terminal
                 // unless user does not allow fallback to lagency planner. But state of query
                 // has already been set to Error in this case, it will have some side effect on profile result
@@ -1994,7 +1996,7 @@ public class StmtExecutor {
                     if (!isSendFields) {
                         if (!isOutfileQuery) {
                             sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                    exprToType(queryStmt.getResultExprs()));
+                                    getReturnTypes(queryStmt));
                         } else {
                             if (!Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
                                 outfileWriteSuccess(queryStmt.getOutFileClause());
@@ -2046,7 +2048,7 @@ public class StmtExecutor {
                         return;
                     } else {
                         sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                exprToType(queryStmt.getResultExprs()));
+                                getReturnTypes(queryStmt));
                     }
                 } else {
                     sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
@@ -2853,15 +2855,35 @@ public class StmtExecutor {
             LOG.debug("sendFields {}", colNames);
         }
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        StatementContext statementContext = context.getStatementContext();
+        boolean isShortCircuited = statementContext.isShortCircuitQuery()
+                        && statementContext.getShortCircuitQueryContext() != null;
+        ShortCircuitQueryContext ctx = statementContext.getShortCircuitQueryContext();
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
             serializer.reset();
-            if (fieldInfos != null) {
-                serializer.writeField(fieldInfos.get(i), types.get(i));
+            if (context.getCommand() == MysqlCommand.COM_STMT_EXECUTE && isShortCircuited) {
+                // Using PreparedStatment pre serializedField to avoid serialize each time
+                // we send a field
+                byte[] serializedField = ctx.getSerializedField(i);
+                if (serializedField == null) {
+                    if (fieldInfos != null) {
+                        serializer.writeField(fieldInfos.get(i), types.get(i));
+                    } else {
+                        serializer.writeField(colNames.get(i), types.get(i));
+                    }
+                    serializedField = serializer.toArray();
+                    ctx.addSerializedField(i, serializedField);
+                }
+                context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
             } else {
-                serializer.writeField(colNames.get(i), types.get(i));
+                if (fieldInfos != null) {
+                    serializer.writeField(fieldInfos.get(i), types.get(i));
+                } else {
+                    serializer.writeField(colNames.get(i), types.get(i));
+                }
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         // send EOF
         serializer.reset();
@@ -3367,6 +3389,11 @@ public class StmtExecutor {
         return statisticsForAuditLog.build();
     }
 
+    private boolean isShortCircuitedWithCtx() {
+        return statementContext.isShortCircuitQuery()
+                        && statementContext.getShortCircuitQueryContext() != null;
+    }
+
     private List<Type> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType()).collect(Collectors.toList());
     }
@@ -3487,6 +3514,13 @@ public class StmtExecutor {
 
     public List<Type> getReturnTypes() {
         return exprToType(parsedStmt.getResultExprs());
+    }
+
+    public List<Type> getReturnTypes(Queriable stmt) {
+        if (isShortCircuitedWithCtx()) {
+            return statementContext.getShortCircuitQueryContext().getReturnTypes();
+        }
+        return exprToType(stmt.getResultExprs());
     }
 
     private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {

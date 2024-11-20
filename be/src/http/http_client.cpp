@@ -27,6 +27,7 @@
 #include "http/http_headers.h"
 #include "http/http_status.h"
 #include "runtime/exec_env.h"
+#include "util/security.h"
 #include "util/stack_util.h"
 
 namespace doris {
@@ -205,9 +206,11 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
     _callback = &callback;
     auto code = curl_easy_perform(_curl);
     if (code != CURLE_OK) {
+        std::string url = mask_token(_get_url());
         LOG(WARNING) << "fail to execute HTTP client, errmsg=" << _to_errmsg(code)
-                     << ", trace=" << get_stack_trace();
-        return Status::HttpError(_to_errmsg(code));
+                     << ", trace=" << get_stack_trace() << ", url=" << url;
+        std::string errmsg = fmt::format("{}, url={}", _to_errmsg(code), url);
+        return Status::HttpError(std::move(errmsg));
     }
     return Status::OK();
 }
@@ -275,11 +278,20 @@ Status HttpClient::execute(std::string* response) {
     return execute(callback);
 }
 
-const char* HttpClient::_to_errmsg(CURLcode code) {
+const char* HttpClient::_to_errmsg(CURLcode code) const {
     if (_error_buf[0] == 0) {
         return curl_easy_strerror(code);
     }
     return _error_buf;
+}
+
+const char* HttpClient::_get_url() const {
+    const char* url = nullptr;
+    curl_easy_getinfo(_curl, CURLINFO_EFFECTIVE_URL, &url);
+    if (!url) {
+        url = "<unknown>";
+    }
+    return url;
 }
 
 Status HttpClient::execute_with_retry(int retry_times, int sleep_time,
@@ -293,7 +305,9 @@ Status HttpClient::execute_with_retry(int retry_times, int sleep_time,
             if (http_status == 200) {
                 return status;
             } else {
-                auto error_msg = fmt::format("http status code is not 200, code={}", http_status);
+                std::string url = mask_token(client._get_url());
+                auto error_msg = fmt::format("http status code is not 200, code={}, url={}",
+                                             http_status, url);
                 LOG(WARNING) << error_msg;
                 return Status::HttpError(error_msg);
             }

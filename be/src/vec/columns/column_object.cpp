@@ -1416,7 +1416,7 @@ void get_json_by_column_tree(rapidjson::Value& root, rapidjson::Document::Alloca
     }
 }
 
-Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) const {
+Status ColumnObject::serialize_one_row_to_string(int64_t row, std::string* output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1432,7 +1432,7 @@ Status ColumnObject::serialize_one_row_to_string(int row, std::string* output) c
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output) const {
+Status ColumnObject::serialize_one_row_to_string(int64_t row, BufferWritable& output) const {
     if (!is_finalized()) {
         const_cast<ColumnObject*>(this)->finalize(FinalizeMode::READ_MODE);
     }
@@ -1447,7 +1447,7 @@ Status ColumnObject::serialize_one_row_to_string(int row, BufferWritable& output
     return Status::OK();
 }
 
-Status ColumnObject::serialize_one_row_to_json_format(int row, rapidjson::StringBuffer* output,
+Status ColumnObject::serialize_one_row_to_json_format(int64_t row, rapidjson::StringBuffer* output,
                                                       bool* is_null) const {
     CHECK(is_finalized());
     if (subcolumns.empty()) {
@@ -1935,7 +1935,7 @@ void ColumnObject::update_crc_with_value(size_t start, size_t end, uint32_t& has
 
 std::string ColumnObject::debug_string() const {
     std::stringstream res;
-    res << get_family_name() << "(num_row = " << num_rows;
+    res << get_name() << "(num_row = " << num_rows;
     for (auto& entry : subcolumns) {
         if (entry->data.is_finalized()) {
             res << "[column:" << entry->data.data[0]->dump_structure()
@@ -1952,8 +1952,8 @@ Status ColumnObject::sanitize() const {
     for (const auto& subcolumn : subcolumns) {
         if (subcolumn->data.is_finalized()) {
             auto column = subcolumn->data.get_least_common_type()->create_column();
-            std::string original = subcolumn->data.get_finalized_column().get_family_name();
-            std::string expected = column->get_family_name();
+            std::string original = subcolumn->data.get_finalized_column().get_name();
+            std::string expected = column->get_name();
             if (original != expected) {
                 return Status::InternalError("Incompatible type between {} and {}, debug_info:",
                                              original, expected, debug_string());

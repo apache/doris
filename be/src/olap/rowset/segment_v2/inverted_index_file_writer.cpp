@@ -243,7 +243,9 @@ void InvertedIndexFileWriter::copyFile(const char* fileName, lucene::store::Dire
 
 Status InvertedIndexFileWriter::write_v1() {
     int64_t total_size = 0;
+    std::string err_msg;
     lucene::store::Directory* out_dir = nullptr;
+    std::exception_ptr eptr;
     std::unique_ptr<lucene::store::IndexOutput> output = nullptr;
     for (const auto& entry : _indices_dirs) {
         const int64_t index_id = entry.first.first;
@@ -268,38 +270,39 @@ Status InvertedIndexFileWriter::write_v1() {
             write_header_and_data_v1(output.get(), sorted_files, directory, header_length,
                                      header_file_count);
 
-            // Close and clean up
-            finalize_output_dir(out_dir);
-
             // Collect file information
             auto compound_file_size = output->getFilePointer() - start;
-            output->close();
             total_size += compound_file_size;
             add_index_info(index_id, index_suffix, compound_file_size);
-
         } catch (CLuceneError& err) {
-            finalize_output_dir(out_dir);
-            if (output != nullptr) {
-                output->close();
-                output.reset();
-            }
+            eptr = std::current_exception();
             auto index_path = InvertedIndexDescriptor::get_index_file_path_v1(
                     _index_path_prefix, index_id, index_suffix);
-            LOG(ERROR) << "CLuceneError occur when write_v1 idx file " << index_path
-                       << " error msg: " << err.what();
+            err_msg = "CLuceneError occur when write_v1 idx file " + index_path +
+                      " error msg: " + err.what();
+        }
 
-            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                    "CLuceneError occur when write_v1 idx file: {}, error msg: {}", index_path,
-                    err.what());
+        // Close and clean up
+        finalize_output_dir(out_dir);
+        if (output) {
+            output->close();
+        }
+
+        if (eptr) {
+            LOG(ERROR) << err_msg;
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(err_msg);
         }
     }
+
     _total_file_size = total_size;
     return Status::OK();
 }
 
 Status InvertedIndexFileWriter::write_v2() {
+    std::string err_msg;
     lucene::store::Directory* out_dir = nullptr;
     std::unique_ptr<lucene::store::IndexOutput> compound_file_output = nullptr;
+    std::exception_ptr eptr;
     try {
         // Calculate header length and initialize offset
         int64_t current_offset = headerLength();
@@ -320,29 +323,30 @@ Status InvertedIndexFileWriter::write_v2() {
         // Copy file data
         copy_files_data_v2(compound_file_output.get(), file_metadata);
 
-        // Close and clean up
-        finalize_output_dir(out_dir);
         _total_file_size = compound_file_output->getFilePointer();
         _file_info.set_index_size(_total_file_size);
-        compound_file_output->close();
-        return Status::OK();
     } catch (CLuceneError& err) {
-        io::Path index_path {InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)};
-        LOG(ERROR) << "CLuceneError occur when close idx file " << index_path
-                   << " error msg: " << err.what();
-        if (compound_file_output != nullptr) {
-            compound_file_output->close();
-            compound_file_output.reset();
-        }
-        finalize_output_dir(out_dir);
-        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
-                "CLuceneError occur when close idx file: {}, error msg: {}", index_path.c_str(),
-                err.what());
+        eptr = std::current_exception();
+        auto index_path = InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix);
+        err_msg = "CLuceneError occur when close idx file " + index_path +
+                  " error msg: " + err.what();
     }
+
+    // Close and clean up
+    finalize_output_dir(out_dir);
+    if (compound_file_output) {
+        compound_file_output->close();
+    }
+
+    if (eptr) {
+        LOG(ERROR) << err_msg;
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(err_msg);
+    }
+
+    return Status::OK();
 }
 
 // Helper function implementations
-
 std::vector<FileInfo> InvertedIndexFileWriter::prepare_sorted_files(
         lucene::store::Directory* directory) {
     std::vector<std::string> files;

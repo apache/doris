@@ -49,6 +49,7 @@ Usage: $0 <options>
      --meta-tool            build Backend meta tool. Default OFF.
      --cloud                build Cloud. Default OFF.
      --index-tool           build Backend inverted index tool. Default OFF.
+     --benchmark            build Google Benchmark. Default OFF.
      --broker               build Broker. Default ON.
      --spark-dpp            build Spark DPP application. Default ON.
      --hive-udf             build Hive UDF library for Spark Load. Default ON.
@@ -64,12 +65,14 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
+
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
     $0 --meta-tool                          build Backend meta tool
     $0 --cloud                              build Cloud
     $0 --index-tool                         build Backend inverted index tool
+    $0 --benchmark                          build Google Benchmark of Backend
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
     $0 --spark-dpp                          build Spark DPP application alone
@@ -129,6 +132,7 @@ if ! OPTS="$(getopt \
     -l 'broker' \
     -l 'meta-tool' \
     -l 'index-tool' \
+    -l 'benchmark' \
     -l 'spark-dpp' \
     -l 'hive-udf' \
     -l 'be-java-extensions' \
@@ -151,6 +155,7 @@ BUILD_CLOUD=0
 BUILD_BROKER=0
 BUILD_META_TOOL='OFF'
 BUILD_INDEX_TOOL='OFF'
+BUILD_BENCHMARK='OFF'
 BUILD_SPARK_DPP=0
 BUILD_BE_JAVA_EXTENSIONS=0
 BUILD_HIVE_UDF=0
@@ -170,6 +175,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_BROKER=1
     BUILD_META_TOOL='OFF'
     BUILD_INDEX_TOOL='OFF'
+    BUILD_BENCHMARK='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
     BUILD_BE_JAVA_EXTENSIONS=1
@@ -203,6 +209,11 @@ else
             ;;
         --index-tool)
             BUILD_INDEX_TOOL='ON'
+            shift
+            ;;
+        --benchmark)
+            BUILD_BENCHMARK='ON'
+            BUILD_BE=1 # go into BE cmake building, but benchmark instead of doris_be
             shift
             ;;
         --spark-dpp)
@@ -446,6 +457,10 @@ if [[ -z "${ENABLE_CACHE_LOCK_DEBUG}" ]]; then
     ENABLE_CACHE_LOCK_DEBUG='OFF'
 fi
 
+if [[ -z "${BUILD_BENCHMARK}" ]]; then
+    BUILD_BENCHMARK='OFF'
+fi
+
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
     RECORD_COMPILER_SWITCHES='OFF'
 fi
@@ -476,6 +491,7 @@ echo "Get params:
     BUILD_BROKER                -- ${BUILD_BROKER}
     BUILD_META_TOOL             -- ${BUILD_META_TOOL}
     BUILD_INDEX_TOOL            -- ${BUILD_INDEX_TOOL}
+    BUILD_BENCHMARK             -- ${BUILD_BENCHMARK}
     BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
     BUILD_BE_JAVA_EXTENSIONS    -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_HIVE_UDF              -- ${BUILD_HIVE_UDF}
@@ -506,9 +522,6 @@ fi
 
 # Assesmble FE modules
 FE_MODULES=''
-# TODO: docs are temporarily removed, so this var is always OFF
-# Fix it later
-BUILD_DOCS='OFF'
 modules=("")
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-common")
@@ -581,6 +594,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_INJECTION_POINT="${ENABLE_INJECTION_POINT}" \
         -DENABLE_CACHE_LOCK_DEBUG="${ENABLE_CACHE_LOCK_DEBUG}" \
         -DMAKE_TEST=OFF \
+        -DBUILD_BENCHMARK="${BUILD_BENCHMARK}" \
         -DBUILD_FS_BENCHMARK="${BUILD_FS_BENCHMARK}" \
         ${CMAKE_USE_CCACHE:+${CMAKE_USE_CCACHE}} \
         -DWITH_MYSQL="${WITH_MYSQL}" \
@@ -646,14 +660,6 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
     "${BUILD_SYSTEM}" install
     cd "${DORIS_HOME}"
     echo "Build cloud done"
-fi
-
-if [[ "${BUILD_DOCS}" = "ON" ]]; then
-    # Build docs, should be built before Frontend
-    echo "Build docs"
-    cd "${DORIS_HOME}/docs"
-    ./build_help_zip.sh
-    cd "${DORIS_HOME}"
 fi
 
 function build_ui() {
@@ -806,6 +812,10 @@ EOF
     cp -r -p "${DORIS_HOME}/tools/FlameGraph"/* "${DORIS_OUTPUT}/be/tools/FlameGraph"/
     if [[ "${STRIP_DEBUG_INFO}" = "ON" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/debug_info" "${DORIS_OUTPUT}/be/lib"/
+    fi
+
+    if [[ "${BUILD_BENCHMARK}" = "ON" ]]; then
+        cp -r -p "${DORIS_HOME}/be/output/lib/benchmark_test" "${DORIS_OUTPUT}/be/lib/"/
     fi
 
     if [[ "${BUILD_FS_BENCHMARK}" = "ON" ]]; then

@@ -85,7 +85,7 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
             .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
             .add(WorkloadGroup.SCAN_THREAD_NUM).add(WorkloadGroup.MAX_REMOTE_SCAN_THREAD_NUM)
             .add(WorkloadGroup.MIN_REMOTE_SCAN_THREAD_NUM)
-            .add(WorkloadGroup.SPILL_THRESHOLD_LOW_WATERMARK).add(WorkloadGroup.SPILL_THRESHOLD_HIGH_WATERMARK)
+            .add(WorkloadGroup.MEMORY_LOW_WATERMARK).add(WorkloadGroup.MEMORY_HIGH_WATERMARK)
             .add(WorkloadGroup.TAG)
             .add(WorkloadGroup.READ_BYTES_PER_SECOND).add(WorkloadGroup.REMOTE_READ_BYTES_PER_SECOND)
             .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
@@ -434,17 +434,17 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
                     continue;
                 }
 
-                if (wg.getCpuHardLimit() > 0) {
-                    sumOfAllCpuHardLimit += wg.getCpuHardLimit();
+                if (wg.getCpuHardLimitWhenCalSum() > 0) {
+                    sumOfAllCpuHardLimit += wg.getCpuHardLimitWhenCalSum();
                 }
-                if (wg.getMemoryLimitPercent() > 0) {
-                    sumOfAllMemLimit += wg.getMemoryLimitPercent();
+                if (wg.getMemoryLimitPercentWhenCalSum() > 0) {
+                    sumOfAllMemLimit += wg.getMemoryLimitPercentWhenCalSum();
                 }
             }
 
             // 2 sum current wg value
-            sumOfAllMemLimit += newWg.getMemoryLimitPercent();
-            sumOfAllCpuHardLimit += newWg.getCpuHardLimit();
+            sumOfAllMemLimit += newWg.getMemoryLimitPercentWhenCalSum();
+            sumOfAllCpuHardLimit += newWg.getCpuHardLimitWhenCalSum();
 
             // 3 check total sum
             if (sumOfAllMemLimit > 100.0 + 1e-6) {

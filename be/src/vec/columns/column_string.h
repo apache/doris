@@ -85,6 +85,7 @@ private:
     /// For convenience, every string ends with terminating zero byte. Note that strings could contain zero bytes in the middle.
     Chars chars;
 
+    // Start position of i-th element.
     size_t ALWAYS_INLINE offset_at(ssize_t i) const { return offsets[i - 1]; }
 
     /// Size of i-th element, including terminating zero.
@@ -105,7 +106,7 @@ public:
     bool is_variable_length() const override { return true; }
     // used in string ut testd
     void sanity_check() const;
-    const char* get_family_name() const override { return "String"; }
+    std::string get_name() const override { return "String"; }
 
     size_t size() const override { return offsets.size(); }
 
@@ -117,8 +118,7 @@ public:
 
     MutableColumnPtr clone_resized(size_t to_size) const override;
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override { return true; }
+    void shrink_padding_chars() override;
 
     Field operator[](size_t n) const override {
         assert(n < size());
@@ -510,16 +510,6 @@ public:
                          IColumn::Permutation& res) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override;
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<ColumnStr<T>>(res, selector, begin, end);
-    }
 
     void reserve(size_t n) override;
 

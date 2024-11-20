@@ -50,7 +50,8 @@ template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
                                                 const std::vector<uint32_t>& col_ids, bool is_key,
-                                                uint32_t max_rows_per_segment) {
+                                                uint32_t max_rows_per_segment,
+                                                bool has_cluster_key) {
     auto& context = this->_context;
 
     VLOG_NOTICE << "VerticalBetaRowsetWriter::add_columns, columns: " << block->columns();
@@ -71,7 +72,10 @@ Status VerticalBetaRowsetWriter<T>::add_columns(const vectorized::Block* block,
         _cur_writer_idx = 0;
         RETURN_IF_ERROR(_segment_writers[_cur_writer_idx]->append_block(block, 0, num_rows));
     } else if (is_key) {
-        if (_segment_writers[_cur_writer_idx]->num_rows_written() > max_rows_per_segment) {
+        // TODO for cluster key, always create new segment writer because the primary keys are
+        // sorted in SegmentWriter::_generate_primary_key_index, will cause too many segments
+        if (_segment_writers[_cur_writer_idx]->num_rows_written() > max_rows_per_segment ||
+            has_cluster_key) {
             // segment is full, need flush columns and create new segment writer
             RETURN_IF_ERROR(_flush_columns(_segment_writers[_cur_writer_idx].get(), true));
 

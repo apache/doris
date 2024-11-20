@@ -44,6 +44,7 @@ suite("txn_insert_restart_fe", 'docker') {
     options.feConfigs.add('sys_log_verbose_modules=org.apache.doris')
     // options.beConfigs.add('sys_log_verbose_modules=*')
     options.beConfigs.add('enable_java_support=false')
+    options.beConfigs.add('pending_data_expire_time_sec=1')
     docker(options) {
         // ---------- test restart fe ----------
         def result = sql 'SELECT DATABASE()'

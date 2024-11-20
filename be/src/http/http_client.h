@@ -164,7 +164,8 @@ public:
     Status _escape_url(const std::string& url, std::string* escaped_url);
 
 private:
-    const char* _to_errmsg(CURLcode code);
+    const char* _to_errmsg(CURLcode code) const;
+    const char* _get_url() const;
 
 private:
     CURL* _curl = nullptr;

@@ -1228,10 +1228,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
         return (boolean) jobProperties.get(LoadStmt.LOAD_TO_SINGLE_TABLET);
     }
 
-    public boolean useNewLoadScanNode() {
-        return (boolean) jobProperties.getOrDefault(LoadStmt.USE_NEW_LOAD_SCAN_NODE, false);
-    }
-
     // Return true if this job is finished for a long time
     public boolean isExpired(long currentTimeMs) {
         if (!isCompleted()) {

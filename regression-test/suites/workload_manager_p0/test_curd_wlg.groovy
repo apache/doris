@@ -31,6 +31,7 @@ suite("test_crud_wlg") {
     sql "drop workload group if exists tag1_mem_wg1;"
     sql "drop workload group if exists tag1_mem_wg2;"
     sql "drop workload group if exists tag1_mem_wg3;"
+    sql "drop workload group if exists tag1_mem_wg4;"
     sql "drop workload group if exists bypass_group;"
 
     sql """
@@ -109,13 +110,13 @@ suite("test_crud_wlg") {
     test {
         sql "alter workload group normal properties ( 'cpu_share'='-2' );"
 
-        exception "requires a positive integer"
+        exception "The allowed cpu_share value is -1 or a positive integer"
     }
 
     test {
         sql "alter workload group normal properties ( 'scan_thread_num'='0' );"
 
-        exception "scan_thread_num must be a positive integer or -1"
+        exception "The allowed scan_thread_num value is -1 or a positive integer"
     }
 
     sql "drop workload group if exists test_group;"
@@ -165,7 +166,7 @@ suite("test_crud_wlg") {
     test {
         sql "alter workload group test_group properties ( 'cpu_hard_limit'='101%' );"
 
-        exception "must be a positive integer"
+        exception "The allowed cpu_hard_limit value is -1 or a positive integer"
     }
 
     sql "alter workload group test_group properties ( 'cpu_hard_limit'='99%' );"
@@ -208,39 +209,39 @@ suite("test_crud_wlg") {
     test {
         sql "alter workload group test_group properties ( 'max_concurrency'='-1' );"
 
-        exception "requires a positive integer"
+        exception "The allowed max_concurrency value is an integer greater than or equal to 0"
     }
 
     test {
         sql "alter workload group test_group properties ( 'max_queue_size'='-1' );"
 
-        exception "requires a positive integer"
+        exception "The allowed max_queue_size value is an integer greater than or equal to 0"
     }
 
     test {
         sql "alter workload group test_group properties ( 'queue_timeout'='-1' );"
 
-        exception "requires a positive integer"
+        exception "The allowed queue_timeout value is an integer greater than or equal to 0"
     }
 
     test {
         sql "alter workload group test_group properties('read_bytes_per_second'='0')"
-        exception "an integer value bigger than"
+        exception "The allowed read_bytes_per_second value should be -1 or an positive integer"
     }
 
     test {
         sql "alter workload group test_group properties('read_bytes_per_second'='-2')"
-        exception "an integer value bigger than"
+        exception "The allowed read_bytes_per_second value should be -1 or an positive integer"
     }
 
     test {
         sql "alter workload group test_group properties('remote_read_bytes_per_second'='0')"
-        exception "an integer value bigger than"
+        exception "The allowed remote_read_bytes_per_second value should be -1 or an positive integer"
     }
 
     test {
         sql "alter workload group test_group properties('remote_read_bytes_per_second'='-2')"
-        exception "an integer value bigger than"
+        exception "The allowed remote_read_bytes_per_second value should be -1 or an positive integer"
     }
 
     sql "alter workload group test_group properties ( 'max_concurrency'='100' );"
@@ -254,12 +255,12 @@ suite("test_crud_wlg") {
     test {
         sql "create workload group if not exists test_group2 " +
                 "properties ( " +
-                "    'cpu_share'='-1', " +
+                "    'cpu_share'='-2', " +
                 "    'memory_limit'='1%', " +
                 "    'enable_memory_overcommit'='true' " +
                 ");"
 
-        exception "requires a positive integer"
+        exception "The allowed cpu_share value is -1 or a positive integer"
     }
 
     // failed for mem_limit
@@ -309,7 +310,7 @@ suite("test_crud_wlg") {
                 " 'cpu_hard_limit'='120%' " +
                 ");"
 
-        exception "must be a positive integer"
+        exception "a positive integer between 1 and 100"
     }
 
     test {
@@ -440,75 +441,72 @@ suite("test_crud_wlg") {
     // test workload spill property
     // 1 create group
     test {
-        sql "create workload group if not exists spill_group_test_failed properties (  'spill_threshold_low_watermark'='90%');"
-        exception "should bigger than spill_threshold_low_watermark"
+        sql "create workload group if not exists spill_group_test_failed properties (  'memory_low_watermark'='90%');"
+        exception "should bigger than memory_low_watermark"
     }
-    sql "create workload group if not exists spill_group_test properties (  'spill_threshold_low_watermark'='10%','spill_threshold_high_watermark'='10%');"
-    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    sql "create workload group if not exists spill_group_test properties (  'memory_low_watermark'='10%','memory_high_watermark'='10%');"
+    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
 
     test {
-        sql "create workload group if not exists spill_group_test properties (  'spill_threshold_low_watermark'='20%','spill_threshold_high_watermark'='10%');"
-        exception "should bigger than spill_threshold_low_watermark"
+        sql "create workload group if not exists spill_group_test properties (  'memory_low_watermark'='20%','memory_high_watermark'='10%');"
+        exception "should bigger than memory_low_watermark"
     }
 
     // 2 alter low
-    sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='-1' );"
-    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
-
-    sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='5%' );"
-    qt_show_spill_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    sql "alter workload group spill_group_test properties ( 'memory_low_watermark'='5%' );"
+    qt_show_spill_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='20%' );"
-        exception "should bigger than spill_threshold_low_watermark"
+        sql "alter workload group spill_group_test properties ( 'memory_low_watermark'='20%' );"
+        exception "should bigger than memory_low_watermark"
     }
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='0%' );"
-        exception "must be a positive integer"
+        sql "alter workload group spill_group_test properties ( 'memory_low_watermark'='0%' );"
+        exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='101%' );"
-        exception "must be a positive integer"
+        sql "alter workload group spill_group_test properties ( 'memory_low_watermark'='101%' );"
+        exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_low_watermark'='0%')"
-        exception "must be a positive integer"
+        sql "create workload group if not exists spill_group_test2 properties (  'memory_low_watermark'='0%')"
+        exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_low_watermark'='101%')"
-        exception "must be a positive integer"
+        sql "create workload group if not exists spill_group_test2 properties (  'memory_low_watermark'='101%')"
+        exception "value is an integer value between 1 and 100"
     }
 
     // 3 alter high
-    sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='40%' );"
-    qt_show_spill_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    sql "alter workload group spill_group_test properties ( 'memory_high_watermark'='40%' );"
+    qt_show_spill_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='1%' );"
-        exception "should bigger than spill_threshold_low_watermark"
+        sql "alter workload group spill_group_test properties ( 'memory_high_watermark'='1%' );"
+        exception "should bigger than memory_low_watermark"
     }
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='0%' );"
-        exception "must be a positive integer"
+        sql "alter workload group spill_group_test properties ( 'memory_high_watermark'='0%' );"
+        exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='101%' );"
-        exception "must be a positive integer"
+        sql "alter workload group spill_group_test properties ( 'memory_high_watermark'='101%' );"
+        exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_high_watermark'='0%')"
-        exception "must be a positive integer"
+        sql "create workload group if not exists spill_group_test2 properties (  'memory_high_watermark'='0%')"
+        exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_high_watermark'='101%')"
-        exception "must be a positive integer"
+        sql "create workload group if not exists spill_group_test2 properties (  'memory_high_watermark'='101%')"
+        exception "value is an integer value between 1 and 100"
     }
 
     sql "drop workload group test_group;"
@@ -523,17 +521,17 @@ suite("test_crud_wlg") {
 
     test {
         sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='101%', 'tag'='tag1')"
-        exception "must be a positive integer"
+        exception "a positive integer between 1 and 100"
     }
 
     test {
         sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='-2%', 'tag'='tag1')"
-        exception "must be a positive integer"
+        exception "a positive integer between 1 and 100"
     }
 
     test {
         sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='-1%', 'tag'='tag1')"
-        exception "must be a positive integer"
+        exception "a positive integer between 1 and 100"
     }
 
     sql "create workload group if not exists tag1_wg1 properties (  'cpu_hard_limit'='10%', 'tag'='tag1');"
@@ -583,6 +581,14 @@ suite("test_crud_wlg") {
     sql "alter workload group tag1_mem_wg3 properties ( 'memory_limit'='1%' );"
 
     sql "alter workload group tag1_mem_wg3 properties ( 'tag'='mem_tag1' );"
+
+    sql "create workload group tag1_mem_wg4 properties('memory_limit'='-1','tag'='mem_tag1');"
+
+    test {
+        sql "alter workload group tag1_mem_wg4 properties ( 'memory_limit'='1%' );"
+        exception "cannot be greater than 100.0%"
+    }
+
 
     qt_show_wg_tag "select name,MEMORY_LIMIT,CPU_HARD_LIMIT,TAG from information_schema.workload_groups where name in('tag1_wg1','tag1_wg2','tag2_wg1','tag1_wg3','tag1_mem_wg1','tag1_mem_wg2','tag1_mem_wg3') order by tag,name;"
 
@@ -668,6 +674,7 @@ suite("test_crud_wlg") {
     sql "drop workload group tag1_mem_wg1;"
     sql "drop workload group tag1_mem_wg2;"
     sql "drop workload group tag1_mem_wg3;"
+    sql "drop workload group tag1_mem_wg4;"
     sql "drop workload group bypass_group;"
 
     // test workload group privilege table
@@ -733,5 +740,51 @@ suite("test_crud_wlg") {
     sql "drop role test_wg_priv_role1"
     qt_select_wgp_12 "select GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE from information_schema.workload_group_privileges where grantee like '%test_wg_priv%' order by GRANTEE,WORKLOAD_GROUP_NAME,PRIVILEGE_TYPE,IS_GRANTABLE; "
     sql "drop workload group test_wg_priv_g1"
+
+    // test default value
+    sql "drop workload group if exists default_val_wg"
+    sql "create workload group default_val_wg properties('enable_memory_overcommit'='true');"
+    qt_select_default_val_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+
+    sql """
+            alter workload group default_val_wg properties(
+                'cpu_share'='1024',
+                'memory_limit'='1%',
+                'enable_memory_overcommit'='true',
+                'max_concurrency'='100',
+                'max_queue_size'='1',
+                'queue_timeout'='123',
+                'cpu_hard_limit'='1%',
+                'scan_thread_num'='1',
+                'max_remote_scan_thread_num'='12',
+                'min_remote_scan_thread_num'='10',
+                'tag'='abc',
+                'read_bytes_per_second'='123',
+                'remote_read_bytes_per_second'='10');
+    """
+
+    qt_select_default_val_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+
+    sql """
+       alter workload group default_val_wg properties(
+        'cpu_share'='-1',
+        'memory_limit'='-1',
+        'enable_memory_overcommit'='true',
+        'max_concurrency'='2147483647',
+        'max_queue_size'='0',
+        'queue_timeout'='0',
+        'cpu_hard_limit'='-1',
+        'scan_thread_num'='-1',
+        'max_remote_scan_thread_num'='-1',
+        'min_remote_scan_thread_num'='-1',
+        'tag'='',
+        'read_bytes_per_second'='-1',
+        'remote_read_bytes_per_second'='-1'
+        );
+    """
+
+    qt_select_default_val_wg_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+
+    sql "drop workload group if exists default_val_wg"
 
 }

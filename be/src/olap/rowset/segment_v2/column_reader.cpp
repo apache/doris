@@ -344,7 +344,7 @@ Status ColumnReader::new_inverted_index_iterator(
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
         if (_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
+            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.io_ctx, read_options.stats,
                                                           read_options.runtime_state, iterator));
         }
     }
@@ -411,7 +411,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     } else {
         if (is_string) {
             auto sv = (StringRef*)min_value->cell_ptr();
-            dst->insert_many_data(sv->data, sv->size, size);
+            dst->insert_data_repeatedly(sv->data, sv->size, size);
         } else {
             // TODO: the work may cause performance problem, opt latter
             for (int i = 0; i < size; ++i) {
@@ -1508,7 +1508,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         value.cast_to_date();
 
         int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIME: {
@@ -1526,7 +1526,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         value.to_datetime();
 
         int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
@@ -1538,7 +1538,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
                sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
         decimal12_t* d = (decimal12_t*)mem_value;
         int128 = DecimalV2Value(d->integer, d->fraction).value();
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_STRING:
@@ -1548,7 +1548,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
         char* data_ptr = ((Slice*)mem_value)->data;
         size_t data_len = ((Slice*)mem_value)->size;
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
@@ -1566,7 +1566,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     default: {
         char* data_ptr = (char*)mem_value;
         size_t data_len = type_size;
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
     }
     }
 }

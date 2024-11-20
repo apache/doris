@@ -253,8 +253,15 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
                         // The query results of Arrow Flight SQL will be randomly saved on a Doris BE node.
                         // If it is different from the Doris BE node randomly routed by nginx,
                         // data forwarding needs to be done inside the Doris BE node.
-                        location = Location.forGrpcInsecure(flightSQLConnectProcessor.getPublicAccessAddr().hostname,
-                                flightSQLConnectProcessor.getPublicAccessAddr().port);
+                        if (flightSQLConnectProcessor.getPublicAccessAddr().isSetPort()) {
+                            location = Location.forGrpcInsecure(
+                                    flightSQLConnectProcessor.getPublicAccessAddr().hostname,
+                                    flightSQLConnectProcessor.getPublicAccessAddr().port);
+                        } else {
+                            location = Location.forGrpcInsecure(
+                                    flightSQLConnectProcessor.getPublicAccessAddr().hostname,
+                                    connectContext.getResultFlightServerAddr().port);
+                        }
                     } else {
                         location = Location.forGrpcInsecure(connectContext.getResultFlightServerAddr().hostname,
                                 connectContext.getResultFlightServerAddr().port);
