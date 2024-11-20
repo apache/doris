@@ -75,9 +75,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static final String MIN_REMOTE_SCAN_THREAD_NUM = "min_remote_scan_thread_num";
 
-    public static final String SPILL_THRESHOLD_LOW_WATERMARK = "spill_threshold_low_watermark";
+    public static final String MEMORY_LOW_WATERMARK = "memory_low_watermark";
 
-    public static final String SPILL_THRESHOLD_HIGH_WATERMARK = "spill_threshold_high_watermark";
+    public static final String MEMORY_HIGH_WATERMARK = "memory_high_watermark";
 
     public static final String TAG = "tag";
 
@@ -90,6 +90,10 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     // later more type and workload may be included in the future.
     public static final String INTERNAL_TYPE = "internal_type";
 
+    // deprecated, use MEMORY_LOW_WATERMARK and MEMORY_HIGH_WATERMARK instead.
+    public static final String SPILL_THRESHOLD_LOW_WATERMARK = "spill_threshold_low_watermark";
+    public static final String SPILL_THRESHOLD_HIGH_WATERMARK = "spill_threshold_high_watermark";
+
     // NOTE(wb): all property is not required, some properties default value is set in be
     // default value is as followed
     // cpu_share=1024, memory_limit=0%(0 means not limit), enable_memory_overcommit=true
@@ -97,14 +101,19 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             .add(CPU_SHARE).add(MEMORY_LIMIT).add(ENABLE_MEMORY_OVERCOMMIT).add(MAX_CONCURRENCY)
             .add(MAX_QUEUE_SIZE).add(QUEUE_TIMEOUT).add(CPU_HARD_LIMIT).add(SCAN_THREAD_NUM)
             .add(MAX_REMOTE_SCAN_THREAD_NUM).add(MIN_REMOTE_SCAN_THREAD_NUM)
-            .add(SPILL_THRESHOLD_LOW_WATERMARK).add(SPILL_THRESHOLD_HIGH_WATERMARK)
+            .add(MEMORY_LOW_WATERMARK).add(MEMORY_HIGH_WATERMARK)
             .add(TAG).add(READ_BYTES_PER_SECOND).add(REMOTE_READ_BYTES_PER_SECOND).add(INTERNAL_TYPE).build();
+
+    private static final ImmutableMap<String, String> DEPRECATED_PROPERTIES_NAME =
+            new ImmutableMap.Builder<String, String>()
+                    .put(SPILL_THRESHOLD_LOW_WATERMARK, MEMORY_LOW_WATERMARK)
+                    .put(SPILL_THRESHOLD_HIGH_WATERMARK, MEMORY_HIGH_WATERMARK).build();
 
     public static final ImmutableMap<String, Integer> WORKLOAD_TYPE_MAP = new ImmutableMap.Builder<String, Integer>()
             .put(TWorkloadType.INTERNAL.toString().toLowerCase(), TWorkloadType.INTERNAL.getValue()).build();
 
-    public static final int SPILL_LOW_WATERMARK_DEFAULT_VALUE = 50;
-    public static final int SPILL_HIGH_WATERMARK_DEFAULT_VALUE = 80;
+    public static final int MEMORY_LOW_WATERMARK_DEFAULT_VALUE = 50;
+    public static final int MEMORY_HIGH_WATERMARK_DEFAULT_VALUE = 80;
 
     private static final Map<String, String> ALL_PROPERTIES_DEFAULT_VALUE_MAP = Maps.newHashMap();
 
@@ -119,8 +128,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SCAN_THREAD_NUM, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MAX_REMOTE_SCAN_THREAD_NUM, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MIN_REMOTE_SCAN_THREAD_NUM, "-1");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SPILL_THRESHOLD_LOW_WATERMARK, "50%");
-        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(SPILL_THRESHOLD_HIGH_WATERMARK, "80%");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_LOW_WATERMARK, "50%");
+        ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(MEMORY_HIGH_WATERMARK, "80%");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(TAG, "");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(READ_BYTES_PER_SECOND, "-1");
         ALL_PROPERTIES_DEFAULT_VALUE_MAP.put(REMOTE_READ_BYTES_PER_SECOND, "-1");
@@ -169,19 +178,19 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             this.cpuHardLimit = Integer.parseInt(cpuHardLimitStr);
             this.properties.put(CPU_HARD_LIMIT, cpuHardLimitStr);
         }
-        if (properties.containsKey(SPILL_THRESHOLD_LOW_WATERMARK)) {
-            String lowWatermarkStr = properties.get(SPILL_THRESHOLD_LOW_WATERMARK);
+        if (properties.containsKey(MEMORY_LOW_WATERMARK)) {
+            String lowWatermarkStr = properties.get(MEMORY_LOW_WATERMARK);
             if (lowWatermarkStr.endsWith("%")) {
                 lowWatermarkStr = lowWatermarkStr.substring(0, lowWatermarkStr.length() - 1);
             }
-            this.properties.put(SPILL_THRESHOLD_LOW_WATERMARK, lowWatermarkStr);
+            this.properties.put(MEMORY_LOW_WATERMARK, lowWatermarkStr);
         }
-        if (properties.containsKey(SPILL_THRESHOLD_HIGH_WATERMARK)) {
-            String highWatermarkStr = properties.get(SPILL_THRESHOLD_HIGH_WATERMARK);
+        if (properties.containsKey(MEMORY_HIGH_WATERMARK)) {
+            String highWatermarkStr = properties.get(MEMORY_HIGH_WATERMARK);
             if (highWatermarkStr.endsWith("%")) {
                 highWatermarkStr = highWatermarkStr.substring(0, highWatermarkStr.length() - 1);
             }
-            this.properties.put(SPILL_THRESHOLD_HIGH_WATERMARK, highWatermarkStr);
+            this.properties.put(MEMORY_HIGH_WATERMARK, highWatermarkStr);
         }
         if (properties.containsKey(TAG)) {
             this.properties.put(TAG, properties.get(TAG).toLowerCase());
@@ -402,9 +411,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             }
         }
 
-        int lowWaterMark = SPILL_LOW_WATERMARK_DEFAULT_VALUE;
-        if (properties.containsKey(SPILL_THRESHOLD_LOW_WATERMARK)) {
-            String lowVal = properties.get(SPILL_THRESHOLD_LOW_WATERMARK);
+        int lowWaterMark = MEMORY_LOW_WATERMARK_DEFAULT_VALUE;
+        if (properties.containsKey(MEMORY_LOW_WATERMARK)) {
+            String lowVal = properties.get(MEMORY_LOW_WATERMARK);
             if (lowVal.endsWith("%")) {
                 lowVal = lowVal.substring(0, lowVal.length() - 1);
             }
@@ -416,15 +425,15 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 lowWaterMark = intValue;
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        "The allowed " + SPILL_THRESHOLD_LOW_WATERMARK
+                        "The allowed " + MEMORY_LOW_WATERMARK
                                 + " value is an integer value between 1 and 100, but input value is "
                                 + lowVal);
             }
         }
 
-        int highWaterMark = SPILL_HIGH_WATERMARK_DEFAULT_VALUE;
-        if (properties.containsKey(SPILL_THRESHOLD_HIGH_WATERMARK)) {
-            String highVal = properties.get(SPILL_THRESHOLD_HIGH_WATERMARK);
+        int highWaterMark = MEMORY_HIGH_WATERMARK_DEFAULT_VALUE;
+        if (properties.containsKey(MEMORY_HIGH_WATERMARK)) {
+            String highVal = properties.get(MEMORY_HIGH_WATERMARK);
             if (highVal.endsWith("%")) {
                 highVal = highVal.substring(0, highVal.length() - 1);
             }
@@ -436,15 +445,15 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 highWaterMark = intValue;
             } catch (NumberFormatException e) {
                 throw new DdlException(
-                        "The allowed " + SPILL_THRESHOLD_HIGH_WATERMARK
+                        "The allowed " + MEMORY_HIGH_WATERMARK
                                 + " value is an integer value between 1 and 100, but input value is "
                                 + highVal);
             }
         }
 
         if (lowWaterMark > highWaterMark) {
-            throw new DdlException(SPILL_THRESHOLD_HIGH_WATERMARK + "(" + highWaterMark + ") should bigger than "
-                    + SPILL_THRESHOLD_LOW_WATERMARK + "(" + lowWaterMark + ")");
+            throw new DdlException(MEMORY_HIGH_WATERMARK + "(" + highWaterMark + ") should bigger than "
+                    + MEMORY_LOW_WATERMARK + "(" + lowWaterMark + ")");
         }
 
         if (properties.containsKey(READ_BYTES_PER_SECOND)) {
@@ -552,8 +561,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
                 if (StringUtils.isEmpty(val)) {
                     row.add(ALL_PROPERTIES_DEFAULT_VALUE_MAP.get(key));
                 } else if ((CPU_HARD_LIMIT.equals(key) && !"-1".equals(val))
-                        || SPILL_THRESHOLD_LOW_WATERMARK.equals(key)
-                        || SPILL_THRESHOLD_HIGH_WATERMARK.equals(key)) {
+                        || MEMORY_LOW_WATERMARK.equals(key)
+                        || MEMORY_HIGH_WATERMARK.equals(key)) {
                     row.add(val + "%");
                 } else {
                     row.add(val);
@@ -652,14 +661,14 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             tWorkloadGroupInfo.setMinRemoteScanThreadNum(Integer.parseInt(minRemoteScanThreadNumStr));
         }
 
-        String spillLowWatermarkStr = properties.get(SPILL_THRESHOLD_LOW_WATERMARK);
-        if (spillLowWatermarkStr != null) {
-            tWorkloadGroupInfo.setSpillThresholdLowWatermark(Integer.parseInt(spillLowWatermarkStr));
+        String memoryLowWatermarkStr = properties.get(MEMORY_LOW_WATERMARK);
+        if (memoryLowWatermarkStr != null) {
+            tWorkloadGroupInfo.setMemoryLowWatermark(Integer.parseInt(memoryLowWatermarkStr));
         }
 
-        String spillHighWatermarkStr = properties.get(SPILL_THRESHOLD_HIGH_WATERMARK);
-        if (spillHighWatermarkStr != null) {
-            tWorkloadGroupInfo.setSpillThresholdHighWatermark(Integer.parseInt(spillHighWatermarkStr));
+        String memoryHighWatermarkStr = properties.get(MEMORY_HIGH_WATERMARK);
+        if (memoryHighWatermarkStr != null) {
+            tWorkloadGroupInfo.setMemoryHighWatermark(Integer.parseInt(memoryHighWatermarkStr));
         }
 
         String readBytesPerSecStr = properties.get(READ_BYTES_PER_SECOND);
@@ -690,7 +699,18 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
 
     public static WorkloadGroup read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, WorkloadGroup.class);
+        WorkloadGroup workloadGroup = GsonUtils.GSON.fromJson(json, WorkloadGroup.class);
+        // "spill_threshold_low_watermark" and "spill_threshold_high_watermark"
+        // are renamed and deprecated, replace them with "memory_low_watermark"
+        // and "memory_high_watermark"
+        for (String key : DEPRECATED_PROPERTIES_NAME.keySet()) {
+            if (workloadGroup.properties.containsKey(key)) {
+                String value = workloadGroup.properties.get(key);
+                workloadGroup.properties.remove(key);
+                workloadGroup.properties.put(DEPRECATED_PROPERTIES_NAME.get(key), value);
+            }
+        }
+        return workloadGroup;
     }
 
     void setMemLimitPercent(Map<String, String> props) {

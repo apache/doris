@@ -72,8 +72,9 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
     getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
     def tablets = sql_return_maparray """ show tablets from ${index_table}; """
 
-    int beforeSegmentCount = 0
+    
     for (def tablet in tablets) {
+        int beforeSegmentCount = 0
         String tablet_id = tablet.TabletId
         (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -83,8 +84,8 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
         for (String rowset in (List<String>) tabletJson.rowsets) {
             beforeSegmentCount += Integer.parseInt(rowset.split(" ")[1])
         }
+        assertEquals(beforeSegmentCount, 5)
     }
-    assertEquals(beforeSegmentCount, 5)
 
     // trigger compactions for all tablets in ${tableName}
     for (def tablet in tablets) {
@@ -111,8 +112,8 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
         });
     }
 
-    int afterSegmentCount = 0
     for (def tablet in tablets) {
+        int afterSegmentCount = 0
         String tablet_id = tablet.TabletId
         (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -123,8 +124,9 @@ suite("test_variant_bloom_filter", "nonConcurrent") {
             logger.info("rowset is: " + rowset)
             afterSegmentCount += Integer.parseInt(rowset.split(" ")[1])
         }
+         assertEquals(afterSegmentCount, 1)
     }
-    assertEquals(afterSegmentCount, 1)
+   
 
     try {
         GetDebugPoint().enableDebugPointForAllBEs("bloom_filter_must_filter_data")
