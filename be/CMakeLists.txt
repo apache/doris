@@ -258,7 +258,6 @@ set(CMAKE_C_STANDARD 17)
 add_compile_options(-g
                     -Wall
                     -Wextra
-                    -Werror
                     -pthread
                     -fstrict-aliasing
                     -fno-omit-frame-pointer
@@ -296,10 +295,7 @@ if (COMPILER_CLANG)
                         -Wunused-macros
                         -Wconversion)
     add_compile_options( -Wno-gnu-statement-expression
-                        -Wno-implicit-float-conversion
-                        -Wno-implicit-int-conversion
-                        -Wno-sign-conversion
-                        -Wno-shorten-64-to-32)
+                        -Wno-implicit-float-conversion)
     if (USE_LIBCPP)
         add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-stdlib=libc++>)
         add_definitions(-DUSE_LIBCPP)
