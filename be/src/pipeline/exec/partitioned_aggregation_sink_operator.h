@@ -83,7 +83,7 @@ public:
                 std::max<size_t>(4096, vectorized::SpillStream::MAX_SPILL_WRITE_BATCH_MEM *
                                                total_rows / size_to_revoke_));
 
-        VLOG_DEBUG << "query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
+        VLOG_DEBUG << "Query: " << print_id(state->query_id()) << ", node: " << _parent->node_id()
                    << ", spill_batch_rows: " << spill_batch_rows << ", total rows: " << total_rows
                    << ", size_to_revoke: " << size_to_revoke;
         size_t row_count = 0;

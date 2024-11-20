@@ -268,7 +268,7 @@ size_t PartitionedAggSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bo
 Status PartitionedAggSinkLocalState::revoke_memory(
         RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
     const auto size_to_revoke = _parent->revocable_mem_size(state);
-    VLOG_DEBUG << "query " << print_id(state->query_id()) << " agg node "
+    VLOG_DEBUG << "Query " << print_id(state->query_id()) << " agg node "
                << Base::_parent->node_id()
                << " revoke_memory, size: " << _parent->revocable_mem_size(state)
                << ", eos: " << _eos;
@@ -318,13 +318,13 @@ Status PartitionedAggSinkLocalState::revoke_memory(
                 Defer defer {[&]() {
                     if (!status.ok() || state->is_cancelled()) {
                         if (!status.ok()) {
-                            LOG(WARNING) << "query " << print_id(query_id) << " agg node "
+                            LOG(WARNING) << "Query " << print_id(query_id) << " agg node "
                                          << Base::_parent->node_id()
                                          << " revoke_memory error: " << status;
                         }
                         _shared_state->close();
                     } else {
-                        VLOG_DEBUG << "query " << print_id(query_id) << " agg node "
+                        VLOG_DEBUG << "Query " << print_id(query_id) << " agg node "
                                    << Base::_parent->node_id() << " revoke_memory finish, size: "
                                    << _parent->revocable_mem_size(state) << ", eos: " << _eos;
                     }

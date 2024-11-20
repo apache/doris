@@ -249,7 +249,7 @@ Status PartitionedAggLocalState::recover_blocks_from_disk(RuntimeState* state, b
         Defer defer {[&]() {
             if (!status.ok() || state->is_cancelled()) {
                 if (!status.ok()) {
-                    LOG(WARNING) << "query " << print_id(query_id) << " agg node "
+                    LOG(WARNING) << "Query " << print_id(query_id) << " agg node "
                                  << _parent->node_id() << " recover agg data error: " << status;
                 }
                 _shared_state->close();

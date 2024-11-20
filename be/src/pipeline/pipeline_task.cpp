@@ -300,11 +300,6 @@ bool PipelineTask::_is_blocked() {
             }
             // If all dependencies are ready for this operator, we can execute this task if no datum is needed from upstream operators.
             if (!_operators[i]->need_more_input_data(_state)) {
-                // if (VLOG_DEBUG_IS_ON) {
-                //     VLOG_DEBUG << "query: " << print_id(_state->query_id())
-                //                << ", task id: " << _index << ", operator " << i
-                //                << " not need_more_input_data";
-                // }
                 break;
             }
         }
@@ -408,7 +403,7 @@ Status PipelineTask::execute(bool* eos) {
         // _state->get_query_ctx()->update_low_memory_mode();
 
         if (_pending_block) [[unlikely]] {
-            LOG(INFO) << "query: " << print_id(query_id)
+            LOG(INFO) << "Query: " << print_id(query_id)
                       << " has pending block, size: " << _pending_block->allocated_bytes();
             _block = std::move(_pending_block);
             block = _block.get();
@@ -432,16 +427,17 @@ Status PipelineTask::execute(bool* eos) {
                 COUNTER_UPDATE(_memory_reserve_times, 1);
                 if (!st.ok()) {
                     COUNTER_UPDATE(_memory_reserve_failed_times, 1);
-                    LOG(INFO) << "query: " << print_id(query_id) << ", try to reserve: "
-                              << PrettyPrinter::print(reserve_size, TUnit::BYTES)
-                              << ", sink name: " << _sink->get_name()
-                              << ", node id: " << _sink->node_id()
-                              << ", task id: " << _state->task_id()
-                              << ", failed: " << st.to_string()
-                              << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    VLOG_DEBUG << "Query: " << print_id(query_id) << ", try to reserve: "
+                               << PrettyPrinter::print(reserve_size, TUnit::BYTES)
+                               << ", sink name: " << _sink->get_name()
+                               << ", node id: " << _sink->node_id()
+                               << ", task id: " << _state->task_id()
+                               << ", failed: " << st.to_string()
+                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
 
                     _state->get_query_ctx()->update_paused_reason(st);
                     _state->get_query_ctx()->set_low_memory_mode();
+                    _state->get_query_ctx()->set_memory_sufficient(false);
                     ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                             _state->get_query_ctx()->shared_from_this(), reserve_size);
                     continue;
@@ -462,15 +458,16 @@ Status PipelineTask::execute(bool* eos) {
                 status = thread_context()->try_reserve_memory(sink_reserve_size);
                 if (!status.ok()) {
                     COUNTER_UPDATE(_memory_reserve_failed_times, 1);
-                    LOG(INFO) << "query: " << print_id(query_id) << ", try to reserve: "
-                              << PrettyPrinter::print(sink_reserve_size, TUnit::BYTES)
-                              << ", sink name: " << _sink->get_name()
-                              << ", node id: " << _sink->node_id()
-                              << ", task id: " << _state->task_id()
-                              << ", failed: " << status.to_string()
-                              << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
+                    VLOG_DEBUG << "Query: " << print_id(query_id) << ", try to reserve: "
+                               << PrettyPrinter::print(sink_reserve_size, TUnit::BYTES)
+                               << ", sink name: " << _sink->get_name()
+                               << ", node id: " << _sink->node_id()
+                               << ", task id: " << _state->task_id()
+                               << ", failed: " << status.to_string()
+                               << ", debug info: " << GlobalMemoryArbitrator::process_mem_log_str();
                     _state->get_query_ctx()->update_paused_reason(status);
                     _state->get_query_ctx()->set_low_memory_mode();
+                    _state->get_query_ctx()->set_memory_sufficient(false);
                     ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                             _state->get_query_ctx()->shared_from_this(), sink_reserve_size);
                     DCHECK_EQ(_pending_block.get(), nullptr);
@@ -617,7 +614,7 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
         RETURN_IF_ERROR(_sink->revoke_memory(_state, spill_context));
     } else if (spill_context) {
         spill_context->on_task_finished();
-        LOG(INFO) << "query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
+        LOG(INFO) << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
                   << " has not enough data to revoke: " << revocable_size;
     }
     return Status::OK();

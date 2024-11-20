@@ -49,11 +49,11 @@ struct SpillContext {
 
     ~SpillContext() {
         LOG_IF(WARNING, running_tasks_count.load() != 0)
-                << "query: " << print_id(query_id)
+                << "Query: " << print_id(query_id)
                 << " not all spill tasks finished, remaining tasks: " << running_tasks_count.load();
 
         LOG_IF(WARNING, _running_non_sink_tasks_count.load() != 0)
-                << "query: " << print_id(query_id)
+                << "Query: " << print_id(query_id)
                 << " not all spill tasks(non sink tasks) finished, remaining tasks: "
                 << _running_non_sink_tasks_count.load();
     }

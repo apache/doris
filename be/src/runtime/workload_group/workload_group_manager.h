@@ -110,8 +110,8 @@ private:
                                                   RuntimeProfile* profile);
     int64_t flush_memtable_from_current_group_(std::shared_ptr<QueryContext> requestor,
                                                WorkloadGroupPtr wg, int64_t need_free_mem);
-    bool handle_single_query_(std::shared_ptr<QueryContext> query_ctx, size_t size_to_reserve,
-                              Status paused_reason);
+    bool handle_single_query_(const std::shared_ptr<QueryContext>& query_ctx,
+                              size_t size_to_reserve, int64_t time_in_queue, Status paused_reason);
     int64_t revoke_memory_from_other_group_(std::shared_ptr<QueryContext> requestor,
                                             bool hard_limit, int64_t need_free_mem);
     int64_t revoke_overcommited_memory_(std::shared_ptr<QueryContext> requestor,

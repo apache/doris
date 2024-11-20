@@ -73,7 +73,7 @@ int SpillSortLocalState::_calc_spill_blocks_to_merge() const {
 }
 Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* state) {
     auto& parent = Base::_parent->template cast<Parent>();
-    VLOG_DEBUG << "query " << print_id(state->query_id()) << " sort node " << _parent->node_id()
+    VLOG_DEBUG << "Query " << print_id(state->query_id()) << " sort node " << _parent->node_id()
                << " merge spill data";
     _spill_dependency->Dependency::block();
 
@@ -85,7 +85,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         Defer defer {[&]() {
             if (!status.ok() || state->is_cancelled()) {
                 if (!status.ok()) {
-                    LOG(WARNING) << "query " << print_id(query_id) << " sort node "
+                    LOG(WARNING) << "Query " << print_id(query_id) << " sort node "
                                  << _parent->node_id() << " merge spill data error: " << status;
                 }
                 _shared_state->close();
@@ -94,7 +94,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
                 }
                 _current_merging_streams.clear();
             } else {
-                VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->node_id()
+                VLOG_DEBUG << "Query " << print_id(query_id) << " sort node " << _parent->node_id()
                            << " merge spill data finish";
             }
         }};
@@ -102,7 +102,7 @@ Status SpillSortLocalState::initiate_merge_sort_spill_streams(RuntimeState* stat
         vectorized::SpillStreamSPtr tmp_stream;
         while (!state->is_cancelled()) {
             int max_stream_count = _calc_spill_blocks_to_merge();
-            VLOG_DEBUG << "query " << print_id(query_id) << " sort node " << _parent->node_id()
+            VLOG_DEBUG << "Query " << print_id(query_id) << " sort node " << _parent->node_id()
                        << " merge spill streams, streams count: "
                        << _shared_state->sorted_streams.size()
                        << ", curren merge max stream count: " << max_stream_count;

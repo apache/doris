@@ -106,7 +106,7 @@ void ExchangeSinkLocalState::on_channel_finished(InstanceLoId channel_id) {
     std::lock_guard<std::mutex> lock(_finished_channels_mutex);
 
     if (_finished_channels.contains(channel_id)) {
-        LOG(WARNING) << "query: " << print_id(_state->query_id())
+        LOG(WARNING) << "Query: " << print_id(_state->query_id())
                      << ", on_channel_finished on already finished channel: " << channel_id;
         return;
     } else {

@@ -126,7 +126,7 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
         const auto end = _multi_cast_blocks.end();
         if (pos_to_pull == end) {
             _block_reading(sender_idx);
-            VLOG_DEBUG << "query: " << print_id(state->query_id())
+            VLOG_DEBUG << "Query: " << print_id(state->query_id())
                        << ", pos_to_pull end: " << (void*)(_write_dependency);
             *eos = _eos;
             return Status::OK();
@@ -151,8 +151,6 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, vectoriz
             _cumulative_mem_size.fetch_sub(mem_size);
             _multi_cast_blocks.pop_front();
             _write_dependency->set_ready();
-            VLOG_DEBUG << "**** query: " << print_id(state->query_id())
-                       << ", set ready: " << (void*)(_write_dependency);
         } else {
             _copy_block(block, *un_finish_copy);
         }
@@ -175,6 +173,11 @@ void MultiCastDataStreamer::_wait_copy_block(vectorized::Block* block, int& un_f
 }
 
 Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* triggered) {
+    if (!state->enable_spill() && !state->enable_force_spill()) {
+        *triggered = false;
+        return Status::OK();
+    }
+
     vectorized::SpillStreamSPtr spill_stream;
     *triggered = false;
     if (_cumulative_mem_size.load() >= config::exchg_node_buffer_size_bytes &&
@@ -245,7 +248,7 @@ Status MultiCastDataStreamer::_submit_spill_task(RuntimeState* state,
 
             RETURN_IF_ERROR(spill_stream->spill_block(state, block, false));
         }
-        VLOG_DEBUG << "query: " << print_id(state->query_id()) << " multi cast write "
+        VLOG_DEBUG << "Query: " << print_id(state->query_id()) << " multi cast write "
                    << blocks_count << " blocks";
         return spill_stream->spill_eof();
     };
@@ -256,7 +259,7 @@ Status MultiCastDataStreamer::_submit_spill_task(RuntimeState* state,
         _write_dependency->set_ready();
 
         if (!status.ok()) {
-            LOG(WARNING) << "query: " << query_id
+            LOG(WARNING) << "Query: " << query_id
                          << " multi cast write failed: " << status.to_string()
                          << ", dependency: " << (void*)_spill_dependency.get();
         } else {
