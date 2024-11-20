@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -34,7 +33,7 @@ import java.util.List;
 /**
  * Represents the command for SHOW COLLATION
  */
-public class ShowCollationCommand extends Command implements NoForward {
+public class ShowCollationCommand extends ShowCommand {
     private static final ShowResultSetMetaData COLLATION_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("Collation", ScalarType.createVarchar(20)))
@@ -53,7 +52,7 @@ public class ShowCollationCommand extends Command implements NoForward {
     }
 
     @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public ShowResultSet doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
         List<List<String>> rows = Lists.newArrayList();
         List<String> utf8mb40900Bin = Lists.newArrayList();
         // | utf8mb4_0900_bin | utf8mb4 | 309 | Yes | Yes | 1 |
@@ -75,18 +74,12 @@ public class ShowCollationCommand extends Command implements NoForward {
         utf8mb3GeneralCi.add("1");
         rows.add(utf8mb3GeneralCi);
         // Set the result set and send it using the executor
-        ShowResultSet resultSet = new ShowResultSet(COLLATION_META_DATA, rows);
-        executor.sendResultSet(resultSet);
+        return new ShowResultSet(COLLATION_META_DATA, rows);
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
         return visitor.visitShowCollationCommand(this, context);
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.SHOW;
     }
 
     @Override
