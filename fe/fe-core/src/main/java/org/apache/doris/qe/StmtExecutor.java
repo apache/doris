@@ -515,6 +515,8 @@ public class StmtExecutor {
                     LOG.debug("fall back to legacy planner on statement:\n{}", originStmt.originStmt);
                     parsedStmt = null;
                     planner = null;
+                    isForwardedToMaster = null;
+                    redirectStatus = null;
                     // Attention: currently exception from nereids does not mean an Exception to user terminal
                     // unless user does not allow fallback to lagency planner. But state of query
                     // has already been set to Error in this case, it will have some side effect on profile result
