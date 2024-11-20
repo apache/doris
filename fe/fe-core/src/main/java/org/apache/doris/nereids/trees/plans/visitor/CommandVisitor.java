@@ -43,6 +43,8 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RecoverDatabaseCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.RecoverTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
 import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
@@ -57,6 +59,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
@@ -292,6 +295,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showBackendsCommand, context);
     }
 
+    default R visitShowCreateTableCommand(ShowCreateTableCommand showCreateTableCommand, C context) {
+        return visitCommand(showCreateTableCommand, context);
+    }
+
     default R visitShowSqlBlockRuleCommand(ShowSqlBlockRuleCommand showblockruleCommand, C context) {
         return visitCommand(showblockruleCommand, context);
     }
@@ -335,6 +342,14 @@ public interface CommandVisitor<R, C> {
 
     default R visitRecoverDatabaseCommand(RecoverDatabaseCommand recoverDatabaseCommand, C context) {
         return visitCommand(recoverDatabaseCommand, context);
+    }
+
+    default R visitRecoverTableCommand(RecoverTableCommand recoverTableCommand, C context) {
+        return visitCommand(recoverTableCommand, context);
+    }
+
+    default R visitRecoverPartitionCommand(RecoverPartitionCommand recoverPartitionCommand, C context) {
+        return visitCommand(recoverPartitionCommand, context);
     }
 
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
