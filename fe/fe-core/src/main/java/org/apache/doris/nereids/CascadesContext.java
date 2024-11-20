@@ -432,6 +432,13 @@ public class CascadesContext implements ScheduleContext {
         }
     }
 
+    public Map<List<String>, TableIf> getOrExtractTables(LogicalPlan logicalPlan) {
+        if (tables == null) {
+            extractTables(logicalPlan);
+        }
+        return tables;
+    }
+
     private Set<List<String>> getTables(LogicalPlan logicalPlan) {
         final Set<List<String>> tableNames = new HashSet<>();
         logicalPlan.foreach(p -> {
