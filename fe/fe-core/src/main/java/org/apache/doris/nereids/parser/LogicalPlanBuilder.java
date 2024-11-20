@@ -1462,8 +1462,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LoadProperty visitLoadProperty(LoadPropertyContext ctx) {
         LoadProperty loadProperty = null;
         if (ctx instanceof SeparatorContext) {
-            String separator = ((SeparatorContext) ctx).STRING_LITERAL().getText()
-                    .substring(1, ((SeparatorContext) ctx).STRING_LITERAL().getText().length() - 1);
+            String separator = stripQuotes(((SeparatorContext) ctx).STRING_LITERAL().getText());
             loadProperty = new LoadSeparator(separator);
         } else if (ctx instanceof ImportColumnsContext) {
             List<LoadColumnDesc> descList = new ArrayList<>();
@@ -1476,7 +1475,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 } else {
                     desc = new LoadColumnDesc(loadColumnDescCtx.name.getText());
                 }
-
                 descList.add(desc);
             }
             loadProperty = new LoadColumnClause(descList);
