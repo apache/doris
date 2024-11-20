@@ -322,6 +322,7 @@ message ColumnPB {
     // only reference by variant sparse columns
     optional int32 parent_unique_id = 23;
     optional int32 be_exec_version = 24;
+    // this field is only used during flexible partial update load
     optional bool is_on_update_current_timestamp = 25 [default = false];
 }
 
