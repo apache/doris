@@ -17,7 +17,9 @@
 
 package org.apache.doris.datasource;
 
-public interface MvccTable {
+import org.apache.doris.catalog.TableIf;
+
+public interface MvccTable extends TableIf {
     long getLatestSnapshotId();
 
     void ref(long snapshotId);

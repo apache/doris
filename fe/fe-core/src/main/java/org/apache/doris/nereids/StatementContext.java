@@ -20,11 +20,14 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.MvccTable;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
@@ -176,7 +179,7 @@ public class StatementContext implements Closeable {
 
     private Backend groupCommitMergeBackend;
 
-    private final Map<MvccTable, Long> refSnapshotIds = Maps.newHashMap();
+    private final Map<BaseTableInfo, Long> refSnapshotIds = Maps.newHashMap();
 
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
@@ -534,17 +537,23 @@ public class StatementContext implements Closeable {
      * unrefTables
      */
     public void unrefTables() {
-        for (Entry<MvccTable, Long> entry : refSnapshotIds.entrySet()) {
-            entry.getKey().unref(entry.getValue());
+        for (Entry<BaseTableInfo, Long> entry : refSnapshotIds.entrySet()) {
+            try {
+                MvccTable table = (MvccTable) MTMVUtil.getTable(entry.getKey());
+                table.unref(entry.getValue());
+            } catch (AnalysisException e) {
+                LOG.warn(e);
+            }
         }
     }
 
     private long fetchSnapshotIdIfNotExist(MvccTable mvccTable) {
-        if (!refSnapshotIds.containsKey(mvccTable)) {
+        BaseTableInfo baseTableInfo = new BaseTableInfo(mvccTable);
+        if (!refSnapshotIds.containsKey(baseTableInfo)) {
             long snapshotId = mvccTable.getLatestSnapshotId();
-            refSnapshotIds.put(mvccTable, snapshotId);
+            refSnapshotIds.put(baseTableInfo, snapshotId);
         }
-        return refSnapshotIds.get(mvccTable);
+        return refSnapshotIds.get(baseTableInfo);
     }
 
     /**
@@ -554,7 +563,7 @@ public class StatementContext implements Closeable {
      * @param snapshotId snapshotId
      */
     public void setSnapshotId(MvccTable mvccTable, long snapshotId) {
-        refSnapshotIds.put(mvccTable, snapshotId);
+        refSnapshotIds.put(new BaseTableInfo(mvccTable), snapshotId);
     }
 
     /**
