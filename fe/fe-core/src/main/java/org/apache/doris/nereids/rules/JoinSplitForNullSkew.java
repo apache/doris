@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules;
 
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
@@ -66,36 +65,41 @@ public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
         return logicalJoin(any(), any())
                 .when(join -> join.getJoinType().isLeftJoin())
                 .when(join -> join.getHashJoinConjuncts().size() == 1)
-                .thenApply(ctx -> splitJoin(ctx.root, ctx.cascadesContext))
+                .thenApply(ctx -> {
+                    Set<Integer> enableNereidsRules = ctx.cascadesContext.getConnectContext()
+                            .getSessionVariable().getEnableNereidsRules();
+                    if (!enableNereidsRules.contains(RuleType.JOIN_SPLIT_FOR_NULL_SKEW.type())) {
+                        return null;
+                    }
+                    return splitJoin(ctx.root);
+                })
                 .toRule(RuleType.JOIN_SPLIT_FOR_NULL_SKEW);
     }
 
-    private Plan splitJoin(LogicalJoin<Plan, Plan> join, CascadesContext cascadesContext) {
-        // 需要把左边的join key取出，
+    private Plan splitJoin(LogicalJoin<Plan, Plan> join) {
         Plan left = join.left();
         Plan right = join.right();
 
-        // 找到哪个slot是来自左边 哪个来自于右边
         Expression conjunct = join.getHashJoinConjuncts().get(0);
         if (!(conjunct instanceof EqualTo)) {
             return null;
         }
         EqualTo equalTo = (EqualTo) conjunct;
-        Expression leftSlot;
+        Expression leftExpr;
         if (left.getOutputSet().containsAll(equalTo.left().getInputSlots())) {
-            leftSlot = equalTo.left();
+            leftExpr = equalTo.left();
         } else {
-            leftSlot = equalTo.right();
+            leftExpr = equalTo.right();
         }
 
-        // 创建is not null 侧的
+        // is not null side construct
         LogicalFilter<Plan> newJoinLeftChild = new LogicalFilter<>(
-                ImmutableSet.of(new Not(new IsNull(leftSlot))), left);
+                ImmutableSet.of(new Not(new IsNull(leftExpr))), left);
         LogicalJoin<Plan, Plan> newJoin = join.withChildren(ImmutableList.of(newJoinLeftChild, right));
         Plan deepCopyJoin = LogicalPlanDeepCopier.INSTANCE.deepCopy(newJoin, new DeepCopierContext());
 
+        // avoid duplicate application of rules
         if (left instanceof LogicalFilter) {
-            // 制作一个map，判断是否重复应用这个规则了。
             Map<Expression, Expression> newJoinOutputToOriginJoinOutput = new HashMap<>();
             for (int i = 0; i < left.getOutput().size(); ++i) {
                 newJoinOutputToOriginJoinOutput.put(deepCopyJoin.child(0).getOutput().get(i), left.getOutput().get(i));
@@ -111,17 +115,16 @@ public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
             }
         }
 
-        // 创建isnull侧的
-        LogicalFilter<Plan> isNullFilter = new LogicalFilter<>(ImmutableSet.of(new IsNull(leftSlot)), left);
+        // is null side construct
+        LogicalFilter<Plan> isNullFilter = new LogicalFilter<>(ImmutableSet.of(new IsNull(leftExpr)), left);
         Plan deepCopyLeft = LogicalPlanDeepCopier.INSTANCE.deepCopy(isNullFilter, new DeepCopierContext());
-        List<NamedExpression> newPrjects = new ArrayList<>();
-        newPrjects.addAll(deepCopyLeft.getOutput());
+        List<NamedExpression> newProjects = new ArrayList<>(deepCopyLeft.getOutput());
         for (Slot slot : right.getOutput()) {
-            newPrjects.add(new Alias(new NullLiteral(slot.getDataType())));
+            newProjects.add(new Alias(new NullLiteral(slot.getDataType())));
         }
-        LogicalProject<Plan> isNullProject = new LogicalProject<>(newPrjects, deepCopyLeft);
+        LogicalProject<Plan> isNullProject = new LogicalProject<>(newProjects, deepCopyLeft);
 
-        // 创建regularChildrenOutputs
+        // regularChildrenOutputs construct
         List<List<SlotReference>> regularChildrenOutputs = new ArrayList<>();
         regularChildrenOutputs.add((List) isNullProject.getOutput());
         regularChildrenOutputs.add((List) deepCopyJoin.getOutput());
