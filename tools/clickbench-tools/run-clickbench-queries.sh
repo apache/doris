@@ -103,7 +103,12 @@ run_sql() {
 
 get_session_variable() {
   k="$1"
-  v=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G" | grep " Value: ")
+  if ! output=$(mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" -e"show variables like '${k}'\G"); then
+    exit 1
+  fi
+  if ! v=$(grep " Value: " <<< "${output}"); then
+    exit 1
+  fi
   echo "${v/*Value: /}"
 }
 
@@ -129,6 +134,7 @@ cat ${QUERIES_FILE} | while read query; do
   echo -n "query${QUERY_NUM}," | tee -a result.csv
   for i in $(seq 1 $TRIES); do
     RES=$(mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "${query}" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
+    
     echo -n "${RES}" | tee -a result.csv
     [[ "$i" != $TRIES ]] && echo -n "," | tee -a result.csv
   done

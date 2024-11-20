@@ -105,12 +105,7 @@ echo "PASSWORD: $PASSWORD"
 echo "DB: $DB"
 
 function check_doris_conf() {
-    if ! output=$(mysql -h"$FE_HOST" -P"$FE_QUERY_PORT" -u"$USER" -e 'admin show frontend config' 2>&1); then
-        printf "%s\n" "${output}" >&2
-        printf "Error: Failed to execute 'admin show frontend config' on MySQL server.\n" >&2
-        exit 1
-    fi
-    cv=$(grep 'stream_load_default_timeout_second' <<< "${output}" | awk '{print $2}')
+    cv=$(mysql -h$FE_HOST -P$FE_QUERY_PORT -u$USER -e 'admin show frontend config' | grep 'stream_load_default_timeout_second' | awk '{print $2}')
     if (($cv < 3600)); then
         echo "advise: revise your Doris FE's conf to set 'stream_load_default_timeout_second=3600' or above"
     fi
