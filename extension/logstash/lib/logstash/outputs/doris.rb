@@ -77,9 +77,9 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
 
    def print_plugin_info()
-      @@plugins = Gem::Specification.find_all{|spec| spec.name =~ /logstash-output-doris/ }
-      @plugin_name = @@plugins[0].name
-      @plugin_version = @@plugins[0].version
+      @plugins = Gem::Specification.find_all{|spec| spec.name =~ /logstash-output-doris/ }
+      @plugin_name = @plugins[0].name
+      @plugin_version = @plugins[0].version
       @logger.debug("Running #{@plugin_name} version #{@plugin_version}")
 
       @logger.info("Initialized doris output with settings",
@@ -90,10 +90,10 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    end
 
    def register
-      @http_query = "/api/#{db}/#{table}/_stream_load"
+      @http_query = "/api/#{@db}/#{@table}/_stream_load"
 
       @hostnames_pool =
-      parse_http_hosts(http_hosts,
+      parse_http_hosts(@http_hosts,
       ShortNameResolver.new(ttl: @host_resolve_ttl_sec, logger: @logger))
 
       @request_headers = make_request_headers
@@ -196,7 +196,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       http_headers = @request_headers.dup
       if !@group_commit
          # only set label if group_commit is off_mode or not set, since lable can not be used with group_commit
-         http_headers["label"] = label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
+         http_headers["label"] = @label_prefix + "_" + @db + "_" + @table + "_" + Time.now.strftime('%Y%m%d_%H%M%S_%L_' + SecureRandom.uuid)
       end
 
       req_count = 0
@@ -221,7 +221,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
             if @max_retries >= 0 && req_count > @max_retries
                @logger.warn("DROP this batch after failed #{req_count} times.")
                if @save_on_failure
-                  @logger.warn("Try save to disk.Disk file path : #{save_dir}/#{table}_#{save_file}")
+                  @logger.warn("Try save to disk.Disk file path : #{@save_dir}/#{@table}_#{@save_file}")
                   save_to_disk(documents)
                end
                break
@@ -252,13 +252,13 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
 
       response = ""
       begin
-         response = RestClient.put(url, documents, http_headers) { |response, request, result|
-                case response.code
+         response = RestClient.put(url, documents, http_headers) { |res, request, result|
+                case res.code
                 when 301, 302, 307
-                    @logger.debug("redirect to: #{response.headers[:location]}")
-                    response.follow_redirection
+                    @logger.debug("redirect to: #{res.headers[:location]}")
+                    res.follow_redirection
                 else
-                    response.return!
+                  res.return!
                 end
          }
       rescue => e
@@ -311,7 +311,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
    private
    def save_to_disk(documents)
       begin
-         file = File.open("#{save_dir}/#{db}_#{table}_#{save_file}", "a")
+         file = File.open("#{@save_dir}/#{@db}_#{@table}_#{@save_file}", "a")
          file.write(documents)
       rescue IOError => e
          log_failure("An error occurred while saving file to disk: #{e}",
@@ -330,7 +330,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
       headers = @headers || {}
       headers["Expect"] ||= "100-continue"
       headers["Content-Type"] ||= "text/plain;charset=utf-8"
-      headers["Authorization"] = "Basic " + Base64.strict_encode64("#{user}:#{password.value}")
+      headers["Authorization"] = "Basic " + Base64.strict_encode64("#{@user}:#{@password.value}")
   
       headers
    end
