@@ -509,16 +509,13 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
                 continue;
             }
             std::string s;
-            if (data[i].column) {
-                if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
-                    if (is_column_const(*data[i].column)) {
-                        s = data[i].to_string(0);
-                    } else {
-                        assert(allow_null_mismatch);
-                        s = assert_cast<const DataTypeNullable*>(data[i].type.get())
-                                    ->get_nested_type()
-                                    ->to_string(*data[i].column, row_num);
-                    }
+            if (data[i].column) { // column may be const
+                // for code inside `default_implementation_for_nulls`, there's could have: type = null, col != null
+                if (data[i].type->is_nullable() && !data[i].column->is_concrete_nullable()) {
+                    assert(allow_null_mismatch);
+                    s = assert_cast<const DataTypeNullable*>(data[i].type.get())
+                                ->get_nested_type()
+                                ->to_string(*data[i].column, row_num);
                 } else {
                     s = data[i].to_string(row_num);
                 }
