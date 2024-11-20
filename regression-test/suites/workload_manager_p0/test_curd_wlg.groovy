@@ -441,71 +441,71 @@ suite("test_crud_wlg") {
     // test workload spill property
     // 1 create group
     test {
-        sql "create workload group if not exists spill_group_test_failed properties (  'spill_threshold_low_watermark'='90%');"
-        exception "should bigger than spill_threshold_low_watermark"
+        sql "create workload group if not exists spill_group_test_failed properties (  'memory_low_watermark'='90%');"
+        exception "should bigger than memory_low_watermark"
     }
-    sql "create workload group if not exists spill_group_test properties (  'spill_threshold_low_watermark'='10%','spill_threshold_high_watermark'='10%');"
-    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    sql "create workload group if not exists spill_group_test properties (  'memory_low_watermark'='10%','memory_high_watermark'='10%');"
+    qt_show_spill_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
 
     test {
-        sql "create workload group if not exists spill_group_test properties (  'spill_threshold_low_watermark'='20%','spill_threshold_high_watermark'='10%');"
-        exception "should bigger than spill_threshold_low_watermark"
+        sql "create workload group if not exists spill_group_test properties (  'memory_low_watermark'='20%','memory_high_watermark'='10%');"
+        exception "should bigger than memory_low_watermark"
     }
 
     // 2 alter low
-    sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='5%' );"
-    qt_show_spill_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    sql "alter workload group spill_group_test properties ( 'memory_low_watermark'='5%' );"
+    qt_show_spill_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='20%' );"
-        exception "should bigger than spill_threshold_low_watermark"
+        sql "alter workload group spill_group_test properties ( 'memory_low_watermark'='20%' );"
+        exception "should bigger than memory_low_watermark"
     }
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='0%' );"
+        sql "alter workload group spill_group_test properties ( 'memory_low_watermark'='0%' );"
         exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_low_watermark'='101%' );"
+        sql "alter workload group spill_group_test properties ( 'memory_low_watermark'='101%' );"
         exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_low_watermark'='0%')"
+        sql "create workload group if not exists spill_group_test2 properties (  'memory_low_watermark'='0%')"
         exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_low_watermark'='101%')"
+        sql "create workload group if not exists spill_group_test2 properties (  'memory_low_watermark'='101%')"
         exception "value is an integer value between 1 and 100"
     }
 
     // 3 alter high
-    sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='40%' );"
-    qt_show_spill_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
+    sql "alter workload group spill_group_test properties ( 'memory_high_watermark'='40%' );"
+    qt_show_spill_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,memory_low_watermark,memory_high_watermark from information_schema.workload_groups where name in ('spill_group_test');"
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='1%' );"
-        exception "should bigger than spill_threshold_low_watermark"
+        sql "alter workload group spill_group_test properties ( 'memory_high_watermark'='1%' );"
+        exception "should bigger than memory_low_watermark"
     }
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='0%' );"
+        sql "alter workload group spill_group_test properties ( 'memory_high_watermark'='0%' );"
         exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "alter workload group spill_group_test properties ( 'spill_threshold_high_watermark'='101%' );"
+        sql "alter workload group spill_group_test properties ( 'memory_high_watermark'='101%' );"
         exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_high_watermark'='0%')"
+        sql "create workload group if not exists spill_group_test2 properties (  'memory_high_watermark'='0%')"
         exception "value is an integer value between 1 and 100"
     }
 
     test {
-        sql "create workload group if not exists spill_group_test2 properties (  'spill_threshold_high_watermark'='101%')"
+        sql "create workload group if not exists spill_group_test2 properties (  'memory_high_watermark'='101%')"
         exception "value is an integer value between 1 and 100"
     }
 
@@ -744,7 +744,7 @@ suite("test_crud_wlg") {
     // test default value
     sql "drop workload group if exists default_val_wg"
     sql "create workload group default_val_wg properties('enable_memory_overcommit'='true');"
-    qt_select_default_val_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_1 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql """
             alter workload group default_val_wg properties(
@@ -763,7 +763,7 @@ suite("test_crud_wlg") {
                 'remote_read_bytes_per_second'='10');
     """
 
-    qt_select_default_val_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_2 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql """
        alter workload group default_val_wg properties(
@@ -783,7 +783,7 @@ suite("test_crud_wlg") {
         );
     """
 
-    qt_select_default_val_wg_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,spill_threshold_low_watermark,spill_threshold_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
+    qt_select_default_val_wg_3 "select name,cpu_share,memory_limit,enable_memory_overcommit,max_concurrency,max_queue_size,queue_timeout,cpu_hard_limit,scan_thread_num,max_remote_scan_thread_num,min_remote_scan_thread_num,memory_low_watermark,memory_high_watermark,tag,read_bytes_per_second,remote_read_bytes_per_second from information_schema.workload_groups where name = 'default_val_wg'"
 
     sql "drop workload group if exists default_val_wg"
 
