@@ -82,11 +82,13 @@ public class RuntimeFiltersThriftBuilder {
                             target.address, address -> {
                                 TRuntimeFilterTargetParamsV2 params = new TRuntimeFilterTargetParamsV2();
                                 params.target_fragment_instance_addr = address;
+                                params.target_fragment_ids = new ArrayList<>();
+                                // required field
                                 params.target_fragment_instance_ids = new ArrayList<>();
                                 return params;
                             });
 
-                    targetParams.target_fragment_instance_ids.add(target.instanceId);
+                    targetParams.target_fragment_ids.add(target.fragmentId);
                 }
 
                 runtimeFilterParams.putToRidToTargetParamv2(
@@ -95,7 +97,8 @@ public class RuntimeFiltersThriftBuilder {
             } else {
                 List<TRuntimeFilterTargetParams> targetParams = Lists.newArrayList();
                 for (RuntimeFilterTarget target : targets) {
-                    targetParams.add(new TRuntimeFilterTargetParams(target.instanceId, target.address));
+                    // Instance id make no sense if this runtime filter doesn't have remote targets.
+                    targetParams.add(new TRuntimeFilterTargetParams(new TUniqueId(), target.address));
                 }
                 runtimeFilterParams.putToRidToTargetParam(rf.getFilterId().asInt(), targetParams);
             }
@@ -135,7 +138,7 @@ public class RuntimeFiltersThriftBuilder {
                     BackendWorker backendWorker = (BackendWorker) instanceJob.getAssignedWorker();
                     Backend backend = backendWorker.getBackend();
                     targetFragments.add(new RuntimeFilterTarget(
-                            instanceJob.instanceId(),
+                            fragment.getFragmentId().asInt(),
                             new TNetworkAddress(backend.getHost(), backend.getBrpcPort())
                     ));
                 }
@@ -158,11 +161,11 @@ public class RuntimeFiltersThriftBuilder {
     }
 
     public static class RuntimeFilterTarget {
-        public final TUniqueId instanceId;
+        public final int fragmentId;
         public final TNetworkAddress address;
 
-        public RuntimeFilterTarget(TUniqueId instanceId, TNetworkAddress address) {
-            this.instanceId = instanceId;
+        public RuntimeFilterTarget(int fragmentId, TNetworkAddress address) {
+            this.fragmentId = fragmentId;
             this.address = address;
         }
     }

@@ -1235,7 +1235,8 @@ public:
                         null_map = ColumnUInt8::create(input_rows_count, is_null);
                         res->insert_many_defaults(input_rows_count);
                     } else {
-                        res->insert_many_data(target_data.data, target_data.size, input_rows_count);
+                        res->insert_data_repeatedly(target_data.data, target_data.size,
+                                                    input_rows_count);
                     }
                 } else if (auto target_nullable_column =
                                    check_and_get_column<ColumnNullable>(*target_column)) {

@@ -64,6 +64,9 @@ Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
     if (UNLIKELY(_num_rows == 0)) {
         _min_key.append(key.get_data(), key.get_size());
     }
+    DCHECK(key.compare(_max_key) > 0)
+            << "found duplicate key or key is not sorted! current key: " << key
+            << ", last max key: " << _max_key;
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
     _num_rows++;

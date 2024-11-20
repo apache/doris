@@ -43,7 +43,7 @@ struct JsonBinaryValue {
     JsonbParser parser;
 
     JsonBinaryValue() : ptr(nullptr), len(0) {}
-    JsonBinaryValue(char* ptr, int len) {
+    JsonBinaryValue(char* ptr, size_t len) {
         static_cast<void>(from_json_string(const_cast<const char*>(ptr), len));
     }
     JsonBinaryValue(const std::string& s) {
@@ -115,7 +115,7 @@ struct JsonBinaryValue {
         __builtin_unreachable();
     }
 
-    Status from_json_string(const char* s, int len);
+    Status from_json_string(const char* s, size_t len);
 
     std::string to_json_string() const;
 

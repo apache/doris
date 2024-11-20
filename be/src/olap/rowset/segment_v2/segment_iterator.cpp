@@ -2205,17 +2205,23 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 _sel_rowid_idx[i] = i;
             }
 
+            // Here we just use col0 as row_number indicator. when reach here, we will calculate the predicates first.
+            //  then use the result to reduce our data read(that is, expr push down). there's now row in block means the first
+            //  column is not in common expr. so it's safe to replace it temporarily to provide correct `selected_size`.
             if (block->rows() == 0) {
                 vectorized::MutableColumnPtr col0 =
                         std::move(*block->get_by_position(0).column).mutate();
-                auto res_column = vectorized::ColumnString::create();
-                res_column->insert_data("", 0);
-                auto col_const =
-                        vectorized::ColumnConst::create(std::move(res_column), selected_size);
-                block->replace_by_position(0, std::move(col_const));
+                // temporary replace the column with a row number indicator. using a ColumnConst is more efficient than
+                //  insert_many_default
+                auto tmp_indicator_col =
+                        block->get_by_position(0).type->create_column_const_with_default_value(
+                                selected_size);
+                block->replace_by_position(0, std::move(tmp_indicator_col));
+
                 _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
                 block->shrink_char_type_column_suffix_zero(_char_type_idx_no_0);
                 RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), selected_size, block));
+                // now recover the origin col0
                 block->replace_by_position(0, std::move(col0));
             } else {
                 _output_index_result_column_for_expr(_sel_rowid_idx.data(), selected_size, block);
