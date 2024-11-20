@@ -19,6 +19,8 @@ package org.apache.doris.datasource;
 
 public interface MvccTable {
     long getLatestSnapshotId();
+
     void ref(long snapshotId);
+
     void unref(long snapshotId);
 }
