@@ -269,6 +269,7 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
 
             size_t raw_bytes_threshold = config::doris_scanner_row_bytes;
             size_t raw_bytes_read = 0; bool first_read = true;
+            bool has_limit = scanner->limit() > 0;
             while (!eos && raw_bytes_read < raw_bytes_threshold) {
                 if (UNLIKELY(ctx->done())) {
                     eos = true;
@@ -315,6 +316,14 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 } else {
                     ctx->inc_block_usage(free_block->allocated_bytes());
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
+                }
+                if (has_limit) {
+                    // If this scanner has limit, return immediately and no need to wait raw_bytes_threshold.
+                    // This can save time that each scanner may only return a small number of rows,
+                    // but rows are enough from all scanners.
+                    // If not break, the query like "select * from tbl where id=1 limit 10"
+                    // may scan a lot data when the "id=1"'s filter ratio is high.
+                    break;
                 }
             } // end for while
 
