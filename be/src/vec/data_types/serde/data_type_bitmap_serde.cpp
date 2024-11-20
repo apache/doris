@@ -36,13 +36,13 @@ namespace vectorized {
 class IColumn;
 #include "common/compile_check_begin.h"
 
-Status DataTypeBitMapSerDe::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                     int end_idx, BufferWritable& bw,
+Status DataTypeBitMapSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                     int64_t end_idx, BufferWritable& bw,
                                                      FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
-Status DataTypeBitMapSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeBitMapSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                        BufferWritable& bw,
                                                        FormatOptions& options) const {
     /**
@@ -122,8 +122,8 @@ void DataTypeBitMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWr
 }
 
 void DataTypeBitMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                arrow::ArrayBuilder* array_builder, int start,
-                                                int end, const cctz::time_zone& ctz) const {
+                                                arrow::ArrayBuilder* array_builder, int64_t start,
+                                                int64_t end, const cctz::time_zone& ctz) const {
     const auto& col = assert_cast<const ColumnBitmap&>(column);
     auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {

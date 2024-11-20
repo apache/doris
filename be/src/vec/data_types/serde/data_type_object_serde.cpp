@@ -167,8 +167,8 @@ void DataTypeObjectSerDe::write_column_to_arrow(const IColumn& column, const Nul
 
 Status DataTypeObjectSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                 const NullMap* null_map,
-                                                orc::ColumnVectorBatch* orc_col_batch, int start,
-                                                int end,
+                                                orc::ColumnVectorBatch* orc_col_batch,
+                                                int64_t start, int64_t end,
                                                 std::vector<StringRef>& buffer_list) const {
     const auto* var = check_and_get_column<ColumnObject>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
