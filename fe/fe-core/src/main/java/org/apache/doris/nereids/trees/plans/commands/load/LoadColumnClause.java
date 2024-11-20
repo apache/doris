@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.load;
 
-import org.apache.doris.common.AnalysisException;
-
 import java.util.List;
 
 /**
@@ -33,15 +31,5 @@ public class LoadColumnClause implements LoadProperty {
 
     public List<LoadColumnDesc> getColumns() {
         return columns;
-    }
-
-    @Override
-    public void validate() throws AnalysisException {
-
-    }
-
-    @Override
-    public String toSql() {
-        return "";
     }
 }

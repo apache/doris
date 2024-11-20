@@ -31,12 +31,6 @@ public interface LoadProperty {
      * Perform semantic validate of node and all of its children.
      * Throws exception if any errors found.
      */
-    void validate() throws AnalysisException;
-
-    /**
-     * get sql string of property
-     * @return SQL syntax corresponding to this node.
-     */
-    String toSql();
-
+    default void validate() throws AnalysisException {
+    }
 }

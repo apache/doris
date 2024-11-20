@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.load;
 
-import org.apache.doris.common.AnalysisException;
-
 /**
  * load LoadSequenceClause for nereids
  */
@@ -31,15 +29,5 @@ public class LoadSequenceClause implements LoadProperty {
 
     public String getSequenceColName() {
         return sequenceColName;
-    }
-
-    @Override
-    public void validate() throws AnalysisException {
-
-    }
-
-    @Override
-    public String toSql() {
-        return "";
     }
 }

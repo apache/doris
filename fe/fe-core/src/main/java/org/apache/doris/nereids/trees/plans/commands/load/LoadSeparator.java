@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.commands.load;
 
-import org.apache.doris.common.AnalysisException;
-
 /**
  * load seperator for nereids
  */
@@ -31,15 +29,5 @@ public class LoadSeparator implements LoadProperty {
 
     public String getOriSeparator() {
         return oriSeparator;
-    }
-
-    @Override
-    public void validate() throws AnalysisException {
-
-    }
-
-    @Override
-    public String toSql() {
-        return "";
     }
 }

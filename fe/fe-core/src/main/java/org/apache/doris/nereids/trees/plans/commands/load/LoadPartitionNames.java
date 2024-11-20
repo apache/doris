@@ -67,9 +67,4 @@ public class LoadPartitionNames implements LoadProperty {
             throw new AnalysisException("there are empty partition name");
         }
     }
-
-    @Override
-    public String toSql() {
-        return "";
-    }
 }

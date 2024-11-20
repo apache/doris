@@ -150,8 +150,8 @@ hive3PgPort=5732
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container
 // See `docker/thirdparties/run-thirdparties-docker.sh`
-enableKafkaTest=true
-kafka_port=9092
+enableKafkaTest=false
+kafka_port=19193
 
 // elasticsearch catalog test config
 // See `docker/thirdparties/run-thirdparties-docker.sh`
