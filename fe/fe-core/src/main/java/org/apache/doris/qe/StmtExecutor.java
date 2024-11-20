@@ -898,10 +898,6 @@ public class StmtExecutor {
     }
 
     public void finalizeQuery() {
-        // right place to return hbo related info
-        if (context != null && context.getSessionVariable().isEnableHboTracker()) {
-            historyBasedPlanStatisticsTracker.updateStatistics();
-        }
         // The final profile report occurs after be returns the query data, and the profile cannot be
         // received after unregisterQuery(), causing the instance profile to be lost, so we should wait
         // for the profile before unregisterQuery().
@@ -2078,6 +2074,9 @@ public class StmtExecutor {
             }
 
             statisticsForAuditLog = batch.getQueryStatistics() == null ? null : batch.getQueryStatistics().toBuilder();
+            if (statisticsForAuditLog != null && context != null && context.getSessionVariable().isEnableHboTracker()) {
+                historyBasedPlanStatisticsTracker.updateStatistics();
+            }
             context.getState().setEof();
             profile.getSummaryProfile().setQueryFetchResultFinishTime();
         } catch (Exception e) {
