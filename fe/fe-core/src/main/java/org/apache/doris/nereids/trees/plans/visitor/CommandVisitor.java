@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
@@ -316,6 +317,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowStorageEnginesCommand(ShowStorageEnginesCommand showStorageEnginesCommand, C context) {
         return visitCommand(showStorageEnginesCommand, context);
+    }
+
+    default R visitShowCreateCatalogCommand(ShowCreateCatalogCommand showCreateCatalogCommand, C context) {
+        return visitCommand(showCreateCatalogCommand, context);
     }
 
     default R visitShowCreateMaterializedViewCommand(ShowCreateMaterializedViewCommand showCreateMtlzViewCommand,
