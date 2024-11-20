@@ -29,15 +29,11 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Strings;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 /**
  * recover database command
  */
 public class RecoverDatabaseCommand extends RecoverCommand {
-
-    public static final Logger LOG = LogManager.getLogger(RecoverDatabaseCommand.class);
     private final String dbName;
     private final long dbId;
     private final String newDbName;
