@@ -89,6 +89,8 @@ public:
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return columns.at(0)->size(); }
 
+    bool is_variable_length() const override { return true; }
+
     bool is_exclusive() const override {
         for (const auto& col : columns) {
             if (!col->is_exclusive()) {
@@ -141,19 +143,13 @@ public:
         return append_data_by_selector_impl<ColumnStruct>(res, selector);
     }
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        const auto& r = assert_cast<const ColumnStruct&>(rhs);
-
-        for (size_t idx = 0; idx < columns.size(); ++idx) {
-            columns[idx]->replace_column_data(r.get_column(idx), row, self_row);
-        }
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
-        DCHECK(size() > self_row);
-        for (size_t idx = 0; idx < columns.size(); ++idx) {
-            columns[idx]->replace_column_data_default(self_row);
-        }
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                               "Method replace_column_data is not supported for " + get_name());
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
