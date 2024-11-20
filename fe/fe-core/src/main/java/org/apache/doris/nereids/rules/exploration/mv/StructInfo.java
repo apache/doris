@@ -17,10 +17,15 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -64,12 +69,14 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.BiMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -744,13 +751,21 @@ public class StructInfo {
                 for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
                     tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId));
                 }
-            } else if (catalogRelation instanceof LogicalFileScan) {
+            } else if (catalogRelation instanceof LogicalFileScan
+                    && catalogRelation.getTable() instanceof HMSExternalTable) {
                 LogicalFileScan logicalFileScan = (LogicalFileScan) catalogRelation;
+                HMSExternalTable externalTable = (HMSExternalTable) logicalFileScan.getTable();
                 SelectedPartitions selectedPartitions = logicalFileScan.getSelectedPartitions();
+                // For partition id to name
+                HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .getMetaStoreCache((HMSExternalCatalog) externalTable.getCatalog());
+                HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
+                        externalTable.getDbName(), externalTable.getName(), externalTable.getPartitionColumnTypes());
+                BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
+                Set<String> hiveTablePartitions = new HashSet<>();
                 for (Entry<Long, PartitionItem> partitionEntry : selectedPartitions.selectedPartitions.entrySet()) {
-                    // logicalFileScan.getTable().getPartition(partitionEntry.getValue());
+                    hiveTablePartitions.add(idToName.get(partitionEntry.getKey()));
                 }
-                targetTablePartitionMap.clear();
             } else {
                 // Not support to partition check now, doesn't try to compensate when part partition become invalid
                 targetTablePartitionMap.clear();
