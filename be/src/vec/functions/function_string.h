@@ -1235,7 +1235,8 @@ public:
                         null_map = ColumnUInt8::create(input_rows_count, is_null);
                         res->insert_many_defaults(input_rows_count);
                     } else {
-                        res->insert_many_data(target_data.data, target_data.size, input_rows_count);
+                        res->insert_data_repeatedly(target_data.data, target_data.size,
+                                                    input_rows_count);
                     }
                 } else if (auto target_nullable_column =
                                    check_and_get_column<ColumnNullable>(*target_column)) {
@@ -1387,7 +1388,7 @@ public:
                         fmt::format("unsupported nested array of type {} for function {}",
                                     is_column_nullable(array_column.get_data())
                                             ? array_column.get_data().get_name()
-                                            : array_column.get_data().get_family_name(),
+                                            : array_column.get_data().get_name(),
                                     get_name()));
             }
             // Concat string in array

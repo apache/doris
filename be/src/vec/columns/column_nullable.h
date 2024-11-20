@@ -143,11 +143,10 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
+
     bool is_variable_length() const override { return nested_column->is_variable_length(); }
 
-    const char* get_family_name() const override { return "Nullable"; }
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override {
@@ -310,16 +309,6 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        append_data_by_selector_impl<ColumnNullable>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        append_data_by_selector_impl<ColumnNullable>(res, selector, begin, end);
-    }
-
     ColumnPtr convert_column_if_overflow() override {
         nested_column = nested_column->convert_column_if_overflow();
         return get_ptr();
@@ -343,6 +332,7 @@ public:
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
 
     bool is_nullable() const override { return true; }
+    bool is_concrete_nullable() const override { return true; }
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
     bool is_hll() const override { return get_nested_column().is_hll(); }
     bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }

@@ -42,7 +42,8 @@ std::string FileCacheSettings::to_string() const {
 
 FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cache_size,
                                           size_t normal_percent, size_t disposable_percent,
-                                          size_t index_percent, const std::string& storage) {
+                                          size_t index_percent, size_t ttl_percent,
+                                          const std::string& storage) {
     io::FileCacheSettings settings;
     if (capacity == 0) return settings;
     settings.capacity = capacity;
@@ -59,12 +60,12 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
             std::max(settings.index_queue_size / settings.max_file_block_size,
                      REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
 
-    settings.ttl_queue_size = per_size * config::max_ttl_cache_ratio;
+    settings.ttl_queue_size = per_size * ttl_percent;
     settings.ttl_queue_elements = std::max(settings.ttl_queue_size / settings.max_file_block_size,
                                            REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);
 
-    settings.query_queue_size =
-            settings.capacity - settings.disposable_queue_size - settings.index_queue_size;
+    settings.query_queue_size = settings.capacity - settings.disposable_queue_size -
+                                settings.index_queue_size - settings.ttl_queue_size;
     settings.query_queue_elements =
             std::max(settings.query_queue_size / settings.max_file_block_size,
                      REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS);

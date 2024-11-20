@@ -49,7 +49,7 @@ private:
               _data(src._data.begin(), src._data.end()) {}
 
 public:
-    const char* get_family_name() const override { return "ColumnFixedLengthObject"; }
+    std::string get_name() const override { return "ColumnFixedLengthObject"; }
 
     size_t size() const override { return _item_count; }
 
@@ -248,16 +248,6 @@ public:
         }
 
         return res;
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
     }
 
     size_t byte_size() const override { return _data.size(); }

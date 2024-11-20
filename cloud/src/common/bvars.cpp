@@ -193,3 +193,6 @@ BvarStatusWithTag<long> g_bvar_checker_check_cost_s("checker", "check_cost_secon
 BvarStatusWithTag<long> g_bvar_checker_enqueue_cost_s("checker", "enqueue_cost_seconds");
 BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms("checker", "last_success_time_ms");
 BvarStatusWithTag<long> g_bvar_checker_instance_volume("checker", "instance_volume");
+BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned("checker", "num_inverted_scanned");
+BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed("checker",
+                                                                 "num_inverted_check_failed");

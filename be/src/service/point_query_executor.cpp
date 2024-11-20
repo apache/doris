@@ -396,17 +396,6 @@ Status PointQueryExecutor::_lookup_row_key() {
         specified_rowsets = _tablet->get_rowset_by_ids(nullptr);
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
-    // init segment_cache
-    {
-        SCOPED_TIMER(&_profile_metrics.load_segment_key_stage_ns);
-        for (size_t i = 0; i < specified_rowsets.size(); i++) {
-            auto& rs = specified_rowsets[i];
-            segment_caches[i] = std::make_unique<SegmentCacheHandle>();
-            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
-                    std::static_pointer_cast<BetaRowset>(rs), segment_caches[i].get(), true, true,
-                    &_profile_metrics.read_stats));
-        }
-    }
     for (size_t i = 0; i < _row_read_ctxs.size(); ++i) {
         RowLocation location;
         if (!config::disable_storage_row_cache) {

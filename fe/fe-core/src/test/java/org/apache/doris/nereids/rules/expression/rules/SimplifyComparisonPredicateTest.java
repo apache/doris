@@ -279,5 +279,17 @@ class SimplifyComparisonPredicateTest extends ExpressionRewriteTestHelper {
                 rewrittenExpression.child(0).getDataType());
         Assertions.assertInstanceOf(DecimalV3Literal.class, rewrittenExpression.child(1));
         Assertions.assertEquals(new BigDecimal("12.35"), ((DecimalV3Literal) rewrittenExpression.child(1)).getValue());
+
+        // left's child range smaller than right literal
+        leftChild = new DecimalV3Literal(new BigDecimal("1234.12"));
+        left = new Cast(leftChild, DecimalV3Type.createDecimalV3Type(10, 5));
+        right = new DecimalV3Literal(new BigDecimal("12345.12000"));
+        expression = new EqualTo(left, right);
+        rewrittenExpression = executor.rewrite(expression, context);
+        Assertions.assertInstanceOf(Cast.class, rewrittenExpression.child(0));
+        Assertions.assertEquals(DecimalV3Type.createDecimalV3Type(7, 2),
+                rewrittenExpression.child(0).getDataType());
+        Assertions.assertInstanceOf(DecimalV3Literal.class, rewrittenExpression.child(1));
+        Assertions.assertEquals(new BigDecimal("12345.12"), ((DecimalV3Literal) rewrittenExpression.child(1)).getValue());
     }
 }

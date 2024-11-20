@@ -121,8 +121,6 @@ public:
 
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
 
-    const char* get_family_name() const override { return "Const"; }
-
     void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
@@ -252,15 +250,6 @@ public:
         }
     }
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        assert_cast<Self&>(*res).resize(selector.size());
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        assert_cast<Self&>(*res).resize(end - begin);
-    }
-
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
     bool structure_equals(const IColumn& rhs) const override {
@@ -270,7 +259,8 @@ public:
         return false;
     }
 
-    //    bool is_nullable() const override { return is_column_nullable(*data); }
+    // ColumnConst is not nullable, but may be concrete nullable.
+    bool is_concrete_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
     bool is_numeric() const override { return data->is_numeric(); }
     bool is_fixed_and_contiguous() const override { return data->is_fixed_and_contiguous(); }

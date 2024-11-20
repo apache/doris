@@ -250,6 +250,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.CreateInternalWorkloadGroupThread;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
@@ -1874,6 +1875,7 @@ public class Env {
         WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
+        new CreateInternalWorkloadGroupThread().start();
 
         // auto analyze related threads.
         statisticsCleaner.start();
@@ -3267,12 +3269,25 @@ public class Env {
         getInternalCatalog().recoverDatabase(recoverStmt);
     }
 
+    public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
+        getInternalCatalog().recoverDatabase(dbName, dbId, newDbName);
+    }
+
     public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverTable(recoverStmt);
     }
 
+    public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
+        getInternalCatalog().recoverTable(dbName, tableName, newTableName, tableId);
+    }
+
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverPartition(recoverStmt);
+    }
+
+    public void recoverPartition(String dbName, String tableName, String partitionName,
+                                    String newPartitionName, long partitionId) throws DdlException {
+        getInternalCatalog().recoverPartition(dbName, tableName, partitionName, newPartitionName, partitionId);
     }
 
     public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
@@ -4685,13 +4700,13 @@ public class Env {
 
         if (clusterColumns.size() > 0 && shortKeyColumnCount < clusterColumns.size()) {
             boolean sameKey = true;
-            for (int i = 0; i < shortKeyColumnCount; i++) {
+            for (int i = 0; i < shortKeyColumnCount && i < indexColumns.size(); i++) {
                 if (!clusterColumns.get(i).getName().equals(indexColumns.get(i).getName())) {
                     sameKey = false;
                     break;
                 }
             }
-            if (sameKey) {
+            if (sameKey && !Config.random_add_cluster_keys_for_mow) {
                 throw new DdlException(shortKeyColumnCount + " short keys is a part of unique keys");
             }
         }

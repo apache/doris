@@ -92,8 +92,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->register_producer_runtime_filter(
-                p._runtime_filter_descs[i], p._need_local_merge, &_runtime_filters[i],
-                _build_expr_ctxs.size() == 1));
+                p._runtime_filter_descs[i], &_runtime_filters[i], _build_expr_ctxs.size() == 1));
     }
 
     _runtime_filter_slots =
@@ -157,7 +156,7 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
         }
     }
     SCOPED_TIMER(_publish_runtime_filter_timer);
-    RETURN_IF_ERROR(_runtime_filter_slots->publish(!_should_build_hash_table));
+    RETURN_IF_ERROR(_runtime_filter_slots->publish(state, !_should_build_hash_table));
     return Base::close(state, exec_status);
 }
 
@@ -353,8 +352,7 @@ Status HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
 
 HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
                                                        const TPlanNode& tnode,
-                                                       const DescriptorTbl& descs,
-                                                       bool need_local_merge)
+                                                       const DescriptorTbl& descs)
         : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
                                                                     : TJoinDistributionType::NONE),
@@ -362,8 +360,7 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
                              tnode.hash_join_node.is_broadcast_join),
           _partition_exprs(tnode.__isset.distribute_expr_lists && !_is_broadcast_join
                                    ? tnode.distribute_expr_lists[1]
-                                   : std::vector<TExpr> {}),
-          _need_local_merge(need_local_merge) {}
+                                   : std::vector<TExpr> {}) {}
 
 Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(JoinBuildSinkOperatorX::init(tnode, state));

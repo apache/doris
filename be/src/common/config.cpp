@@ -63,8 +63,29 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "-1");
 
-DEFINE_mString(public_access_ip, "");
-DEFINE_Int32(public_access_port, "-1");
+// If the external client cannot directly access priority_networks, set public_host to be accessible
+// to external client.
+// There are usually two usage scenarios:
+// 1. in production environment, it is often inconvenient to expose Doris BE nodes to the external network.
+// However, a reverse proxy (such as Nginx) can be added to all Doris BE nodes, and the external client will be
+// randomly routed to a Doris BE node when connecting to Nginx. set public_host to the host of Nginx.
+// 2. if priority_networks is an internal network IP, and BE node has its own independent external IP,
+// but Doris currently does not support modifying priority_networks, setting public_host to the real external IP.
+DEFINE_mString(public_host, "");
+
+// If the BE node is connected to the external network through a reverse proxy like Nginx
+// and need to use Arrow Flight SQL, should add a server in Nginx to reverse proxy
+// `Nginx:arrow_flight_sql_proxy_port` to `BE_priority_networks:arrow_flight_sql_port`. For example:
+// upstream arrowflight {
+//    server 10.16.10.8:8069;
+//    server 10.16.10.8:8068;
+//}
+// server {
+//    listen 8167 http2;
+//    listen [::]:8167 http2;
+//    server_name doris.arrowflight.com;
+// }
+DEFINE_Int32(arrow_flight_sql_proxy_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -1004,7 +1025,7 @@ DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
-// format: {"path": "/path/to/file_cache", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
+// format: {"path": "/path/to/file_cache", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
 // format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
 // Note1: storage is "disk" by default
 // Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
@@ -1020,7 +1041,7 @@ DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
-DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
+DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_read_cache_file_directly, "false");
 DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
@@ -1301,8 +1322,6 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
-// The max ratio for ttl cache's size
-DEFINE_mInt64(max_ttl_cache_ratio, "50");
 // The maximum jvm heap usage ratio for hdfs write workload
 DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1370,6 +1389,7 @@ DEFINE_Int32(query_cache_size, "512");
 DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
 // Enable validation to check the correctness of table size.
 DEFINE_Bool(enable_table_size_correctness_check, "false");
+DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 
 // clang-format off
 #ifdef BE_TEST

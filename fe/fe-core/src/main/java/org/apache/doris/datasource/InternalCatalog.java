@@ -601,20 +601,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
+    public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
         // check is new db with same name already exist
-        String newDbName = recoverStmt.getNewDbName();
         if (!Strings.isNullOrEmpty(newDbName)) {
             if (getDb(newDbName).isPresent()) {
                 throw new DdlException("Database[" + newDbName + "] already exist.");
             }
         } else {
-            if (getDb(recoverStmt.getDbName()).isPresent()) {
-                throw new DdlException("Database[" + recoverStmt.getDbName() + "] already exist.");
+            if (getDb(dbName).isPresent()) {
+                throw new DdlException("Database[" + dbName + "] already exist.");
             }
         }
 
-        Database db = Env.getCurrentRecycleBin().recoverDatabase(recoverStmt.getDbName(), recoverStmt.getDbId());
+        Database db = Env.getCurrentRecycleBin().recoverDatabase(dbName, dbId);
 
         // add db to catalog
         if (!tryLock(false)) {
@@ -656,15 +655,14 @@ public class InternalCatalog implements CatalogIf<Database> {
             db.writeUnlock();
             unlock();
         }
-
         LOG.info("recover database[{}]", db.getId());
     }
 
-    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
-        String dbName = recoverStmt.getDbName();
-        String tableName = recoverStmt.getTableName();
-        String newTableName = recoverStmt.getNewTableName();
+    public void recoverDatabase(RecoverDbStmt recoverStmt) throws DdlException {
+        recoverDatabase(recoverStmt.getDbName(), recoverStmt.getDbId(), recoverStmt.getNewDbName());
+    }
 
+    public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
         Database db = getDbOrDdlException(dbName);
         db.writeLockOrDdlException();
         try {
@@ -677,7 +675,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     ErrorReport.reportDdlException(ErrorCode.ERR_TABLE_EXISTS_ERROR, newTableName);
                 }
             }
-            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, recoverStmt.getTableId(), newTableName)) {
+            if (!Env.getCurrentRecycleBin().recoverTable(db, tableName, tableId, newTableName)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_TABLE, tableName, dbName);
             }
         } finally {
@@ -685,16 +683,17 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
     }
 
-    public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
-        String dbName = recoverStmt.getDbName();
-        String tableName = recoverStmt.getTableName();
+    public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
+        recoverTable(recoverStmt.getDbName(), recoverStmt.getTableName(),
+                        recoverStmt.getNewTableName(), recoverStmt.getTableId());
+    }
 
+    public void recoverPartition(String dbName, String tableName, String partitionName,
+                                    String newPartitionName, long partitionId) throws DdlException {
         Database db = getDbOrDdlException(dbName);
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
         olapTable.writeLockOrDdlException();
         try {
-            String partitionName = recoverStmt.getPartitionName();
-            String newPartitionName = recoverStmt.getNewPartitionName();
             if (Strings.isNullOrEmpty(newPartitionName)) {
                 if (olapTable.getPartition(partitionName) != null) {
                     throw new DdlException("partition[" + partitionName + "] "
@@ -708,10 +707,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             Env.getCurrentRecycleBin().recoverPartition(db.getId(), olapTable, partitionName,
-                    recoverStmt.getPartitionId(), newPartitionName);
+                                                            partitionId, newPartitionName);
         } finally {
             olapTable.writeUnlock();
         }
+    }
+
+    public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
+        recoverPartition(recoverStmt.getDbName(), recoverStmt.getTableName(),
+                        recoverStmt.getPartitionName(), recoverStmt.getNewPartitionName(),
+                        recoverStmt.getPartitionId());
     }
 
     public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {

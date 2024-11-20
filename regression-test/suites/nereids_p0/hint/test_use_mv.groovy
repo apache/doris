@@ -53,9 +53,9 @@ suite("test_use_mv") {
                         );
     """
     sql """ alter table t1 add rollup r1(k2, k1); """
-    waitForRollUpJob("t1", "r1", 15000)
+    waitForRollUpJob("t1", 150000)
     sql """ alter table t1 add rollup r2(k2); """
-    waitForRollUpJob("t1", "r2", 15000)
+    waitForRollUpJob("t1", 150000)
     createMV("create materialized view k1_k2_sumk3 as select k1, k2, sum(v1) from t1 group by k1, k2;")
     explain {
         sql """select /*+ no_use_mv */ k1 from t1;"""

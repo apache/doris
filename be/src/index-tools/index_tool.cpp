@@ -170,7 +170,7 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
         std::vector<std::string> terms = split(token, '|');
 
         doris::TQueryOptions queryOptions;
-        ConjunctionQuery conjunct_query(s, queryOptions);
+        ConjunctionQuery conjunct_query(s, queryOptions, nullptr);
         conjunct_query.add(field_ws, terms);
         conjunct_query.search(result);
 

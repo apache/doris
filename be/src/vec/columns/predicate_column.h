@@ -328,7 +328,7 @@ public:
 
     void reserve(size_t n) override { data.reserve(n); }
 
-    const char* get_family_name() const override { return TypeName<T>::get(); }
+    std::string get_name() const override { return TypeName<T>::get(); }
 
     MutableColumnPtr clone_resized(size_t size) const override {
         DCHECK(size == 0);
@@ -420,19 +420,6 @@ public:
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "replicate not supported in PredicateColumnType");
-        __builtin_unreachable();
-    }
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in PredicateColumnType!");
-        __builtin_unreachable();
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "append_data_by_selector is not supported in PredicateColumnType!");
         __builtin_unreachable();
     }
 
