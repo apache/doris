@@ -112,7 +112,7 @@ function check_doris_conf() {
     fi
     cv=$(grep 'stream_load_default_timeout_second' <<< "${output}" | awk '{print $2}')
     if (($cv < 3600)); then
-        printf "advise: revise your Doris FE's conf to set 'stream_load_default_timeout_second=3600' or above\n"
+        echo "advise: revise your Doris FE's conf to set 'stream_load_default_timeout_second=3600' or above"
     fi
 
     if ! output=$(curl -s "${BE_HOST}:${BE_WEBSERVER_PORT}/varz" 2>&1); then

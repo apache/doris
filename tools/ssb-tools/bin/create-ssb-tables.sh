@@ -119,10 +119,10 @@ elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-flat-tables-sf100.sql
 elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-tables-sf1000.sql"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}/../ddl/create-ssb-tables-sf1000.sql"
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf1000.sql
 
     echo "Run SQLs from ${CURDIR}/../ddl/create-ssb-flat-tables-sf1000.sql"
-    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-tables-sf1000.sql
+    mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-ssb-flat-tables-sf1000.sql
 else
     echo "${SCALE_FACTOR} scale is NOT supported currently"
 fi

@@ -104,17 +104,17 @@ echo "DB: ${DB}"
 echo "SF: ${SCALE_FACTOR}"
 
 mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -e "CREATE DATABASE IF NOT EXISTS ${DB}"
-# shellcheck disable=SC2292
-if [ "${SCALE_FACTOR}" -eq 1 ]; then
+
+if [[ ${SCALE_FACTOR} -eq 1 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpch-tables-sf1.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables-sf1.sql
-elif [ "${SCALE_FACTOR}" -eq 100 ]; then
+elif [[ ${SCALE_FACTOR} -eq 100 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpch-tables-sf100.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables-sf100.sql
-elif [ "${SCALE_FACTOR}" -eq 1000 ]; then
+elif [[ ${SCALE_FACTOR} -eq 1000 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpch-tables-sf1000.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables-sf1000.sql
-elif [ "${SCALE_FACTOR}" -eq 10000 ]; then
+elif [[ ${SCALE_FACTOR} -eq 10000 ]]; then
     echo "Run SQLs from ${CURDIR}/../ddl/create-tpch-tables-sf10000.sql"
     mysql -h"${FE_HOST}" -u"${USER}" -P"${FE_QUERY_PORT}" -D"${DB}" <"${CURDIR}"/../ddl/create-tpch-tables-sf10000.sql
 else

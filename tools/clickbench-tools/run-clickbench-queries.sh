@@ -128,13 +128,7 @@ cat ${QUERIES_FILE} | while read query; do
 
   echo -n "query${QUERY_NUM}," | tee -a result.csv
   for i in $(seq 1 $TRIES); do
-    if ! output=$(mysql -vvv -h"$FE_HOST" -u"$USER" -P"$FE_QUERY_PORT" -D"$DB" -e "${query}" 2>&1); then
-        printf "%s\n" "$output" >&2
-        printf "Error: Failed to execute SQL command: %s\n" "${query}" >&2
-        exit 1
-    fi
-    RES=$(perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' <<< "$output")
-    
+    RES=$(mysql -vvv -h$FE_HOST -u$USER -P$FE_QUERY_PORT -D$DB -e "${query}" | perl -nle 'print $1 if /\((\d+\.\d+)+ sec\)/' || :)
     echo -n "${RES}" | tee -a result.csv
     [[ "$i" != $TRIES ]] && echo -n "," | tee -a result.csv
   done
