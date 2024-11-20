@@ -205,6 +205,9 @@ void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
             not_null_count++;
         }
     }
+    if (not_null_count) {
+        _push_false_to_nullmap(not_null_count);
+    }
     nested_column->insert_many_strings(strings, num);
 }
 
