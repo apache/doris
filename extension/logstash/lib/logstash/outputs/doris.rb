@@ -19,7 +19,7 @@
 require "logstash/outputs/base"
 require "logstash/namespace"
 require "logstash/json"
-require "logstash/util/shortname_resolver"
+require "logstash/util/short_name_resolver"
 require 'logstash/util/formater'
 require "uri"
 require "securerandom"
