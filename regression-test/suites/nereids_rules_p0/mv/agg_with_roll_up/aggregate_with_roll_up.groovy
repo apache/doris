@@ -1635,4 +1635,24 @@ suite("aggregate_with_roll_up") {
     """
     async_mv_rewrite_fail(db, mv37_0, query37_0, "mv37_0")
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv37_0"""
+
+
+    // mv has any value, query also has any value
+
+
+    // query has any value, mv doesn't have
+
+
+    // mv has any value, query also has any value, with same filter
+
+
+    // query has any value, mv doesn't have, with same filter
+
+
+    // mv has any value, query also has any value, with different filter
+    // should fail
+
+
+    // query has any value, mv doesn't have, with different filter
+    // should fail
 }
