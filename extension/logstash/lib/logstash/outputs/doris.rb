@@ -211,7 +211,15 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          rescue => e
             @logger.warn("doris stream load response: #{response} is not a valid JSON")
          end
-         if response_json["Status"] == "Success"
+
+         status = response_json["Status"]
+
+         if status == 'Label Already Exists'
+           @logger.warn("Label already exists: #{response_json['Label']}")
+           break
+         end
+
+         if status == "Success" || status == "Publish Timeout"
             @total_bytes.addAndGet(documents.size)
             @total_rows.addAndGet(event_num)
             break
