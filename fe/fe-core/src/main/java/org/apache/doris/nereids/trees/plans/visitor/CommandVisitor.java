@@ -74,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowRolesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
@@ -362,5 +363,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowPrivilegesCommand(ShowPrivilegesCommand showPrivilegesCommand, C context) {
         return visitCommand(showPrivilegesCommand, context);
+    }
+
+    default R visitShowTabletsBelongCommand(ShowTabletsBelongCommand showTabletBelongCommand, C context) {
+        return visitCommand(showTabletBelongCommand, context);
     }
 }
