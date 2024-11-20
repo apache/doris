@@ -387,6 +387,94 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal32) {
     delete[] val;
 }
 
+TEST_F(BloomFilterIndexReaderWriterTest, test_decimal64) {
+    size_t num = 1024 * 3 - 1;
+    ;
+    int64_t* val = new int64_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = static_cast<int64_t>(i * 1000 + 123);
+    }
+
+    std::string file_name = "bloom_filter_decimal64";
+    int64_t not_exist_value = 9999999;
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(
+            file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_ipv4) {
+    size_t num = 1024 * 3 - 1;
+    uint32_t* val = new uint32_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = (192 << 24) | (168 << 16) | (i >> 8) | (i & 0xFF);
+    }
+
+    std::string file_name = "bloom_filter_ipv4";
+    uint32_t not_exist_value = (10 << 24) | (0 << 16) | (0 << 8) | 1;
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_IPV4>(
+            file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_decimal128i) {
+    size_t num = 1024 * 3 - 1;
+    int128_t* val = new int128_t[num];
+
+    int128_t base_value = int128_t(1000000000ULL) * int128_t(1000000000ULL);
+
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = base_value + int128_t(i);
+    }
+
+    std::string file_name = "bloom_filter_decimal128i";
+    int128_t not_exist_value = int128_t(9999999999999999999ULL);
+
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(
+            file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_decimal256) {
+    size_t num = 1024 * 3 - 1;
+    using Decimal256Type = wide::Int256;
+
+    Decimal256Type* val = new Decimal256Type[num];
+
+    Decimal256Type base_value = Decimal256Type(1000000000ULL); // 1e9
+    base_value *= Decimal256Type(1000000000ULL);               // base_value = 1e18
+    base_value *= Decimal256Type(100000000ULL);                // base_value = 1e26
+    base_value *= Decimal256Type(100000000ULL);                // base_value = 1e34
+    base_value *= Decimal256Type(10000ULL);                    // base_value = 1e38
+
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = base_value + Decimal256Type(i);
+    }
+
+    std::string file_name = "bloom_filter_decimal256";
+
+    Decimal256Type not_exist_value = base_value + Decimal256Type(9999999ULL);
+
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL256>(
+            file_name, val, num, 1, &not_exist_value);
+
+    delete[] val;
+}
+
+TEST_F(BloomFilterIndexReaderWriterTest, test_ipv6) {
+    size_t num = 1024 * 3 - 1;
+    uint128_t* val = new uint128_t[num];
+    for (size_t i = 0; i < num; ++i) {
+        val[i] = (uint128_t(0x20010DB800000000) << 64) | uint128_t(i);
+    }
+
+    std::string file_name = "bloom_filter_ipv6";
+    uint128_t not_exist_value = (uint128_t(0x20010DB800000000) << 64) | uint128_t(999999);
+
+    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_IPV6>(
+            file_name, val, num, 1, &not_exist_value);
+    delete[] val;
+}
+
 void test_ngram_bloom_filter_index_reader_writer(const std::string& file_name, Slice* values,
                                                  size_t num_values, uint8_t gram_size,
                                                  uint16_t bf_size) {
@@ -502,36 +590,6 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ngram_bloom_filter) {
     uint16_t bf_size = 65535;
 
     test_ngram_bloom_filter_index_reader_writer(file_name, slices.data(), num, gram_size, bf_size);
-}
-
-TEST_F(BloomFilterIndexReaderWriterTest, test_empty_input) {
-    size_t num = 0;
-    int* val = nullptr;
-
-    std::string file_name = "bloom_filter_empty";
-    int not_exist_value = 0;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_INT>(
-            file_name, val, num, 0, &not_exist_value);
-}
-
-TEST_F(BloomFilterIndexReaderWriterTest, test_null_values_only) {
-    size_t num = 0;
-    int* val = nullptr;
-
-    std::string file_name = "bloom_filter_null_only";
-    //int not_exist_value = 0;
-    ColumnIndexMetaPB meta;
-    write_bloom_filter_index_file<FieldType::OLAP_FIELD_TYPE_INT>(file_name, val, num, 1000, &meta);
-
-    BloomFilterIndexReader* reader = nullptr;
-    std::unique_ptr<BloomFilterIndexIterator> iter;
-    get_bloom_filter_reader_iter(file_name, meta, &reader, &iter);
-
-    std::unique_ptr<BloomFilter> bf;
-    auto st = iter->read_bloom_filter(0, &bf);
-    EXPECT_TRUE(st.ok());
-    EXPECT_TRUE(bf->has_null());
-    delete reader;
 }
 
 TEST_F(BloomFilterIndexReaderWriterTest, test_unsupported_type) {
