@@ -23,6 +23,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileAttributes;
 
 import org.apache.paimon.table.Table;
@@ -36,7 +37,8 @@ public class PaimonSource {
     public PaimonSource(TupleDescriptor desc) {
         this.desc = desc;
         this.paimonExtTable = (PaimonExternalTable) desc.getTable();
-        this.originTable = paimonExtTable.getPaimonTable();
+        this.originTable = paimonExtTable.getPaimonTable(
+                ConnectContext.get().getStatementContext().getSnapshotId(paimonExtTable));
     }
 
     public TupleDescriptor getDesc() {
