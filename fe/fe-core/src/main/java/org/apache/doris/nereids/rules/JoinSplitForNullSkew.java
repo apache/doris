@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.rules.rewrite.PullUpPredicates;
 import org.apache.doris.nereids.trees.copier.DeepCopierContext;
 import org.apache.doris.nereids.trees.copier.LogicalPlanDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -42,7 +41,10 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -72,6 +74,7 @@ public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
         // 需要把左边的join key取出，
         Plan left = join.left();
         Plan right = join.right();
+
         // 找到哪个slot是来自左边 哪个来自于右边
         Expression conjunct = join.getHashJoinConjuncts().get(0);
         if (!(conjunct instanceof EqualTo)) {
@@ -79,17 +82,35 @@ public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
         }
         EqualTo equalTo = (EqualTo) conjunct;
         Expression leftSlot;
-        if (left.getOutputSet().contains(equalTo.left())) {
+        if (left.getOutputSet().containsAll(equalTo.left().getInputSlots())) {
             leftSlot = equalTo.left();
         } else {
             leftSlot = equalTo.right();
         }
-        // 可以上拉一下，如果join的左孩子，在join key上已经有这个 is not null的谓词了，那么就不做这个优化
-        PullUpPredicates pullUpPredicates = new PullUpPredicates(false);
-        Set<Expression> leftChildPredicates = left.accept(pullUpPredicates, null);
-        if (leftChildPredicates.contains(new Not(new IsNull(leftSlot)))) {
-            return null;
+
+        // 创建is not null 侧的
+        LogicalFilter<Plan> newJoinLeftChild = new LogicalFilter<>(
+                ImmutableSet.of(new Not(new IsNull(leftSlot))), left);
+        LogicalJoin<Plan, Plan> newJoin = join.withChildren(ImmutableList.of(newJoinLeftChild, right));
+        Plan deepCopyJoin = LogicalPlanDeepCopier.INSTANCE.deepCopy(newJoin, new DeepCopierContext());
+
+        if (left instanceof LogicalFilter) {
+            // 制作一个map，判断是否重复应用这个规则了。
+            Map<Expression, Expression> newJoinOutputToOriginJoinOutput = new HashMap<>();
+            for (int i = 0; i < left.getOutput().size(); ++i) {
+                newJoinOutputToOriginJoinOutput.put(deepCopyJoin.child(0).getOutput().get(i), left.getOutput().get(i));
+            }
+            Set<Expression> originConjuncts = ((LogicalFilter<?>) left).getConjuncts();
+            Set<Expression> replacedNewConjuncts = new HashSet<>();
+            for (Expression newConjunct : newJoinLeftChild.getConjuncts()) {
+                replacedNewConjuncts.add(newConjunct.rewriteUp(e -> newJoinOutputToOriginJoinOutput
+                        .getOrDefault(e, e)));
+            }
+            if (replacedNewConjuncts.equals(originConjuncts)) {
+                return null;
+            }
         }
+
         // 创建isnull侧的
         LogicalFilter<Plan> isNullFilter = new LogicalFilter<>(ImmutableSet.of(new IsNull(leftSlot)), left);
         Plan deepCopyLeft = LogicalPlanDeepCopier.INSTANCE.deepCopy(isNullFilter, new DeepCopierContext());
@@ -99,15 +120,12 @@ public class JoinSplitForNullSkew extends OneRewriteRuleFactory {
             newPrjects.add(new Alias(new NullLiteral(slot.getDataType())));
         }
         LogicalProject<Plan> isNullProject = new LogicalProject<>(newPrjects, deepCopyLeft);
-        // 创建is not null 侧的
-        LogicalFilter<Plan> newJoinLeftChild = new LogicalFilter<>(
-                ImmutableSet.of(new Not(new IsNull(leftSlot))), left);
-        LogicalJoin<Plan, Plan> newJoin = join.withChildren(ImmutableList.of(newJoinLeftChild, right));
+
+        // 创建regularChildrenOutputs
         List<List<SlotReference>> regularChildrenOutputs = new ArrayList<>();
         regularChildrenOutputs.add((List) isNullProject.getOutput());
-        Plan deepCopyJoin = LogicalPlanDeepCopier.INSTANCE.deepCopy(newJoin, new DeepCopierContext());
         regularChildrenOutputs.add((List) deepCopyJoin.getOutput());
-        List<NamedExpression> newUnionOutput = new ArrayList<>();
+
         return new LogicalUnion(Qualifier.ALL, (List) join.getOutput(), regularChildrenOutputs,
                 ImmutableList.of(), false, ImmutableList.of(isNullProject, deepCopyJoin));
     }
