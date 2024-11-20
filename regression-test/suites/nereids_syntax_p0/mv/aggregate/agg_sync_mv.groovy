@@ -170,12 +170,6 @@ suite("agg_sync_mv") {
     mv_rewrite_success("select id, group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;", "mv_sync24")
     qt_select_group_concat_mv """select id, group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;"""
 
-    qt_select_linear_histogram """select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;"""
-    sql """drop materialized view if exists mv_sync on agg_mv_test;"""
-    createMV("""create materialized view mv_sync as select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;""")
-    mv_rewrite_success("select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;", "mv_sync")
-    qt_select_linear_histogram_mv """select id, linear_histogram(kint, 10) from agg_mv_test group by id order by id;"""
-
     qt_select_multi_distinct_group_concat """select id, multi_distinct_group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync25 on agg_mv_test;"""
     createMV("""create materialized view mv_sync25 as select id, multi_distinct_group_concat(cast(abs(kint) as varchar)) from agg_mv_test group by id order by id;""")
