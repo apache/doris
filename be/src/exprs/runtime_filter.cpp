@@ -975,8 +975,8 @@ private:
 Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                               const TQueryOptions* query_options, const RuntimeFilterRole role,
                               int node_id, std::shared_ptr<IRuntimeFilter>* res,
-                              bool build_bf_exactly, bool need_local_merge) {
-    *res = std::make_shared<IRuntimeFilter>(state, desc, need_local_merge);
+                              bool build_bf_exactly) {
+    *res = std::make_shared<IRuntimeFilter>(state, desc);
     (*res)->set_role(role);
     return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
 }
@@ -1326,10 +1326,10 @@ bool IRuntimeFilter::get_ignored() {
 
 std::string IRuntimeFilter::formatted_state() const {
     return fmt::format(
-            "[IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
+            "[Id = {}, IsPushDown = {}, RuntimeFilterState = {}, HasRemoteTarget = {}, "
             "HasLocalTarget = {}, Ignored = {}]",
-            _is_push_down, _get_explain_state_string(), _has_remote_target, _has_local_target,
-            _wrapper->_context->ignored);
+            _filter_id, _is_push_down, _get_explain_state_string(), _has_remote_target,
+            _has_local_target, _wrapper->_context->ignored);
 }
 
 Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQueryOptions* options,
@@ -1355,18 +1355,19 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.runtime_bloom_filter_max_size = options->__isset.runtime_bloom_filter_max_size
                                                    ? options->runtime_bloom_filter_max_size
                                                    : 0;
-    // We build runtime filter by exact distinct count iff three conditions are met:
+    auto sync_filter_size = desc->__isset.sync_filter_size && desc->sync_filter_size;
+    // We build runtime filter by exact distinct count if all of 3 conditions are met:
     // 1. Only 1 join key
-    // 2. Do not have remote target (e.g. do not need to merge), or broadcast join
-    // 3. Bloom filter
+    // 2. Bloom filter
+    // 3. Size of all bloom filters will be same (size will be sync or this is a broadcast join).
     params.build_bf_exactly =
             build_bf_exactly && (_runtime_filter_type == RuntimeFilterType::BLOOM_FILTER ||
                                  _runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
 
     params.bloom_filter_size_calculated_by_ndv = desc->bloom_filter_size_calculated_by_ndv;
 
-    if (!desc->__isset.sync_filter_size || !desc->sync_filter_size) {
-        params.build_bf_exactly &= (!_has_remote_target || _is_broadcast_join);
+    if (!sync_filter_size) {
+        params.build_bf_exactly &= !_is_broadcast_join;
     }
 
     if (desc->__isset.bloom_filter_size_bytes) {
@@ -1523,9 +1524,9 @@ void IRuntimeFilter::update_runtime_filter_type_to_profile() {
 
 std::string IRuntimeFilter::debug_string() const {
     return fmt::format(
-            "RuntimeFilter: (id = {}, type = {}, need_local_merge: {}, is_broadcast: {}, "
+            "RuntimeFilter: (id = {}, type = {}, is_broadcast: {}, "
             "build_bf_cardinality: {}, error_msg: {}",
-            _filter_id, to_string(_runtime_filter_type), _need_local_merge, _is_broadcast_join,
+            _filter_id, to_string(_runtime_filter_type), _is_broadcast_join,
             _wrapper->get_build_bf_cardinality(), _wrapper->_context->err_msg);
 }
 

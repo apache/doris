@@ -363,7 +363,8 @@ Status CloudSchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParam
         // If there are historical versions of rowsets, we need to recalculate their delete
         // bitmaps, otherwise we will miss the delete bitmaps of incremental rowsets
         int64_t start_calc_delete_bitmap_version =
-                already_exist_any_version ? 0 : sc_job->alter_version() + 1;
+                // [0-1] is a placeholder rowset, start from 2.
+                already_exist_any_version ? 2 : sc_job->alter_version() + 1;
         RETURN_IF_ERROR(_process_delete_bitmap(sc_job->alter_version(),
                                                start_calc_delete_bitmap_version, initiator));
         sc_job->set_delete_bitmap_lock_initiator(initiator);

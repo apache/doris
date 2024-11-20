@@ -17,6 +17,7 @@
 
 package org.pentaho.di.trans.steps.dorisstreamloader;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.lang.StringUtils;
 import org.pentaho.di.core.exception.KettleException;
 import org.pentaho.di.core.row.ValueMetaInterface;
@@ -171,5 +172,10 @@ public class DorisStreamLoader extends BaseStep implements StepInterface {
     }
 
     super.dispose( smi, sdi );
+  }
+
+  @VisibleForTesting
+  public DorisBatchStreamLoad getStreamLoad(){
+    return streamLoad;
   }
 }

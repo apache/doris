@@ -59,7 +59,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
-          CONFLICT_LABEL: cherry-pick-conflict-in-3.0
+          CONFLICT_LABEL: dev/3.0.x-conflict
         run: |
           python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-3.0  
       - name: Auto cherry-pick to branch-2.1
@@ -67,6 +67,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO_NAME: ${{ github.repository }}
-          CONFLICT_LABEL: cherry-pick-conflict-in-2.1.x
+          CONFLICT_LABEL: dev/2.1.x-conflict
         run: |
             python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-2.1         

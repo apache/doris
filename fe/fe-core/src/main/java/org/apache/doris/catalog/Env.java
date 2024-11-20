@@ -3277,8 +3277,17 @@ public class Env {
         getInternalCatalog().recoverTable(recoverStmt);
     }
 
+    public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
+        getInternalCatalog().recoverTable(dbName, tableName, newTableName, tableId);
+    }
+
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverPartition(recoverStmt);
+    }
+
+    public void recoverPartition(String dbName, String tableName, String partitionName,
+                                    String newPartitionName, long partitionId) throws DdlException {
+        getInternalCatalog().recoverPartition(dbName, tableName, partitionName, newPartitionName, partitionId);
     }
 
     public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
@@ -4691,13 +4700,13 @@ public class Env {
 
         if (clusterColumns.size() > 0 && shortKeyColumnCount < clusterColumns.size()) {
             boolean sameKey = true;
-            for (int i = 0; i < shortKeyColumnCount; i++) {
+            for (int i = 0; i < shortKeyColumnCount && i < indexColumns.size(); i++) {
                 if (!clusterColumns.get(i).getName().equals(indexColumns.get(i).getName())) {
                     sameKey = false;
                     break;
                 }
             }
-            if (sameKey) {
+            if (sameKey && !Config.random_add_cluster_keys_for_mow) {
                 throw new DdlException(shortKeyColumnCount + " short keys is a part of unique keys");
             }
         }

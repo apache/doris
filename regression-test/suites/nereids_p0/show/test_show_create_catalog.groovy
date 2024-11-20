@@ -15,8 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
+suite("test_show_create_catalog", "p0,external,hive,external_docker,external_docker_hive") {
 
-suite("test_nereids_showbackends") {
-    checkNereidsExecute("""show backends;""")
+    String catalog_name = "es"
+
+    sql """drop catalog if exists ${catalog_name}"""
+    sql """create catalog if not exists ${catalog_name} properties (
+            "type"="es",
+            "hosts"="http://127.0.0.1:9200"
+    );"""
+
+    checkNereidsExecute("""show create catalog ${catalog_name}""")
+    qt_cmd("""show create catalog ${catalog_name}""")
+
+    sql """drop catalog if exists ${catalog_name}"""
 }
-

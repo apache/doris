@@ -126,16 +126,9 @@ public:
         return nullptr;
     }
 
-    // shrink the end zeros for CHAR type or ARRAY<CHAR> type
-    virtual MutablePtr get_shrinked_column() {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method get_shrinked_column is not supported for " + get_name());
-        return nullptr;
-    }
-
-    // check the column whether could shrinked
-    // now support only in char type, or the nested type in complex type: array{char}, struct{char}, map{char}
-    virtual bool could_shrinked_column() { return false; }
+    // shrink the end zeros for ColumnStr(also for who has it nested). so nest column will call it for all nested.
+    // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
+    virtual void shrink_padding_chars() {}
 
     /// Some columns may require finalization before using of other operations.
     virtual void finalize() {}
@@ -290,7 +283,7 @@ public:
                                "Method insert_many_raw_data is not supported for " + get_name());
     }
 
-    void insert_many_data(const char* pos, size_t length, size_t data_num) {
+    void insert_data_repeatedly(const char* pos, size_t length, size_t data_num) {
         for (size_t i = 0; i < data_num; ++i) {
             insert_data(pos, length);
         }
@@ -577,8 +570,10 @@ public:
 
     /// Various properties on behaviour of column type.
 
-    /// True if column contains something nullable inside. It's true for ColumnNullable, can be true or false for ColumnConst, etc.
+    /// It's true for ColumnNullable only.
     virtual bool is_nullable() const { return false; }
+    /// It's true for ColumnNullable, can be true or false for ColumnConst, etc.
+    virtual bool is_concrete_nullable() const { return false; }
 
     virtual bool is_bitmap() const { return false; }
 
