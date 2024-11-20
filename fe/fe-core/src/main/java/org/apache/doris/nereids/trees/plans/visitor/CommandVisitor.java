@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
@@ -207,6 +208,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitUnsetVariableCommand(UnsetVariableCommand unsetVariableCommand, C context) {
         return visitCommand(unsetVariableCommand, context);
+    }
+
+    default R visitKillCommand(KillCommand killCommand, C context) {
+        return visitCommand(killCommand, context);
     }
 
     default R visitUnsetDefaultStorageVaultCommand(UnsetDefaultStorageVaultCommand unsetDefaultStorageVaultCommand,

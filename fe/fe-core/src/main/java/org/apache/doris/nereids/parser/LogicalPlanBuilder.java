@@ -416,6 +416,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
+import org.apache.doris.nereids.trees.plans.commands.KillCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
@@ -4051,6 +4052,21 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         } else {
             return new ShowVariablesCommand(type, null);
+        }
+    }
+
+    @Override
+    public KillCommand visitKillConnection(DorisParser.KillConnectionContext ctx) {
+        int connectionId = Integer.parseInt(ctx.INTEGER_VALUE().getText());
+        return new KillCommand(true, connectionId);
+    }
+
+    @Override
+    public KillCommand visitKillQuery(DorisParser.KillQueryContext ctx) {
+        if (ctx.INTEGER_VALUE() != null) {
+            return new KillCommand(false, Integer.parseInt(ctx.INTEGER_VALUE().getText()));
+        } else {
+            return new KillCommand(stripQuotes(ctx.STRING_LITERAL().getText()));
         }
     }
 

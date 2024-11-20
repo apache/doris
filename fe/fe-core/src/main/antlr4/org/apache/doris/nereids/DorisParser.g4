@@ -56,13 +56,13 @@ statementBase
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
+    | supportedKillStatement            #supportedKillStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
 unsupportedStatement
     : unsupportedUseStatement
     | unsupportedDmlStatement
-    | unsupportedKillStatement
     | unsupportedDescribeStatement
     | unsupportedCreateStatement
     | unsupportedDropStatement
@@ -868,7 +868,7 @@ stageAndPattern
         (LEFT_PAREN pattern=STRING_LITERAL RIGHT_PAREN)?
     ;
 
-unsupportedKillStatement
+supportedKillStatement
     : KILL (CONNECTION)? INTEGER_VALUE              #killConnection
     | KILL QUERY (INTEGER_VALUE | STRING_LITERAL)   #killQuery
     ;
