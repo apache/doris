@@ -308,7 +308,9 @@ public class StatementContext implements Closeable {
         this.parsedStatement = parsedStatement;
     }
 
-    /** getOrRegisterCache */
+    /**
+     * getOrRegisterCache
+     */
     public synchronized <T> T getOrRegisterCache(String key, Supplier<T> cacheSupplier) {
         Supplier<T> supplier = (Supplier<T>) contextCacheMap.get(key);
         if (supplier == null) {
@@ -338,8 +340,8 @@ public class StatementContext implements Closeable {
 
     public ColumnAliasGenerator getColumnAliasGenerator() {
         return columnAliasGenerator == null
-            ? columnAliasGenerator = new ColumnAliasGenerator()
-            : columnAliasGenerator;
+                ? columnAliasGenerator = new ColumnAliasGenerator()
+                : columnAliasGenerator;
     }
 
     public String generateColumnName() {
@@ -440,7 +442,9 @@ public class StatementContext implements Closeable {
         return relationIdToStatisticsMap;
     }
 
-    /** addTableReadLock */
+    /**
+     * addTableReadLock
+     */
     public synchronized void addTableReadLock(TableIf tableIf) {
         if (!tableIf.needReadLockWhenPlan()) {
             return;
@@ -457,7 +461,9 @@ public class StatementContext implements Closeable {
                 originStatement == null ? null : originStatement.originStmt, tableIf::readUnlock));
     }
 
-    /** releasePlannerResources */
+    /**
+     * releasePlannerResources
+     */
     public synchronized void releasePlannerResources() {
         Throwable throwable = null;
         while (!plannerResources.isEmpty()) {
@@ -573,7 +579,7 @@ public class StatementContext implements Closeable {
      * @return snapshotId
      */
     public long getSnapshotId(MvccTable mvccTable) {
-        return refSnapshotIds.get(mvccTable);
+        return refSnapshotIds.get(new BaseTableInfo(mvccTable));
     }
 
     private static class CloseableResource implements Closeable {
@@ -620,7 +626,9 @@ public class StatementContext implements Closeable {
         return keySlots.contains(slot);
     }
 
-    /** Get table id with lazy */
+    /**
+     * Get table id with lazy
+     */
     public TableId getTableId(TableIf tableIf) {
         TableIdentifier tableIdentifier = new TableIdentifier(tableIf);
         TableId tableId = this.tableIdMapping.get(tableIdentifier);
