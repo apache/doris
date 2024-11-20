@@ -203,12 +203,15 @@ public class SqlBlockRuleMgr implements Writable {
      * Drop SqlBlockRule for drop stmt.
      **/
     public void dropSqlBlockRule(DropSqlBlockRuleStmt stmt) throws DdlException {
+        dropSqlBlockRule(stmt.getRuleNames(), stmt.isIfExists());
+    }
+
+    public void dropSqlBlockRule(List<String> ruleNames, boolean isIfExists) throws DdlException {
         writeLock();
         try {
-            List<String> ruleNames = stmt.getRuleNames();
             for (String ruleName : ruleNames) {
                 if (!existRule(ruleName)) {
-                    if (stmt.isIfExists()) {
+                    if (isIfExists) {
                         continue;
                     }
                     throw new DdlException("the sql block rule " + ruleName + " not exist");
