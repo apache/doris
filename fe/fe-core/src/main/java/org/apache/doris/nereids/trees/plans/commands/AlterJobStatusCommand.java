@@ -77,7 +77,7 @@ public abstract class AlterJobStatusCommand extends Command implements ForwardWi
         }
         Expression left = ((EqualTo) wildWhere).left();
         Expression right = ((EqualTo) wildWhere).right();
-        if (!(left instanceof UnboundSlot && ((UnboundSlot) left).getName().equals("jobName"))) {
+        if (!(left instanceof UnboundSlot && ((UnboundSlot) left).getName().equalsIgnoreCase("jobName"))) {
             throw new AnalysisException("Current not support left child of where: " + left);
         }
         if (!(right instanceof StringLikeLiteral)) {
