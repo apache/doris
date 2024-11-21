@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.rewrite.SkipSimpleExprs;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -91,6 +92,9 @@ public class SimplifyRange implements ExpressionPatternRuleFactory {
 
     /** rewrite */
     public static Expression rewrite(CompoundPredicate expr, ExpressionRewriteContext context) {
+        if (SkipSimpleExprs.isSimpleExpr(expr)) {
+            return expr;
+        }
         ValueDesc valueDesc = expr.accept(new RangeInference(), context);
         Expression exprForNonNull = valueDesc.toExpressionForNonNull();
         if (exprForNonNull == null) {

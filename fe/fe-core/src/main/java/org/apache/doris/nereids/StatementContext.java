@@ -174,6 +174,8 @@ public class StatementContext implements Closeable {
 
     private Backend groupCommitMergeBackend;
 
+    private boolean checkedPrivileges;
+
     public StatementContext() {
         this(ConnectContext.get(), null, 0);
     }
@@ -579,5 +581,13 @@ public class StatementContext implements Closeable {
     public void setGroupCommitMergeBackend(
             Backend groupCommitMergeBackend) {
         this.groupCommitMergeBackend = groupCommitMergeBackend;
+    }
+
+    public boolean isCheckedPrivileges() {
+        return checkedPrivileges;
+    }
+
+    public void setCheckedPrivileges(boolean checkedPrivileges) {
+        this.checkedPrivileges = checkedPrivileges;
     }
 }

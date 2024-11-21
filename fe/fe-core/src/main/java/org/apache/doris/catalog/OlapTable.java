@@ -56,6 +56,7 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.UseMvHint;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -1384,12 +1385,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     public List<Long> getPartitionIds() {
-        readLock();
-        try {
-            return new ArrayList<>(idToPartition.keySet());
-        } finally {
-            readUnlock();
-        }
+        return Utils.fastToImmutableList(idToPartition.keySet());
     }
 
     public Set<String> getCopiedBfColumns() {

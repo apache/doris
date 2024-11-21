@@ -19,7 +19,7 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
-import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
@@ -34,11 +34,11 @@ import java.util.function.Predicate;
 public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
 
     private final RewriteJobContext rewriteJobContext;
-    private final List<Rule> rules;
+    private final Rules rules;
 
     public PlanTreeRewriteTopDownJob(
             RewriteJobContext rewriteJobContext, JobContext context,
-            Predicate<Plan> isTraverseChildren, List<Rule> rules) {
+            Predicate<Plan> isTraverseChildren, Rules rules) {
         super(JobType.TOP_DOWN_REWRITE, context, isTraverseChildren);
         this.rewriteJobContext = Objects.requireNonNull(rewriteJobContext, "rewriteContext cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
@@ -47,6 +47,14 @@ public class PlanTreeRewriteTopDownJob extends PlanTreeRewriteJob {
     @Override
     public void execute() {
         if (!rewriteJobContext.childrenVisited) {
+            if (rules.getCurrentAndChildrenRules(rewriteJobContext.plan).isEmpty()) {
+                rewriteJobContext.setResult(rewriteJobContext.plan);
+                if (rewriteJobContext.parentContext == null) {
+                    context.getCascadesContext().setRewritePlan(rewriteJobContext.plan);
+                }
+                return;
+            }
+
             RewriteResult rewriteResult = rewrite(rewriteJobContext.plan, rules, rewriteJobContext);
             if (rewriteResult.hasNewPlan) {
                 RewriteJobContext newContext = rewriteJobContext

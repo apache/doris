@@ -88,4 +88,6 @@ public abstract class Rule {
                 || !groupExpression.notApplied(this)
                 || !this.getPattern().matchRoot(groupExpression.getPlan());
     }
+
+    public abstract String ruleName();
 }

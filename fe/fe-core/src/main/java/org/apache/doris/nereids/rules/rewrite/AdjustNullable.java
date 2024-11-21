@@ -102,7 +102,7 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, Map<ExprId, Slot> replaceMap) {
         filter = (LogicalFilter<? extends Plan>) super.visit(filter, replaceMap);
         Set<Expression> conjuncts = updateExpressions(filter.getConjuncts(), replaceMap);
-        return filter.withConjuncts(conjuncts).recomputeLogicalProperties();
+        return filter.withConjunctsAndChild(conjuncts, filter.child());
     }
 
     @Override
@@ -227,10 +227,12 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
     @Override
     public Plan visitLogicalSort(LogicalSort<? extends Plan> sort, Map<ExprId, Slot> replaceMap) {
         sort = (LogicalSort<? extends Plan>) super.visit(sort, replaceMap);
-        List<OrderKey> newKeys = sort.getOrderKeys().stream()
-                .map(old -> old.withExpression(updateExpression(old.getExpr(), replaceMap)))
-                .collect(ImmutableList.toImmutableList());
-        return sort.withOrderKeys(newKeys).recomputeLogicalProperties();
+
+        ImmutableList.Builder<OrderKey> newOrderKeys = ImmutableList.builder();
+        for (OrderKey orderKey : sort.getOrderKeys()) {
+            newOrderKeys.add(orderKey.withExpression(updateExpression(orderKey.getExpr(), replaceMap)));
+        }
+        return sort.withOrderKeysAndChild(newOrderKeys.build(), sort.child());
     }
 
     @Override

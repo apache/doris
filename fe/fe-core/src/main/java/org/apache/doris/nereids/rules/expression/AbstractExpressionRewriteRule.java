@@ -26,6 +26,13 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 public abstract class AbstractExpressionRewriteRule extends DefaultExpressionRewriter<ExpressionRewriteContext>
         implements ExpressionRewriteRule<ExpressionRewriteContext> {
 
+    public final String name = "Rewrite_" + this;
+
+    @Override
+    public String getRewriteStateKey() {
+        return name;
+    }
+
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
         return expr.accept(this, ctx);

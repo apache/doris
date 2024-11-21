@@ -48,4 +48,9 @@ public class TypePattern<TYPE extends Plan>
     public boolean matchRoot(Plan plan) {
         return type.isInstance(plan);
     }
+
+    @Override
+    public Class<TYPE> getMatchedType() {
+        return type;
+    }
 }

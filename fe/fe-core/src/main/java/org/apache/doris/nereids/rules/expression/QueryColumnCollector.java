@@ -58,17 +58,16 @@ public class QueryColumnCollector extends DefaultPlanRewriter<CollectorContext> 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         ConnectContext connectContext = ConnectContext.get();
-        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+        if (connectContext != null && connectContext.getSessionVariable().internalSession
+                || !StatisticsUtil.enableAutoAnalyze()) {
             return plan;
         }
         CollectorContext context = new CollectorContext();
         plan.accept(this, context);
-        if (StatisticsUtil.enableAutoAnalyze()) {
-            context.midPriority.removeAll(context.highPriority);
-            AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-            analysisManager.updateHighPriorityColumn(context.highPriority);
-            analysisManager.updateMidPriorityColumn(context.midPriority);
-        }
+        context.midPriority.removeAll(context.highPriority);
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        analysisManager.updateHighPriorityColumn(context.highPriority);
+        analysisManager.updateMidPriorityColumn(context.midPriority);
         return plan;
     }
 

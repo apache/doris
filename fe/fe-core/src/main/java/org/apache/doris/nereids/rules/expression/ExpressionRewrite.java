@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -58,7 +59,7 @@ import java.util.Set;
 public class ExpressionRewrite implements RewriteRuleFactory {
     private final ExpressionRuleExecutor rewriter;
 
-    public ExpressionRewrite(ExpressionRewriteRule... rules) {
+    public ExpressionRewrite(ExpressionRewriteRule<ExpressionRewriteContext>... rules) {
         this.rewriter = new ExpressionRuleExecutor(ImmutableList.copyOf(rules));
     }
 
@@ -145,12 +146,18 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             return logicalFilter().thenApply(ctx -> {
                 LogicalFilter<Plan> filter = ctx.root;
                 ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
-                Set<Expression> newConjuncts = ImmutableSet.copyOf(ExpressionUtils.extractConjunction(
-                        rewriter.rewrite(filter.getPredicate(), context)));
-                if (newConjuncts.equals(filter.getConjuncts())) {
+                Expression originPredicate = filter.getPredicate();
+                Expression predicate = rewriter.rewrite(originPredicate, context);
+                if (predicate == originPredicate) {
                     return filter;
                 }
-                return new LogicalFilter<>(newConjuncts, filter.child());
+                Set<Expression> newConjuncts = Utils.fastToImmutableSet(
+                        ExpressionUtils.extractConjunction(predicate)
+                );
+                if (predicate.equals(originPredicate)) {
+                    return filter;
+                }
+                return new LogicalFilter<>(newConjuncts, predicate, filter.child());
             }).toRule(RuleType.REWRITE_FILTER_EXPRESSION);
         }
     }

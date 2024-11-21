@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
+import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.ExpressionRuleExecutor;
 import org.apache.doris.nereids.rules.expression.rules.ReplaceVariableByLiteral;
@@ -30,7 +31,7 @@ import java.util.List;
  * replace Variable To Literal
  */
 public class VariableToLiteral extends ExpressionRewrite {
-    public static final List<ExpressionRewriteRule> NORMALIZE_REWRITE_RULES =
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> NORMALIZE_REWRITE_RULES =
             ImmutableList.of(bottomUp(ReplaceVariableByLiteral.INSTANCE));
 
     public VariableToLiteral() {

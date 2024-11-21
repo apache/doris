@@ -38,6 +38,7 @@ public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
     public final RulePromise defaultRulePromise;
     public final MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction;
     public final MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedMultiAction;
+    public final String ruleName;
 
     /**
      * PatternMatcher wrap a pattern, defaultRulePromise and matchedAction.
@@ -47,21 +48,24 @@ public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
      * @param matchedAction matched callback function
      */
     public PatternMatcher(Pattern<INPUT_TYPE> pattern, RulePromise defaultRulePromise,
-            MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+            MatchedAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction, String ruleName) {
         this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
         this.defaultRulePromise = Objects.requireNonNull(
                 defaultRulePromise, "defaultRulePromise can not be null");
         this.matchedAction = Objects.requireNonNull(matchedAction, "matchedAction can not be null");
         this.matchedMultiAction = null;
+        this.ruleName = Objects.requireNonNull(ruleName, "ruleName can not be null");
     }
 
+    /** PatternMatcher */
     public PatternMatcher(Pattern<INPUT_TYPE> pattern, RulePromise defaultRulePromise,
-            MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction) {
+            MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedAction, String ruleName) {
         this.pattern = Objects.requireNonNull(pattern, "pattern can not be null");
         this.defaultRulePromise = Objects.requireNonNull(
                 defaultRulePromise, "defaultRulePromise can not be null");
         this.matchedMultiAction = Objects.requireNonNull(matchedAction, "matchedMultiAction can not be null");
         this.matchedAction = null;
+        this.ruleName = Objects.requireNonNull(ruleName, "ruleName can not be null");
     }
 
     public Rule toRule(RuleType ruleType) {
@@ -92,6 +96,11 @@ public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
                     OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);
                     return ImmutableList.of(replacePlan == null ? originPlan : replacePlan);
                 }
+            }
+
+            @Override
+            public String ruleName() {
+                return ruleName;
             }
         };
     }

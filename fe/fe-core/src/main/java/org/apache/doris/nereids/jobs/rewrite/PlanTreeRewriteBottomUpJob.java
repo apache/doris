@@ -19,7 +19,7 @@ package org.apache.doris.nereids.jobs.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
-import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.Rules;
 import org.apache.doris.nereids.trees.plans.Plan;
 
 import java.util.List;
@@ -40,7 +40,7 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
     // so we will do specified action for each node based on their 'RewriteState'.
     private static final String REWRITE_STATE_KEY = "rewrite_state";
     private final RewriteJobContext rewriteJobContext;
-    private final List<Rule> rules;
+    private final Rules rules;
     private final int batchId;
 
     enum RewriteState {
@@ -57,7 +57,7 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
 
     public PlanTreeRewriteBottomUpJob(
             RewriteJobContext rewriteJobContext, JobContext context,
-            Predicate<Plan> isTraverseChildren, List<Rule> rules) {
+            Predicate<Plan> isTraverseChildren, Rules rules) {
         super(JobType.BOTTOM_UP_REWRITE, context, isTraverseChildren);
         this.rewriteJobContext = Objects.requireNonNull(rewriteJobContext, "rewriteContext cannot be null");
         this.rules = Objects.requireNonNull(rules, "rules cannot be null");
@@ -88,6 +88,13 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
     private void rewriteThis() {
         // Link the current node with the sub-plan to get the current plan which is used in the rewrite phase later.
         Plan plan = linkChildren(rewriteJobContext.plan, rewriteJobContext.childrenContext);
+        if (rules.getCurrentAndChildrenRules(plan).isEmpty()) {
+            // No new plan is generated, so just set the state of the current plan to 'REWRITTEN'.
+            setState(plan, RewriteState.REWRITTEN, batchId);
+            rewriteJobContext.setResult(plan);
+            return;
+        }
+
         RewriteResult rewriteResult = rewrite(plan, rules, rewriteJobContext);
         if (rewriteResult.hasNewPlan) {
             RewriteJobContext newJobContext = rewriteJobContext.withPlan(rewriteResult.plan);
@@ -110,6 +117,13 @@ public class PlanTreeRewriteBottomUpJob extends PlanTreeRewriteJob {
 
     private void ensureChildrenRewritten() {
         Plan plan = rewriteJobContext.plan;
+        if (rules.getCurrentAndChildrenRules(plan).isEmpty()) {
+            // No new plan is generated, so just set the state of the current plan to 'REWRITTEN'.
+            setState(plan, RewriteState.REWRITTEN, batchId);
+            rewriteJobContext.setResult(plan);
+            return;
+        }
+
         int batchId = rewriteJobContext.batchId;
         setState(plan, RewriteState.REWRITE_THIS, batchId);
         pushJob(new PlanTreeRewriteBottomUpJob(rewriteJobContext, context, isTraverseChildren, rules));

@@ -24,7 +24,7 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
-import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
+import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -142,7 +142,7 @@ public class ViewTest extends TestWithFeService implements MemoPatternMatchSuppo
                         + "ON X.ID1 = Y.ID3"
                 )
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
-                .applyBottomUp(new InlineLogicalView())
+                .applyCustom(new ColumnPruning())
                 .applyTopDown(new MergeProjects())
                 .matches(
                         logicalProject(

@@ -40,7 +40,7 @@ import java.util.List;
  * optimize expression of plan rule set.
  */
 public class ExpressionOptimization extends ExpressionRewrite {
-    public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
+    public static final List<ExpressionRewriteRule<ExpressionRewriteContext>> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
             bottomUp(
                     ExtractCommonFactorRule.INSTANCE,
                     DistinctPredicatesRule.INSTANCE,
