@@ -95,8 +95,9 @@ suite("test_index_compaction_p1", "p1, nonConcurrent") {
     //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,QueryHits,PathHash,MetaUrl,CompactionStatus
     def tablets = sql_return_maparray """ show tablets from ${compaction_table_name}; """
 
-    int beforeSegmentCount = 0
+    
     for (def tablet in tablets) {
+        int beforeSegmentCount = 0
         String tablet_id = tablet.TabletId
         (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -106,14 +107,14 @@ suite("test_index_compaction_p1", "p1, nonConcurrent") {
         for (String rowset in (List<String>) tabletJson.rowsets) {
             beforeSegmentCount += Integer.parseInt(rowset.split(" ")[1])
         }
+        assertEquals(beforeSegmentCount, 110)
     }
-    assertEquals(beforeSegmentCount, 110)
 
     // trigger compactions for all tablets in ${tableName}
     for (def tablet in tablets) {
         String tablet_id = tablet.TabletId
         backend_id = tablet.BackendId
-        (code, out, err) = be_run_cumulative_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
+        (code, out, err) = be_run_full_compaction(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), tablet_id)
         logger.info("Run compaction: code=" + code + ", out=" + out + ", err=" + err)
         assertEquals(code, 0)
         def compactJson = parseJson(out.trim())
@@ -134,8 +135,8 @@ suite("test_index_compaction_p1", "p1, nonConcurrent") {
         });
     }
 
-    int afterSegmentCount = 0
     for (def tablet in tablets) {
+        int afterSegmentCount = 0
         String tablet_id = tablet.TabletId
         (code, out, err) = curl("GET", tablet.CompactionStatus)
         logger.info("Show tablets status: code=" + code + ", out=" + out + ", err=" + err)
@@ -146,6 +147,6 @@ suite("test_index_compaction_p1", "p1, nonConcurrent") {
             logger.info("rowset is: " + rowset)
             afterSegmentCount += Integer.parseInt(rowset.split(" ")[1])
         }
+        assertEquals(afterSegmentCount, 1)
     }
-    assertEquals(afterSegmentCount, 1)
 }
