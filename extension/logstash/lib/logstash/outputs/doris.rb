@@ -215,7 +215,7 @@ class LogStash::Outputs::Doris < LogStash::Outputs::Base
          status = response_json["Status"]
 
          if status == 'Label Already Exists'
-           @logger.warn("Label already exists: #{response_json['Label']}")
+           @logger.warn("Label already exists: #{response_json['Label']}, skip #{event_num} records.")
            break
          end
 

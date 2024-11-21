@@ -20,7 +20,7 @@ require 'java'
 class Formater
 
   # copied form https://www.rubydoc.info/gems/logstash-event/LogStash/Event#sprintf-instance_method
-  # modified by doris
+  # modified by doris: return empty str if template field does not exist in the event rather than the template.
   def self.sprintf(event, format)
     format = format.to_s
     if format.index("%").nil?
