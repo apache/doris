@@ -52,6 +52,7 @@ statementBase
     | materializedViewStatement         #materializedViewStatementAlias
     | supportedJobStatement             #supportedJobStatementAlias
     | constraintStatement               #constraintStatementAlias
+    | supportedCleanStatement           #supportedCleanStatementAlias
     | supportedDropStatement            #supportedDropStatementAlias
     | supportedSetStatement             #supportedSetStatementAlias
     | supportedUnsetStatement           #supportedUnsetStatementAlias
@@ -426,6 +427,10 @@ supportedRefreshStatement
     : REFRESH CATALOG name=identifier propertyClause?                               #refreshCatalog
     ;
 
+supportedCleanStatement
+    : CLEAN ALL PROFILE                                                             #cleanAllProfile
+    ;
+
 unsupportedRefreshStatement
     : REFRESH TABLE name=multipartIdentifier                                        #refreshTable
     | REFRESH DATABASE name=multipartIdentifier propertyClause?                     #refreshDatabase
@@ -434,7 +439,6 @@ unsupportedRefreshStatement
 
 unsupportedCleanStatement
     : CLEAN LABEL label=identifier? (FROM | IN) database=identifier                 #cleanLabel
-    | CLEAN ALL PROFILE                                                             #cleanAllProfile
     | CLEAN QUERY STATS ((FOR database=identifier)
         | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
