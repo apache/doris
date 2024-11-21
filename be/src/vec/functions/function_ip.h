@@ -729,7 +729,14 @@ public:
                       << " max: " << max_roaring->cardinality()
                       << " result: " << res_roaring->cardinality();
         });
+        LOG(WARNING) << "ip_search:" << data_type_with_name.first << " input_rows:" << num_rows
+                     << " max_ro:" << max_roaring->toString() << " res_ro:" << res_roaring->toString()
+                     << " null_bitmap: " << null_bitmap->toString();	
         segment_v2::InvertedIndexResultBitmap result(res_roaring, null_bitmap);
+	if (!result.get_data_bitmap()->isEmpty() || !null_bitmap->isEmpty()) {
+            LOG(FATAL) << "ip.inverted_index_filtered : " << result.get_data_bitmap()->toString() << "  null:"
+                       << result.get_null_bitmap()->toString();
+        }
         bitmap_result = result;
         bitmap_result.mask_out_null();
         return Status::OK();
