@@ -20,8 +20,10 @@ package org.apache.doris.udf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.classloader.ScannerLoader;
+import org.apache.doris.common.exception.InternalException;
 import org.apache.doris.common.exception.UdfRuntimeException;
 import org.apache.doris.common.jni.utils.JavaUdfDataType;
+import org.apache.doris.common.jni.utils.UdfClassCache;
 import org.apache.doris.common.jni.utils.UdfUtils;
 import org.apache.doris.common.jni.vec.ColumnValueConverter;
 import org.apache.doris.common.jni.vec.VectorTable;
@@ -29,6 +31,7 @@ import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 
 import com.esotericsoftware.reflectasm.MethodAccess;
 import com.google.common.base.Joiner;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.log4j.Logger;
 
@@ -140,26 +143,99 @@ public class UdfExecutor extends BaseExecutor {
         return null; // Method not found
     }
 
-    public ClassLoader getClassLoader(String jarPath, String signature, long expirationTime)
-            throws MalformedURLException, FileNotFoundException {
-        ClassLoader loader = null;
-        if (jarPath == null) {
-            // for test
-            loader = ClassLoader.getSystemClassLoader();
-        } else {
-            if (isStaticLoad) {
-                loader = ScannerLoader.getUdfClassLoader(signature);
-            }
-            if (loader == null) {
+    public UdfClassCache getClassCache(String className, String jarPath, String signature, long expirationTime,
+            Type funcRetType, Type... parameterTypes)
+            throws MalformedURLException, FileNotFoundException, ClassNotFoundException, InternalException,
+            UdfRuntimeException {
+        UdfClassCache cache = null;
+        if (isStaticLoad) {
+            cache = ScannerLoader.getUdfClassLoader(signature);
+        }
+        if (cache == null) {
+            ClassLoader loader;
+            if (Strings.isNullOrEmpty(jarPath)) {
+                // if jarPath is empty, which means the UDF jar is located in custom_lib
+                // and already be loaded when BE start.
+                // so here we use system class loader to load UDF class.
+                loader = ClassLoader.getSystemClassLoader();
+            } else {
                 ClassLoader parent = getClass().getClassLoader();
                 classLoader = UdfUtils.getClassLoader(jarPath, parent);
                 loader = classLoader;
-                if (isStaticLoad) {
-                    ScannerLoader.cacheClassLoader(signature, loader, expirationTime);
-                }
+            }
+            cache = new UdfClassCache();
+            cache.udfClass = Class.forName(className, true, loader);
+            cache.methodAccess = MethodAccess.get(cache.udfClass);
+            checkAndCacheUdfClass(className, cache, funcRetType, parameterTypes);
+            if (isStaticLoad) {
+                ScannerLoader.cacheClassLoader(signature, cache, expirationTime);
             }
         }
-        return loader;
+        return cache;
+    }
+
+    private void checkAndCacheUdfClass(String className, UdfClassCache cache, Type funcRetType, Type... parameterTypes)
+            throws InternalException, UdfRuntimeException {
+        ArrayList<String> signatures = Lists.newArrayList();
+        Class<?> c = cache.udfClass;
+        Method[] methods = c.getMethods();
+        Method prepareMethod = findPrepareMethod(methods);
+        if (prepareMethod != null) {
+            cache.prepareMethod = prepareMethod;
+        }
+        for (Method m : methods) {
+            // By convention, the udf must contain the function "evaluate"
+            if (!m.getName().equals(UDF_FUNCTION_NAME)) {
+                continue;
+            }
+            signatures.add(m.toGenericString());
+            cache.argClass = m.getParameterTypes();
+
+            // Try to match the arguments
+            if (cache.argClass.length != parameterTypes.length) {
+                continue;
+            }
+            cache.method = m;
+            cache.evaluateIndex = cache.methodAccess.getIndex(UDF_FUNCTION_NAME, cache.argClass);
+            Pair<Boolean, JavaUdfDataType> returnType;
+            if (cache.argClass.length == 0 && parameterTypes.length == 0) {
+                // Special case where the UDF doesn't take any input args
+                returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
+                if (!returnType.first) {
+                    continue;
+                } else {
+                    cache.retType = returnType.second;
+                }
+                cache.argTypes = new JavaUdfDataType[0];
+                return;
+            }
+            returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
+            if (!returnType.first) {
+                continue;
+            } else {
+                cache.retType = returnType.second;
+            }
+            Type keyType = cache.retType.getKeyType();
+            Type valueType = cache.retType.getValueType();
+            Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes, cache.argClass, false);
+            if (!inputType.first) {
+                continue;
+            } else {
+                cache.argTypes = inputType.second;
+            }
+            cache.retType.setKeyType(keyType);
+            cache.retType.setValueType(valueType);
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("Unable to find evaluate function with the correct signature: ")
+                         .append(className)
+                         .append(".evaluate(")
+                         .append(Joiner.on(", ").join(parameterTypes))
+                         .append(")\n")
+                         .append("UDF contains: \n    ")
+                         .append(Joiner.on("\n    ").join(signatures));
+        throw new UdfRuntimeException(sb.toString());
     }
 
     // Preallocate the input objects that will be passed to the underlying UDF.
@@ -168,7 +244,6 @@ public class UdfExecutor extends BaseExecutor {
     protected void init(TJavaUdfExecutorCtorParams request, String jarPath, Type funcRetType,
             Type... parameterTypes) throws UdfRuntimeException {
         String className = request.fn.scalar_fn.symbol;
-        ArrayList<String> signatures = Lists.newArrayList();
         try {
             if (LOG.isDebugEnabled()) {
                 LOG.debug("Loading UDF '" + className + "' from " + jarPath);
@@ -178,66 +253,21 @@ public class UdfExecutor extends BaseExecutor {
             if (request.getFn().isSetExpirationTime()) {
                 expirationTime = request.getFn().getExpirationTime();
             }
-            ClassLoader loader = getClassLoader(jarPath, request.getFn().getSignature(), expirationTime);
-            Class<?> c = Class.forName(className, true, loader);
-            methodAccess = MethodAccess.get(c);
-            Constructor<?> ctor = c.getConstructor();
+            UdfClassCache cache = getClassCache(className, jarPath, request.getFn().getSignature(), expirationTime,
+                    funcRetType, parameterTypes);
+            methodAccess = cache.methodAccess;
+            Constructor<?> ctor = cache.udfClass.getConstructor();
             udf = ctor.newInstance();
-            Method[] methods = c.getMethods();
-            Method prepareMethod = findPrepareMethod(methods);
+            Method prepareMethod = cache.prepareMethod;
             if (prepareMethod != null) {
                 prepareMethod.invoke(udf);
             }
-            for (Method m : methods) {
-                // By convention, the udf must contain the function "evaluate"
-                if (!m.getName().equals(UDF_FUNCTION_NAME)) {
-                    continue;
-                }
-                signatures.add(m.toGenericString());
-                argClass = m.getParameterTypes();
 
-                // Try to match the arguments
-                if (argClass.length != parameterTypes.length) {
-                    continue;
-                }
-                method = m;
-                evaluateIndex = methodAccess.getIndex(UDF_FUNCTION_NAME, argClass);
-                Pair<Boolean, JavaUdfDataType> returnType;
-                if (argClass.length == 0 && parameterTypes.length == 0) {
-                    // Special case where the UDF doesn't take any input args
-                    returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
-                    if (!returnType.first) {
-                        continue;
-                    } else {
-                        retType = returnType.second;
-                    }
-                    argTypes = new JavaUdfDataType[0];
-                    return;
-                }
-                returnType = UdfUtils.setReturnType(funcRetType, m.getReturnType());
-                if (!returnType.first) {
-                    continue;
-                } else {
-                    retType = returnType.second;
-                }
-                Pair<Boolean, JavaUdfDataType[]> inputType = UdfUtils.setArgTypes(parameterTypes, argClass, false);
-                if (!inputType.first) {
-                    continue;
-                } else {
-                    argTypes = inputType.second;
-                }
-                return;
-            }
-
-            StringBuilder sb = new StringBuilder();
-            sb.append("Unable to find evaluate function with the correct signature: ")
-                    .append(className)
-                    .append(".evaluate(")
-                    .append(Joiner.on(", ").join(parameterTypes))
-                    .append(")\n")
-                    .append("UDF contains: \n    ")
-                    .append(Joiner.on("\n    ").join(signatures));
-            throw new UdfRuntimeException(sb.toString());
+            argClass = cache.argClass;
+            method = cache.method;
+            evaluateIndex = cache.evaluateIndex;
+            retType = cache.retType;
+            argTypes = cache.argTypes;
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("Unable to load jar.", e);
         } catch (SecurityException e) {
@@ -255,3 +285,5 @@ public class UdfExecutor extends BaseExecutor {
         }
     }
 }
+
+

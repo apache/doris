@@ -333,10 +333,6 @@ public:
     int size() override { return _set.size(); }
 
     bool find(const void* data) const override {
-        if (data == nullptr) {
-            return false;
-        }
-
         return _set.find(*reinterpret_cast<const ElementType*>(data));
     }
 
@@ -487,10 +483,6 @@ public:
     int size() override { return _set.size(); }
 
     bool find(const void* data) const override {
-        if (data == nullptr) {
-            return false;
-        }
-
         const auto* value = reinterpret_cast<const StringRef*>(data);
         std::string str_value(const_cast<const char*>(value->data), value->size);
         return _set.find(str_value);
@@ -654,19 +646,11 @@ public:
     int size() override { return _set.size(); }
 
     bool find(const void* data) const override {
-        if (data == nullptr) {
-            return false;
-        }
-
         const auto* value = reinterpret_cast<const StringRef*>(data);
         return _set.find(*value);
     }
 
     bool find(const void* data, size_t size) const override {
-        if (data == nullptr) {
-            return false;
-        }
-
         StringRef sv(reinterpret_cast<const char*>(data), size);
         return _set.find(sv);
     }

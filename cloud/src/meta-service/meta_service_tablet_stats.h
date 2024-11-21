@@ -19,6 +19,8 @@
 
 #include <gen_cpp/cloud.pb.h>
 
+#include "resource-manager/resource_manager.h"
+
 namespace doris::cloud {
 class Transaction;
 class RangeGetIterator;
@@ -65,5 +67,18 @@ void internal_get_tablet_stats(MetaServiceCode& code, std::string& msg, Transact
 [[nodiscard]] int get_detached_tablet_stats(const std::vector<std::pair<std::string, std::string>>& stats_kvs,
                                             TabletStats& detached_stats);
 // clang-format on
+
+MetaServiceResponseStatus parse_fix_tablet_stats_param(
+        std::shared_ptr<ResourceManager> resource_mgr, const std::string& table_id_str,
+        const std::string& cloud_unique_id_str, int64_t& table_id, std::string& instance_id);
+
+MetaServiceResponseStatus fix_tablet_stats_internal(
+        std::shared_ptr<TxnKv> txn_kv, std::pair<std::string, std::string>& key_pair,
+        std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch,
+        const std::string& instance_id, size_t batch_size = 20);
+
+MetaServiceResponseStatus check_new_tablet_stats(
+        std::shared_ptr<TxnKv> txn_kv, const std::string& instance_id,
+        const std::vector<std::shared_ptr<TabletStatsPB>>& tablet_stat_shared_ptr_vec_batch);
 
 } // namespace doris::cloud

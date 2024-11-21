@@ -238,7 +238,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     long rollupTabletId = rollupTablet.getId();
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
                     for (Replica rollupReplica : rollupReplicas) {
-                        long backendId = rollupReplica.getBackendId();
+                        long backendId = rollupReplica.getBackendIdWithoutException();
                         long rollupReplicaId = rollupReplica.getId();
                         Preconditions.checkNotNull(tabletIdMap.get(rollupTabletId)); // baseTabletId
                         countDownLatch.addMark(backendId, rollupTabletId);
@@ -270,7 +270,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getRowStoreColumnsUniqueIds(tbl.getTableProperty().getCopiedRowStoreColumns()),
                                 objectPool,
                                 tbl.rowStorePageSize(),
-                                tbl.variantEnableFlattenNested());
+                                tbl.variantEnableFlattenNested(),
+                                tbl.storagePageSize());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -475,8 +476,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
 
                     for (Replica rollupReplica : rollupReplicas) {
-                        AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,
-                                partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
+                        AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendIdWithoutException(),
+                                dbId, tableId, partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
                                 JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true),
                                 objectPool, whereClause, expiration, vaultId);
@@ -612,7 +613,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 List<Long> failedBackends = failedTabletBackends.get(tablet.getId());
                 for (Replica replica : tablet.getReplicas()) {
                     replica.setState(ReplicaState.NORMAL);
-                    if (failedBackends != null && failedBackends.contains(replica.getBackendId())) {
+                    if (failedBackends != null && failedBackends.contains(replica.getBackendIdWithoutException())) {
                         replica.setBad(true);
                     }
                 }
@@ -912,7 +913,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             stmt.analyze(analyzer);
         } catch (Exception e) {
             // Under normal circumstances, the stmt will not fail to analyze.
-            throw new IOException("error happens when parsing create materialized view stmt: " + stmt, e);
+            // In some cases (such as drop table force), analyze may fail because cancel is
+            // not included in the checkpoint.
+            jobState = JobState.CANCELLED;
+            LOG.warn("error happens when parsing create materialized view stmt: " + stmt, e);
+            return;
         }
         setColumnsDefineExpr(stmt.getMVColumnItemList());
         if (whereColumn != null) {

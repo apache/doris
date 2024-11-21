@@ -77,7 +77,7 @@ public class FetchRemoteTabletSchemaUtil {
                 // only need alive replica
                 if (replica.isAlive()) {
                     Set<Long> tabletIds = beIdToTabletId.computeIfAbsent(
-                                    replica.getBackendId(), k -> Sets.newHashSet());
+                                    replica.getBackendIdWithoutException(), k -> Sets.newHashSet());
                     tabletIds.add(tablet.getId());
                 }
             }

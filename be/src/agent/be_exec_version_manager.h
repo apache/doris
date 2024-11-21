@@ -31,7 +31,9 @@ constexpr inline int OLD_WAL_SERDE = 3;         // use to solve compatibility is
 constexpr inline int AGG_FUNCTION_NULLABLE = 5; // change some agg nullable property: PR #37215
 constexpr inline int VARIANT_SERDE = 6;         // change variant serde to fix PR #38413
 constexpr inline int AGGREGATION_2_1_VERSION =
-        5; // some aggregation changed the data format after this version
+        6; // some aggregation changed the data format after this version
+constexpr inline int USE_CONST_SERDE =
+        8; // support const column in serialize/deserialize function: PR #41175
 
 class BeExecVersionManager {
 public:
@@ -39,14 +41,34 @@ public:
 
     static Status check_be_exec_version(int be_exec_version);
 
-    static void check_agg_state_compatibility(int current_be_exec_version, int data_be_exec_version,
-                                              std::string function_name);
+    static int get_function_compatibility(int be_exec_version, std::string function_name);
+
+    static void check_function_compatibility(int current_be_exec_version, int data_be_exec_version,
+                                             std::string function_name);
 
     static int get_newest_version() { return max_be_exec_version; }
+
+    static std::string get_function_suffix(int be_exec_version) {
+        return "_for_old_version_" + std::to_string(be_exec_version);
+    }
+
+    // For example, there are incompatible changes between version=7 and version=6, at this time breaking_old_version is 6.
+    static void registe_old_function_compatibility(int breaking_old_version,
+                                                   std::string function_name) {
+        _function_change_map[function_name].insert(breaking_old_version);
+    }
+
+    static void registe_restrict_function_compatibility(std::string function_name) {
+        _function_restrict_map.insert(function_name);
+    }
 
 private:
     static const int max_be_exec_version;
     static const int min_be_exec_version;
+    // [function name] -> [breaking change start version]
+    static std::map<std::string, std::set<int>> _function_change_map;
+    // those function must has input newest be exec version
+    static std::set<std::string> _function_restrict_map;
 };
 
 } // namespace doris

@@ -228,6 +228,7 @@ struct TOlapTableIndex {
   4: optional string comment
   5: optional i64 index_id
   6: optional map<string, string> properties
+  7: optional list<i32> column_unique_ids
 }
 
 struct TOlapTableIndexSchema {
@@ -249,12 +250,14 @@ struct TOlapTableSchemaParam {
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
     7: optional bool is_dynamic_schema // deprecated
-    8: optional bool is_partial_update
+    8: optional bool is_partial_update // deprecated, use unique_key_update_mode
     9: optional list<string> partial_update_input_columns
     10: optional bool is_strict_mode = false
     11: optional string auto_increment_column
     12: optional i32 auto_increment_column_unique_id = -1
     13: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V1
+    14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
+    15: optional i32 sequence_map_col_unique_id = -1
 }
 
 struct TTabletLocation {

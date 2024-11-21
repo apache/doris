@@ -32,15 +32,16 @@
 #include "vec/spill/spill_stream_manager.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 Dependency* BasicSharedState::create_source_dependency(int operator_id, int node_id,
-                                                       std::string name) {
+                                                       const std::string& name) {
     source_deps.push_back(std::make_shared<Dependency>(operator_id, node_id, name + "_DEPENDENCY"));
     source_deps.back()->set_shared_state(this);
     return source_deps.back().get();
 }
 
-Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id, std::string name) {
+Dependency* BasicSharedState::create_sink_dependency(int dest_id, int node_id,
+                                                     const std::string& name) {
     sink_deps.push_back(std::make_shared<Dependency>(dest_id, node_id, name + "_DEPENDENCY", true));
     sink_deps.back()->set_shared_state(this);
     return sink_deps.back().get();
@@ -103,16 +104,6 @@ std::string RuntimeFilterDependency::debug_string(int indentation_level) {
     fmt::format_to(debug_string_buffer, "{}, runtime filter: {}",
                    Dependency::debug_string(indentation_level), _runtime_filter->formatted_state());
     return fmt::to_string(debug_string_buffer);
-}
-
-Dependency* RuntimeFilterDependency::is_blocked_by(PipelineTask* task) {
-    std::unique_lock<std::mutex> lc(_task_lock);
-    auto ready = _ready.load();
-    if (!ready && task) {
-        _add_block_task(task);
-        task->_blocked_dep = this;
-    }
-    return ready ? nullptr : this;
 }
 
 void RuntimeFilterTimer::call_timeout() {
@@ -199,7 +190,7 @@ void LocalExchangeSharedState::sub_running_source_operators(
 
 LocalExchangeSharedState::LocalExchangeSharedState(int num_instances) {
     source_deps.resize(num_instances, nullptr);
-    mem_trackers.resize(num_instances, nullptr);
+    mem_counters.resize(num_instances, nullptr);
 }
 
 vectorized::MutableColumns AggSharedState::_get_keys_hash_table() {
@@ -267,8 +258,8 @@ bool AggSharedState::do_limit_filter(vectorized::Block* block, size_t num_rows,
                                               need_computes.data());
         }
 
-        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, int rows) {
-            for (int i = 0; i < rows; ++i) {
+        auto set_computes_arr = [](auto* __restrict res, auto* __restrict computes, size_t rows) {
+            for (size_t i = 0; i < rows; ++i) {
                 computes[i] = computes[i] == res[i];
             }
         };
@@ -411,6 +402,19 @@ Status SetSharedState::update_build_not_ignore_null(const vectorized::VExprConte
     }
 
     return Status::OK();
+}
+
+Status SetSharedState::hash_table_init() {
+    std::vector<vectorized::DataTypePtr> data_types;
+    for (size_t i = 0; i != child_exprs_lists[0].size(); ++i) {
+        auto& ctx = child_exprs_lists[0][i];
+        auto data_type = ctx->root()->data_type();
+        if (build_not_ignore_null[i]) {
+            data_type = vectorized::make_nullable(data_type);
+        }
+        data_types.emplace_back(std::move(data_type));
+    }
+    return init_hash_method<SetDataVariants>(hash_table_variants.get(), data_types, true);
 }
 
 } // namespace doris::pipeline

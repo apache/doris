@@ -86,8 +86,6 @@ inline bool read_as_string(PrimitiveType type) {
            type == PrimitiveType::TYPE_OBJECT;
 }
 
-static bvar::Adder<size_t> g_column_reader_memory_bytes("doris_column_reader_memory_bytes");
-static bvar::Adder<size_t> g_column_reader_num("doris_column_reader_num");
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
                                   std::unique_ptr<ColumnReader>* reader) {
@@ -201,7 +199,7 @@ Status ColumnReader::create_agg_state(const ColumnReaderOptions& opts, const Col
 
     auto data_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
     const auto* agg_state_type = assert_cast<const vectorized::DataTypeAggState*>(data_type.get());
-    agg_state_type->check_agg_state_compatibility(opts.be_exec_version);
+    agg_state_type->check_function_compatibility(opts.be_exec_version);
     auto type = agg_state_type->get_serialized_type()->get_type_as_type_descriptor().type;
 
     if (read_as_string(type)) {
@@ -276,14 +274,12 @@ ColumnReader::ColumnReader(const ColumnReaderOptions& opts, const ColumnMetaPB& 
     _meta_is_nullable = meta.is_nullable();
     _meta_dict_page = meta.dict_page();
     _meta_compression = meta.compression();
-
-    g_column_reader_memory_bytes << sizeof(*this);
-    g_column_reader_num << 1;
 }
 
-ColumnReader::~ColumnReader() {
-    g_column_reader_memory_bytes << -sizeof(*this);
-    g_column_reader_num << -1;
+ColumnReader::~ColumnReader() = default;
+
+int64_t ColumnReader::get_metadata_size() const {
+    return sizeof(ColumnReader) + (_segment_zone_map ? _segment_zone_map->ByteSizeLong() : 0);
 }
 
 Status ColumnReader::init(const ColumnMetaPB* meta) {
@@ -323,6 +319,7 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
                                       _file_reader->path().native(), index_meta.type());
         }
     }
+    update_metadata_size();
 
     // ArrayColumnWriter writes a single empty array and flushes. In this scenario,
     // the item writer doesn't write any data and the corresponding ordinal index is empty.
@@ -347,7 +344,7 @@ Status ColumnReader::new_inverted_index_iterator(
     {
         std::shared_lock<std::shared_mutex> rlock(_load_index_lock);
         if (_inverted_index) {
-            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.stats,
+            RETURN_IF_ERROR(_inverted_index->new_iterator(read_options.io_ctx, read_options.stats,
                                                           read_options.runtime_state, iterator));
         }
     }
@@ -414,7 +411,7 @@ Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumn
     } else {
         if (is_string) {
             auto sv = (StringRef*)min_value->cell_ptr();
-            dst->insert_many_data(sv->data, sv->size, size);
+            dst->insert_data_repeatedly(sv->data, sv->size, size);
         } else {
             // TODO: the work may cause performance problem, opt latter
             for (int i = 0; i < size; ++i) {
@@ -1511,7 +1508,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         value.cast_to_date();
 
         int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DATETIME: {
@@ -1529,7 +1526,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         value.to_datetime();
 
         int64 = binary_cast<VecDateTimeValue, vectorized::Int64>(value);
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
@@ -1541,7 +1538,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
                sizeof(FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>::CppType)); //decimal12_t
         decimal12_t* d = (decimal12_t*)mem_value;
         int128 = DecimalV2Value(d->integer, d->fraction).value();
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_STRING:
@@ -1551,7 +1548,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     case FieldType::OLAP_FIELD_TYPE_AGG_STATE: {
         char* data_ptr = ((Slice*)mem_value)->data;
         size_t data_len = ((Slice*)mem_value)->size;
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
         break;
     }
     case FieldType::OLAP_FIELD_TYPE_ARRAY: {
@@ -1569,7 +1566,7 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
     default: {
         char* data_ptr = (char*)mem_value;
         size_t data_len = type_size;
-        dst->insert_many_data(data_ptr, data_len, n);
+        dst->insert_data_repeatedly(data_ptr, data_len, n);
     }
     }
 }
@@ -1595,28 +1592,15 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
     }
 }
 
-Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                             bool* has_null) {
-    size_t size = dst->size();
+Status VariantRootColumnIterator::_process_root_column(
+        vectorized::MutableColumnPtr& dst, vectorized::MutableColumnPtr& root_column,
+        const vectorized::DataTypePtr& most_common_type) {
     auto& obj =
             dst->is_nullable()
                     ? assert_cast<vectorized::ColumnObject&>(
                               assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
                     : assert_cast<vectorized::ColumnObject&>(*dst);
-    if (obj.is_null_root()) {
-        obj.create_root();
-    }
-    if (!obj.is_finalized()) {
-        obj.finalize();
-    }
-    auto root_column = obj.get_root();
-    RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
-    obj.incr_num_rows(*n);
-    for (auto& entry : obj.get_subcolumns()) {
-        if (entry->data.size() != size + *n) {
-            entry->data.insert_many_defaults(*n);
-        }
-    }
+
     // fill nullmap
     if (root_column->is_nullable() && dst->is_nullable()) {
         vectorized::ColumnUInt8& dst_null_map =
@@ -1625,47 +1609,57 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
                 assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
         dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
     }
+
+    // add root column to a tmp object column
+    auto tmp = vectorized::ColumnObject::create(true, false);
+    auto& tmp_obj = assert_cast<vectorized::ColumnObject&>(*tmp);
+    tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
+
+    // merge tmp object column to dst
+    obj.insert_range_from(*tmp, 0, tmp->size());
+
+    // finalize object if needed
+    if (!obj.is_finalized()) {
+        obj.finalize();
+    }
+
 #ifndef NDEBUG
     obj.check_consistency();
 #endif
+
     return Status::OK();
 }
 
-Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                 vectorized::MutableColumnPtr& dst) {
-    size_t size = dst->size();
+Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                             bool* has_null) {
+    // read root column
     auto& obj =
             dst->is_nullable()
                     ? assert_cast<vectorized::ColumnObject&>(
                               assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
                     : assert_cast<vectorized::ColumnObject&>(*dst);
-    if (obj.is_null_root()) {
-        obj.create_root();
-    }
-    if (!obj.is_finalized()) {
-        obj.finalize();
-    }
-    auto root_column = obj.get_root();
+
+    auto most_common_type = obj.get_most_common_type();
+    auto root_column = most_common_type->create_column();
+    RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
+
+    return _process_root_column(dst, root_column, most_common_type);
+}
+
+Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                 vectorized::MutableColumnPtr& dst) {
+    // read root column
+    auto& obj =
+            dst->is_nullable()
+                    ? assert_cast<vectorized::ColumnObject&>(
+                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+                    : assert_cast<vectorized::ColumnObject&>(*dst);
+
+    auto most_common_type = obj.get_most_common_type();
+    auto root_column = most_common_type->create_column();
     RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
-    obj.incr_num_rows(count);
-    for (auto& entry : obj.get_subcolumns()) {
-        if (entry->data.size() != (size + count)) {
-            entry->data.insert_many_defaults(count);
-        }
-    }
-    // fill nullmap
-    if (root_column->is_nullable() && dst->is_nullable()) {
-        vectorized::ColumnUInt8& dst_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
-        vectorized::ColumnUInt8& src_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
-        DCHECK_EQ(src_null_map.size() - size, count);
-        dst_null_map.insert_range_from(src_null_map, size, count);
-    }
-#ifndef NDEBUG
-    obj.check_consistency();
-#endif
-    return Status::OK();
+
+    return _process_root_column(dst, root_column, most_common_type);
 }
 
 Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {

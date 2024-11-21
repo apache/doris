@@ -125,7 +125,7 @@ Status Block::deserialize(const PBlock& pblock) {
         MutableColumnPtr data_column = type->create_column();
         // Here will try to allocate large memory, should return error if failed.
         RETURN_IF_CATCH_EXCEPTION(
-                buf = type->deserialize(buf, data_column.get(), pblock.be_exec_version()));
+                buf = type->deserialize(buf, &data_column, pblock.be_exec_version()));
         data.emplace_back(data_column->get_ptr(), type, pcol_meta.name());
     }
     initialize_index_by_name();
@@ -372,7 +372,7 @@ void Block::set_num_rows(size_t length) {
     if (rows() > length) {
         for (auto& elem : data) {
             if (elem.column) {
-                elem.column = elem.column->cut(0, length);
+                elem.column = elem.column->shrink(length);
             }
         }
         if (length < row_same_bit.size()) {
@@ -439,13 +439,9 @@ size_t Block::allocated_bytes() const {
     size_t res = 0;
     for (const auto& elem : data) {
         if (!elem.column) {
-            std::stringstream ss;
-            for (const auto& e : data) {
-                ss << e.name + " ";
-            }
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "Column {} in block is nullptr, in method bytes. All Columns are {}",
-                            elem.name, ss.str());
+            // Sometimes if expr failed, then there will be a nullptr
+            // column left in the block.
+            continue;
         }
         res += elem.column->allocated_bytes();
     }
@@ -513,8 +509,9 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
                 continue;
             }
             std::string s;
-            if (data[i].column) {
-                if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
+            if (data[i].column) { // column may be const
+                // for code inside `default_implementation_for_nulls`, there's could have: type = null, col != null
+                if (data[i].type->is_nullable() && !data[i].column->is_concrete_nullable()) {
                     assert(allow_null_mismatch);
                     s = assert_cast<const DataTypeNullable*>(data[i].type.get())
                                 ->get_nested_type()
@@ -726,7 +723,7 @@ std::string Block::print_use_count() {
     return ss.str();
 }
 
-void Block::clear_column_data(int column_size) noexcept {
+void Block::clear_column_data(int64_t column_size) noexcept {
     SCOPED_SKIP_MEMORY_CHECK();
     // data.size() greater than column_size, means here have some
     // function exec result in block, need erase it here
@@ -749,6 +746,24 @@ void Block::erase_tmp_columns() noexcept {
     for (auto& name : all_column_names) {
         if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
             erase(name);
+        }
+    }
+}
+
+void Block::clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
+                                      bool need_keep_first) {
+    if (data.size() >= column_keep_flags.size()) {
+        auto origin_rows = rows();
+        for (size_t i = 0; i < column_keep_flags.size(); ++i) {
+            if (!column_keep_flags[i]) {
+                data[i].column = data[i].column->clone_empty();
+            }
+        }
+
+        if (need_keep_first && !column_keep_flags[0]) {
+            auto first_column = data[0].column->clone_empty();
+            first_column->resize(origin_rows);
+            data[0].column = std::move(first_column);
         }
     }
 }
@@ -858,7 +873,7 @@ Status Block::append_to_block_by_selector(MutableBlock* dst,
 }
 
 Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to_filter,
-                           int filter_column_id, int column_to_keep) {
+                           size_t filter_column_id, size_t column_to_keep) {
     const auto& filter_column = block->get_by_position(filter_column_id).column;
     if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         const auto& nested_column = nullable_column->get_nested_column_ptr();
@@ -896,7 +911,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
     return Status::OK();
 }
 
-Status Block::filter_block(Block* block, int filter_column_id, int column_to_keep) {
+Status Block::filter_block(Block* block, size_t filter_column_id, size_t column_to_keep) {
     std::vector<uint32_t> columns_to_filter;
     columns_to_filter.resize(column_to_keep);
     for (uint32_t i = 0; i < column_to_keep; ++i) {
@@ -1065,7 +1080,7 @@ Status MutableBlock::add_rows(const Block* block, size_t row_begin, size_t lengt
     return Status::OK();
 }
 
-Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
+Status MutableBlock::add_rows(const Block* block, const std::vector<int64_t>& rows) {
     RETURN_IF_CATCH_EXCEPTION({
         DCHECK_LE(columns(), block->columns());
         const auto& block_data = block->get_columns_with_type_and_name();
@@ -1075,7 +1090,7 @@ Status MutableBlock::add_rows(const Block* block, std::vector<int64_t> rows) {
             auto& dst = _columns[i];
             const auto& src = *block_data[i].column.get();
             dst->reserve(dst->size() + length);
-            for (size_t row : rows) {
+            for (auto row : rows) {
                 // we can introduce a new function like `insert_assume_reserved` for IColumn.
                 dst->insert_from(src, row);
             }
@@ -1197,7 +1212,7 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
     for (auto idx : char_type_idx) {
         if (idx < data.size()) {
             auto& col_and_name = this->get_by_position(idx);
-            col_and_name.column = col_and_name.column->assume_mutable()->get_shrinked_column();
+            col_and_name.column->assume_mutable()->shrink_padding_chars();
         }
     }
 }

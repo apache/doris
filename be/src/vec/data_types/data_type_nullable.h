@@ -71,8 +71,8 @@ public:
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
-
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
 
     MutableColumnPtr create_column() const override;
@@ -108,7 +108,6 @@ public:
         return 1 + nested_data_type->get_maximum_size_of_value_in_memory();
     }
     bool is_nullable() const override { return true; }
-    size_t get_size_of_value_in_memory() const override;
     bool can_be_inside_low_cardinality() const override {
         return nested_data_type->can_be_inside_low_cardinality();
     }

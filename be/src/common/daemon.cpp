@@ -27,17 +27,13 @@
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <butil/iobuf.h>
 #include <math.h>
-#include <signal.h>
 #include <stdint.h>
 #include <stdlib.h>
-#include <string.h>
 
-#include <algorithm>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <map>
 #include <ostream>
-#include <set>
 #include <string>
 
 #include "cloud/config.h"
@@ -45,29 +41,23 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "olap/memtable_memory_limiter.h"
-#include "olap/options.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 #include "runtime/be_proc_monitor.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
-#include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/memory_reclamation.h"
+#include "runtime/process_profile.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/workload_group/workload_group_manager.h"
-#include "util/cpu_info.h"
-#include "util/debug_util.h"
-#include "util/disk_info.h"
+#include "util/algorithm_util.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/metrics.h"
-#include "util/network_util.h"
 #include "util/perf_counters.h"
 #include "util/system_metrics.h"
-#include "util/thrift_util.h"
 #include "util/time.h"
 
 namespace doris {
@@ -232,9 +222,8 @@ void refresh_memory_state_after_memory_change() {
     if (abs(last_print_proc_mem - PerfCounters::get_vm_rss()) > 268435456) {
         last_print_proc_mem = PerfCounters::get_vm_rss();
         doris::MemTrackerLimiter::clean_tracker_limiter_group();
-        doris::MemTrackerLimiter::enable_print_log_process_usage();
-        // Refresh mem tracker each type counter.
-        doris::MemTrackerLimiter::refresh_global_counter();
+        doris::ProcessProfile::instance()->memory_profile()->enable_print_log_process_usage();
+        doris::ProcessProfile::instance()->memory_profile()->refresh_memory_overview_profile();
         LOG(INFO) << doris::GlobalMemoryArbitrator::
                         process_mem_log_str(); // print mem log when memory state by 256M
     }
@@ -242,7 +231,7 @@ void refresh_memory_state_after_memory_change() {
 
 void refresh_cache_capacity() {
     if (refresh_cache_capacity_sleep_time_ms <= 0) {
-        auto cache_capacity_reduce_mem_limit = uint64_t(
+        auto cache_capacity_reduce_mem_limit = int64_t(
                 doris::MemInfo::soft_mem_limit() * config::cache_capacity_reduce_mem_limit_frac);
         int64_t process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
         // the rule is like this:
@@ -250,13 +239,8 @@ void refresh_cache_capacity() {
         // 2. if the process mem usage > soft memlimit * 0.6 and process mem usage < soft memlimit, then it will be adjusted to a lower value.
         // 3. if the process mem usage > soft memlimit, then the capacity is adjusted to 0.
         double new_cache_capacity_adjust_weighted =
-                process_memory_usage <= cache_capacity_reduce_mem_limit
-                        ? 1
-                        : std::max<double>(
-                                  1 - (process_memory_usage - cache_capacity_reduce_mem_limit) /
-                                                  (doris::MemInfo::soft_mem_limit() -
-                                                   cache_capacity_reduce_mem_limit),
-                                  0);
+                AlgoUtil::descent_by_step(10, cache_capacity_reduce_mem_limit,
+                                          doris::MemInfo::soft_mem_limit(), process_memory_usage);
         if (new_cache_capacity_adjust_weighted !=
             doris::GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted) {
             doris::GlobalMemoryArbitrator::last_cache_capacity_adjust_weighted =
@@ -300,6 +284,7 @@ void Daemon::memory_maintenance_thread() {
         // TODO replace memory_gc_thread.
 
         // step 6. Refresh weighted memory ratio of workload groups.
+        doris::ExecEnv::GetInstance()->workload_group_mgr()->do_sweep();
         doris::ExecEnv::GetInstance()->workload_group_mgr()->refresh_wg_weighted_memory_limit();
 
         // step 7. Analyze blocking queries.
@@ -342,10 +327,12 @@ void Daemon::memory_gc_thread() {
             memory_full_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             LOG(INFO) << fmt::format("[MemoryGC] start full GC, {}.", mem_info);
-            doris::MemTrackerLimiter::print_log_process_usage();
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
             if (doris::MemoryReclamation::process_full_gc(std::move(mem_info))) {
                 // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
-                doris::MemTrackerLimiter::enable_print_log_process_usage();
+                doris::ProcessProfile::instance()
+                        ->memory_profile()
+                        ->enable_print_log_process_usage();
             }
         } else if (memory_minor_gc_sleep_time_ms <= 0 &&
                    (sys_mem_available < doris::MemInfo::sys_mem_available_warning_water_mark() ||
@@ -355,9 +342,11 @@ void Daemon::memory_gc_thread() {
                     doris::GlobalMemoryArbitrator::process_soft_limit_exceeded_errmsg_str();
             memory_minor_gc_sleep_time_ms = memory_gc_sleep_time_ms;
             LOG(INFO) << fmt::format("[MemoryGC] start minor GC, {}.", mem_info);
-            doris::MemTrackerLimiter::print_log_process_usage();
+            doris::ProcessProfile::instance()->memory_profile()->print_log_process_usage();
             if (doris::MemoryReclamation::process_minor_gc(std::move(mem_info))) {
-                doris::MemTrackerLimiter::enable_print_log_process_usage();
+                doris::ProcessProfile::instance()
+                        ->memory_profile()
+                        ->enable_print_log_process_usage();
             }
         } else {
             if (memory_full_gc_sleep_time_ms > 0) {

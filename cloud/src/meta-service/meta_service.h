@@ -40,6 +40,10 @@ class Transaction;
 
 constexpr std::string_view BUILT_IN_STORAGE_VAULT_NAME = "built_in_storage_vault";
 
+void internal_get_rowset(Transaction* txn, int64_t start, int64_t end,
+                         const std::string& instance_id, int64_t tablet_id, MetaServiceCode& code,
+                         std::string& msg, GetRowsetResponse* response);
+
 class MetaServiceImpl : public cloud::MetaService {
 public:
     MetaServiceImpl(std::shared_ptr<TxnKv> txn_kv, std::shared_ptr<ResourceManager> resource_mgr,
@@ -50,6 +54,10 @@ public:
     [[nodiscard]] const std::shared_ptr<RateLimiter>& rate_limiter() const { return rate_limiter_; }
     [[nodiscard]] const std::shared_ptr<ResourceManager>& resource_mgr() const {
         return resource_mgr_;
+    }
+
+    [[nodiscard]] const std::shared_ptr<TxnLazyCommitter>& txn_lazy_committer() const {
+        return txn_lazy_committer_;
     }
 
     void begin_txn(::google::protobuf::RpcController* controller, const BeginTxnRequest* request,
@@ -265,6 +273,16 @@ public:
                                        GetDeleteBitmapUpdateLockResponse* response,
                                        ::google::protobuf::Closure* done) override;
 
+    void remove_delete_bitmap(google::protobuf::RpcController* controller,
+                              const RemoveDeleteBitmapRequest* request,
+                              RemoveDeleteBitmapResponse* response,
+                              ::google::protobuf::Closure* done) override;
+
+    void remove_delete_bitmap_update_lock(google::protobuf::RpcController* controller,
+                                          const RemoveDeleteBitmapUpdateLockRequest* request,
+                                          RemoveDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done) override;
+
     // cloud control get cluster's status by this api
     void get_cluster_status(google::protobuf::RpcController* controller,
                             const GetClusterStatusRequest* request,
@@ -288,6 +306,9 @@ public:
     std::pair<MetaServiceCode, std::string> get_instance_info(const std::string& instance_id,
                                                               const std::string& cloud_unique_id,
                                                               InstanceInfoPB* instance);
+
+    MetaServiceResponseStatus fix_tablet_stats(std::string cloud_unique_id_str,
+                                               std::string table_id_str);
 
 private:
     std::pair<MetaServiceCode, std::string> alter_instance(
@@ -629,6 +650,21 @@ public:
                                        ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::get_delete_bitmap_update_lock, controller, request, response,
                   done);
+    }
+
+    void remove_delete_bitmap(google::protobuf::RpcController* controller,
+                              const RemoveDeleteBitmapRequest* request,
+                              RemoveDeleteBitmapResponse* response,
+                              ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::remove_delete_bitmap, controller, request, response, done);
+    }
+
+    void remove_delete_bitmap_update_lock(google::protobuf::RpcController* controller,
+                                          const RemoveDeleteBitmapUpdateLockRequest* request,
+                                          RemoveDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::remove_delete_bitmap_update_lock, controller, request,
+                  response, done);
     }
 
     // cloud control get cluster's status by this api

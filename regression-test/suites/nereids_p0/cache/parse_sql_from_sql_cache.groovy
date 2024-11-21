@@ -784,6 +784,42 @@ suite("parse_sql_from_sql_cache") {
             sql "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment1*/ * from test_use_plan_cache22 order by 1, 2"
 
             assertHasCache "select /*+SET_VAR(disable_nereids_rules='')*/ /*comment2*/ * from test_use_plan_cache22 order by 1, 2"
+        }),
+        extraThread("is_cache_profile", {
+            createTestTable "test_use_plan_cache23"
+
+            // after partition changed 10s, the sql cache can be used
+            sleep(10000)
+
+            sql "set enable_nereids_planner=true"
+            sql "set enable_fallback_to_original_planner=false"
+            sql "set enable_sql_cache=true"
+
+            int randomInt = Math.random() * 2000000000
+            sql "select ${randomInt} from test_use_plan_cache23"
+            profile("sql_cache_23_${randomInt}") {
+                run {
+                    sql "/* sql_cache_23_${randomInt} */ select ${randomInt} from test_use_plan_cache23"
+                }
+
+                check { profileString, exception ->
+                    log.info(profileString)
+                    assertTrue(profileString.contains("Is  Cached:  Yes"))
+                }
+            }
+
+            randomInt = Math.random() * 2000000000
+            sql "select * from (select $randomInt as id)a"
+            profile("sql_cache_23_${randomInt}_2") {
+                run {
+                    sql "/* sql_cache_23_${randomInt}_2 */ select * from (select $randomInt as id)a"
+                }
+
+                check { profileString, exception ->
+                    log.info(profileString)
+                    assertTrue(profileString.contains("Is  Cached:  Yes"))
+                }
+            }
         })
     ).get()
 }

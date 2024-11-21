@@ -617,6 +617,18 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         std::vector<OlapTuple>& begin_scan_keys, std::vector<OlapTuple>& end_scan_keys,
         bool& begin_include, bool& end_include, int32_t max_scan_key_num) {
     if constexpr (!_is_reject_split_type) {
+        CppType min_value = get_range_min_value();
+        CppType max_value = get_range_max_value();
+        if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
+            min_value.set_type(TimeType::TIME_DATE);
+            max_value.set_type(TimeType::TIME_DATE);
+        }
+        auto empty_range_only_null = min_value > max_value;
+        if (empty_range_only_null) {
+            // Not contain null will be disposed in `convert_to_close_range`, return eos.
+            DCHECK(contain_null());
+        }
+
         auto no_split = [&]() -> bool {
             begin_scan_keys.emplace_back();
             begin_scan_keys.back().add_value(
@@ -624,18 +636,11 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
                     contain_null());
             end_scan_keys.emplace_back();
             end_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()));
+                    cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()),
+                    empty_range_only_null ? true : false);
             return true;
         };
-
-        CppType min_value = get_range_min_value();
-        CppType max_value = get_range_max_value();
-        if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
-            min_value.set_type(TimeType::TIME_DATE);
-            max_value.set_type(TimeType::TIME_DATE);
-        }
-
-        if (min_value > max_value || max_scan_key_num == 1) {
+        if (empty_range_only_null || max_scan_key_num == 1) {
             return no_split();
         }
 
@@ -1028,7 +1033,8 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
             *eos |= range.convert_to_close_range(_begin_scan_keys, _end_scan_keys, _begin_include,
                                                  _end_include);
 
-            if (range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys, _begin_include,
+            if (!(*eos) &&
+                range.convert_to_avg_range_value(_begin_scan_keys, _end_scan_keys, _begin_include,
                                                  _end_include, max_scan_key_num)) {
                 _has_range_value = true;
             }

@@ -26,7 +26,7 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _channel_id = info.task_idx;
-    _shared_state->mem_trackers[_channel_id] = _mem_tracker.get();
+    _shared_state->mem_counters[_channel_id] = _memory_used_counter;
     _exchanger = _shared_state->exchanger.get();
     DCHECK(_exchanger != nullptr);
     _get_block_failed_counter =
@@ -105,8 +105,8 @@ std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) c
                    _exchanger->data_queue_debug_string(_channel_id));
     size_t i = 0;
     fmt::format_to(debug_string_buffer, ", MemTrackers: ");
-    for (auto* mem_tracker : _shared_state->mem_trackers) {
-        fmt::format_to(debug_string_buffer, "{}: {}, ", i, mem_tracker->consumption());
+    for (auto* mem_counter : _shared_state->mem_counters) {
+        fmt::format_to(debug_string_buffer, "{}: {}, ", i, mem_counter->value());
         i++;
     }
     return fmt::to_string(debug_string_buffer);

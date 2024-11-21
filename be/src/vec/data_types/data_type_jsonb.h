@@ -63,7 +63,8 @@ public:
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int data_version) const override;
     char* serialize(const IColumn& column, char* buf, int data_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int data_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int data_version) const override;
 
     MutableColumnPtr create_column() const override;
 
@@ -77,7 +78,7 @@ public:
         DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
         DCHECK(node.__isset.json_literal);
         JsonBinaryValue value(node.json_literal.value);
-        return String(value.value(), value.size());
+        return Field(String(value.value(), value.size()));
     }
 
     bool equals(const IDataType& rhs) const override;

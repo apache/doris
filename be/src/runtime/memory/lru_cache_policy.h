@@ -132,6 +132,8 @@ public:
 
     int64_t get_usage() { return _cache->get_usage(); }
 
+    size_t get_element_count() { return _cache->get_element_count(); }
+
     size_t get_capacity() override { return _cache->get_capacity(); }
 
     uint64_t new_id() { return _cache->new_id(); };
@@ -147,7 +149,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         COUNTER_SET(_freed_entrys_counter, (int64_t)0);
         COUNTER_SET(_freed_memory_counter, (int64_t)0);
-        if (_stale_sweep_time_s <= 0 && _cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
+        if (_stale_sweep_time_s <= 0 || _cache == ExecEnv::GetInstance()->get_dummy_lru_cache()) {
             return;
         }
         if (exceed_prune_limit()) {

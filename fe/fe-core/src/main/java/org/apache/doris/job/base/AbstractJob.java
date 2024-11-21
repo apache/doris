@@ -63,7 +63,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
             new Column("SucceedTaskCount", ScalarType.createStringType()),
             new Column("FailedTaskCount", ScalarType.createStringType()),
             new Column("CanceledTaskCount", ScalarType.createStringType())
-            );
+    );
     @SerializedName(value = "jid")
     private Long jobId;
 
@@ -413,6 +413,23 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @Override
     public TRow getTvfInfo() {
         return getCommonTvfInfo();
+    }
+
+    /**
+     * Generates a common error message when the execution queue is full.
+     *
+     * @param taskId                The ID of the task.
+     * @param queueConfigName       The name of the queue configuration.
+     * @param executeThreadConfigName The name of the execution thread configuration.
+     * @return A formatted error message.
+     */
+    protected String commonFormatMsgWhenExecuteQueueFull(Long taskId, String queueConfigName,
+                                                            String executeThreadConfigName) {
+        return String.format("Dispatch task failed, jobId: %d, jobName: %s, taskId: %d, the queue size is full, "
+                        + "you can increase the queue size by setting the property "
+                        + "%s in the fe.conf file or increase the value of "
+                        + "the property %s in the fe.conf file", getJobId(), getJobName(), taskId, queueConfigName,
+                executeThreadConfigName);
     }
 
     @Override

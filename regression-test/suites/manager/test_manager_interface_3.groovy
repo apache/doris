@@ -267,8 +267,8 @@ suite('test_manager_interface_3',"p0") {
             }
         }
         assertTrue(x == 4)
-        
-
+        checkNereidsExecute("show grants for ${user2}");
+        checkNereidsExecute("show grants");
         result = sql  """show  grants """        
         x = 0 
         for(int i = 0;i < result.size(); i++ ) {
@@ -438,7 +438,7 @@ suite('test_manager_interface_3',"p0") {
             assertTrue(x == 20)
         }
 
-
+        checkNereidsExecute("show all grants");
         result = sql """ show all grants"""
         x = 0 
         for(int i = 0;i < result.size(); i++ ) {

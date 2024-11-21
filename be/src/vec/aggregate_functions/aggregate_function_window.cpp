@@ -68,9 +68,9 @@ AggregateFunctionPtr create_function_lead_lag_first_last(const String& name,
 
 #define CREATE_WINDOW_FUNCTION_WITH_NAME_AND_DATA(CREATE_FUNCTION_NAME, FUNCTION_DATA,             \
                                                   FUNCTION_IMPL)                                   \
-    AggregateFunctionPtr CREATE_FUNCTION_NAME(const std::string& name,                             \
-                                              const DataTypes& argument_types,                     \
-                                              const bool result_is_nullable) {                     \
+    AggregateFunctionPtr CREATE_FUNCTION_NAME(                                                     \
+            const std::string& name, const DataTypes& argument_types,                              \
+            const bool result_is_nullable, const AggregateFunctionAttr& attr) {                    \
         const bool arg_is_nullable = argument_types[0]->is_nullable();                             \
         AggregateFunctionPtr res = nullptr;                                                        \
                                                                                                    \

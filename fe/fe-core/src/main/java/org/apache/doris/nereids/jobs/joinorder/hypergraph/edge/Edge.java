@@ -225,10 +225,6 @@ public abstract class Edge {
 
     @Override
     public String toString() {
-        if (!leftRejectEdges.isEmpty() || !rightRejectEdges.isEmpty()) {
-            return String.format("<%s --%s-- %s>[%s , %s]", LongBitmap.toString(leftExtendedNodes),
-                    this.getTypeName(), LongBitmap.toString(rightExtendedNodes), leftRejectEdges, rightRejectEdges);
-        }
         return String.format("<%s --%s-- %s>", LongBitmap.toString(leftExtendedNodes),
                 this.getTypeName(), LongBitmap.toString(rightExtendedNodes));
     }

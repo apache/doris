@@ -312,6 +312,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_VIEW_DEF: {
                     AlterViewInfo info = (AlterViewInfo) journal.getData();
                     env.getAlterInstance().replayModifyViewDef(info);
+                    env.getBinlogManager().addModifyViewDef(info, logId);
                     break;
                 }
                 case OperationType.OP_RENAME_PARTITION: {
@@ -323,6 +324,7 @@ public class EditLog {
                 case OperationType.OP_RENAME_COLUMN: {
                     TableRenameColumnInfo info = (TableRenameColumnInfo) journal.getData();
                     env.replayRenameColumn(info);
+                    env.getBinlogManager().addColumnRename(info, logId);
                     break;
                 }
                 case OperationType.OP_BACKUP_JOB: {
@@ -346,7 +348,7 @@ public class EditLog {
                     for (long indexId : batchDropInfo.getIndexIdSet()) {
                         env.getMaterializedViewHandler().replayDropRollup(
                                 new DropInfo(batchDropInfo.getDbId(), batchDropInfo.getTableId(),
-                                        batchDropInfo.getTableName(), indexId, false, 0),
+                                        batchDropInfo.getTableName(), indexId, false, false, 0),
                                 env);
                     }
                     break;
@@ -875,6 +877,7 @@ public class EditLog {
                 case OperationType.OP_MODIFY_COMMENT: {
                     ModifyCommentOperationLog operation = (ModifyCommentOperationLog) journal.getData();
                     env.getAlterInstance().replayModifyComment(operation);
+                    env.getBinlogManager().addModifyComment(operation, logId);
                     break;
                 }
                 case OperationType.OP_SET_PARTITION_VERSION: {
@@ -1268,13 +1271,28 @@ public class EditLog {
         journal.rollJournal();
     }
 
-    private synchronized <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
-        JournalBatch batch = new JournalBatch(35);
+    // NOTICE: No guarantee atomicity of entries
+    private <T extends Writable> void logEdit(short op, List<T> entries) throws IOException {
+        int itemNum = Math.max(1, Math.min(Config.batch_edit_log_max_item_num, entries.size()));
+        JournalBatch batch = new JournalBatch(itemNum);
+        long batchCount = 0;
         for (T entry : entries) {
-            // the number of batch entities to less than 32 and the batch data size to less than 640KB
-            if (batch.getJournalEntities().size() >= 32 || batch.getSize() >= 640 * 1024) {
+            if (batch.getJournalEntities().size() >= Config.batch_edit_log_max_item_num
+                    || batch.getSize() >= Config.batch_edit_log_max_byte_size) {
                 journal.write(batch);
-                batch = new JournalBatch(35);
+                batch = new JournalBatch(itemNum);
+
+                // take a rest
+                batchCount++;
+                if (batchCount >= Config.batch_edit_log_continuous_count_for_rest
+                        && Config.batch_edit_log_rest_time_ms > 0) {
+                    batchCount = 0;
+                    try {
+                        Thread.sleep(Config.batch_edit_log_rest_time_ms);
+                    } catch (InterruptedException e) {
+                        LOG.warn("sleep failed", e);
+                    }
+                }
             }
             batch.addJournal(op, entry);
         }
@@ -1560,7 +1578,11 @@ public class EditLog {
     }
 
     public void logModifyViewDef(AlterViewInfo alterViewInfo) {
-        logEdit(OperationType.OP_MODIFY_VIEW_DEF, alterViewInfo);
+        long logId = logEdit(OperationType.OP_MODIFY_VIEW_DEF, alterViewInfo);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("log modify view, logId : {}, infos: {}", logId, alterViewInfo);
+        }
+        Env.getCurrentEnv().getBinlogManager().addModifyViewDef(alterViewInfo, logId);
     }
 
     public void logRollupRename(TableInfo tableInfo) {
@@ -1576,7 +1598,9 @@ public class EditLog {
     }
 
     public void logColumnRename(TableRenameColumnInfo info) {
-        logEdit(OperationType.OP_RENAME_COLUMN, info);
+        long logId = logEdit(OperationType.OP_RENAME_COLUMN, info);
+        LOG.info("log column rename, logId : {}, infos: {}", logId, info);
+        Env.getCurrentEnv().getBinlogManager().addColumnRename(info, logId);
     }
 
     public void logAddBroker(BrokerMgr.ModifyBrokerInfo info) {
@@ -1603,8 +1627,8 @@ public class EditLog {
         }
     }
 
-    public void logExportUpdateState(long jobId, ExportJobState newState) {
-        ExportJobStateTransfer transfer = new ExportJobStateTransfer(jobId, newState);
+    public void logExportUpdateState(ExportJob job, ExportJobState newState) {
+        ExportJobStateTransfer transfer = new ExportJobStateTransfer(job, newState);
         logEdit(OperationType.OP_EXPORT_UPDATE_STATE, transfer);
     }
 
@@ -1938,7 +1962,9 @@ public class EditLog {
     }
 
     public void logModifyComment(ModifyCommentOperationLog op) {
-        logEdit(OperationType.OP_MODIFY_COMMENT, op);
+        long logId = logEdit(OperationType.OP_MODIFY_COMMENT, op);
+        LOG.info("log modify comment, logId : {}, infos: {}", logId, op);
+        Env.getCurrentEnv().getBinlogManager().addModifyComment(op, logId);
     }
 
     public void logCreateSqlBlockRule(SqlBlockRule rule) {

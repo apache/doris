@@ -65,6 +65,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
@@ -81,6 +82,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTestScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
 import org.apache.doris.nereids.util.RelationUtil;
@@ -169,14 +171,18 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = null;
-        if (customTableResolver.isPresent()) {
-            table = customTableResolver.get().apply(tableQualifier);
+        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
+        if (table == null) {
+            if (customTableResolver.isPresent()) {
+                table = customTableResolver.get().apply(tableQualifier);
+            }
         }
         // In some cases even if we have already called the "cascadesContext.getTableByName",
         // it also gets the null. So, we just check it in the catalog again for safety.
         if (table == null) {
             table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
+        ConnectContext.get().getTables().put(tableQualifier, table);
 
         // TODO: should generate different Scan sub class according to table's type
         LogicalPlan scan = getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
@@ -189,18 +195,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private LogicalPlan bind(CascadesContext cascadesContext, UnboundRelation unboundRelation) {
-        List<String> qualifiedTablName = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 unboundRelation.getNameParts());
         TableIf table = null;
         if (customTableResolver.isPresent()) {
-            table = customTableResolver.get().apply(qualifiedTablName);
+            table = customTableResolver.get().apply(tableQualifier);
         }
+        table = ConnectContext.get().getTableInMinidumpCache(tableQualifier);
         // In some cases even if we have already called the "cascadesContext.getTableByName",
         // it also gets the null. So, we just check it in the catalog again for safety.
         if (table == null) {
-            table = RelationUtil.getTable(qualifiedTablName, cascadesContext.getConnectContext().getEnv());
+            table = RelationUtil.getTable(tableQualifier, cascadesContext.getConnectContext().getEnv());
         }
-        return getLogicalPlan(table, unboundRelation, qualifiedTablName, cascadesContext);
+        ConnectContext.get().getTables().put(tableQualifier, table);
+        return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
     private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> qualifier) {
@@ -366,14 +374,32 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return scan;
     }
 
+    private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
+            List<String> qualifiedTableName) {
+        Optional<TableValuedFunction> tvf = table.getDatabase().getCatalog().getMetaTableFunction(
+                qualifiedTableName.get(1), qualifiedTableName.get(2));
+        if (tvf.isPresent()) {
+            return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get()));
+        }
+        return Optional.empty();
+    }
+
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,
-                                               List<String> qualifiedTableName, CascadesContext cascadesContext) {
-        // for create view stmt replace tablNname to ctl.db.tableName
+                                       List<String> qualifiedTableName, CascadesContext cascadesContext) {
+        // for create view stmt replace tableName to ctl.db.tableName
         unboundRelation.getIndexInSqlString().ifPresent(pair -> {
             StatementContext statementContext = cascadesContext.getStatementContext();
             statementContext.addIndexInSqlToString(pair,
                     Utils.qualifiedNameWithBackquote(qualifiedTableName));
         });
+
+        // Handle meta table like "table_name$partitions"
+        // qualifiedTableName should be like "ctl.db.tbl$partitions"
+        Optional<LogicalPlan> logicalPlan = handleMetaTable(table, unboundRelation, qualifiedTableName);
+        if (logicalPlan.isPresent()) {
+            return logicalPlan.get();
+        }
+
         List<String> qualifierWithoutTableName = Lists.newArrayList();
         qualifierWithoutTableName.addAll(qualifiedTableName.subList(0, qualifiedTableName.size() - 1));
         boolean isView = false;
@@ -394,8 +420,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     if (Config.enable_query_hive_views && hmsTable.isView()) {
                         isView = true;
                         String hiveCatalog = hmsTable.getCatalog().getName();
+                        String hiveDb = hmsTable.getDatabase().getFullName();
                         String ddlSql = hmsTable.getViewText();
-                        Plan hiveViewPlan = parseAndAnalyzeHiveView(hmsTable, hiveCatalog, ddlSql, cascadesContext);
+                        Plan hiveViewPlan = parseAndAnalyzeHiveView(
+                                hmsTable, hiveCatalog, hiveDb, ddlSql, cascadesContext);
                         return new LogicalSubQueryAlias<>(qualifiedTableName, hiveViewPlan);
                     }
                     if (hmsTable.getDlaType() == DLAType.HUDI) {
@@ -406,7 +434,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                         return hudiScan;
                     } else {
                         return new LogicalFileScan(unboundRelation.getRelationId(), (HMSExternalTable) table,
-                                qualifierWithoutTableName, unboundRelation.getTableSample(),
+                                qualifierWithoutTableName,
+                                ((HMSExternalTable) table).getAllPartitions(),
+                                unboundRelation.getTableSample(),
                                 unboundRelation.getTableSnapshot());
                     }
                 case ICEBERG_EXTERNAL_TABLE:
@@ -447,15 +477,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
     }
 
     private Plan parseAndAnalyzeHiveView(
-            HMSExternalTable table, String hiveCatalog, String ddlSql, CascadesContext cascadesContext) {
+            HMSExternalTable table, String hiveCatalog, String hiveDb, String ddlSql, CascadesContext cascadesContext) {
         ConnectContext ctx = cascadesContext.getConnectContext();
         String previousCatalog = ctx.getCurrentCatalog().getName();
         String previousDb = ctx.getDatabase();
+        // change catalog and db to hive catalog and db, so that we can parse and analyze the view sql in hive context.
         ctx.changeDefaultCatalog(hiveCatalog);
-        Plan hiveViewPlan = parseAndAnalyzeView(table, ddlSql, cascadesContext);
-        ctx.changeDefaultCatalog(previousCatalog);
-        ctx.setDatabase(previousDb);
-        return hiveViewPlan;
+        ctx.setDatabase(hiveDb);
+        try {
+            return parseAndAnalyzeView(table, ddlSql, cascadesContext);
+        } finally {
+            // restore catalog and db in connect context
+            ctx.changeDefaultCatalog(previousCatalog);
+            ctx.setDatabase(previousDb);
+        }
     }
 
     private Plan parseAndAnalyzeView(TableIf view, String ddlSql, CascadesContext parentContext) {

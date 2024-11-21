@@ -100,7 +100,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
 
         def jsonSlurper = new JsonSlurper()
         def jsonObject = jsonSlurper.parseText(tag)
-        String cloudClusterId = jsonObject.cloud_cluster_id
+        String cloudClusterId = jsonObject.compute_group_id
         String uniqueId = jsonObject.cloud_unique_id
 
         sleep(5 * 1000)
@@ -130,7 +130,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
             tag = getCloudBeTagByName(clusterName)
             logger.info("tag = {}", tag) 
             jsonObject = jsonSlurper.parseText(tag)
-            String cluster_status = jsonObject.cloud_cluster_status
+            String cluster_status = jsonObject.compute_group_status
             cluster_status == "SUSPENDED"
         }
 
@@ -158,7 +158,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
                 tag = getCloudBeTagByName(clusterName)
                 logger.info("tag = {}", tag) 
                 jsonObject = jsonSlurper.parseText(tag)
-                String cluster_status = jsonObject.cloud_cluster_status
+                String cluster_status = jsonObject.compute_group_status
                 cluster_status == "TO_RESUME"
             }
             sleep(5 * 1000)
@@ -172,7 +172,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
         tag = getCloudBeTagByName(clusterName)
         logger.info("tag check = {}", tag) 
         jsonObject = jsonSlurper.parseText(tag)
-        String cluster_status = jsonObject.cloud_cluster_status
+        String cluster_status = jsonObject.compute_group_status
         assertEquals("NORMAL", cluster_status)
 
         // add 1 nodes, check it status NORMAL
@@ -189,7 +189,7 @@ suite('test_auto_start_in_cloud', 'multi_cluster, docker') {
                 return
             }
             jsonObject = jsonSlurper.parseText(tag)
-            cluster_status = jsonObject.cloud_cluster_status
+            cluster_status = jsonObject.compute_group_status
             assertEquals("NORMAL", cluster_status)
         }
     }

@@ -69,6 +69,8 @@ public:
     Status change_key_meta_expiration(const FileCacheKey& key, const uint64_t expiration) override;
     void load_blocks_directly_unlocked(BlockFileCache* _mgr, const FileCacheKey& key,
                                        std::lock_guard<std::mutex>& cache_lock) override;
+    Status clear(std::string& msg) override;
+    std::string get_local_file(const FileCacheKey& key) override;
 
     [[nodiscard]] static std::string get_path_in_local_cache(const std::string& dir, size_t offset,
                                                              FileCacheType type,
@@ -81,6 +83,8 @@ public:
 
     [[nodiscard]] std::string get_path_in_local_cache(const UInt128Wrapper&,
                                                       uint64_t expiration_time) const;
+
+    FileCacheStorageType get_type() override { return DISK; }
 
 private:
     Status upgrade_cache_dir_if_necessary() const;
@@ -98,18 +102,8 @@ private:
 
     void load_cache_info_into_memory(BlockFileCache* _mgr) const;
 
-    using FileWriterMapKey = std::pair<UInt128Wrapper, size_t>;
-    struct FileWriterMapKeyHash {
-        std::size_t operator()(const FileWriterMapKey& w) const {
-            char* v1 = (char*)&w.first.value_;
-            char* v2 = (char*)&w.second;
-            char buf[24];
-            memcpy(buf, v1, 16);
-            memcpy(buf + 16, v2, 8);
-            std::string_view str(buf, 24);
-            return std::hash<std::string_view> {}(str);
-        }
-    };
+    [[nodiscard]] std::vector<std::string> get_path_in_local_cache_all_candidates(
+            const std::string& dir, size_t offset);
 
     std::string _cache_base_path;
     std::thread _cache_background_load_thread;

@@ -231,7 +231,7 @@ Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id) {
     });
 }
 
-Status CloudStorageEngine::start_bg_threads() {
+Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr) {
     RETURN_IF_ERROR(Thread::create(
             "CloudStorageEngine", "refresh_s3_info_thread",
             [this]() { this->_refresh_storage_vault_info_thread_callback(); },
@@ -257,7 +257,7 @@ Status CloudStorageEngine::start_bg_threads() {
 
     // add calculate tablet delete bitmap task thread pool
     RETURN_IF_ERROR(ThreadPoolBuilder("TabletCalDeleteBitmapThreadPool")
-                            .set_min_threads(1)
+                            .set_min_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .set_max_threads(config::calc_tablet_delete_bitmap_task_max_thread)
                             .build(&_calc_tablet_delete_bitmap_task_thread_pool));
 
@@ -266,14 +266,27 @@ Status CloudStorageEngine::start_bg_threads() {
     // compaction tasks producer thread
     int base_thread_num = get_base_thread_num();
     int cumu_thread_num = get_cumu_thread_num();
-    RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
-                            .set_min_threads(base_thread_num)
-                            .set_max_threads(base_thread_num)
-                            .build(&_base_compaction_thread_pool));
-    RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
-                            .set_min_threads(cumu_thread_num)
-                            .set_max_threads(cumu_thread_num)
-                            .build(&_cumu_compaction_thread_pool));
+    if (wg_sptr->get_cgroup_cpu_ctl_wptr().lock()) {
+        RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                                .set_min_threads(base_thread_num)
+                                .set_max_threads(base_thread_num)
+                                .set_cgroup_cpu_ctl(wg_sptr->get_cgroup_cpu_ctl_wptr())
+                                .build(&_base_compaction_thread_pool));
+        RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                                .set_min_threads(cumu_thread_num)
+                                .set_max_threads(cumu_thread_num)
+                                .set_cgroup_cpu_ctl(wg_sptr->get_cgroup_cpu_ctl_wptr())
+                                .build(&_cumu_compaction_thread_pool));
+    } else {
+        RETURN_IF_ERROR(ThreadPoolBuilder("BaseCompactionTaskThreadPool")
+                                .set_min_threads(base_thread_num)
+                                .set_max_threads(base_thread_num)
+                                .build(&_base_compaction_thread_pool));
+        RETURN_IF_ERROR(ThreadPoolBuilder("CumuCompactionTaskThreadPool")
+                                .set_min_threads(cumu_thread_num)
+                                .set_max_threads(cumu_thread_num)
+                                .build(&_cumu_compaction_thread_pool));
+    }
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "compaction_tasks_producer_thread",
             [this]() { this->_compaction_tasks_producer_callback(); },
@@ -558,14 +571,16 @@ std::vector<CloudTabletSPtr> CloudStorageEngine::_generate_cloud_compaction_task
     } else if (config::enable_parallel_cumu_compaction) {
         filter_out = [&tablet_preparing_cumu_compaction](CloudTablet* t) {
             return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
-                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
+                   (t->tablet_state() != TABLET_RUNNING &&
+                    (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
         };
     } else {
         filter_out = [&tablet_preparing_cumu_compaction,
                       &submitted_cumu_compactions](CloudTablet* t) {
             return tablet_preparing_cumu_compaction.contains(t->tablet_id()) ||
                    submitted_cumu_compactions.contains(t->tablet_id()) ||
-                   (t->tablet_state() != TABLET_RUNNING && t->alter_version() == -1);
+                   (t->tablet_state() != TABLET_RUNNING &&
+                    (!config::enable_new_tablet_do_compaction || t->alter_version() == -1));
         };
     }
 

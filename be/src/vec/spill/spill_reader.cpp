@@ -19,6 +19,7 @@
 
 #include <algorithm>
 
+#include "common/cast_set.h"
 #include "common/exception.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
@@ -27,6 +28,7 @@
 #include "util/slice.h"
 #include "vec/core/block.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 namespace io {
 class FileSystem;
 } // namespace io
@@ -113,7 +115,7 @@ Status SpillReader::read(Block* block, bool* eos) {
     if (bytes_read > 0) {
         {
             SCOPED_TIMER(deserialize_timer_);
-            if (!pb_block_.ParseFromArray(result.data, result.size)) {
+            if (!pb_block_.ParseFromArray(result.data, cast_set<int>(result.size))) {
                 return Status::InternalError("Failed to read spilled block");
             }
             RETURN_IF_ERROR(block->deserialize(pb_block_));

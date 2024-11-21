@@ -79,6 +79,10 @@ public class ExchangeNode extends PlanNode {
         computeTupleIds();
     }
 
+    public TPartitionType getPartitionType() {
+        return partitionType;
+    }
+
     public void setPartitionType(TPartitionType partitionType) {
         this.partitionType = partitionType;
     }
@@ -201,5 +205,34 @@ public class ExchangeNode extends PlanNode {
 
     public void setRightChildOfBroadcastHashJoin(boolean value) {
         isRightChildOfBroadcastHashJoin = value;
+    }
+
+    /**
+     * If table `t1` has unique key `k1` and value column `v1`.
+     * Now use plan below to load data into `t1`:
+     * ```
+     * FRAGMENT 0:
+     *  Merging Exchange (id = 1)
+     *   NL Join (id = 2)
+     *  DataStreamSender (id = 3, dst_id = 3) (TABLET_SINK_SHUFFLE_PARTITIONED)
+     *
+     * FRAGMENT 1:
+     *  Exchange (id = 3)
+     *  OlapTableSink (id = 4) ```
+     *
+     * In this plan, `Exchange (id = 1)` needs to do merge sort using column `k1` and `v1` so parallelism
+     * of FRAGMENT 0 must be 1 and data will be shuffled to FRAGMENT 1 which also has only 1 instance
+     * because this loading job relies on the global ordering of column `k1` and `v1`.
+     *
+     * So FRAGMENT 0 should not use serial source.
+     */
+    @Override
+    public boolean isSerialOperator() {
+        return partitionType == TPartitionType.UNPARTITIONED && mergeInfo != null;
+    }
+
+    @Override
+    public boolean hasSerialChildren() {
+        return isSerialOperator();
     }
 }

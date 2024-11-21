@@ -25,7 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
+import org.apache.doris.datasource.hive.HiveProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
@@ -42,7 +42,9 @@ import org.apache.doris.thrift.THivePartition;
 import org.apache.doris.thrift.THiveSerDeProperties;
 import org.apache.doris.thrift.THiveTableSink;
 
+import com.google.common.base.Strings;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -52,20 +54,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class HiveTableSink extends BaseExternalTableDataSink {
-    public static final String PROP_FIELD_DELIMITER = "field.delim";
-    public static final String DEFAULT_FIELD_DELIMITER = "\1";
-    public static final String PROP_SERIALIZATION_FORMAT = "serialization.format";
-    public static final String PROP_LINE_DELIMITER = "line.delim";
-    public static final String DEFAULT_LINE_DELIMITER = "\n";
-    public static final String PROP_COLLECT_DELIMITER = "collection.delim";
-    public static final String DEFAULT_COLLECT_DELIMITER = "\2";
-    public static final String PROP_MAPKV_DELIMITER = "mapkv.delim";
-    public static final String DEFAULT_MAPKV_DELIMITER = "\3";
-    public static final String PROP_ESCAPE_DELIMITER = "escape.delim";
-    public static final String DEFAULT_ESCAPE_DELIMIER = "\\";
-    public static final String PROP_NULL_FORMAT = "serialization.null.format";
-    public static final String DEFAULT_NULL_FORMAT = "\\N";
-
     private final HMSExternalTable targetTable;
     private static final HashSet<TFileFormatType> supportedTypes = new HashSet<TFileFormatType>() {{
             add(TFileFormatType.FORMAT_CSV_PLAIN);
@@ -145,7 +133,7 @@ public class HiveTableSink extends BaseExternalTableDataSink {
             if (insertCtx.isPresent()) {
                 HiveInsertCommandContext context = (HiveInsertCommandContext) insertCtx.get();
                 tSink.setOverwrite(context.isOverwrite());
-                context.setWritePath(storageLocation);
+                context.setWritePath(location);
                 context.setFileType(fileType);
             }
         } else {
@@ -184,10 +172,13 @@ public class HiveTableSink extends BaseExternalTableDataSink {
                 compressType = targetTable.getRemoteTable().getParameters().get("parquet.compression");
                 break;
             case FORMAT_CSV_PLAIN:
-                compressType = ConnectContext.get().getSessionVariable().hiveTextCompression();
+                compressType = targetTable.getRemoteTable().getParameters().get("text.compression");
+                if (Strings.isNullOrEmpty(compressType)) {
+                    compressType = ConnectContext.get().getSessionVariable().hiveTextCompression();
+                }
                 break;
             default:
-                compressType = "uncompressed";
+                compressType = "plain";
                 break;
         }
         tSink.setCompressionType(getTFileCompressType(compressType));
@@ -218,40 +209,19 @@ public class HiveTableSink extends BaseExternalTableDataSink {
 
     private void setSerDeProperties(THiveTableSink tSink) {
         THiveSerDeProperties serDeProperties = new THiveSerDeProperties();
+        Table table = targetTable.getRemoteTable();
         // 1. set field delimiter
-        Optional<String> fieldDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
-                PROP_FIELD_DELIMITER);
-        Optional<String> serFormat = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
-                PROP_SERIALIZATION_FORMAT);
-        serDeProperties.setFieldDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_FIELD_DELIMITER, fieldDelim, serFormat)));
+        serDeProperties.setFieldDelim(HiveProperties.getFieldDelimiter(table));
         // 2. set line delimiter
-        Optional<String> lineDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
-                PROP_LINE_DELIMITER);
-        serDeProperties.setLineDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_LINE_DELIMITER, lineDelim)));
+        serDeProperties.setLineDelim(HiveProperties.getLineDelimiter(table));
         // 3. set collection delimiter
-        Optional<String> collectDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
-                PROP_COLLECT_DELIMITER);
-        serDeProperties
-                .setCollectionDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                        DEFAULT_COLLECT_DELIMITER, collectDelim)));
+        serDeProperties.setCollectionDelim(HiveProperties.getCollectionDelimiter(table));
         // 4. set mapkv delimiter
-        Optional<String> mapkvDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
-                PROP_MAPKV_DELIMITER);
-        serDeProperties.setMapkvDelim(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_MAPKV_DELIMITER, mapkvDelim)));
+        serDeProperties.setMapkvDelim(HiveProperties.getMapKvDelimiter(table));
         // 5. set escape delimiter
-        Optional<String> escapeDelim = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
-                PROP_ESCAPE_DELIMITER);
-        serDeProperties
-                .setEscapeChar(HiveMetaStoreClientHelper.getByte(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                        DEFAULT_ESCAPE_DELIMIER, escapeDelim)));
+        HiveProperties.getEscapeDelimiter(table).ifPresent(serDeProperties::setEscapeChar);
         // 6. set null format
-        Optional<String> nullFormat = HiveMetaStoreClientHelper.getSerdeProperty(targetTable.getRemoteTable(),
-                PROP_NULL_FORMAT);
-        serDeProperties.setNullFormat(HiveMetaStoreClientHelper.firstPresentOrDefault(
-                DEFAULT_NULL_FORMAT, nullFormat));
+        serDeProperties.setNullFormat(HiveProperties.getNullFormat(table));
         tSink.setSerdeProperties(serDeProperties);
     }
 

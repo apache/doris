@@ -26,6 +26,7 @@
 #include "io/fs/local_file_system.h"
 #include "olap/wal/wal_manager.h"
 #include "pipeline/exec/file_scan_operator.h"
+#include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -107,7 +108,7 @@ private:
     TFileRangeDesc _range_desc;
     TFileScanRange _scan_range;
     std::unique_ptr<ShardedKVCache> _kv_cache = nullptr;
-    std::unique_ptr<TMasterInfo> _master_info = nullptr;
+    std::unique_ptr<ClusterInfo> _cluster_info = nullptr;
 };
 
 void VfileScannerExceptionTest::_init_desc_table() {
@@ -266,12 +267,12 @@ void VfileScannerExceptionTest::init() {
     _scan_range.params.format_type = TFileFormatType::FORMAT_JNI;
     _kv_cache.reset(new ShardedKVCache(48));
 
-    _master_info.reset(new TMasterInfo());
+    _cluster_info.reset(new ClusterInfo());
     _env = ExecEnv::GetInstance();
-    _env->_master_info = _master_info.get();
-    _env->_master_info->network_address.hostname = "host name";
-    _env->_master_info->network_address.port = _backend_id;
-    _env->_master_info->backend_id = 1001;
+    _env->_cluster_info = _cluster_info.get();
+    _env->_cluster_info->master_fe_addr.hostname = "host name";
+    _env->_cluster_info->master_fe_addr.port = _backend_id;
+    _env->_cluster_info->backend_id = 1001;
     _env->_wal_manager = 0;
 }
 

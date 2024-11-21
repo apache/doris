@@ -60,6 +60,7 @@ import org.apache.commons.lang3.StringUtils;
  * quantity { DAY | HOUR | MINUTE |
  * WEEK | SECOND }
  */
+@Deprecated
 @Slf4j
 public class CreateJobStmt extends DdlStmt implements NotFallbackInParser {
 

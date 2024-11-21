@@ -76,11 +76,21 @@ struct CorrMoment {
     }
 
     static String name() { return "corr"; }
+
+    void reset() {
+        m0 = {};
+        x1 = {};
+        y1 = {};
+        xy = {};
+        x2 = {};
+        y2 = {};
+    }
 };
 
 AggregateFunctionPtr create_aggregate_corr_function(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const bool result_is_nullable) {
+                                                    const bool result_is_nullable,
+                                                    const AggregateFunctionAttr& attr) {
     assert_binary(name, argument_types);
     return create_with_two_basic_numeric_types<CorrMoment>(argument_types[0], argument_types[1],
                                                            argument_types, result_is_nullable);

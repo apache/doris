@@ -92,7 +92,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     // table family group map
     private final Map<Long, Table> idToTable;
     private ConcurrentMap<String, Table> nameToTable;
-    // table name lower cast -> table name
+    // table name lower case -> table name
     private final Map<String, String> lowerCaseToTableName;
 
     // user define function
@@ -289,6 +289,9 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
 
     public void setDbProperties(DatabaseProperty dbProperties) {
         this.dbProperties = dbProperties;
+        if (PropertyAnalyzer.hasBinlogConfig(dbProperties.getProperties())) {
+            binlogConfig = dbProperties.getBinlogConfig();
+        }
     }
 
     public long getUsedDataQuotaWithLock() {
@@ -494,6 +497,19 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         return views;
     }
 
+    public List<Table> getViewsOnIdOrder() {
+        List<Table> tables = idToTable.values().stream()
+                .sorted(Comparator.comparing(Table::getId))
+                .collect(Collectors.toList());
+        List<Table> views = new ArrayList<>();
+        for (Table table : tables) {
+            if (table.getType() == TableType.VIEW) {
+                views.add(table);
+            }
+        }
+        return views;
+    }
+
     /**
      * this method is used for get existed table list by table id list, if table not exist, just ignore it.
      */
@@ -533,6 +549,10 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         } finally {
             readUnlock();
         }
+    }
+
+    public Set<String> getTableNames() {
+        return new HashSet<>(this.nameToTable.keySet());
     }
 
     /**

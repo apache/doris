@@ -142,7 +142,6 @@ public:
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
 
-private:
     ColumnVector() = default;
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
@@ -173,6 +172,8 @@ public:
         data.resize(old_size + n);
         std::fill(data.data() + old_size, data.data() + old_size + n, val);
     }
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override;
 
     void insert_range_of_integer(T begin, T end) {
         if constexpr (std::is_integral_v<T>) {
@@ -336,7 +337,7 @@ public:
 
     void resize(size_t n) override { data.resize(n); }
 
-    const char* get_family_name() const override;
+    std::string get_name() const override { return TypeName<T>::get(); }
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
@@ -371,15 +372,6 @@ public:
     ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
-
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector);
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        this->template append_data_by_selector_impl<Self>(res, selector, begin, end);
-    }
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }

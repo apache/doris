@@ -41,6 +41,7 @@
 #include "vec/runtime/vsorted_run_merger.h"
 
 namespace doris::vectorized {
+#include "common/compile_check_begin.h"
 
 VDataStreamRecvr::SenderQueue::SenderQueue(
         VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile,
@@ -96,6 +97,7 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     DCHECK(!_block_queue.empty());
     auto [next_block, block_byte_size] = std::move(_block_queue.front());
     _block_queue.pop_front();
+    _recvr->_parent->memory_used_counter()->update(-(int64_t)block_byte_size);
     sub_blocks_memory_usage(block_byte_size);
     _record_debug_info();
     if (_block_queue.empty() && _source_dependency) {
@@ -207,6 +209,9 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
         _pending_closures.emplace_back(*done, monotonicStopWatch);
         *done = nullptr;
     }
+    _recvr->_parent->memory_used_counter()->update(block_byte_size);
+    _recvr->_parent->peak_memory_usage_counter()->set(
+            _recvr->_parent->memory_used_counter()->value());
     add_blocks_memory_usage(block_byte_size);
     return Status::OK();
 }
@@ -245,6 +250,9 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         _record_debug_info();
         try_set_dep_ready_without_lock();
         COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
+        _recvr->_parent->memory_used_counter()->update(block_mem_size);
+        _recvr->_parent->peak_memory_usage_counter()->set(
+                _recvr->_parent->memory_used_counter()->value());
         add_blocks_memory_usage(block_mem_size);
     }
 }
@@ -315,12 +323,13 @@ void VDataStreamRecvr::SenderQueue::close() {
     _block_queue.clear();
 }
 
-VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* state,
-                                   const RowDescriptor& row_desc,
+VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, pipeline::ExchangeLocalState* parent,
+                                   RuntimeState* state, const RowDescriptor& row_desc,
                                    const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id,
                                    int num_senders, bool is_merging, RuntimeProfile* profile)
         : HasTaskExecutionCtx(state),
           _mgr(stream_mgr),
+          _parent(parent),
           _query_thread_context(state->query_id(), state->query_mem_tracker(),
                                 state->get_query_ctx()->workload_group()),
           _fragment_instance_id(fragment_instance_id),
@@ -352,9 +361,6 @@ VDataStreamRecvr::VDataStreamRecvr(VDataStreamMgr* stream_mgr, RuntimeState* sta
     }
 
     // Initialize the counters
-    _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
-    _peak_memory_usage_counter =
-            _profile->add_counter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
     _remote_bytes_received_counter = ADD_COUNTER(_profile, "RemoteBytesReceived", TUnit::BYTES);
     _local_bytes_received_counter = ADD_COUNTER(_profile, "LocalBytesReceived", TUnit::BYTES);
 
@@ -417,7 +423,6 @@ std::shared_ptr<pipeline::Dependency> VDataStreamRecvr::get_local_channel_depend
 }
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
-    _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     if (!_is_merging) {
         block->clear();
         return _sender_queues[0]->get_batch(block, eos);
@@ -492,9 +497,6 @@ void VDataStreamRecvr::close() {
     _mgr = nullptr;
 
     _merger.reset();
-    if (_peak_memory_usage_counter) {
-        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
-    }
 }
 
 void VDataStreamRecvr::set_sink_dep_always_ready() const {

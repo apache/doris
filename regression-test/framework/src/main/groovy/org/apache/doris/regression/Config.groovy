@@ -45,6 +45,7 @@ class Config {
     public String jdbcUrl
     public String jdbcUser
     public String jdbcPassword
+
     public String defaultDb
 
     public String ccrDownstreamUrl
@@ -70,7 +71,7 @@ class Config {
     public String metaServiceHttpAddress
     public String recycleServiceHttpAddress
 
-    public RunMode isCloudMode = RunMode.UNKNOWN
+    public RunMode runMode = RunMode.UNKNOWN
 
     public String suitePath
     public String dataPath
@@ -121,6 +122,7 @@ class Config {
     public Integer actionParallel
     public Integer times
     public boolean withOutLoadData
+    public boolean runNonConcurrent
     public String caseNamePrefix
     public boolean isSmokeTest
     public String multiClusterBes
@@ -299,6 +301,20 @@ class Config {
         config.dorisComposePath = FileUtils.getCanonicalPath(config.dorisComposePath)
         config.image = cmd.getOptionValue(imageOpt, config.image)
         config.dockerEndNoKill = cmd.hasOption(noKillDockerOpt)
+        if (cmd.hasOption(runModeOpt)) {
+            String runMode = cmd.getOptionValue(runModeOpt, "unknown")
+            if (runMode.equalsIgnoreCase("unknown")) {
+                config.runMode = RunMode.UNKNOWN;
+            } else if (runMode.equalsIgnoreCase("cloud")) {
+                config.runMode = RunMode.CLOUD;
+            } else if (runMode.equalsIgnoreCase("not_cloud")) {
+                config.runMode = RunMode.NOT_CLOUD;
+            } else {
+                throw new IllegalStateException("Bad runMode: ${runMode}, should be one of unknown/cloud/not_cloud, "
+                        + "if is unknown, fetch it from fe")
+            }
+        }
+        log.info("runMode: ${config.runMode}")
         config.suiteWildcard = cmd.getOptionValue(suiteOpt, config.testSuites)
                 .split(",")
                 .collect({s -> s.trim()})
@@ -474,6 +490,7 @@ class Config {
         config.randomOrder = cmd.hasOption(randomOrderOpt)
         config.stopWhenFail = cmd.hasOption(stopWhenFailOpt)
         config.withOutLoadData = cmd.hasOption(withOutLoadDataOpt)
+        config.runNonConcurrent = Boolean.parseBoolean(cmd.getOptionValue(runNonConcurrentOpt, "True"))
         config.caseNamePrefix = cmd.getOptionValue(caseNamePrefixOpt, config.caseNamePrefix)
         config.dryRun = cmd.hasOption(dryRunOpt)
         config.isSmokeTest = cmd.hasOption(isSmokeTestOpt)
@@ -481,6 +498,7 @@ class Config {
         log.info("randomOrder is ${config.randomOrder}".toString())
         log.info("stopWhenFail is ${config.stopWhenFail}".toString())
         log.info("withOutLoadData is ${config.withOutLoadData}".toString())
+        log.info("runNonConcurrent is ${config.runNonConcurrent}".toString())
         log.info("caseNamePrefix is ${config.caseNamePrefix}".toString())
         log.info("dryRun is ${config.dryRun}".toString())
         def s3SourceList = ["aliyun", "aliyun-internal", "tencent", "huawei", "azure", "gcp"]
@@ -497,8 +515,15 @@ class Config {
         Properties props = cmd.getOptionProperties("conf")
         config.otherConfigs.putAll(props)
 
-        config.tryCreateDbIfNotExist()
-        config.buildUrlWithDefaultDb()
+        // mainly auth_xxx cases use defaultDb, these suites better not use defaultDb
+        config.createDefaultDb()
+
+        try {
+            config.fetchCloudMode()
+        } catch (Exception e) {
+            // docker suite no need external cluster.
+            // so can ignore error here.
+        }
 
         return config
     }
@@ -644,7 +669,7 @@ class Config {
             if (config.s3Source == "aliyun") {
                 s3BucketName = "doris-regression-hk"
             } else if (config.s3Source == "aliyun-internal") {
-                s3BucketName = "doris-regression"
+                s3BucketName = "doris-regression-bj"
             } else if (config.s3Source == "tencent") {
                 s3BucketName = "doris-build-1308700295"
             } else if (config.s3Source == "huawei") {
@@ -919,7 +944,25 @@ class Config {
         return null
     }
 
-    void tryCreateDbIfNotExist(String dbName = defaultDb) {
+    void createDefaultDb() {
+        String dbName = null
+        try {
+            tryCreateDbIfNotExist(defaultDb)
+            dbName = defaultDb
+        } catch (Exception e) {
+            // defaultDb is not need for most cases.
+            // when run docker suites without external fe/be,  createDefaultDb will fail, but can ignore this exception.
+            // Infact, only mainly auth_xxx cases use defaultDb, and they just use jdbcUrl in connect function.
+            // And they can avoid using defaultDb too. But modify all these cases take a lot work.
+            // We better delete all the usage of defaultDb in suites later, and all suites should use their own db, not the defaultDb.
+            log.warn("create default db failed ${defaultDb}".toString())
+        }
+
+        jdbcUrl = buildUrlWithDb(jdbcUrl, dbName)
+        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
+    }
+
+    void tryCreateDbIfNotExist(String dbName) {
         // connect without specify default db
         try {
             String sql = "CREATE DATABASE IF NOT EXISTS ${dbName}"
@@ -949,17 +992,20 @@ class Config {
         }
     }
 
-    boolean fetchRunMode() {
-        if (isCloudMode == RunMode.UNKNOWN) {
+    boolean isCloudMode() {
+        fetchCloudMode()
+        return runMode == RunMode.CLOUD
+    }
+
+    void fetchCloudMode() {
+        if (runMode == RunMode.UNKNOWN) {
             try {
                 def result = JdbcUtils.executeToMapArray(getRootConnection(), "SHOW FRONTEND CONFIG LIKE 'cloud_unique_id'")
-                isCloudMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
+                runMode = result[0].Value.toString().isEmpty() ? RunMode.NOT_CLOUD : RunMode.CLOUD
             } catch (Throwable t) {
                 throw new IllegalStateException("Fetch server config 'cloud_unique_id' failed, jdbcUrl: ${jdbcUrl}", t)
             }
         }
-        return isCloudMode == RunMode.CLOUD
-
     }
 
     Connection getConnection() {
@@ -971,10 +1017,14 @@ class Config {
     }
 
     Connection getConnectionByDbName(String dbName) {
-        String dbUrl = buildUrlWithDb(jdbcUrl, dbName)
+        String dbUrl = getConnectionUrlByDbName(dbName)
         tryCreateDbIfNotExist(dbName)
         log.info("connect to ${dbUrl}".toString())
         return DriverManager.getConnection(dbUrl, jdbcUser, jdbcPassword)
+    }
+
+    String getConnectionUrlByDbName(String dbName) {
+        return buildUrlWithDb(jdbcUrl, dbName)
     }
 
     Connection getConnectionByArrowFlightSql(String dbName) {
@@ -1053,12 +1103,11 @@ class Config {
         }
     }
 
-    public void buildUrlWithDefaultDb() {
-        this.jdbcUrl = buildUrlWithDb(jdbcUrl, defaultDb)
-        log.info("Reset jdbcUrl to ${jdbcUrl}".toString())
-    }
-
     public static String buildUrlWithDbImpl(String jdbcUrl, String dbName) {
+        if (!dbName?.trim()) {
+            return jdbcUrl
+        }
+
         String urlWithDb = jdbcUrl
         String urlWithoutSchema = jdbcUrl.substring(jdbcUrl.indexOf("://") + 3)
         if (urlWithoutSchema.indexOf("/") >= 0) {
@@ -1085,6 +1134,14 @@ class Config {
         urlWithDb = addTimeoutUrl(urlWithDb);
 
         return urlWithDb
+    }
+
+    public static String buildUrlWithDb(String host, int queryPort, String dbName) {
+        def url = String.format(
+            "jdbc:mysql://%s:%s/?useLocalSessionState=true&allowLoadLocalInfile=false",
+            host, queryPort)
+        url = buildUrlWithDb(url, dbName)
+        return url
     }
 
     private static String addSslUrl(String url) {

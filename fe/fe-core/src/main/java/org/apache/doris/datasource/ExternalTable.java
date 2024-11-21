@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableIndexes;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
@@ -194,7 +195,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
             makeSureInitialized();
         } catch (Exception e) {
             LOG.warn("Failed to initialize table {}.{}.{}", catalog.getName(), dbName, name, e);
-            return -1;
+            return TableIf.UNKNOWN_ROW_COUNT;
         }
         // All external table should get external row count from cache.
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
@@ -202,14 +203,15 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public long getCachedRowCount() {
-        // Return -1 if makeSureInitialized throw exception.
-        // For example, init hive table may throw NotSupportedException.
-        try {
-            makeSureInitialized();
-        } catch (Exception e) {
-            LOG.warn("Failed to initialize table {}.{}.{}", catalog.getName(), dbName, name, e);
+        // Return -1 if uninitialized.
+        // Before this, for uninitialized tables, we would call makeSureInitialized(), just like the implementation of
+        // ExternalTable.getRowCount(), but this is not very meaningful and time-consuming.
+        // The getCachedRowCount() function is only used when `show table` and querying `information_schema.tables`.
+        if (!isObjectCreated()) {
             return -1;
         }
+        // getExtMetaCacheMgr().getRowCountCache().getCachedRowCount() is an asynchronous non-blocking operation.
+        // For tables that are not in the cache, it will load asynchronously and return -1.
         return Env.getCurrentEnv().getExtMetaCacheMgr().getRowCountCache().getCachedRowCount(catalog.getId(), dbId, id);
     }
 
@@ -219,7 +221,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
      * This is called by ExternalRowCountCache to load row count cache.
      */
     public long fetchRowCount() {
-        return -1;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -356,5 +358,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     protected Optional<SchemaCacheValue> getSchemaCacheValue() {
         ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
         return cache.getSchemaValue(dbName, name);
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }

@@ -17,19 +17,13 @@
 
 #pragma once
 
-#include <arrow/type.h>
-#include <cctz/time_zone.h>
-#include <stddef.h>
-
-#include <memory>
-#include <vector>
-
 #include "common/status.h"
 #include "runtime/result_writer.h"
 #include "util/runtime_profile.h"
 #include "vec/exprs/vexpr_fwd.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 class BufferControlBlock;
 class RuntimeState;
 
@@ -39,8 +33,7 @@ class Block;
 class VArrowFlightResultWriter final : public ResultWriter {
 public:
     VArrowFlightResultWriter(BufferControlBlock* sinker, const VExprContextSPtrs& output_vexpr_ctxs,
-                             RuntimeProfile* parent_profile,
-                             const std::shared_ptr<arrow::Schema>& arrow_schema);
+                             RuntimeProfile* parent_profile);
 
     Status init(RuntimeState* state) override;
 
@@ -58,8 +51,6 @@ private:
     RuntimeProfile* _parent_profile = nullptr; // parent profile from result sink. not owned
     // total time cost on append batch operation
     RuntimeProfile::Counter* _append_row_batch_timer = nullptr;
-    // tuple convert timer, child timer of _append_row_batch_timer
-    RuntimeProfile::Counter* _convert_tuple_timer = nullptr;
     // file write timer, child timer of _append_row_batch_timer
     RuntimeProfile::Counter* _result_send_timer = nullptr;
     // number of sent rows
@@ -70,10 +61,8 @@ private:
     bool _is_dry_run = false;
 
     uint64_t _bytes_sent = 0;
-
-    std::shared_ptr<arrow::Schema> _arrow_schema;
-
-    cctz::time_zone _timezone_obj;
 };
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

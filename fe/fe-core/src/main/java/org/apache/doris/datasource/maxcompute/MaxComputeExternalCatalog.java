@@ -29,20 +29,34 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
+import com.aliyun.odps.Project;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
+import com.aliyun.odps.security.SecurityManager;
 import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.enviroment.Credentials;
 import com.aliyun.odps.table.enviroment.EnvironmentSettings;
+import com.aliyun.odps.utils.StringUtils;
 import com.google.common.collect.ImmutableList;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import org.apache.log4j.Logger;
 
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
+    private static final Logger LOG = Logger.getLogger(MaxComputeExternalCatalog.class);
+
+    // you can ref : https://help.aliyun.com/zh/maxcompute/user-guide/endpoints
+    private static final String endpointTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
+
     private Odps odps;
     private String accessKey;
     private String secretKey;
@@ -50,16 +64,47 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private String defaultProject;
     private String quota;
     private EnvironmentSettings settings;
+    private String catalogOwner;
 
     private String splitStrategy;
     private SplitOptions splitOptions;
     private long splitRowCount;
     private long splitByteSize;
 
+    private static final Map<String, ZoneId> REGION_ZONE_MAP;
     private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             MCProperties.PROJECT,
             MCProperties.ENDPOINT
     );
+
+    static {
+        Map<String, ZoneId> map = new HashMap<>();
+
+        map.put("cn-hangzhou", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-shanghai", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-shanghai-finance-1", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-beijing", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-north-2-gov-1", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-zhangjiakou", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-wulanchabu", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-shenzhen", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-shenzhen-finance-1", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-chengdu", ZoneId.of("Asia/Shanghai"));
+        map.put("cn-hongkong", ZoneId.of("Asia/Shanghai"));
+        map.put("ap-southeast-1", ZoneId.of("Asia/Singapore"));
+        map.put("ap-southeast-2", ZoneId.of("Australia/Sydney"));
+        map.put("ap-southeast-3", ZoneId.of("Asia/Kuala_Lumpur"));
+        map.put("ap-southeast-5", ZoneId.of("Asia/Jakarta"));
+        map.put("ap-northeast-1", ZoneId.of("Asia/Tokyo"));
+        map.put("eu-central-1", ZoneId.of("Europe/Berlin"));
+        map.put("eu-west-1", ZoneId.of("Europe/London"));
+        map.put("us-west-1", ZoneId.of("America/Los_Angeles"));
+        map.put("us-east-1", ZoneId.of("America/New_York"));
+        map.put("me-east-1", ZoneId.of("Asia/Dubai"));
+
+        REGION_ZONE_MAP = Collections.unmodifiableMap(map);
+    }
+
 
     public MaxComputeExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
                                      String comment) {
@@ -67,11 +112,50 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         catalogProperty = new CatalogProperty(resource, props);
     }
 
+    //Compatible with existing catalogs in previous versions.
+    protected void generatorEndpoint() {
+        Map<String, String> props = catalogProperty.getProperties();
+
+        if (props.containsKey(MCProperties.ENDPOINT)) {
+            // This is a new version of the property, so no parsing conversion is required.
+            endpoint = props.get(MCProperties.ENDPOINT);
+        } else if (props.containsKey(MCProperties.TUNNEL_SDK_ENDPOINT)) {
+            // If customized `mc.tunnel_endpoint` before,
+            // need to convert the value of this property because used the `tunnel API` before.
+            String tunnelEndpoint = props.get(MCProperties.TUNNEL_SDK_ENDPOINT);
+            endpoint = tunnelEndpoint.replace("//dt", "//service") + "/api";
+        } else if (props.containsKey(MCProperties.ODPS_ENDPOINT)) {
+            // If you customized `mc.odps_endpoint` before,
+            // this value is equivalent to the new version of `mc.endpoint`, so you can use it directly
+            endpoint = props.get(MCProperties.ODPS_ENDPOINT);
+        } else if (props.containsKey(MCProperties.REGION)) {
+            //Copied from original logic.
+            String region = props.get(MCProperties.REGION);
+            if (region.startsWith("oss-")) {
+                // may use oss-cn-beijing, ensure compatible
+                region = region.replace("oss-", "");
+            }
+            boolean enablePublicAccess = Boolean.parseBoolean(props.getOrDefault(MCProperties.PUBLIC_ACCESS,
+                    MCProperties.DEFAULT_PUBLIC_ACCESS));
+            endpoint = endpointTemplate.replace("{}", region);
+            if (enablePublicAccess) {
+                endpoint = endpoint.replace("-inc", "");
+            }
+        }
+        /*
+            Since MCProperties.REGION is a REQUIRED_PROPERTIES in previous versions
+            and MCProperties.ENDPOINT is a REQUIRED_PROPERTIES in current versions,
+            `else {}` is not needed here.
+         */
+    }
+
+
     @Override
     protected void initLocalObjectsImpl() {
         Map<String, String> props = catalogProperty.getProperties();
 
-        endpoint = props.get(MCProperties.ENDPOINT);
+        generatorEndpoint();
+
         defaultProject = props.get(MCProperties.PROJECT);
         quota = props.getOrDefault(MCProperties.QUOTA, MCProperties.DEFAULT_QUOTA);
 
@@ -124,26 +208,25 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         List<String> result = new ArrayList<>();
         result.add(defaultProject);
 
-        // TODO: Improve `show tables` and `select * from table` when `use other project`.
-        // try {
-        //     result.add(defaultProject);
-        //     if (StringUtils.isNullOrEmpty(catalogOwner)) {
-        //         SecurityManager sm = odps.projects().get().getSecurityManager();
-        //         String whoami = sm.runQuery("whoami", false);
-        //
-        //         JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
-        //         catalogOwner = js.get("DisplayName").getAsString();
-        //     }
-        //     Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
-        //     while (iterator.hasNext()) {
-        //         Project project = iterator.next();
-        //         if (!project.getName().equals(defaultProject)) {
-        //             result.add(project.getName());
-        //         }
-        //     }
-        // } catch (OdpsException e) {
-        //     throw new RuntimeException(e);
-        // }
+        try {
+            result.add(defaultProject);
+            if (StringUtils.isNullOrEmpty(catalogOwner)) {
+                SecurityManager sm = odps.projects().get().getSecurityManager();
+                String whoami = sm.runQuery("whoami", false);
+
+                JsonObject js = JsonParser.parseString(whoami).getAsJsonObject();
+                catalogOwner = js.get("DisplayName").getAsString();
+            }
+            Iterator<Project> iterator = odps.projects().iterator(catalogOwner);
+            while (iterator.hasNext()) {
+                Project project = iterator.next();
+                if (!project.getName().equals(defaultProject)) {
+                    result.add(project.getName());
+                }
+            }
+        } catch (OdpsException e) {
+            throw new RuntimeException(e);
+        }
         return result;
     }
 
@@ -166,11 +249,11 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
             if (getClient().projects().exists(dbName)) {
                 List<Partition> parts;
                 if (limit < 0) {
-                    parts = getClient().tables().get(tbl).getPartitions();
+                    parts = getClient().tables().get(dbName, tbl).getPartitions();
                 } else {
                     skip = skip < 0 ? 0 : skip;
                     parts = new ArrayList<>();
-                    Iterator<Partition> it = getClient().tables().get(tbl).getPartitionIterator();
+                    Iterator<Partition> it = getClient().tables().get(dbName, tbl).getPartitionIterator();
                     int count = 0;
                     while (it.hasNext()) {
                         if (count < skip) {
@@ -197,7 +280,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public List<String> listTableNames(SessionContext ctx, String dbName) {
         makeSureInitialized();
         List<String> result = new ArrayList<>();
-        getClient().tables().forEach(e -> result.add(e.getName()));
+        getClient().tables().iterable(dbName).forEach(e -> result.add(e.getName()));
         return result;
     }
 
@@ -219,6 +302,26 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public String getDefaultProject() {
         makeSureInitialized();
         return defaultProject;
+    }
+
+    public ZoneId getProjectDateTimeZone() {
+        makeSureInitialized();
+
+        String[] endpointSplit = endpoint.split("\\.");
+        if (endpointSplit.length >= 2) {
+            // http://service.cn-hangzhou-vpc.maxcompute.aliyun-inc.com/api => cn-hangzhou-vpc
+            String regionAndSuffix = endpointSplit[1];
+
+            //remove `-vpc` and `-intranet` suffix.
+            String region = regionAndSuffix.replace("-vpc", "").replace("-intranet", "");
+            if (REGION_ZONE_MAP.containsKey(region)) {
+                return REGION_ZONE_MAP.get(region);
+            }
+            LOG.warn("Not exist region. region = " + region + ". endpoint = " + endpoint + ". use systemDefault.");
+            return ZoneId.systemDefault();
+        }
+        LOG.warn("Split EndPoint " + endpoint + "fill. use systemDefault.");
+        return ZoneId.systemDefault();
     }
 
     public String getQuota() {

@@ -266,6 +266,9 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* bl
     } while (block->rows() == 0 && !*eos);
 
     local_state.reached_limit(block, eos);
+    if (*eos) {
+        local_state._finish_dependency->set_always_ready();
+    }
     return Status::OK();
 }
 

@@ -77,12 +77,14 @@ struct LocalMergeFilters {
 class RuntimeFilterMgr {
 public:
     RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state,
-                     const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker);
+                     const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker,
+                     const bool is_global);
 
     ~RuntimeFilterMgr();
 
     Status get_consume_filters(const int filter_id,
                                std::vector<std::shared_ptr<IRuntimeFilter>>& consumer_filters);
+    std::vector<std::shared_ptr<IRuntimeFilter>> get_consume_filters(const int filter_id);
 
     std::shared_ptr<IRuntimeFilter> try_get_product_filter(const int filter_id) {
         std::lock_guard<std::mutex> l(_lock);
@@ -100,10 +102,11 @@ public:
 
     Status register_local_merge_producer_filter(const TRuntimeFilterDesc& desc,
                                                 const TQueryOptions& options,
-                                                std::shared_ptr<IRuntimeFilter>* producer_filter,
+                                                std::shared_ptr<IRuntimeFilter> producer_filter,
                                                 bool build_bf_exactly = false);
 
     Status get_local_merge_producer_filters(int filter_id, LocalMergeFilters** local_merge_filters);
+    LocalMergeFilters* get_local_merge_producer_filters(int filter_id);
 
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     std::shared_ptr<IRuntimeFilter>* producer_filter,
@@ -124,6 +127,18 @@ private:
         int node_id;
         std::shared_ptr<IRuntimeFilter> filter;
     };
+    /**
+     * `_is_global = true` means this runtime filter manager menages query-level runtime filters.
+     * If so, all consumers in this query shared the same RF with the same ID. For producers, all
+     * RFs produced should be merged.
+     *
+     * If `_is_global` is false, a RF will be produced and consumed by a single-producer-single-consumer mode.
+     * This is usually happened in a co-located join and scan operators are not serial.
+     *
+     * `_local_merge_producer_map` is used only if `_is_global` is true. It is said, RFs produced by
+     * different producers need to be merged only if it is a global RF.
+     */
+    const bool _is_global;
     // RuntimeFilterMgr is owned by RuntimeState, so we only
     // use filter_id as key
     // key: "filter-id"
@@ -156,10 +171,11 @@ public:
                 const TQueryOptions& query_options);
 
     // handle merge rpc
-    Status merge(const PMergeFilterRequest* request,
+    Status merge(std::weak_ptr<QueryContext> query_ctx, const PMergeFilterRequest* request,
                  butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    Status send_filter_size(const PSendFilterSizeRequest* request);
+    Status send_filter_size(std::weak_ptr<QueryContext> query_ctx,
+                            const PSendFilterSizeRequest* request);
 
     UniqueId query_id() const { return _query_id; }
 
@@ -168,7 +184,6 @@ public:
         int producer_size;
         uint64_t global_size;
         TRuntimeFilterDesc runtime_filter_desc;
-        std::vector<doris::TRuntimeFilterTargetParams> target_info;
         std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
         IRuntimeFilter* filter = nullptr;
         std::unordered_set<UniqueId> arrive_id;
@@ -268,24 +283,22 @@ private:
     FilterControllerMap _filter_controller_map[kShardNum];
 };
 
-//There are two types of runtime filters:
-// one is global, originating from QueryContext,
-// and the other is local, originating from RuntimeState.
-// In practice, we have already distinguished between them through UpdateRuntimeFilterParamsV2/V1.
-// RuntimeState/QueryContext is only used to store runtime_filter_wait_time_ms...
+// There are two types of runtime filters:
+// 1. Global runtime filter. Managed by QueryContext's RuntimeFilterMgr which is produced by multiple producers and shared by multiple consumers.
+// 2. Local runtime filter. Managed by RuntimeState's RuntimeFilterMgr which is 1-producer-1-consumer mode.
 struct RuntimeFilterParamsContext {
-    RuntimeFilterParamsContext() = default;
     static RuntimeFilterParamsContext* create(RuntimeState* state);
     static RuntimeFilterParamsContext* create(QueryContext* query_ctx);
 
-    bool runtime_filter_wait_infinitely;
-    int32_t runtime_filter_wait_time_ms;
-    int32_t execution_timeout;
-    RuntimeFilterMgr* runtime_filter_mgr;
-    ExecEnv* exec_env;
-    PUniqueId query_id;
-    int be_exec_version;
-    QueryContext* query_ctx;
-    QueryContext* get_query_ctx() const { return query_ctx; }
+    QueryContext* get_query_ctx() const { return _query_ctx; }
+    void set_state(RuntimeState* state) { _state = state; }
+    RuntimeFilterMgr* global_runtime_filter_mgr();
+    RuntimeFilterMgr* local_runtime_filter_mgr();
+
+private:
+    RuntimeFilterParamsContext() = default;
+
+    QueryContext* _query_ctx;
+    RuntimeState* _state;
 };
 } // namespace doris

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternMatcher;
 import org.apache.doris.nereids.rules.expression.ExpressionPatternRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -25,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.math.BigDecimal;
@@ -58,15 +58,17 @@ public class SimplifyDecimalV3Comparison implements ExpressionPatternRuleFactory
         if (left.getDataType() instanceof DecimalV3Type
                 && left instanceof Cast
                 && ((Cast) left).child().getDataType() instanceof DecimalV3Type
+                && ((DecimalV3Type) left.getDataType()).getScale()
+                >= ((DecimalV3Type) ((Cast) left).child().getDataType()).getScale()
                 && right instanceof DecimalV3Literal) {
-            return doProcess(cp, (Cast) left, (DecimalV3Literal) right);
+            try {
+                return doProcess(cp, (Cast) left, (DecimalV3Literal) right);
+            } catch (ArithmeticException e) {
+                return cp;
+            }
         }
 
-        if (left != cp.left() || right != cp.right()) {
-            return cp.withChildren(left, right);
-        } else {
-            return cp;
-        }
+        return cp;
     }
 
     private static Expression doProcess(ComparisonPredicate cp, Cast left, DecimalV3Literal right) {
@@ -80,13 +82,16 @@ public class SimplifyDecimalV3Comparison implements ExpressionPatternRuleFactory
         }
 
         Expression castChild = left.child();
-        Preconditions.checkState(castChild.getDataType() instanceof DecimalV3Type);
+        if (!(castChild.getDataType() instanceof DecimalV3Type)) {
+            throw new AnalysisException("cast child's type should be DecimalV3Type, but its type is "
+                    + castChild.getDataType().toSql());
+        }
         DecimalV3Type leftType = (DecimalV3Type) castChild.getDataType();
-        if (scale <= leftType.getScale() && precision - scale <= leftType.getPrecision() - leftType.getScale()) {
+        if (scale <= leftType.getScale() && precision - scale <= leftType.getRange()) {
             // precision and scale of literal all smaller than left, we don't need the cast
             DecimalV3Literal newRight = new DecimalV3Literal(
                     DecimalV3Type.createDecimalV3TypeLooseCheck(leftType.getPrecision(), leftType.getScale()),
-                    trailingZerosValue);
+                    trailingZerosValue.setScale(leftType.getScale(), RoundingMode.UNNECESSARY));
             return cp.withChildren(castChild, newRight);
         } else {
             return cp;

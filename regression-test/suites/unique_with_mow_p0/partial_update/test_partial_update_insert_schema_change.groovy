@@ -49,7 +49,7 @@ suite("test_partial_update_insert_schema_change", "p0") {
     
     // schema change
     sql " ALTER table ${tableName} add column c10 INT DEFAULT '0' "
-    def try_times=12000
+    def try_times=1200
     // if timeout awaitility will raise exception
     Awaitility.await().atMost(try_times, TimeUnit.SECONDS).with().pollDelay(100, TimeUnit.MILLISECONDS).await().until(() -> {
         def res = sql " SHOW ALTER TABLE COLUMN WHERE TableName = '${tableName}' ORDER BY CreateTime DESC LIMIT 1 "

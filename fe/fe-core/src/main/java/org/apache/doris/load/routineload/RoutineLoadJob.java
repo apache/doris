@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -112,7 +113,7 @@ public abstract class RoutineLoadJob
     public static final long DEFAULT_MAX_ERROR_NUM = 0;
     public static final double DEFAULT_MAX_FILTER_RATIO = 1.0;
 
-    public static final long DEFAULT_MAX_INTERVAL_SECOND = 10;
+    public static final long DEFAULT_MAX_INTERVAL_SECOND = 60;
     public static final long DEFAULT_MAX_BATCH_ROWS = 20000000;
     public static final long DEFAULT_MAX_BATCH_SIZE = 1024 * 1024 * 1024; // 1GB
     public static final long DEFAULT_EXEC_MEM_LIMIT = 2 * 1024 * 1024 * 1024L;
@@ -343,7 +344,11 @@ public abstract class RoutineLoadJob
             sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
             this.memtableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
             this.qualifiedUser = ConnectContext.get().getQualifiedUser();
-            this.cloudCluster = ConnectContext.get().getCloudCluster();
+            try {
+                this.cloudCluster = ConnectContext.get().getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get cloud cluster", e);
+            }
         } else {
             sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -615,7 +620,7 @@ public abstract class RoutineLoadJob
 
     @Override
     public int getTimeout() {
-        return (int) getMaxBatchIntervalS();
+        return (int) getMaxBatchIntervalS() * Config.routine_load_task_timeout_multiplier;
     }
 
     @Override
@@ -702,7 +707,7 @@ public abstract class RoutineLoadJob
     }
 
     @Override
-    public boolean isPartialUpdate() {
+    public boolean isFixedPartialUpdate() {
         return isPartialUpdate;
     }
 
@@ -1556,6 +1561,11 @@ public abstract class RoutineLoadJob
 
     public String getCloudClusterId() {
         return cloudClusterId;
+    }
+
+    public void setCloudClusterById() {
+        this.cloudCluster = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                        .getClusterNameByClusterId(cloudClusterId);
     }
 
     // check the correctness of commit info

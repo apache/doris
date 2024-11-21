@@ -26,17 +26,18 @@ namespace doris::io {
 
 inline static constexpr size_t REMOTE_FS_OBJECTS_CACHE_DEFAULT_ELEMENTS = 100 * 1024;
 inline static constexpr size_t FILE_CACHE_MAX_FILE_BLOCK_SIZE = 1 * 1024 * 1024;
-inline static constexpr size_t DEFAULT_NORMAL_PERCENT = 85;
-inline static constexpr size_t DEFAULT_DISPOSABLE_PERCENT = 10;
+inline static constexpr size_t DEFAULT_NORMAL_PERCENT = 40;
+inline static constexpr size_t DEFAULT_DISPOSABLE_PERCENT = 5;
 inline static constexpr size_t DEFAULT_INDEX_PERCENT = 5;
+inline static constexpr size_t DEFAULT_TTL_PERCENT = 50;
 
 using uint128_t = vectorized::UInt128;
 
-enum class FileCacheType {
-    INDEX,
-    NORMAL,
-    DISPOSABLE,
-    TTL,
+enum FileCacheType {
+    INDEX = 2,
+    NORMAL = 1,
+    DISPOSABLE = 0,
+    TTL = 3,
 };
 
 struct UInt128Wrapper {
@@ -93,14 +94,22 @@ struct FileCacheSettings {
     size_t index_queue_elements {0};
     size_t query_queue_size {0};
     size_t query_queue_elements {0};
+    size_t ttl_queue_size {0};
+    size_t ttl_queue_elements {0};
     size_t max_file_block_size {0};
     size_t max_query_cache_size {0};
+    std::string storage;
+
+    // to string
+    std::string to_string() const;
 };
 
 FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cache_size,
                                           size_t normal_percent = DEFAULT_NORMAL_PERCENT,
                                           size_t disposable_percent = DEFAULT_DISPOSABLE_PERCENT,
-                                          size_t index_percent = DEFAULT_INDEX_PERCENT);
+                                          size_t index_percent = DEFAULT_INDEX_PERCENT,
+                                          size_t ttl_percent = DEFAULT_TTL_PERCENT,
+                                          const std::string& storage = "disk");
 
 struct CacheContext {
     CacheContext(const IOContext* io_context) {

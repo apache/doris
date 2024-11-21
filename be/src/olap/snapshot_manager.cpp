@@ -93,10 +93,15 @@ Status SnapshotManager::make_snapshot(const TSnapshotRequest& request, string* s
     TabletSharedPtr ref_tablet = target_tablet;
     if (request.__isset.ref_tablet_id) {
         int64_t ref_tablet_id = request.ref_tablet_id;
-        ref_tablet = _engine.tablet_manager()->get_tablet(ref_tablet_id);
-        if (ref_tablet == nullptr) {
-            return Status::Error<TABLE_NOT_FOUND>("failed to get ref tablet. tablet={}",
-                                                  ref_tablet_id);
+        TabletSharedPtr base_tablet = _engine.tablet_manager()->get_tablet(ref_tablet_id);
+
+        // Some tasks, like medium migration, cause the target tablet and base tablet to stay on
+        // different disks. In this case, we fall through to the normal restore path.
+        //
+        // Otherwise, we can directly link the rowset files from the base tablet to the target tablet.
+        if (base_tablet != nullptr &&
+            base_tablet->data_dir()->path() == target_tablet->data_dir()->path()) {
+            ref_tablet = std::move(base_tablet);
         }
     }
 
@@ -406,13 +411,13 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
     string snapshot_id;
     RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(snapshot_id_path, &snapshot_id));
 
+    std::vector<RowsetSharedPtr> consistent_rowsets;
     do {
         TabletMetaSharedPtr new_tablet_meta(new (nothrow) TabletMeta());
         if (new_tablet_meta == nullptr) {
             res = Status::Error<MEM_ALLOC_FAILED>("fail to malloc TabletMeta.");
             break;
         }
-        std::vector<RowsetSharedPtr> consistent_rowsets;
         DeleteBitmap delete_bitmap_snapshot(new_tablet_meta->tablet_id());
 
         /// If set missing_version, try to get all missing version.
@@ -623,17 +628,16 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
         }
 
         RowsetBinlogMetasPB rowset_binlog_metas_pb;
-        if (request.__isset.missing_version) {
-            res = ref_tablet->get_rowset_binlog_metas(request.missing_version,
-                                                      &rowset_binlog_metas_pb);
-        } else {
-            std::vector<TVersion> missing_versions;
-            res = ref_tablet->get_rowset_binlog_metas(missing_versions, &rowset_binlog_metas_pb);
+        for (auto& rs : consistent_rowsets) {
+            if (!rs->is_local()) {
+                continue;
+            }
+            res = ref_tablet->get_rowset_binlog_metas(rs->version(), &rowset_binlog_metas_pb);
+            if (!res.ok()) {
+                break;
+            }
         }
-        if (!res.ok()) {
-            break;
-        }
-        if (rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
+        if (!res.ok() || rowset_binlog_metas_pb.rowset_binlog_metas_size() == 0) {
             break;
         }
 
@@ -694,11 +698,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
 
                 if (tablet_schema.get_inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {
-                    for (const auto& index : tablet_schema.indexes()) {
-                        if (index.index_type() != IndexType::INVERTED) {
-                            continue;
-                        }
-                        auto index_id = index.index_id();
+                    for (const auto& index : tablet_schema.inverted_indexes()) {
+                        auto index_id = index->index_id();
                         auto index_file = ref_tablet->get_segment_index_filepath(
                                 rowset_id, segment_index, index_id);
                         auto snapshot_segment_index_file_path =

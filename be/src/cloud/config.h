@@ -23,14 +23,11 @@ namespace doris::config {
 
 DECLARE_String(deploy_mode);
 // deprecated do not configure directly
-DECLARE_mString(cloud_instance_id);
 DECLARE_mString(cloud_unique_id);
 
 static inline bool is_cloud_mode() {
     return deploy_mode == "cloud" || !cloud_unique_id.empty();
 }
-
-void set_cloud_unique_id(std::string instance_id);
 
 // Set the endpoint of meta service.
 //
@@ -100,11 +97,17 @@ DECLARE_mBool(save_load_error_log_to_s3);
 // the theads which sync the datas which loaded in other clusters
 DECLARE_mInt32(sync_load_for_tablets_thread);
 
+DECLARE_Int32(delete_bitmap_lock_expiration_seconds);
+
 // enable large txn lazy commit in meta-service `commit_txn`
 DECLARE_mBool(enable_cloud_txn_lazy_commit);
 
 DECLARE_mInt32(remove_expired_tablet_txn_info_interval_seconds);
 
 DECLARE_mInt32(tablet_txn_info_min_expired_seconds);
+
+DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
+
+DECLARE_Bool(enable_cloud_tablet_report);
 
 } // namespace doris::config

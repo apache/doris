@@ -320,6 +320,8 @@ static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
     rowset.set_num_segments(1);
     rowset.set_num_rows(num_rows);
     rowset.set_data_disk_size(num_rows * 100);
+    rowset.set_index_disk_size(num_rows * 10);
+    rowset.set_total_disk_size(num_rows * 110);
     rowset.mutable_tablet_schema()->set_schema_version(0);
     rowset.set_txn_expiration(::time(nullptr)); // Required by DCHECK
     return rowset;
@@ -1285,7 +1287,7 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
     stats_tablet_data_size_key({mock_instance, table_id, index_id, partition_id, tablet_id},
                                &data_size_key);
     ASSERT_EQ(txn->get(data_size_key, &data_size_val), TxnErrorCode::TXN_OK);
-    EXPECT_EQ(*(int64_t*)data_size_val.data(), 20000);
+    EXPECT_EQ(*(int64_t*)data_size_val.data(), 22000);
     std::string num_rows_key, num_rows_val;
     stats_tablet_num_rows_key({mock_instance, table_id, index_id, partition_id, tablet_id},
                               &num_rows_key);
@@ -1306,7 +1308,7 @@ TEST(MetaServiceHttpTest, GetTabletStatsTest) {
     get_tablet_stats(meta_service.get(), table_id, index_id, partition_id, tablet_id, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     ASSERT_EQ(res.tablet_stats_size(), 1);
-    EXPECT_EQ(res.tablet_stats(0).data_size(), 40000);
+    EXPECT_EQ(res.tablet_stats(0).data_size(), 44000);
     EXPECT_EQ(res.tablet_stats(0).num_rows(), 400);
     EXPECT_EQ(res.tablet_stats(0).num_rowsets(), 5);
     EXPECT_EQ(res.tablet_stats(0).num_segments(), 4);
@@ -1418,6 +1420,209 @@ TEST(MetaServiceHttpTest, InvalidToken) {
     ASSERT_EQ(status_code, 403);
     const char* invalid_token_output = "incorrect token, token=invalid_token\n";
     ASSERT_EQ(content, invalid_token_output);
+}
+
+TEST(MetaServiceHttpTest, TxnLazyCommit) {
+    HttpContext ctx;
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("txn_lazy_commit", "instance_id=test_instance", "");
+        std::string msg = "instance_id or txn_id is empty";
+        ASSERT_TRUE(content.find(msg) != std::string::npos);
+        ASSERT_EQ(status_code, 400);
+    }
+
+    {
+        auto [status_code, content] = ctx.query<std::string>("txn_lazy_commit", "txn_id=1000", "");
+        std::string msg = "instance_id or txn_id is empty";
+        ASSERT_TRUE(content.find(msg) != std::string::npos);
+        ASSERT_EQ(status_code, 400);
+    }
+
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "txn_lazy_commit", "instance_id=test_instance&txn_id=1000", "");
+
+        std::string msg = "failed to get db id, txn_id=1000 err=KeyNotFound";
+        ASSERT_TRUE(content.find(msg) != std::string::npos);
+    }
+
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "txn_lazy_commit", "instance_id=test_instance&txn_id=abc", "");
+
+        std::string msg = "txn_id abc must be a number";
+        ASSERT_TRUE(content.find(msg) != std::string::npos);
+    }
+}
+
+TEST(MetaServiceHttpTest, get_stage_response_sk) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
+                                                          [&](...) { sp->disable_processing(); });
+
+    GetStageResponse res;
+    auto* stage = res.add_stage();
+    stage->mutable_obj_info()->set_ak("stage-ak");
+    stage->mutable_obj_info()->set_sk("stage-sk");
+    auto foo = [res](auto args) { (*(try_any_cast<GetStageResponse**>(args[0])))->CopyFrom(res); };
+    sp->set_call_back("stage_sk_response", foo);
+    sp->set_call_back("stage_sk_response_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+
+    auto rate_limiter = std::make_shared<cloud::RateLimiter>();
+
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+
+    auto bar = [](auto args) {
+        std::cout << *try_any_cast<std::string*>(args[0]);
+
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("stage-sk") == std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
+                            .find("md5: f497d053066fa4b7d3b1f6564597d233") != std::string::npos);
+    };
+    sp->set_call_back("sk_finish_rpc", bar);
+
+    GetStageResponse res1;
+    GetStageRequest req1;
+    brpc::Controller cntl;
+    ms->get_stage(&cntl, &req1, &res1, nullptr);
+}
+
+TEST(MetaServiceHttpTest, get_obj_store_info_response_sk) {
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01,
+                                                          [&](...) { sp->disable_processing(); });
+
+    GetObjStoreInfoResponse res;
+    auto* obj_info = res.add_obj_info();
+    obj_info->set_ak("obj-store-info-ak1");
+    obj_info->set_sk("obj-store-info-sk1");
+    obj_info = res.add_storage_vault()->mutable_obj_info();
+    obj_info->set_ak("obj-store-info-ak2");
+    obj_info->set_sk("obj-store-info-sk2");
+    auto foo = [res](auto args) {
+        (*(try_any_cast<GetObjStoreInfoResponse**>(args[0])))->CopyFrom(res);
+    };
+    sp->set_call_back("obj-store-info_sk_response", foo);
+    sp->set_call_back("obj-store-info_sk_response_return",
+                      [](auto&& args) { *try_any_cast<bool*>(args.back()) = true; });
+
+    auto rate_limiter = std::make_shared<cloud::RateLimiter>();
+
+    auto ms = std::make_unique<cloud::MetaServiceImpl>(nullptr, nullptr, rate_limiter);
+
+    auto bar = [](auto args) {
+        std::cout << *try_any_cast<std::string*>(args[0]);
+
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("obj-store-info-sk1") ==
+                    std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
+                            .find("md5: 35d5a637fd9d45a28207a888b751efc4") != std::string::npos);
+
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0])).find("obj-store-info-sk2") ==
+                    std::string::npos);
+        EXPECT_TRUE((*try_any_cast<std::string*>(args[0]))
+                            .find("md5: 01d7473ae201a2ecdf1f7c064eb81a95") != std::string::npos);
+    };
+    sp->set_call_back("sk_finish_rpc", bar);
+
+    GetObjStoreInfoResponse res1;
+    GetObjStoreInfoRequest req1;
+    brpc::Controller cntl;
+    ms->get_obj_store_info(&cntl, &req1, &res1, nullptr);
+}
+
+TEST(MetaServiceHttpTest, AdjustRateLimit) {
+    HttpContext ctx;
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=10000");
+        ASSERT_EQ(status_code, 200);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=10000&rpc_name=get_cluster");
+        ASSERT_EQ(status_code, 200);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "adjust_rate_limit",
+                "qps_limit=10000&rpc_name=get_cluster&instance_id=test_instance");
+        ASSERT_EQ(status_code, 200);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "adjust_rate_limit", "qps_limit=10000&instance_id=test_instance");
+        ASSERT_EQ(status_code, 200);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=invalid");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "param `qps_limit` is not a legal int64 type:";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>("adjust_rate_limit", "qps_limit=-1");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "qps_limit` should not be less than 0";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "rpc_name=get_cluster");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "invalid argument:";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "instance_id=test_instance");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "invalid argument:";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "adjust_rate_limit", "rpc_name=get_cluster&instance_id=test_instance");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "invalid argument:";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>("adjust_rate_limit", "");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "invalid argument:";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=1000&rpc_name=invalid");
+        ASSERT_EQ(status_code, 400);
+        std::string msg = "failed to adjust rate limit for qps_limit";
+        ASSERT_NE(content.find(msg), std::string::npos);
+    }
+    {
+        auto [status_code, content] =
+                ctx.query<std::string>("adjust_rate_limit", "qps_limit=1000&instance_id=invalid");
+        ASSERT_EQ(status_code, 200);
+    }
+    {
+        auto [status_code, content] = ctx.query<std::string>(
+                "adjust_rate_limit", "qps_limit=1000&rpc_name=get_cluster&instance_id=invalid");
+        ASSERT_EQ(status_code, 200);
+    }
+}
+
+TEST(MetaServiceHttpTest, QueryRateLimit) {
+    HttpContext ctx;
+    {
+        auto [status_code, content] = ctx.query<std::string>("list_rate_limit", "");
+        ASSERT_EQ(status_code, 200);
+    }
 }
 
 } // namespace doris::cloud

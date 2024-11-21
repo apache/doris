@@ -44,6 +44,8 @@ public:
 private:
     friend class DataGenSourceOperatorX;
     std::shared_ptr<VDataGenFunctionInf> _table_func;
+    RuntimeProfile::Counter* _table_function_execution_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
 };
 
 class DataGenSourceOperatorX final : public OperatorX<DataGenLocalState> {

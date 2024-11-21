@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_dynamic_partition") {
+    config_row = sql """ ADMIN SHOW FRONTEND CONFIG LIKE 'force_olap_table_replication_allocation'; """
+    String old_conf_value = config_row[0][1]
+    sql """ ADMIN SET FRONTEND CONFIG ("force_olap_table_replication_allocation" = ""); """
     // todo: test dynamic partition
     sql "drop table if exists dy_par"
     sql """
@@ -88,10 +91,7 @@ suite("test_dynamic_partition") {
     assertEquals(result.get(0).Buckets.toInteger(), 3)
     sql "drop table dy_par_bucket_set_by_distribution"
     sql "drop table if exists dy_par_bad"
-    def isCloudMode = {
-        def ret = sql_return_maparray  """show backends"""
-        ret.Tag[0].contains("cloud_cluster_name")
-    }
+    def isCloudMode = isCloudMode()
 
     // not support tag in cloud mode
     if (!isCloudMode) {
@@ -161,4 +161,7 @@ suite("test_dynamic_partition") {
     }
     }
     sql "drop table if exists dy_par_bad"
+
+    // restore force_olap_table_replication_allocation to old_value
+    sql """ ADMIN SET FRONTEND CONFIG ("force_olap_table_replication_allocation" = "${old_conf_value}"); """
 }

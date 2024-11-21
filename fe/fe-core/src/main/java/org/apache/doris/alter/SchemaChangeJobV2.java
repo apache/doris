@@ -143,6 +143,11 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "hasRowStoreChange")
     protected boolean hasRowStoreChange = false;
 
+    @SerializedName(value = "enableUniqueKeySkipBitmap")
+    private boolean enableUniqueKeySkipBitmap = false;
+    @SerializedName(value = "hasEnableUniqueKeySkipBitmapChanged")
+    private boolean hasEnableUniqueKeySkipBitmapChanged = false;
+
     // save all schema change tasks
     private AgentBatchTask schemaChangeBatchTask = new AgentBatchTask();
 
@@ -196,6 +201,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         this.rowStoreColumns = rowStoreColumns;
     }
 
+    public void setEnableUniqueKeySkipBitmapInfo(boolean enableUniqueKeySkipBitmap,
+            boolean hasEnableUniqueKeySkipBitmapChanged) {
+        this.enableUniqueKeySkipBitmap = enableUniqueKeySkipBitmap;
+        this.hasEnableUniqueKeySkipBitmapChanged = hasEnableUniqueKeySkipBitmapChanged;
+    }
+
     public void setAlterIndexInfo(boolean indexChange, List<Index> indexes) {
         this.indexChange = indexChange;
         this.indexes = indexes;
@@ -217,7 +228,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         partitionOriginIndexIdMap.clear();
     }
 
-    private boolean isShadowIndexOfBase(long shadowIdxId, OlapTable tbl) {
+    protected boolean isShadowIndexOfBase(long shadowIdxId, OlapTable tbl) {
         if (indexIdToName.get(shadowIdxId).startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
             String shadowIndexName = indexIdToName.get(shadowIdxId);
             String indexName = shadowIndexName
@@ -291,7 +302,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         long shadowTabletId = shadowTablet.getId();
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
-                            long backendId = shadowReplica.getBackendId();
+                            long backendId = shadowReplica.getBackendIdWithoutException();
                             long shadowReplicaId = shadowReplica.getId();
                             countDownLatch.addMark(backendId, shadowTabletId);
                             CreateReplicaTask createReplicaTask = new CreateReplicaTask(
@@ -319,7 +330,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     objectPool,
                                     tbl.rowStorePageSize(),
-                                    tbl.variantEnableFlattenNested());
+                                    tbl.variantEnableFlattenNested(),
+                                    tbl.storagePageSize());
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
@@ -354,7 +366,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 ok = false;
             }
 
-            if (!ok) {
+            if (!ok || !countDownLatch.getStatus().ok()) {
                 // create replicas failed. just cancel the job
                 // clear tasks and show the failed replicas to user
                 AgentTaskQueue.removeBatchTask(batchTask, TTaskType.CREATE);
@@ -521,7 +533,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                         long originTabletId = partitionIndexTabletMap.get(partitionId, shadowIdxId).get(shadowTabletId);
                         List<Replica> shadowReplicas = shadowTablet.getReplicas();
                         for (Replica shadowReplica : shadowReplicas) {
-                            AlterReplicaTask rollupTask = new AlterReplicaTask(shadowReplica.getBackendId(), dbId,
+                            AlterReplicaTask rollupTask
+                                    = new AlterReplicaTask(shadowReplica.getBackendIdWithoutException(), dbId,
                                     tableId, partitionId, shadowIdxId, originIdxId, shadowTabletId, originTabletId,
                                     shadowReplica.getId(), shadowSchemaHash, originSchemaHash, visibleVersion, jobId,
                                     JobType.SCHEMA_CHANGE, defineExprs, descTable, originSchemaColumns, objectPool,
@@ -655,14 +668,16 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         pruneMeta();
-        this.jobState = JobState.FINISHED;
-        this.finishedTimeMs = System.currentTimeMillis();
 
-        Env.getCurrentEnv().getEditLog().logAlterJob(this);
         LOG.info("schema change job finished: {}", jobId);
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
+
+        this.jobState = JobState.FINISHED;
+        this.finishedTimeMs = System.currentTimeMillis();
+        Env.getCurrentEnv().getEditLog().logAlterJob(this);
+
         postProcessOriginIndex();
         // Drop table column stats after schema change finished.
         Env.getCurrentEnv().getAnalysisManager().dropStats(tbl, null);
@@ -694,7 +709,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     List<Long> failedBackends = failedTabletBackends.get(tablet.getId());
                     for (Replica replica : tablet.getReplicas()) {
                         replica.setState(ReplicaState.NORMAL);
-                        if (failedBackends != null && failedBackends.contains(replica.getBackendId())) {
+                        if (failedBackends != null && failedBackends.contains(replica.getBackendIdWithoutException())) {
                             replica.setBad(true);
                         }
                     }
@@ -754,6 +769,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         if (hasRowStoreChange) {
             tbl.setStoreRowColumn(storeRowColumn);
             tbl.setRowStoreColumns(rowStoreColumns);
+        }
+        if (hasEnableUniqueKeySkipBitmapChanged) {
+            tbl.setEnableUniqueKeySkipBitmap(enableUniqueKeySkipBitmap);
         }
 
         // set storage format of table, only set if format is v2
@@ -990,6 +1008,10 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(timeoutMs / 1000);
             infos.add(info);
         }
+    }
+
+    public Map<Long, Long> getIndexIdMap() {
+        return indexIdMap;
     }
 
     public List<List<String>> getUnfinishedTasks(int limit) {

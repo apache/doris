@@ -357,7 +357,7 @@ public class SortNode extends PlanNode {
             } else if (hasRuntimePredicate || useTwoPhaseReadOpt) {
                 algorithm = TSortAlgorithm.HEAP_SORT;
             } else {
-                if (limit + offset < 5000000) {
+                if (limit + offset < 50000) {
                     algorithm = TSortAlgorithm.HEAP_SORT;
                 } else if (limit + offset < 20000000) {
                     algorithm = TSortAlgorithm.FULL_SORT;
@@ -387,6 +387,12 @@ public class SortNode extends PlanNode {
         List<SlotId> result = Lists.newArrayList();
         Expr.getIds(materializedTupleExprs, null, result);
         return new HashSet<>(result);
+    }
+
+    // If it's analytic sort or not merged by a followed exchange node, it must output the global ordered data.
+    @Override
+    public boolean isSerialOperator() {
+        return !isAnalyticSort && !mergeByexchange;
     }
 
     public void setColocate(boolean colocate) {

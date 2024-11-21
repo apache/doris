@@ -177,10 +177,6 @@ public:
             nested_function->insert_result_into(nested_place(place), to);
         }
     }
-
-    bool allocates_memory_in_arena() const override {
-        return nested_function->allocates_memory_in_arena();
-    }
 };
 
 /** There are two cases: for single argument and variadic.
@@ -327,10 +323,6 @@ public:
         this->set_flag(place);
         this->nested_function->add(this->nested_place(place), nested_columns.data(), row_num,
                                    arena);
-    }
-
-    bool allocates_memory_in_arena() const override {
-        return this->nested_function->allocates_memory_in_arena();
     }
 
 private:

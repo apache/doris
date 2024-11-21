@@ -239,9 +239,10 @@ under the License.
         <cglib.version>2.2</cglib.version>
         <commons-cli.version>1.4</commons-cli.version>
         <commons-filerupload.version>1.5</commons-filerupload.version>
+        <commons-configuration2.version>2.11.0</commons-configuration2.version>
         <commons-codec.version>1.13</commons-codec.version>
         <commons-lang.version>2.6</commons-lang.version>
-        <commons-lang3.version>3.9</commons-lang3.version>
+        <commons-lang3.version>3.17.0</commons-lang3.version>
         <commons-pool2.version>2.2</commons-pool2.version>
         <commons-pool.version>1.5.1</commons-pool.version>
         <commons-text.version>1.10.0</commons-text.version>
@@ -258,7 +259,7 @@ under the License.
         <commons-io.version>2.7</commons-io.version>
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
-        <hikaricp.version>4.0.3</hikaricp.version>
+        <hikaricp.version>6.0.0</hikaricp.version>
         <thrift.version>0.16.0</thrift.version>
         <tomcat-embed-core.version>8.5.86</tomcat-embed-core.version>
         <log4j2.version>2.18.0</log4j2.version>
@@ -287,7 +288,7 @@ under the License.
         <automaton.version>1.11-8</automaton.version>
         <generex.version>1.0.1</generex.version>
         <fabric8.kubernetes.version>6.7.2</fabric8.kubernetes.version>
-        <logging-interceptor.version>4.7.2</logging-interceptor.version>
+        <logging-interceptor.version>4.12.0</logging-interceptor.version>
         <okhttp.version>4.9.3</okhttp.version>
         <okio.version>3.4.0</okio.version>
         <snakeyaml.version>2.0</snakeyaml.version>
@@ -312,8 +313,8 @@ under the License.
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
         <iceberg.version>1.4.3</iceberg.version>
-        <maxcompute.version>0.48.8-public</maxcompute.version>
-        <avro.version>1.11.3</avro.version>
+        <maxcompute.version>0.49.0-public</maxcompute.version>
+        <avro.version>1.11.4</avro.version>
         <arrow.version>17.0.0</arrow.version>
         <!-- hudi -->
         <hudi.version>0.14.1</hudi.version>
@@ -324,7 +325,7 @@ under the License.
 
         <parquet.version>1.13.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
-        <commons-compress.version>1.22</commons-compress.version>
+        <commons-compress.version>1.27.1</commons-compress.version>
         <scala.version>2.12.10</scala.version>
         <kryo.version>4.0.2</kryo.version>
         <lombok.version>1.18.24</lombok.version>
@@ -346,13 +347,13 @@ under the License.
         <spring-framework.version>5.3.39</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.2</zookeeper.version>
-        <velocity-engine-core.version>2.3</velocity-engine-core.version>
+        <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>9.4.55.v20240627</jetty.version>
+        <jetty.version>9.4.56.v20240826</jetty.version>
         <immutables.version>2.9.3</immutables.version>
         <ivy.version>2.5.2</ivy.version>
         <icu4j.version>75.1</icu4j.version>
@@ -371,9 +372,10 @@ under the License.
         <jakarta.annotation-api.version>2.1.1</jakarta.annotation-api.version>
         <asm.version>9.4</asm.version>
         <airlift.version>202</airlift.version>
-        <azure.sdk.version>1.2.24</azure.sdk.version>
+        <azure.sdk.version>1.2.27</azure.sdk.version>
         <azure.sdk.batch.version>12.22.0</azure.sdk.batch.version>
         <semver4j.version>5.3.0</semver4j.version>
+        <aliyun-sdk-oss.version>3.15.0</aliyun-sdk-oss.version>
     </properties>
     <profiles>
         <profile>
@@ -744,6 +746,11 @@ under the License.
                 <groupId>commons-fileupload</groupId>
                 <artifactId>commons-fileupload</artifactId>
                 <version>${commons-filerupload.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-configuration2</artifactId>
+                <version>${commons-configuration2.version}</version>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/commons-codec/commons-codec -->
@@ -1323,6 +1330,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.avro</groupId>
                 <artifactId>avro-ipc</artifactId>
+                <version>${avro.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.avro</groupId>
+                <artifactId>avro-mapred</artifactId>
                 <version>${avro.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-common -->

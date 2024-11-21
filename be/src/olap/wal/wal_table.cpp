@@ -91,8 +91,8 @@ Status WalTable::_relay_wal_one_by_one() {
         auto msg = st.msg();
         if (st.ok() || st.is<ErrorCode::PUBLISH_TIMEOUT>() || st.is<ErrorCode::NOT_FOUND>() ||
             st.is<ErrorCode::DATA_QUALITY_ERROR>() ||
-            (msg.find("LabelAlreadyUsedException") != msg.npos &&
-             (msg.find("[COMMITTED]") != msg.npos || msg.find("[VISIBLE]") != msg.npos))) {
+            (msg.find("has already been used") != msg.npos &&
+             (msg.find("COMMITTED") != msg.npos || msg.find("VISIBLE") != msg.npos))) {
             LOG(INFO) << "succeed to replay wal=" << wal_info->get_wal_path()
                       << ", st=" << st.to_string();
             // delete wal
@@ -161,12 +161,15 @@ bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
 
 Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
     TLoadTxnRollbackRequest request;
-    request.__set_auth_code(0); // this is a fake, fe not check it now
+    // this is a fake, fe not check it now
+    // should be removed in 3.1, use token instead
+    request.__set_auth_code(0);
+    request.__set_token(_exec_env->cluster_info()->curr_auth_token);
     request.__set_db_id(db_id);
     request.__set_label(label);
     request.__set_reason("relay wal with label " + label);
     TLoadTxnRollbackResult result;
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     auto st = ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
             [&request, &result](FrontendServiceConnection& client) {
@@ -235,7 +238,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     ctx->wal_id = wal_id;
     ctx->label = label;
     ctx->need_commit_self = false;
-    ctx->auth.token = "relay_wal"; // this is a fake, fe not check it now
+    ctx->auth.token = _exec_env->cluster_info()->curr_auth_token;
     ctx->auth.user = "admin";
     ctx->group_commit = false;
     ctx->load_type = TLoadType::MANUL_LOAD;
@@ -245,6 +248,7 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
         // wait stream load finish
         RETURN_IF_ERROR(ctx->future.get());
         if (ctx->status.ok()) {
+            // deprecated and should be removed in 3.1, use token instead.
             ctx->auth.auth_code = wal_id;
             st = _exec_env->stream_load_executor()->commit_txn(ctx.get());
         } else {
@@ -293,7 +297,7 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id,
     request.__set_table_id(tb_id);
     TGetColumnInfoResult result;
     Status status;
-    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    TNetworkAddress master_addr = _exec_env->cluster_info()->master_fe_addr;
     if (master_addr.hostname.empty() || master_addr.port == 0) {
         status = Status::InternalError<false>("Have not get FE Master heartbeat yet");
     } else {

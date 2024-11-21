@@ -38,6 +38,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "cctz/time_zone.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
@@ -50,6 +51,10 @@
 
 namespace doris {
 class IRuntimeFilter;
+
+inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
+    return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
+}
 
 namespace pipeline {
 class PipelineXLocalStateBase;
@@ -113,12 +118,6 @@ public:
         return _query_options.__isset.scan_queue_mem_limit ? _query_options.scan_queue_mem_limit
                                                            : _query_options.mem_limit / 20;
     }
-    int64_t query_mem_limit() const {
-        if (_query_options.__isset.mem_limit && (_query_options.mem_limit > 0)) {
-            return _query_options.mem_limit;
-        }
-        return 0;
-    }
 
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
@@ -174,7 +173,7 @@ public:
                _query_options.check_overflow_for_decimal;
     }
 
-    bool enable_decima256() const {
+    bool enable_decimal256() const {
         return _query_options.__isset.enable_decimal256 && _query_options.enable_decimal256;
     }
 
@@ -450,6 +449,8 @@ public:
 
     QueryContext* get_query_ctx() { return _query_ctx; }
 
+    std::weak_ptr<QueryContext> get_query_ctx_weak();
+
     void set_query_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& tracker) {
         _query_mem_tracker = tracker;
     }
@@ -460,9 +461,15 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
-    bool enable_scan_node_run_serial() const {
-        return _query_options.__isset.enable_scan_node_run_serial &&
-               _query_options.enable_scan_node_run_serial;
+    bool enable_verbose_profile() const {
+        return enable_profile() && _query_options.__isset.enable_verbose_profile &&
+               _query_options.enable_verbose_profile;
+    }
+
+    int rpc_verbose_profile_max_instance_count() const {
+        return _query_options.__isset.rpc_verbose_profile_max_instance_count
+                       ? _query_options.rpc_verbose_profile_max_instance_count
+                       : 0;
     }
 
     bool enable_share_hash_table_for_broadcast_join() const {
@@ -488,6 +495,18 @@ public:
         return _query_options.__isset.parallel_scan_max_scanners_count
                        ? _query_options.parallel_scan_max_scanners_count
                        : 0;
+    }
+
+    int partition_topn_max_partitions() const {
+        return _query_options.__isset.partition_topn_max_partitions
+                       ? _query_options.partition_topn_max_partitions
+                       : 1024;
+    }
+
+    int partition_topn_per_partition_rows() const {
+        return _query_options.__isset.partition_topn_pre_partition_rows
+                       ? _query_options.partition_topn_pre_partition_rows
+                       : 1000;
     }
 
     int64_t parallel_scan_min_rows_per_scanner() const {
@@ -542,7 +561,6 @@ public:
     }
 
     Status register_producer_runtime_filter(const doris::TRuntimeFilterDesc& desc,
-                                            bool need_local_merge,
                                             std::shared_ptr<IRuntimeFilter>* producer_filter,
                                             bool build_bf_exactly);
 
@@ -597,10 +615,6 @@ public:
     void set_task_num(int task_num) { _task_num = task_num; }
 
     int task_num() const { return _task_num; }
-
-    vectorized::ColumnInt64* partial_update_auto_inc_column() {
-        return _partial_update_auto_inc_column;
-    };
 
 private:
     Status create_error_log_file();
@@ -686,7 +700,6 @@ private:
     size_t _content_length = 0;
 
     // mini load
-    int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::unique_ptr<std::ofstream> _error_log_file; // error file path, absolute path
@@ -717,12 +730,11 @@ private:
     // prohibit copies
     RuntimeState(const RuntimeState&);
 
-    vectorized::ColumnInt64* _partial_update_auto_inc_column;
-
     // save error log to s3
     std::shared_ptr<io::S3FileSystem> _s3_error_fs;
     // error file path on s3, ${bucket}/${prefix}/error_log/${label}_${fragment_instance_id}
     std::string _s3_error_log_file_path;
+    std::mutex _s3_error_log_file_lock;
 };
 
 #define RETURN_IF_CANCELLED(state)               \

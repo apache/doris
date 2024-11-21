@@ -43,6 +43,7 @@
 #include "io/fs/file_system.h"
 #include "olap/binlog_config.h"
 #include "olap/lru_cache.h"
+#include "olap/metadata_adder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
@@ -90,7 +91,7 @@ class TBinlogConfig;
 
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
-class TabletMeta {
+class TabletMeta : public MetadataAdder<TabletMeta> {
 public:
     static TabletMetaSharedPtr create(
             const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
@@ -117,6 +118,11 @@ public:
     // If need add a filed in TableMeta, filed init copy in copy construct function
     TabletMeta(const TabletMeta& tablet_meta);
     TabletMeta(TabletMeta&& tablet_meta) = delete;
+
+// UT
+#ifdef BE_TEST
+    TabletMeta(TabletSchemaSPtr tablet_schema) : _schema(tablet_schema) {}
+#endif
 
     // Function create_from_file is used to be compatible with previous tablet_meta.
     // Previous tablet_meta is a physical file in tablet dir, which is not stored in rocksdb.
@@ -371,6 +377,7 @@ private:
 class DeleteBitmap {
 public:
     mutable std::shared_mutex lock;
+    mutable std::shared_mutex stale_delete_bitmap_lock;
     using SegmentId = uint32_t;
     using Version = uint64_t;
     using BitmapKey = std::tuple<RowsetId, SegmentId, Version>;
@@ -451,6 +458,12 @@ public:
     uint64_t cardinality() const;
 
     /**
+     * return the total size of the Delete Bitmap(after serialized)
+     */
+
+    uint64_t get_size() const;
+
+    /**
      * Sets the bitmap of specific segment, it's may be insertion or replacement
      *
      * @return 1 if the insertion took place, 0 if the assignment took place
@@ -520,6 +533,13 @@ public:
 
     void remove_sentinel_marks();
 
+    void add_to_remove_queue(const std::string& version_str,
+                             const std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey,
+                                                          DeleteBitmap::BitmapKey>>& vector);
+    void remove_stale_delete_bitmap_from_queue(const std::vector<std::string>& vector);
+
+    uint64_t get_delete_bitmap_count();
+
     class AggCachePolicy : public LRUCachePolicy {
     public:
         AggCachePolicy(size_t capacity)
@@ -553,9 +573,11 @@ public:
 private:
     mutable std::shared_ptr<AggCache> _agg_cache;
     int64_t _tablet_id;
+    // <version, <tablet_id, BitmapKeyStart, BitmapKeyEnd>>
+    std::map<std::string,
+             std::vector<std::tuple<int64_t, DeleteBitmap::BitmapKey, DeleteBitmap::BitmapKey>>>
+            _stale_delete_bitmap;
 };
-
-static const std::string SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
 
 inline TabletUid TabletMeta::tablet_uid() const {
     return _tablet_uid;
@@ -620,7 +642,7 @@ inline size_t TabletMeta::num_rows() const {
 inline size_t TabletMeta::tablet_footprint() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
-        total_size += rs->data_disk_size();
+        total_size += rs->total_disk_size();
     }
     return total_size;
 }
@@ -629,7 +651,7 @@ inline size_t TabletMeta::tablet_local_size() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
         if (rs->is_local()) {
-            total_size += rs->data_disk_size();
+            total_size += rs->total_disk_size();
         }
     }
     return total_size;
@@ -639,7 +661,7 @@ inline size_t TabletMeta::tablet_remote_size() const {
     size_t total_size = 0;
     for (auto& rs : _rs_metas) {
         if (!rs->is_local()) {
-            total_size += rs->data_disk_size();
+            total_size += rs->total_disk_size();
         }
     }
     return total_size;

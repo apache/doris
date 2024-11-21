@@ -74,6 +74,13 @@ suite("test_show_data_warehouse") {
     
         // wait for heartbeat
 
+        def res1 = sql """ show data from  ${db1Name}.`table`""";
+        def replicaCount1 = res1[0][3].toInteger();
+        def res2 = sql """ show data from  ${db2Name}.`table`""";
+        def replicaCount2 = res2[0][3].toInteger();
+        assertEquals(replicaCount1, replicaCount2);
+        log.info("replicaCount: ${replicaCount1}|${replicaCount2}");
+
         long start = System.currentTimeMillis()
         long dataSize = 0
         long current = -1
@@ -86,14 +93,21 @@ suite("test_show_data_warehouse") {
             sleep(30000)
         } while (current - start < 600000)
 
-        qt_show_1 """ show data properties("entire_warehouse"="true","db_names"="${db1Name}"); """
+        def result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name}"); """
+        assertEquals(result.size(), 2)
+        assertEquals(result[0][1].toInteger(), 785 * replicaCount1)
 
-        qt_show_2 """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
+        result = sql """ show data properties("entire_warehouse"="true","db_names"="${db2Name}"); """
+        assertEquals(result.size(), 2)
+        assertEquals(result[0][1].toInteger(), 762 * replicaCount1)
 
-        qt_show_3 """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
+        result = sql """ show data properties("entire_warehouse"="true","db_names"="${db1Name},${db2Name}"); """
+        assertEquals(result.size(), 3)
+        assertEquals(result[0][1].toInteger(), 785 * replicaCount1)
+        assertEquals(result[1][1].toInteger(), 762 * replicaCount1)
+        assertEquals(result[2][1].toInteger(), (785 + 762) * replicaCount1)
 
-        def result = sql """show data properties("entire_warehouse"="true")"""
-
+        result = sql """show data properties("entire_warehouse"="true")"""
         assertTrue(result.size() >= 3)
 
         sql """ DROP DATABASE IF EXISTS ${db1Name}; """

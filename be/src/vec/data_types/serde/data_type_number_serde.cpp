@@ -30,7 +30,7 @@
 
 namespace doris {
 namespace vectorized {
-
+#include "common/compile_check_begin.h"
 // Type map的基本结构
 template <typename Key, typename Value, typename... Rest>
 struct TypeMap {
@@ -71,19 +71,29 @@ using DORIS_NUMERIC_ARROW_BUILDER =
 
 template <typename T>
 void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                   arrow::ArrayBuilder* array_builder, int start,
-                                                   int end, const cctz::time_zone& ctz) const {
+                                                   arrow::ArrayBuilder* array_builder,
+                                                   int64_t start, int64_t end,
+                                                   const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<T, DORIS_NUMERIC_ARROW_BUILDER>::ValueType;
     auto arrow_null_map = revert_null_map(null_map, start, end);
     auto arrow_null_map_data = arrow_null_map.empty() ? nullptr : arrow_null_map.data();
     if constexpr (std::is_same_v<T, UInt8>) {
-        ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
-        checkArrowStatus(
-                builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
-                                     end - start,
-                                     reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name());
+        auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
+        if (null_builder) {
+            for (size_t i = start; i < end; ++i) {
+                checkArrowStatus(null_builder->AppendNull(), column.get_name(),
+                                 null_builder->type()->name());
+            }
+        } else {
+            ARROW_BUILDER_TYPE& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
+            checkArrowStatus(
+                    builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
+                                         end - start,
+                                         reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
+                    column.get_name(), array_builder->type()->name());
+        }
+
     } else if constexpr (std::is_same_v<T, Int128>) {
         auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         for (size_t i = start; i < end; ++i) {
@@ -93,8 +103,10 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
                 checkArrowStatus(string_builder.AppendNull(), column.get_name(),
                                  array_builder->type()->name());
             } else {
-                checkArrowStatus(string_builder.Append(value_str.data(), value_str.length()),
-                                 column.get_name(), array_builder->type()->name());
+                checkArrowStatus(
+                        string_builder.Append(value_str.data(),
+                                              cast_set<int, size_t, false>(value_str.length())),
+                        column.get_name(), array_builder->type()->name());
             }
         }
     } else if constexpr (std::is_same_v<T, UInt128> || std::is_same_v<T, IPv6>) {
@@ -144,14 +156,14 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
-                                                        int end_idx, BufferWritable& bw,
+Status DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
+                                                        int64_t end_idx, BufferWritable& bw,
                                                         FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
                                                           BufferWritable& bw,
                                                           FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
@@ -228,6 +240,9 @@ template <typename T>
 Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
         IColumn& column, Slice& slice, int rows, int* num_deserialized,
         const FormatOptions& options) const {
+    if (rows < 1) [[unlikely]] {
+        return Status::OK();
+    }
     Status st = deserialize_one_cell_from_json(column, slice, options);
     if (!st.ok()) {
         return st;
@@ -241,6 +256,9 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
 template <typename T>
 void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
                                                                      int times) const {
+    if (times < 1) [[unlikely]] {
+        return;
+    }
     auto& col = static_cast<ColumnVector<T>&>(column);
     auto sz = col.size();
     T val = col.get_element(sz - 1);
@@ -251,7 +269,7 @@ template <typename T>
 template <bool is_binary_format>
 Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
                                                       MysqlRowBuffer<is_binary_format>& result,
-                                                      int row_idx, bool col_const,
+                                                      int64_t row_idx, bool col_const,
                                                       const FormatOptions& options) const {
     int buf_ret = 0;
     auto& data = assert_cast<const ColumnType&>(column).get_data();
@@ -290,16 +308,16 @@ Status DataTypeNumberSerDe<T>::_write_column_to_mysql(const IColumn& column,
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                     MysqlRowBuffer<true>& row_buffer, int row_idx,
-                                                     bool col_const,
+                                                     MysqlRowBuffer<true>& row_buffer,
+                                                     int64_t row_idx, bool col_const,
                                                      const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
-                                                     MysqlRowBuffer<false>& row_buffer, int row_idx,
-                                                     bool col_const,
+                                                     MysqlRowBuffer<false>& row_buffer,
+                                                     int64_t row_idx, bool col_const,
                                                      const FormatOptions& options) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const, options);
 }
@@ -316,8 +334,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql(const IColumn& column,
 template <typename T>
 Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                    const IColumn& column, const NullMap* null_map,
-                                                   orc::ColumnVectorBatch* orc_col_batch, int start,
-                                                   int end,
+                                                   orc::ColumnVectorBatch* orc_col_batch,
+                                                   int64_t start, int64_t end,
                                                    std::vector<StringRef>& buffer_list) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 

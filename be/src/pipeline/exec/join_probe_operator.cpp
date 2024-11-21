@@ -23,17 +23,16 @@
 #include "pipeline/exec/partitioned_hash_join_probe_operator.h"
 
 namespace doris::pipeline {
-
+#include "common/compile_check_begin.h"
 template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
                                                           LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
 
-    _probe_timer = ADD_TIMER(Base::profile(), "ProbeTime");
     _join_filter_timer = ADD_TIMER(Base::profile(), "JoinFilterTimer");
     _build_output_block_timer = ADD_TIMER(Base::profile(), "BuildOutputBlock");
     _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(Base::profile(), "ProbeRows", TUnit::UNIT, 1);
-
+    _finish_probe_phase_timer = ADD_TIMER(Base::profile(), "FinishProbePhaseTime");
     return Status::OK();
 }
 
@@ -220,6 +219,7 @@ JoinProbeOperatorX<LocalStateType>::JoinProbeOperatorX(ObjectPool* pool, const T
                                      : true)
 
           ) {
+    Base::_is_serial_operator = tnode.__isset.is_serial_operator && tnode.is_serial_operator;
     if (tnode.__isset.hash_join_node) {
         _intermediate_row_desc.reset(new RowDescriptor(
                 descs, tnode.hash_join_node.vintermediate_tuple_id_list,

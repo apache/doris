@@ -17,6 +17,7 @@
 
 #include "olap/primary_key_index.h"
 
+#include <butil/time.h>
 #include <gen_cpp/segment_v2.pb.h>
 
 #include <utility>
@@ -63,6 +64,9 @@ Status PrimaryKeyIndexBuilder::add_item(const Slice& key) {
     if (UNLIKELY(_num_rows == 0)) {
         _min_key.append(key.get_data(), key.get_size());
     }
+    DCHECK(key.compare(_max_key) > 0)
+            << "found duplicate key or key is not sorted! current key: " << key
+            << ", last max key: " << _max_key;
     _max_key.clear();
     _max_key.append(key.get_data(), key.get_size());
     _num_rows++;
@@ -95,7 +99,8 @@ Status PrimaryKeyIndexReader::parse_index(io::FileReaderSPtr file_reader,
     // parse primary key index
     _index_reader.reset(new segment_v2::IndexedColumnReader(file_reader, meta.primary_key_index()));
     _index_reader->set_is_pk_index(true);
-    RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false));
+    RETURN_IF_ERROR(_index_reader->load(!config::disable_pk_storage_page_cache, false,
+                                        _pk_index_load_stats));
 
     _index_parsed = true;
     return Status::OK();
@@ -107,7 +112,8 @@ Status PrimaryKeyIndexReader::parse_bf(io::FileReaderSPtr file_reader,
     segment_v2::ColumnIndexMetaPB column_index_meta = meta.bloom_filter_index();
     segment_v2::BloomFilterIndexReader bf_index_reader(std::move(file_reader),
                                                        column_index_meta.bloom_filter_index());
-    RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false));
+    RETURN_IF_ERROR(bf_index_reader.load(!config::disable_pk_storage_page_cache, false,
+                                         _pk_index_load_stats));
     std::unique_ptr<segment_v2::BloomFilterIndexIterator> bf_iter;
     RETURN_IF_ERROR(bf_index_reader.new_iterator(&bf_iter));
     RETURN_IF_ERROR(bf_iter->read_bloom_filter(0, &_bf));

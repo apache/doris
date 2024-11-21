@@ -34,9 +34,9 @@ public class ShowCloudWarmUpStmt extends ShowStmt implements NotFallbackInParser
     private boolean showAllJobs = false;
     private long jobId = -1;
 
-    private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
+    private static final ImmutableList<String> WARM_UP_JOB_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("JobId")
-            .add("ClusterName")
+            .add("ComputeGroup")
             .add("Status")
             .add("Type")
             .add("CreateTime")
@@ -116,7 +116,7 @@ public class ShowCloudWarmUpStmt extends ShowStmt implements NotFallbackInParser
     @Override
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
-        for (String title : ShowCloudWarmUpStmt.TITLE_NAMES) {
+        for (String title : ShowCloudWarmUpStmt.WARM_UP_JOB_TITLE_NAMES) {
             builder.addColumn(new Column(title, ScalarType.createVarchar(30)));
         }
         return builder.build();

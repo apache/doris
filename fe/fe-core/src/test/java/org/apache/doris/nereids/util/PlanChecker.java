@@ -260,9 +260,25 @@ public class PlanChecker {
     public PlanChecker optimize() {
         cascadesContext.setJobContext(PhysicalProperties.GATHER);
         double now = System.currentTimeMillis();
-        new Optimizer(cascadesContext).execute();
+        try {
+            new Optimizer(cascadesContext).execute();
+        } finally {
+            // Mv rewrite add lock manually, so need release manually
+            cascadesContext.getStatementContext().releasePlannerResources();
+        }
         System.out.println("cascades:" + (System.currentTimeMillis() - now));
         return this;
+    }
+
+    public NereidsPlanner plan(String sql) {
+        StatementContext statementContext = new StatementContext(connectContext, new OriginStatement(sql, 0));
+        connectContext.setStatementContext(statementContext);
+        NereidsPlanner planner = new NereidsPlanner(statementContext);
+        LogicalPlan parsedPlan = new NereidsParser().parseSingle(sql);
+        LogicalPlanAdapter parsedPlanAdaptor = new LogicalPlanAdapter(parsedPlan, statementContext);
+        statementContext.setParsedStatement(parsedPlanAdaptor);
+        planner.planWithLock(parsedPlanAdaptor);
+        return planner;
     }
 
     public PlanChecker dpHypOptimize() {

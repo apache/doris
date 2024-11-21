@@ -242,7 +242,7 @@ TEST(HashFuncTest, StructTypeTestWithSepcificValueCrcHash) {
 
     Tuple t;
     t.push_back(Int64(1));
-    t.push_back(String("hello"));
+    t.push_back(Field(String("hello")));
 
     DataTypePtr a = std::make_shared<DataTypeStruct>(dataTypes);
     std::cout << a->get_name() << std::endl;

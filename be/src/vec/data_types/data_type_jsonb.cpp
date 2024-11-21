@@ -84,7 +84,8 @@ char* DataTypeJsonb::serialize(const IColumn& column, char* buf, int data_versio
     return data_type_string.serialize(column, buf, data_version);
 }
 
-const char* DataTypeJsonb::deserialize(const char* buf, IColumn* column, int data_version) const {
+const char* DataTypeJsonb::deserialize(const char* buf, MutableColumnPtr* column,
+                                       int data_version) const {
     return data_type_string.deserialize(buf, column, data_version);
 }
 

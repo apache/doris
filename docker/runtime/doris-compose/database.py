@@ -27,21 +27,18 @@ LOG = utils.get_logger()
 
 class FEState(object):
 
-    def __init__(self, id, query_port, is_master, alive, last_heartbeat,
-                 err_msg, edit_log_port):
+    def __init__(self, id, is_master, alive, last_heartbeat, err_msg):
         self.id = id
-        self.query_port = query_port
         self.is_master = is_master
         self.alive = alive
         self.last_heartbeat = last_heartbeat
         self.err_msg = err_msg
-        self.edit_log_port = edit_log_port
 
 
 class BEState(object):
 
     def __init__(self, id, backend_id, decommissioned, alive, tablet_num,
-                 last_heartbeat, err_msg, heartbeat_port):
+                 last_heartbeat, err_msg):
         self.id = id
         self.backend_id = backend_id
         self.decommissioned = decommissioned
@@ -49,7 +46,6 @@ class BEState(object):
         self.tablet_num = tablet_num
         self.last_heartbeat = last_heartbeat
         self.err_msg = err_msg
-        self.heartbeat_port = heartbeat_port
 
 
 class DBManager(object):
@@ -57,11 +53,8 @@ class DBManager(object):
     def __init__(self):
         self.fe_states = {}
         self.be_states = {}
-        self.query_port = -1
         self.conn = None
-
-    def set_query_port(self, query_port):
-        self.query_port = query_port
+        self.master_fe_ip = ""
 
     def get_fe(self, id):
         return self.fe_states.get(id, None)
@@ -69,8 +62,8 @@ class DBManager(object):
     def get_be(self, id):
         return self.be_states.get(id, None)
 
-    def load_states(self, query_ports):
-        self._load_fe_states(query_ports)
+    def load_states(self):
+        self._load_fe_states()
         self._load_be_states()
 
     def add_fe(self, fe_endpoint):
@@ -189,108 +182,96 @@ class DBManager(object):
             LOG.error(f"Failed to create default storage vault: {str(e)}")
             raise
 
-    def _load_fe_states(self, query_ports):
+    def _load_fe_states(self):
         fe_states = {}
-        alive_master_fe_port = None
-        for record in self._exec_query('''
-            show frontends '''):
-            # Unpack the record into individual columns
-            name, ip, edit_log_port, _, query_port, _, _, role, is_master, cluster_id, _, alive, _, _, last_heartbeat, _, err_msg, _, _ = record
-            is_master = utils.is_true(is_master)
-            alive = utils.is_true(alive)
+        alive_master_fe_ip = None
+        for record in self._exec_query("show frontends"):
+            name = record["Name"]
+            ip = record["Host"]
+            role = record["Role"]
+            is_master = utils.is_true(record["IsMaster"])
+            alive = utils.is_true(record["Alive"])
             id = CLUSTER.Node.get_id_from_ip(ip)
-            query_port = query_ports.get(id, "")
-            last_heartbeat = utils.escape_null(last_heartbeat)
-            fe = FEState(id, query_port, is_master, alive, last_heartbeat,
-                         err_msg, edit_log_port)
+            last_heartbeat = utils.escape_null(record["LastHeartbeat"])
+            err_msg = record["ErrMsg"]
+            fe = FEState(id, is_master, alive, last_heartbeat, err_msg)
             fe_states[id] = fe
-            if is_master and alive and query_port:
-                alive_master_fe_port = query_port
-            LOG.info(
+            if is_master and alive:
+                alive_master_fe_ip = ip
+            LOG.debug(
                 "record of show frontends, name {}, ip {}, alive {}, is_master {}, role {}"
                 .format(name, ip, alive, is_master, role))
 
         self.fe_states = fe_states
-        if alive_master_fe_port and alive_master_fe_port != self.query_port:
-            self.query_port = alive_master_fe_port
+        if alive_master_fe_ip and alive_master_fe_ip != self.master_fe_ip:
+            self.master_fe_ip = alive_master_fe_ip
             self._reset_conn()
 
     def _load_be_states(self):
         be_states = {}
-        for record in self._exec_query('''
-            select BackendId, Host, LastHeartbeat, Alive, SystemDecommissioned, TabletNum, ErrMsg, HeartbeatPort
-            from backends()'''):
-            backend_id, ip, last_heartbeat, alive, decommissioned, tablet_num, err_msg, heartbeat_port = record
-            backend_id = int(backend_id)
-            alive = utils.is_true(alive)
-            decommissioned = utils.is_true(decommissioned)
-            tablet_num = int(tablet_num)
-            id = CLUSTER.Node.get_id_from_ip(ip)
-            last_heartbeat = utils.escape_null(last_heartbeat)
-            heartbeat_port = utils.escape_null(heartbeat_port)
+        for record in self._exec_query("show backends"):
+            backend_id = int(record["BackendId"])
+            alive = utils.is_true(record["Alive"])
+            decommissioned = utils.is_true(record["SystemDecommissioned"])
+            tablet_num = int(record["TabletNum"])
+            id = CLUSTER.Node.get_id_from_ip(record["Host"])
+            last_heartbeat = utils.escape_null(record["LastHeartbeat"])
+            err_msg = record["ErrMsg"]
             be = BEState(id, backend_id, decommissioned, alive, tablet_num,
-                         last_heartbeat, err_msg, heartbeat_port)
+                         last_heartbeat, err_msg)
             be_states[id] = be
         self.be_states = be_states
 
+    # return rows, and each row is a record map
     def _exec_query(self, sql):
         self._prepare_conn()
         with self.conn.cursor() as cursor:
             cursor.execute(sql)
-            return cursor.fetchall()
+            fields = [field_md[0] for field_md in cursor.description
+                      ] if cursor.description else []
+            return [dict(zip(fields, row)) for row in cursor.fetchall()]
 
     def _prepare_conn(self):
         if self.conn:
             return
-        if self.query_port <= 0:
-            raise Exception("Not set query_port")
         self._reset_conn()
 
     def _reset_conn(self):
         self.conn = pymysql.connect(user="root",
-                                    host="127.0.0.1",
+                                    host=self.master_fe_ip,
                                     read_timeout=10,
-                                    port=self.query_port)
+                                    connect_timeout=3,
+                                    port=CLUSTER.FE_QUERY_PORT)
 
 
 def get_db_mgr(cluster_name, required_load_succ=True):
     assert cluster_name
     db_mgr = DBManager()
-    containers = utils.get_doris_containers(cluster_name).get(
-        cluster_name, None)
-    if not containers:
-        return db_mgr
-    alive_fe_ports = {}
-    for container in containers:
-        if utils.is_container_running(container):
-            _, node_type, id = utils.parse_service_name(container.name)
-            if node_type == CLUSTER.Node.TYPE_FE:
-                query_port = utils.get_map_ports(container).get(
-                    CLUSTER.FE_QUERY_PORT, None)
-                if query_port:
-                    alive_fe_ports[id] = query_port
-    if not alive_fe_ports:
-        return db_mgr
-
     master_fe_ip_file = os.path.join(CLUSTER.get_status_path(cluster_name),
                                      "master_fe_ip")
-    query_port = None
+    master_fe_ip = None
     if os.path.exists(master_fe_ip_file):
         with open(master_fe_ip_file, "r") as f:
-            master_fe_ip = f.read()
-            if master_fe_ip:
-                master_id = CLUSTER.Node.get_id_from_ip(master_fe_ip)
-                query_port = alive_fe_ports.get(master_id, None)
-    if not query_port:
-        # A new cluster's master is fe-1
-        if 1 in alive_fe_ports:
-            query_port = alive_fe_ports[1]
-        else:
-            query_port = list(alive_fe_ports.values())[0]
+            master_fe_ip = f.read().strip()
 
-    db_mgr.set_query_port(query_port)
+    if not master_fe_ip:
+        return db_mgr
+
+    has_alive_fe = False
+    containers = utils.get_doris_containers(cluster_name).get(cluster_name, [])
+    for container in containers:
+        if utils.is_container_running(container):
+            _, node_type, _ = utils.parse_service_name(container.name)
+            if node_type == CLUSTER.Node.TYPE_FE:
+                has_alive_fe = True
+                break
+
+    if not has_alive_fe:
+        return db_mgr
+
+    db_mgr.master_fe_ip = master_fe_ip
     try:
-        db_mgr.load_states(alive_fe_ports)
+        db_mgr.load_states()
     except Exception as e:
         if required_load_succ:
             raise e

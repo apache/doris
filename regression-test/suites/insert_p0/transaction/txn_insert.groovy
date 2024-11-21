@@ -503,7 +503,7 @@ suite("txn_insert") {
                     assertFalse(true, "should not reach here")
                 } catch (Exception e) {
                     logger.info("exception: " + e)
-                    assertTrue(e.getMessage().contains("The transaction is already timeout") || e.getMessage().contains("Execute timeout"))
+                    assertTrue(e.getMessage().contains("The transaction is already timeout") || e.getMessage().contains("timeout"))
                 } finally {
                     try {
                         sql "rollback"

@@ -71,6 +71,34 @@ suite("nereids_test_javaudf_string") {
         qt_select """ SELECT java_udf_string_test(string_col, 2, 3)  result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_string_test('abcdef', 2, 3), java_udf_string_test('abcdefg', 2, 3) result FROM ${tableName} ORDER BY result; """
 
+        // test multi thread
+        Thread thread1 = new Thread(() -> {
+            try {
+                for (int ii = 0; ii < 100; ii++) {
+                    sql """  SELECT java_udf_string_test(varchar_col, 2, 3) result FROM ${tableName} ORDER BY result; """
+                }
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                Assert.fail();
+            }
+        })
+
+        Thread thread2 = new Thread(() -> {
+            try {
+                for (int ii = 0; ii < 100; ii++) {
+                    sql """ SELECT java_udf_string_test(string_col, 2, 3)  result FROM ${tableName} ORDER BY result; """
+                }
+            } catch (Exception e) {
+                log.info(e.getMessage())
+                Assert.fail();
+            }
+        })
+        sleep(1000L)
+        thread1.start()
+        thread2.start()
+
+        thread1.join()
+        thread2.join()
         
     } finally {
         try_sql("DROP FUNCTION IF EXISTS java_udf_string_test(string, int, int);")

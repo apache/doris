@@ -24,6 +24,7 @@
 BvarLatencyRecorderWithTag g_bvar_ms_begin_txn("ms", "begin_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_precommit_txn("ms", "precommit_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_txn("ms", "commit_txn");
+BvarLatencyRecorderWithTag g_bvar_ms_commit_txn_eventually("ms", "commit_txn_eventually");
 BvarLatencyRecorderWithTag g_bvar_ms_abort_txn("ms", "abort_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_get_txn("ms", "get_txn");
 BvarLatencyRecorderWithTag g_bvar_ms_get_current_max_txn_id("ms", "get_current_max_txn_id");
@@ -72,6 +73,9 @@ BvarLatencyRecorderWithTag g_bvar_ms_update_delete_bitmap("ms", "update_delete_b
 BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap("ms", "get_delete_bitmap");
 BvarLatencyRecorderWithTag g_bvar_ms_get_delete_bitmap_update_lock("ms",
                                                                    "get_delete_bitmap_update_lock");
+BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap("ms", "remove_delete_bitmap");
+BvarLatencyRecorderWithTag g_bvar_ms_remove_delete_bitmap_update_lock(
+        "ms", "remove_delete_bitmap_update_lock");
 BvarLatencyRecorderWithTag g_bvar_ms_get_instance("ms", "get_instance");
 BvarLatencyRecorderWithTag g_bvar_ms_get_rl_task_commit_attach("ms", "get_rl_task_commit_attach");
 BvarLatencyRecorderWithTag g_bvar_ms_reset_rl_progress("ms", "reset_rl_progress");
@@ -97,6 +101,8 @@ bvar::LatencyRecorder g_bvar_txn_kv_range_remove("txn_kv", "range_remove");
 bvar::LatencyRecorder g_bvar_txn_kv_get_read_version("txn_kv", "get_read_version");
 bvar::LatencyRecorder g_bvar_txn_kv_get_committed_version("txn_kv", "get_committed_version");
 bvar::LatencyRecorder g_bvar_txn_kv_batch_get("txn_kv", "batch_get");
+
+bvar::Adder<int64_t> g_bvar_txn_kv_get_count_normalized("txn_kv", "get_count_normalized");
 
 bvar::Adder<int64_t> g_bvar_txn_kv_commit_error_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_txn_kv_commit_error_counter_minute(
@@ -189,3 +195,6 @@ BvarStatusWithTag<long> g_bvar_checker_check_cost_s("checker", "check_cost_secon
 BvarStatusWithTag<long> g_bvar_checker_enqueue_cost_s("checker", "enqueue_cost_seconds");
 BvarStatusWithTag<long> g_bvar_checker_last_success_time_ms("checker", "last_success_time_ms");
 BvarStatusWithTag<long> g_bvar_checker_instance_volume("checker", "instance_volume");
+BvarStatusWithTag<long> g_bvar_inverted_checker_num_scanned("checker", "num_inverted_scanned");
+BvarStatusWithTag<long> g_bvar_inverted_checker_num_check_failed("checker",
+                                                                 "num_inverted_check_failed");

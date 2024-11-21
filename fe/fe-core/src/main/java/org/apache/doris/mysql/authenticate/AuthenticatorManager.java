@@ -17,22 +17,21 @@
 
 package org.apache.doris.mysql.authenticate;
 
-import org.apache.doris.common.EnvUtils;
+import org.apache.doris.common.util.ClassLoaderUtils;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.password.Password;
+import org.apache.doris.plugin.PropertiesUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
+import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.ServiceLoader;
@@ -66,9 +65,28 @@ public class AuthenticatorManager {
         for (AuthenticatorFactory factory : loader) {
             LOG.info("Found Authenticator Plugin Factory: {}", factory.factoryIdentifier());
             if (factory.factoryIdentifier().equalsIgnoreCase(identifier)) {
-                return factory.create(loadConfigFile());
+                Properties properties = PropertiesUtils.loadAuthenticationConfigFile();
+                return factory.create(properties);
             }
         }
+        return loadCustomerFactories(identifier);
+
+    }
+
+    private Authenticator loadCustomerFactories(String identifier) throws Exception {
+        List<AuthenticatorFactory> factories = ClassLoaderUtils.loadServicesFromDirectory(AuthenticatorFactory.class);
+        if (factories.isEmpty()) {
+            LOG.info("No customer authenticator found, using default authenticator");
+            return defaultAuthenticator;
+        }
+        for (AuthenticatorFactory factory : factories) {
+            LOG.info("Found Customer Authenticator Plugin Factory: {}", factory.factoryIdentifier());
+            if (factory.factoryIdentifier().equalsIgnoreCase(identifier)) {
+                Properties properties = PropertiesUtils.loadAuthenticationConfigFile();
+                return factory.create(properties);
+            }
+        }
+
         throw new RuntimeException("No AuthenticatorFactory found for identifier: " + identifier);
     }
 
@@ -99,16 +117,5 @@ public class AuthenticatorManager {
 
     private Authenticator chooseAuthenticator(String userName) {
         return authTypeAuthenticator.canDeal(userName) ? authTypeAuthenticator : defaultAuthenticator;
-    }
-
-    private static Properties loadConfigFile() throws Exception {
-        String configFilePath = EnvUtils.getDorisHome() + "/conf/authenticate.conf";
-        if (new File(configFilePath).exists()) {
-            LOG.info("Loading authenticate configuration file: {}", configFilePath);
-            Properties properties = new Properties();
-            properties.load(Files.newInputStream(Paths.get(configFilePath)));
-            return properties;
-        }
-        return new Properties();
     }
 }

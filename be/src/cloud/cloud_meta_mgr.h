@@ -57,7 +57,8 @@ public:
 
     Status get_tablet_meta(int64_t tablet_id, std::shared_ptr<TabletMeta>* tablet_meta);
 
-    Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false);
+    Status sync_tablet_rowsets(CloudTablet* tablet, bool warmup_delta_data = false,
+                               bool sync_delete_bitmap = true);
 
     Status prepare_rowset(const RowsetMeta& rs_meta,
                           std::shared_ptr<RowsetMeta>* existed_rs_meta = nullptr);
@@ -95,8 +96,18 @@ public:
     Status update_delete_bitmap(const CloudTablet& tablet, int64_t lock_id, int64_t initiator,
                                 DeleteBitmap* delete_bitmap);
 
+    Status cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
+                                                   DeleteBitmap* delete_bitmap);
+
     Status get_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
                                          int64_t initiator);
+
+    Status remove_delete_bitmap_update_lock(const CloudTablet& tablet, int64_t lock_id,
+                                            int64_t initiator);
+
+    Status remove_old_version_delete_bitmap(
+            int64_t tablet_id,
+            const std::vector<std::tuple<std::string, uint64_t, uint64_t>>& to_delete);
 
 private:
     bool sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
@@ -106,6 +117,9 @@ private:
     Status sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_max_version,
                                      std::ranges::range auto&& rs_metas, const TabletStatsPB& stats,
                                      const TabletIndexPB& idx, DeleteBitmap* delete_bitmap);
+    void check_table_size_correctness(const RowsetMeta& rs_meta);
+    int64_t get_segment_file_size(const RowsetMeta& rs_meta);
+    int64_t get_inverted_index_file_szie(const RowsetMeta& rs_meta);
 };
 
 } // namespace cloud

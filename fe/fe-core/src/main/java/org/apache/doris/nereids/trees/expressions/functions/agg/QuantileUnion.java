@@ -22,6 +22,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.QuantileStateEmpty;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -82,5 +83,10 @@ public class QuantileUnion extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new QuantileStateEmpty();
     }
 }

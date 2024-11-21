@@ -27,10 +27,9 @@
 
 namespace doris::segment_v2 {
 
-Status InvertedIndexFileReader::init(int32_t read_buffer_size, bool open_idx_file_cache) {
+Status InvertedIndexFileReader::init(int32_t read_buffer_size) {
     if (!_inited) {
         _read_buffer_size = read_buffer_size;
-        _open_idx_file_cache = open_idx_file_cache;
         if (_storage_format == InvertedIndexStorageFormatPB::V2) {
             auto st = _init_from_v2(read_buffer_size);
             if (!st.ok()) {
@@ -76,7 +75,6 @@ Status InvertedIndexFileReader::_init_from_v2(int32_t read_buffer_size) {
                     "CLuceneError occur when open idx file {}, error msg: {}", index_file_full_path,
                     err.what());
         }
-        index_input->setIdxFileCache(_open_idx_file_cache);
         _stream = std::unique_ptr<CL_NS(store)::IndexInput>(index_input);
 
         // 3. read file
@@ -198,7 +196,6 @@ Result<std::unique_ptr<DorisCompoundReader>> InvertedIndexFileReader::_open(
             }
 
             // 3. read file in DorisCompoundReader
-            index_input->setIdxFileCache(_open_idx_file_cache);
             compound_reader = std::make_unique<DorisCompoundReader>(index_input, _read_buffer_size);
         } catch (CLuceneError& err) {
             return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(

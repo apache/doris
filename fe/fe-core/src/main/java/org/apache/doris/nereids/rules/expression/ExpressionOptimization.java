@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.expression;
 
 import org.apache.doris.nereids.rules.expression.rules.ArrayContainToArrayOverlap;
+import org.apache.doris.nereids.rules.expression.rules.BetweenToEqual;
 import org.apache.doris.nereids.rules.expression.rules.CaseWhenToIf;
 import org.apache.doris.nereids.rules.expression.rules.DateFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.DistinctPredicatesRule;
@@ -41,19 +42,20 @@ import java.util.List;
 public class ExpressionOptimization extends ExpressionRewrite {
     public static final List<ExpressionRewriteRule> OPTIMIZE_REWRITE_RULES = ImmutableList.of(
             bottomUp(
-                ExtractCommonFactorRule.INSTANCE,
-                DistinctPredicatesRule.INSTANCE,
-                SimplifyComparisonPredicate.INSTANCE,
-                SimplifyInPredicate.INSTANCE,
-                SimplifyDecimalV3Comparison.INSTANCE,
-                OrToIn.INSTANCE,
-                SimplifyRange.INSTANCE,
-                DateFunctionRewrite.INSTANCE,
-                ArrayContainToArrayOverlap.INSTANCE,
-                CaseWhenToIf.INSTANCE,
-                TopnToMax.INSTANCE,
-                NullSafeEqualToEqual.INSTANCE,
-                LikeToEqualRewrite.INSTANCE
+                    ExtractCommonFactorRule.INSTANCE,
+                    DistinctPredicatesRule.INSTANCE,
+                    SimplifyComparisonPredicate.INSTANCE,
+                    SimplifyInPredicate.INSTANCE,
+                    SimplifyDecimalV3Comparison.INSTANCE,
+                    SimplifyRange.INSTANCE,
+                    OrToIn.INSTANCE,
+                    DateFunctionRewrite.INSTANCE,
+                    ArrayContainToArrayOverlap.INSTANCE,
+                    CaseWhenToIf.INSTANCE,
+                    TopnToMax.INSTANCE,
+                    NullSafeEqualToEqual.INSTANCE,
+                    LikeToEqualRewrite.INSTANCE,
+                    BetweenToEqual.INSTANCE
             )
     );
     private static final ExpressionRuleExecutor EXECUTOR = new ExpressionRuleExecutor(OPTIMIZE_REWRITE_RULES);

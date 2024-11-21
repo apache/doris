@@ -455,7 +455,9 @@ public class HyperGraphComparator {
         if (query instanceof FilterEdge && view instanceof FilterEdge) {
             return compareFilterEdgeWithNode((FilterEdge) query, viewFilterEdgesAfterInferring.get(view.getIndex()));
         } else if (query instanceof JoinEdge && view instanceof JoinEdge) {
-            return compareJoinEdgeWithNode((JoinEdge) query, viewJoinEdgesAfterInferring.get(view.getIndex()));
+            // compare original or inferred join edge
+            return compareJoinEdgeWithNode((JoinEdge) query, viewJoinEdgesAfterInferring.get(view.getIndex()))
+                    || compareJoinEdgeWithNode((JoinEdge) query, (JoinEdge) view);
         }
         return false;
     }

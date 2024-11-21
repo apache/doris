@@ -40,6 +40,7 @@ import org.apache.log4j.Logger;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.ObjectInputStream;
+import java.time.ZoneId;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
@@ -64,7 +65,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private static final String SPLIT_SIZE = "split_size";
     private static final String SESSION_ID = "session_id";
     private static final String SCAN_SERIALIZER = "scan_serializer";
-
+    private static final String TIME_ZONE = "time_zone";
 
     private enum SplitType {
         BYTE_SIZE,
@@ -86,7 +87,7 @@ public class MaxComputeJniScanner extends JniScanner {
     private long startOffset = -1L;
     private long splitSize = -1L;
     public EnvironmentSettings settings;
-
+    public ZoneId timeZone;
 
     public MaxComputeJniScanner(int batchSize, Map<String, String> params) {
         String[] requiredFields = params.get("required_fields").split(",");
@@ -117,6 +118,13 @@ public class MaxComputeJniScanner extends JniScanner {
         project = Objects.requireNonNull(params.get(PROJECT), "required property '" + PROJECT + "'.");
         table = Objects.requireNonNull(params.get(TABLE), "required property '" + TABLE + "'.");
         sessionId = Objects.requireNonNull(params.get(SESSION_ID), "required property '" + SESSION_ID + "'.");
+        String timeZoneName = Objects.requireNonNull(params.get(TIME_ZONE), "required property '" + TIME_ZONE + "'.");
+        try {
+            timeZone = ZoneId.of(timeZoneName);
+        } catch (Exception e) {
+            LOG.warn(e.getMessage() + " Set timeZoneName = " + timeZoneName + "fail, use systemDefault.");
+            timeZone = ZoneId.systemDefault();
+        }
 
 
         Account account = new AliyunAccount(accessKey, secretKey);
@@ -172,7 +180,7 @@ public class MaxComputeJniScanner extends JniScanner {
             LOG.info("createArrowReader failed.", e);
         } catch (Exception e) {
             close();
-            throw new IOException(e);
+            throw new IOException(e.getMessage(), e);
         }
     }
 
@@ -192,6 +200,7 @@ public class MaxComputeJniScanner extends JniScanner {
             return 0;
         }
         columnValue = new MaxComputeColumnValue();
+        columnValue.setTimeZone(timeZone);
         int expectedRows = batchSize;
         return readVectors(expectedRows);
     }

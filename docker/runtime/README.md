@@ -42,33 +42,38 @@ your workspace should like this:
 
 1. Go to the doris [official website](https://doris.apache.org/download) to download the binary package you need(pay attention to selecting the doris version and architecture you need), and extract archive binary
 
-Here we take the build of x64 (avx2) and arm64 platforms of 2.1.5 version as an example.
+Here we take the build of x64 (avx2) and arm64 platforms of 3.0.2 version as an example.
 
 ```shell
-$ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-2.1.5-bin-x64.tar.gz && tar -zxvf apache-doris-2.1.5-bin-x64.tar.gz
+$ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.0.2-bin-x64.tar.gz && tar -zxvf apache-doris-3.0.2-bin-x64.tar.gz
 # or
-$ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-2.1.5-bin-arm64.tar.gz && tar -zxvf apache-doris-2.1.5-bin-arm64.tar.gz
+$ wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-3.0.2-bin-arm64.tar.gz && tar -zxvf apache-doris-3.0.2-bin-arm64.tar.gz
 ```
 
 2. You need to copy the corresponding directories to different directories in sequence as below in the table:
 
+()
 amd64(avx2) platform: 
 
 | doris type |                      doris package                       |                                    docker file path                                    |
 |:----------:|:--------------------------------------------------------:|:--------------------------------------------------------------------------------------:|
-|     fe     |              apache-doris-2.1.5-bin-x64/fe               |                runtime/fe/resource/amd64/apache-doris-2.1.5-bin-x64/fe                 |
-|     be     |              apache-doris-2.1.5-bin-x64/be               |                runtime/be/resource/amd64/apache-doris-2.1.5-bin-x64/be                 |
-|     ms     |              apache-doris-2.1.5-bin-x64/ms               |                runtime/ms/resource/amd64/apache-doris-2.1.5-bin-x64/ms                 |
-|   broker   | apache-doris-2.1.5-bin-x64/extensions/apache_hdfs_broker | runtime/broker/resource/amd64/apache-doris-2.1.5-bin-x64/extensions/apache_hdfs_broker |
+|     fe     |              apache-doris-3.0.2-bin-x64/fe               |                runtime/fe/resource/amd64/apache-doris-3.0.2-bin-x64/fe                 |
+|     be     |              apache-doris-3.0.2-bin-x64/be               |                runtime/be/resource/amd64/apache-doris-3.0.2-bin-x64/be                 |
+|     ms     |              apache-doris-3.0.2-bin-x64/ms               |                runtime/ms/resource/amd64/apache-doris-3.0.2-bin-x64/ms                 |
+|   broker   | apache-doris-3.0.2-bin-x64/extensions/apache_hdfs_broker | runtime/broker/resource/amd64/apache-doris-3.0.2-bin-x64/extensions/apache_hdfs_broker |
 
 arm64 platform:
 
 | doris type |                       doris package                        |                                     docker file path                                     |
 |:----------:|:----------------------------------------------------------:|:----------------------------------------------------------------------------------------:|
-|     fe     |              apache-doris-2.1.5-bin-arm64/fe               |                runtime/fe/resource/arm64/apache-doris-2.1.5-bin-arm64/fe                 |
-|     be     |              apache-doris-2.1.5-bin-arm64/be               |                runtime/be/resource/arm64/apache-doris-2.1.5-bin-arm64/be                 |
-|     ms     |              apache-doris-2.1.5-bin-arm64/ms               |                runtime/ms/resource/arm64/apache-doris-2.1.5-bin-arm64/ms                 |
-|   broker   | apache-doris-2.1.5-bin-arm64/extensions/apache_hdfs_broker | runtime/broker/resource/arm64/apache-doris-2.1.5-bin-arm64/extensions/apache_hdfs_broker |
+|     fe     |              apache-doris-3.0.2-bin-arm64/fe               |                runtime/fe/resource/arm64/apache-doris-3.0.2-bin-arm64/fe                 |
+|     be     |              apache-doris-3.0.2-bin-arm64/be               |                runtime/be/resource/arm64/apache-doris-3.0.2-bin-arm64/be                 |
+|     ms     |              apache-doris-3.0.2-bin-arm64/ms               |                runtime/ms/resource/arm64/apache-doris-3.0.2-bin-arm64/ms                 |
+|   broker   | apache-doris-3.0.2-bin-arm64/extensions/apache_hdfs_broker | runtime/broker/resource/arm64/apache-doris-3.0.2-bin-arm64/extensions/apache_hdfs_broker |
+
+**NOTICE**
+
+Only after doris 3.0, the storage-computing separation mode requires the ms (meta-service) component.
 
 ### Build base image
 
@@ -100,12 +105,12 @@ ARG DORIS_VERSION="x.x.x"
 as the following commands, Docker will automatically confirm the architecture
 
 ```shell
-$ cd doris/runtime/fe && docker build . -t doris.fe:2.1.5 -f Dockerfile --build-arg DORIS_VERSION=2.1.5 
-$ cd doris/runtime/be && docker build . -t doris.be:2.1.5 -f Dockerfile --build-arg DORIS_VERSION=2.1.5 
-$ cd doris/runtime/ms && docker build . -t doris.ms:2.1.5 -f Dockerfile --build-arg DORIS_VERSION=2.1.5 
-$ cd doris/runtime/broker && docker build . -t doris.broker:2.1.5 -f Dockerfile --build-arg DORIS_VERSION=2.1.5 
+$ cd doris/runtime/fe && docker build . -t doris.fe:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
+$ cd doris/runtime/be && docker build . -t doris.be:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
+$ cd doris/runtime/ms && docker build . -t doris.ms:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
+$ cd doris/runtime/broker && docker build . -t doris.broker:3.0.2 -f Dockerfile --build-arg DORIS_VERSION=3.0.2 
 ```
 
 ### Latest update time
 
-2024-8-12
+2024-10-28

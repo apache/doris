@@ -17,9 +17,9 @@
 
 package org.apache.doris.common.profile;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -115,6 +115,8 @@ public class Profile {
     private PhysicalPlan physicalPlan;
     public Map<String, Long> rowsProducedMap = new HashMap<>();
     private List<PhysicalRelation> physicalRelations = new ArrayList<>();
+
+    private String changedSessionVarCache = "";
 
     // Need default constructor for read from storage
     public Profile() {}
@@ -284,12 +286,14 @@ public class Profile {
                 NereidsPlanner nereidsPlanner = ((NereidsPlanner) planner);
                 physicalPlan = nereidsPlanner.getPhysicalPlan();
                 physicalRelations.addAll(nereidsPlanner.getPhysicalRelations());
-                FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
-                if (distributedPlans != null) {
-                    summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,
-                            DistributedPlan.toString(Lists.newArrayList(distributedPlans.values()))
+                if (profileLevel >= 3) {
+                    FragmentIdMapping<DistributedPlan> distributedPlans = nereidsPlanner.getDistributedPlans();
+                    if (distributedPlans != null) {
+                        summaryInfo.put(SummaryProfile.DISTRIBUTED_PLAN,
+                                DistributedPlan.toString(Lists.newArrayList(distributedPlans.values()))
                                     .replace("\n", "\n     ")
-                    );
+                        );
+                    }
                 }
             }
 
@@ -318,8 +322,9 @@ public class Profile {
         StringBuilder builder = new StringBuilder();
         // add summary to builder
         summaryProfile.prettyPrint(builder);
-        // read execution profile from storage or generate it from memory (during query execution)
+        getChangedSessionVars(builder);
         getExecutionProfileContent(builder);
+        getOnStorageProfile(builder);
 
         return builder.toString();
     }
@@ -363,49 +368,13 @@ public class Profile {
         return gson.toJson(rootProfile.toBrief());
     }
 
-    // Read file if profile has been stored to storage.
+    // Return if profile has been stored to storage
     public void getExecutionProfileContent(StringBuilder builder) {
         if (builder == null) {
             builder = new StringBuilder();
         }
 
         if (profileHasBeenStored()) {
-            LOG.info("Profile {} has been stored to storage, reading it from storage", id);
-
-            FileInputStream fileInputStream = null;
-
-            try {
-                fileInputStream = createPorfileFileInputStream(profileStoragePath);
-                if (fileInputStream == null) {
-                    builder.append("Failed to read execution profile from " + profileStoragePath);
-                    return;
-                }
-
-                DataInputStream dataInput = new DataInputStream(fileInputStream);
-                // skip summary profile
-                Text.readString(dataInput);
-                // read compressed execution profile
-                int binarySize = dataInput.readInt();
-                byte[] binaryExecutionProfile = new byte[binarySize];
-                dataInput.readFully(binaryExecutionProfile, 0, binarySize);
-                // decompress binary execution profile
-                String textExecutionProfile = decompressExecutionProfile(binaryExecutionProfile);
-                builder.append(textExecutionProfile);
-                return;
-            } catch (Exception e) {
-                LOG.error("An error occurred while reading execution profile from storage, profile storage path: {}",
-                        profileStoragePath, e);
-                builder.append("Failed to read execution profile from " + profileStoragePath);
-            } finally {
-                if (fileInputStream != null) {
-                    try {
-                        fileInputStream.close();
-                    } catch (Exception e) {
-                        LOG.warn("Close profile {} failed", profileStoragePath, e);
-                    }
-                }
-            }
-
             return;
         }
 
@@ -473,8 +442,9 @@ public class Profile {
         this.summaryProfile = summaryProfile;
     }
 
-    public void releaseExecutionProfile() {
+    public void releaseMemory() {
         this.executionProfiles.clear();
+        this.changedSessionVarCache = "";
     }
 
     public boolean shouldStoreToStorage() {
@@ -490,7 +460,9 @@ public class Profile {
         boolean hasReportingProfile = false;
 
         if (this.executionProfiles.isEmpty()) {
-            LOG.warn("Profile {} has no execution profile, it is abnormal", id);
+            // Query finished, but no execution profile.
+            // 1. Query is executed on FE.
+            // 2. Not a SELECT query, just a DDL.
             return false;
         }
 
@@ -523,16 +495,18 @@ public class Profile {
             return false;
         }
 
+        long currentTimeMillis = System.currentTimeMillis();
         if (this.queryFinishTimestamp != Long.MAX_VALUE
-                    && (System.currentTimeMillis() - this.queryFinishTimestamp) > autoProfileDurationMs) {
+                    && (currentTimeMillis - this.queryFinishTimestamp)
+                        > Config.profile_waiting_time_for_spill_seconds * 1000) {
             LOG.warn("Profile {} should be stored to storage without waiting for incoming profile,"
-                    + " since it has been waiting for {} ms, query finished time: {}", id,
-                    System.currentTimeMillis() - this.queryFinishTimestamp, this.queryFinishTimestamp);
+                    + " since it has been waiting for {} ms, current time {} query finished time: {}",
+                    id, currentTimeMillis - this.queryFinishTimestamp, currentTimeMillis, this.queryFinishTimestamp);
 
             this.summaryProfile.setSystemMessage(
                             "This profile is not complete, since its collection does not finish in time."
-                            + " Maybe increase auto_profile_threshold_ms current val: "
-                            + String.valueOf(autoProfileDurationMs));
+                            + " Maybe increase profile_waiting_time_for_spill_secs in fe.conf current val: "
+                            + String.valueOf(Config.profile_waiting_time_for_spill_seconds));
             return true;
         }
 
@@ -603,6 +577,7 @@ public class Profile {
 
             // store execution profiles as string
             StringBuilder build = new StringBuilder();
+            getChangedSessionVars(build);
             getExecutionProfileContent(build);
             byte[] buf = compressExecutionProfile(build.toString());
             dataOutputStream.writeInt(buf.length);
@@ -691,5 +666,66 @@ public class Profile {
         for (Plan child : plan.children()) {
             updateActualRowCountOnPhysicalPlan(child);
         }
+    }
+
+    public void setChangedSessionVar(String changedSessionVar) {
+        this.changedSessionVarCache = changedSessionVar;
+    }
+
+    private void getChangedSessionVars(StringBuilder builder) {
+        if (builder == null) {
+            builder = new StringBuilder();
+        }
+        if (profileHasBeenStored()) {
+            return;
+        }
+
+        builder.append("\nChanged Session Variables:\n");
+        builder.append(changedSessionVarCache);
+        builder.append("\n");
+    }
+
+    private void getOnStorageProfile(StringBuilder builder) {
+        if (!profileHasBeenStored()) {
+            return;
+        }
+
+        LOG.info("Profile {} has been stored to storage, reading it from storage", id);
+
+        FileInputStream fileInputStream = null;
+
+        try {
+            fileInputStream = createPorfileFileInputStream(profileStoragePath);
+            if (fileInputStream == null) {
+                builder.append("Failed to read execution profile from " + profileStoragePath);
+                return;
+            }
+
+            DataInputStream dataInput = new DataInputStream(fileInputStream);
+            // skip summary profile
+            Text.readString(dataInput);
+            // read compressed execution profile
+            int binarySize = dataInput.readInt();
+            byte[] binaryExecutionProfile = new byte[binarySize];
+            dataInput.readFully(binaryExecutionProfile, 0, binarySize);
+            // decompress binary execution profile
+            String textExecutionProfile = decompressExecutionProfile(binaryExecutionProfile);
+            builder.append(textExecutionProfile);
+            return;
+        } catch (Exception e) {
+            LOG.error("An error occurred while reading execution profile from storage, profile storage path: {}",
+                    profileStoragePath, e);
+            builder.append("Failed to read execution profile from " + profileStoragePath);
+        } finally {
+            if (fileInputStream != null) {
+                try {
+                    fileInputStream.close();
+                } catch (Exception e) {
+                    LOG.warn("Close profile {} failed", profileStoragePath, e);
+                }
+            }
+        }
+
+        return;
     }
 }

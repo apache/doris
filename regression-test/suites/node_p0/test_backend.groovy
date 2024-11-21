@@ -24,23 +24,28 @@ suite("test_backend", "nonConcurrent") {
         logger.info("result:${result}")
 
         sql """ALTER SYSTEM ADD BACKEND "${address}:${notExistPort}";"""
+        waitAddBeFinished(address, notExistPort)
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
 
-        sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
-        sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
+        if (!isCloudMode()) {
+            sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_query" = "true"); """
+            sql """ALTER SYSTEM MODIFY BACKEND "${address}:${notExistPort}" SET ("disable_load" = "true"); """
+        }
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
 
         sql """ALTER SYSTEM DROPP BACKEND "${address}:${notExistPort}";"""
+        waitDropBeFinished(address, notExistPort)
 
         result = sql """SHOW BACKENDS;"""
         logger.info("result:${result}")
     }
 
-    if (context.config.jdbcUser.equals("root")) {
+    // Cancel decommission backend is not supported in cloud mode.
+    if (context.config.jdbcUser.equals("root") && !isCloudMode()) {
         def beId1 = null
         try {
             GetDebugPoint().enableDebugPointForAllFEs("SystemHandler.decommission_no_check_replica_num");

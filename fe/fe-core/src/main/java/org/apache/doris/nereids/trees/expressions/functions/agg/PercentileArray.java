@@ -21,11 +21,13 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
@@ -34,6 +36,7 @@ import org.apache.doris.nereids.types.TinyIntType;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -43,6 +46,10 @@ public class PercentileArray extends AggregateFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
+                    .args(DoubleType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
+            FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
+                    .args(FloatType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
                     .args(LargeIntType.INSTANCE, ArrayType.of(DoubleType.INSTANCE)),
             FunctionSignature.ret(ArrayType.of(DoubleType.INSTANCE))
@@ -85,5 +92,10 @@ public class PercentileArray extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new ArrayLiteral(new ArrayList<>(), this.getDataType());
     }
 }

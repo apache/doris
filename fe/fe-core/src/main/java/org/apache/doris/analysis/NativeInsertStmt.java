@@ -167,7 +167,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     boolean hasEmptyTargetColumns = false;
     private boolean allowAutoPartition = true;
-    private boolean withAutoDetectOverwrite = false;
 
     enum InsertType {
         NATIVE_INSERT("insert_"),
@@ -331,11 +330,6 @@ public class NativeInsertStmt extends InsertStmt {
 
     public boolean isTransactionBegin() {
         return isTransactionBegin;
-    }
-
-    public NativeInsertStmt withAutoDetectOverwrite() {
-        this.withAutoDetectOverwrite = true;
-        return this;
     }
 
     protected void preCheckAnalyze(Analyzer analyzer) throws UserException {
@@ -502,7 +496,8 @@ public class NativeInsertStmt extends InsertStmt {
                 }
 
                 if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
-                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+                        && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()
+                        && analyzer.getContext().getSessionVariable().isRequireSequenceInInsert()) {
                     if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                             || !seqColInTable.get().getDefaultValue()
                             .equalsIgnoreCase(DefaultValue.CURRENT_TIMESTAMP)) {
@@ -1351,7 +1346,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         OlapTable olapTable = (OlapTable) targetTable;
-        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS || olapTable.isUniqKeyMergeOnWriteWithClusterKeys()) {
             return;
         }
         // when enable_unique_key_partial_update = true,

@@ -105,6 +105,7 @@ private:
     size_t s;
 
     ColumnConst(const ColumnPtr& data, size_t s_);
+    ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty);
     ColumnConst(const ColumnConst& src) = default;
 
 public:
@@ -119,8 +120,6 @@ public:
     ColumnPtr remove_low_cardinality() const;
 
     std::string get_name() const override { return "Const(" + data->get_name() + ")"; }
-
-    const char* get_family_name() const override { return "Const"; }
 
     void resize(size_t new_size) override { s = new_size; }
 
@@ -143,6 +142,10 @@ public:
     bool is_null_at(size_t) const override { return data->is_null_at(0); }
 
     void insert_range_from(const IColumn&, size_t /*start*/, size_t length) override {
+        s += length;
+    }
+
+    void insert_many_from(const IColumn& src, size_t position, size_t length) override {
         s += length;
     }
 
@@ -247,15 +250,6 @@ public:
         }
     }
 
-    void append_data_by_selector(MutableColumnPtr& res,
-                                 const IColumn::Selector& selector) const override {
-        assert_cast<Self&>(*res).resize(selector.size());
-    }
-    void append_data_by_selector(MutableColumnPtr& res, const IColumn::Selector& selector,
-                                 size_t begin, size_t end) const override {
-        assert_cast<Self&>(*res).resize(end - begin);
-    }
-
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
     bool structure_equals(const IColumn& rhs) const override {
@@ -265,7 +259,8 @@ public:
         return false;
     }
 
-    //    bool is_nullable() const override { return is_column_nullable(*data); }
+    // ColumnConst is not nullable, but may be concrete nullable.
+    bool is_concrete_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
     bool is_numeric() const override { return data->is_numeric(); }
     bool is_fixed_and_contiguous() const override { return data->is_fixed_and_contiguous(); }

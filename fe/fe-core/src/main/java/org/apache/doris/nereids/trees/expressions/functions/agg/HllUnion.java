@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -88,5 +89,10 @@ public class HllUnion extends AggregateFunction
     @Override
     public boolean canRollUp() {
         return true;
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new HllEmpty();
     }
 }

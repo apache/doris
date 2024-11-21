@@ -18,6 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopK;
+import org.apache.doris.nereids.trees.expressions.functions.agg.ApproxTopSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.ArrayAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AvgWeighted;
@@ -43,6 +45,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Histogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.IntersectCount;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Kurt;
+import org.apache.doris.nereids.trees.expressions.functions.agg.LinearHistogram;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MapAgg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MaxBy;
@@ -61,9 +65,12 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApprox
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileApproxWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.PercentileArray;
 import org.apache.doris.nereids.trees.expressions.functions.agg.QuantileUnion;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrIntercept;
+import org.apache.doris.nereids.trees.expressions.functions.agg.RegrSlope;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Retention;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.SequenceMatch;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Skew;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Stddev;
 import org.apache.doris.nereids.trees.expressions.functions.agg.StddevSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -90,6 +97,8 @@ import java.util.Set;
 public class BuiltinAggregateFunctions implements FunctionHelper {
     public final List<AggregateFunc> aggregateFunctions = ImmutableList.of(
             agg(AnyValue.class, "any", "any_value"),
+            agg(ApproxTopK.class, "approx_top_k"),
+            agg(ApproxTopSum.class, "approx_top_sum"),
             agg(ArrayAgg.class, "array_agg"),
             agg(Avg.class, "avg"),
             agg(AvgWeighted.class, "avg_weighted"),
@@ -115,6 +124,7 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(HllUnion.class, "hll_raw_agg", "hll_union"),
             agg(HllUnionAgg.class, "hll_union_agg"),
             agg(IntersectCount.class, "intersect_count"),
+            agg(LinearHistogram.class, FunctionSet.LINEAR_HISTOGRAM),
             agg(MapAgg.class, "map_agg"),
             agg(Max.class, "max"),
             agg(MaxBy.class, "max_by"),
@@ -127,13 +137,15 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(Ndv.class, "approx_count_distinct", "ndv"),
             agg(OrthogonalBitmapIntersect.class, "orthogonal_bitmap_intersect"),
             agg(OrthogonalBitmapIntersectCount.class, "orthogonal_bitmap_intersect_count"),
-                    agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
-                    agg(Percentile.class, "percentile"),
-                    agg(PercentileApprox.class, "percentile_approx"),
-                    agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
-                    agg(PercentileArray.class, "percentile_array"),
-                    agg(QuantileUnion.class, "quantile_union"),
-                    agg(Retention.class, "retention"),
+            agg(OrthogonalBitmapUnionCount.class, "orthogonal_bitmap_union_count"),
+            agg(Percentile.class, "percentile"),
+            agg(PercentileApprox.class, "percentile_approx"),
+            agg(PercentileApproxWeighted.class, "percentile_approx_weighted"),
+            agg(PercentileArray.class, "percentile_array"),
+            agg(QuantileUnion.class, "quantile_union"),
+            agg(RegrIntercept.class, "regr_intercept"),
+            agg(RegrSlope.class, "regr_slope"),
+            agg(Retention.class, "retention"),
             agg(SequenceCount.class, "sequence_count"),
             agg(SequenceMatch.class, "sequence_match"),
             agg(Stddev.class, "stddev_pop", "stddev"),
@@ -145,7 +157,9 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
             agg(TopNWeighted.class, "topn_weighted"),
             agg(Variance.class, "var_pop", "variance_pop", "variance"),
             agg(VarianceSamp.class, "var_samp", "variance_samp"),
-            agg(WindowFunnel.class, "window_funnel")
+            agg(WindowFunnel.class, "window_funnel"),
+            agg(Skew.class, "skew", "skew_pop", "skewness"),
+            agg(Kurt.class, "kurt", "kurt_pop", "kurtosis")
     );
 
     public final Set<String> aggFuncNames = aggregateFunctions.stream()

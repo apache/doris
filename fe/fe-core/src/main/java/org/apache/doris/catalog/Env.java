@@ -246,15 +246,16 @@ import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
 import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.AdmissionControl;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.resource.workloadgroup.CreateInternalWorkloadGroupThread;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadRuntimeStatusMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyPublisher;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
-import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.statistics.AnalysisManager;
@@ -290,6 +291,7 @@ import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.DbUsedDataQuotaInfoCollector;
+import org.apache.doris.transaction.GlobalExternalTransactionInfoMgr;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.PublishVersionDaemon;
 
@@ -394,7 +396,6 @@ public class Env {
     private ExternalMetaIdMgr externalMetaIdMgr;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
-    private ExportTaskRegister exportTaskRegister;
     private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
     private LabelProcessor labelProcessor;
     private TransientTaskManager transientTaskManager;
@@ -568,7 +569,11 @@ public class Env {
 
     private final SplitSourceManager splitSourceManager;
 
+    private final GlobalExternalTransactionInfoMgr globalExternalTransactionInfoMgr;
+
     private final List<String> forceSkipJournalIds = Arrays.asList(Config.force_skip_journal_ids);
+
+    private TokenManager tokenManager;
 
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
@@ -706,7 +711,6 @@ public class Env {
         this.jobManager = new JobManager<>();
         this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
-        this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
 
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
@@ -816,6 +820,8 @@ public class Env {
         this.dnsCache = new DNSCache();
         this.sqlCacheManager = new NereidsSqlCacheManager();
         this.splitSourceManager = new SplitSourceManager();
+        this.globalExternalTransactionInfoMgr = new GlobalExternalTransactionInfoMgr();
+        this.tokenManager = new TokenManager();
     }
 
     public static void destroyCheckpoint() {
@@ -1076,6 +1082,7 @@ public class Env {
 
         // 2. get cluster id and role (Observer or Follower)
         if (!Config.enable_check_compatibility_mode) {
+            checkDeployMode();
             getClusterIdAndRole();
         } else {
             isElectable = true;
@@ -1112,6 +1119,8 @@ public class Env {
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
         queryCancelWorker.start();
+
+        StmtExecutor.initBlockSqlAstNames();
     }
 
     // wait until FE is ready.
@@ -1149,6 +1158,17 @@ public class Env {
         File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
 
         return !roleFile.exists() && !versionFile.exists();
+    }
+
+    private void getClusterIdFromStorage(Storage storage) throws IOException {
+        clusterId = storage.getClusterID();
+        if (Config.cluster_id != -1 && Config.cluster_id != this.clusterId) {
+            LOG.warn("Configured cluster_id {} does not match stored cluster_id {}. "
+                     + "This may indicate a configuration error.",
+                     Config.cluster_id, this.clusterId);
+            throw new IOException("Configured cluster_id does not match stored cluster_id. "
+                                + "Please check your configuration.");
+        }
     }
 
     protected void getClusterIdAndRole() throws IOException {
@@ -1232,7 +1252,7 @@ public class Env {
                 frontends.put(nodeName, self);
                 LOG.info("add self frontend: {}", self);
             } else {
-                clusterId = storage.getClusterID();
+                getClusterIdFromStorage(storage);
                 if (storage.getToken() == null) {
                     token = Strings.isNullOrEmpty(Config.auth_token) ? Storage.newToken() : Config.auth_token;
                     LOG.info("refresh new token");
@@ -1287,7 +1307,7 @@ public class Env {
                 // NOTE: cluster_id will be init when Storage object is constructed,
                 //       so we new one.
                 storage = new Storage(this.imageDir);
-                clusterId = storage.getClusterID();
+                getClusterIdFromStorage(storage);
                 token = storage.getToken();
                 if (Strings.isNullOrEmpty(token)) {
                     token = Config.auth_token;
@@ -1295,7 +1315,7 @@ public class Env {
             } else {
                 // If the version file exist, read the cluster id and check the
                 // id with helper node to make sure they are identical
-                clusterId = storage.getClusterID();
+                getClusterIdFromStorage(storage);
                 token = storage.getToken();
                 try {
                     String url = "http://" + NetUtils
@@ -1350,6 +1370,31 @@ public class Env {
         Preconditions.checkState(helperNodes.size() == 1);
         LOG.info("finished to get cluster id: {}, isElectable: {}, role: {} and node name: {}",
                 clusterId, isElectable, role.name(), nodeName);
+    }
+
+    /**
+     * write cloud/local to MODE_FILE.
+     */
+    protected void checkDeployMode() throws IOException {
+        File modeFile = new File(this.imageDir, Storage.DEPLOY_MODE_FILE);
+        Storage storage = new Storage(this.imageDir);
+        String expectedMode = getDeployMode();
+        if (modeFile.exists()) {
+            String actualMode = storage.getDeployMode();
+            Preconditions.checkArgument(expectedMode.equals(actualMode),
+                    "You can't switch deploy mode from %s to %s, maybe you need to check fe.conf",
+                    actualMode, expectedMode);
+            LOG.info("The current deployment mode is " + expectedMode + ".");
+        } else {
+            storage.setDeployMode(expectedMode);
+            storage.writeClusterMode();
+            LOG.info("The file DEPLOY_MODE doesn't exist, create it.");
+            File versionFile = new File(this.imageDir, Storage.VERSION_FILE);
+            if (versionFile.exists()) {
+                LOG.warn("This may be an upgrade from old version, "
+                        + "or the DEPLOY_MODE file has been manually deleted");
+            }
+        }
     }
 
     public static String genFeNodeName(String host, int port, boolean isOldStyle) {
@@ -1584,6 +1629,7 @@ public class Env {
                 // Set initial root password if master FE first time launch.
                 auth.setInitialRootPassword(Config.initial_root_password);
             } else {
+                VariableMgr.forceUpdateVariables();
                 if (journalVersion <= FeMetaVersion.VERSION_114) {
                     // if journal version is less than 114, which means it is upgraded from version before 2.0.
                     // When upgrading from 1.2 to 2.0,
@@ -1829,6 +1875,7 @@ public class Env {
         WorkloadSchedPolicyPublisher wpPublisher = new WorkloadSchedPolicyPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wpPublisher);
         topicPublisherThread.start();
+        new CreateInternalWorkloadGroupThread().start();
 
         // auto analyze related threads.
         statisticsCleaner.start();
@@ -1839,6 +1886,7 @@ public class Env {
     // start threads that should run on all FE
     protected void startNonMasterDaemonThreads() {
         // start load manager thread
+        tokenManager.start();
         loadManager.start();
         tabletStatMgr.start();
 
@@ -2061,7 +2109,7 @@ public class Env {
 
     public void loadImage(String imageDir) throws IOException, DdlException {
         Storage storage = new Storage(imageDir);
-        clusterId = storage.getClusterID();
+        getClusterIdFromStorage(storage);
         File curFile = storage.getCurrentImageFile();
         if (!curFile.exists()) {
             // image.0 may not exist
@@ -2973,8 +3021,8 @@ public class Env {
             }
         }
         long cost = System.currentTimeMillis() - startTime;
-        if (cost >= 1000) {
-            LOG.warn("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
+        if (LOG.isDebugEnabled() && cost >= 1000) {
+            LOG.debug("replay journal cost too much time: {} replayedJournalId: {}", cost, replayedJournalId);
         }
 
         return hasLog;
@@ -2996,6 +3044,11 @@ public class Env {
     }
 
     public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName) throws DdlException {
+        addFrontend(role, host, editLogPort, nodeName, "");
+    }
+
+    public void addFrontend(FrontendNodeType role, String host, int editLogPort, String nodeName, String cloudUniqueId)
+            throws DdlException {
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire env lock. Try again");
         }
@@ -3026,6 +3079,7 @@ public class Env {
 
             // Only add frontend after removing the conflict nodes, to ensure the exception safety.
             fe = new Frontend(role, nodeName, host, editLogPort);
+            fe.setCloudUniqueId(cloudUniqueId);
             frontends.put(nodeName, fe);
 
             LOG.info("add frontend: {}", fe);
@@ -3076,7 +3130,6 @@ public class Env {
     }
 
     public void dropFrontendFromBDBJE(FrontendNodeType role, String host, int port) throws DdlException {
-
         if (port == selfNode.getPort() && feType == FrontendNodeType.MASTER
                 && selfNode.getHost().equals(host)) {
             throw new DdlException("can not drop current master node.");
@@ -3216,12 +3269,25 @@ public class Env {
         getInternalCatalog().recoverDatabase(recoverStmt);
     }
 
+    public void recoverDatabase(String dbName, long dbId, String newDbName) throws DdlException {
+        getInternalCatalog().recoverDatabase(dbName, dbId, newDbName);
+    }
+
     public void recoverTable(RecoverTableStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverTable(recoverStmt);
     }
 
+    public void recoverTable(String dbName, String tableName, String newTableName, long tableId) throws DdlException {
+        getInternalCatalog().recoverTable(dbName, tableName, newTableName, tableId);
+    }
+
     public void recoverPartition(RecoverPartitionStmt recoverStmt) throws DdlException {
         getInternalCatalog().recoverPartition(recoverStmt);
+    }
+
+    public void recoverPartition(String dbName, String tableName, String partitionName,
+                                    String newPartitionName, long partitionId) throws DdlException {
+        getInternalCatalog().recoverPartition(dbName, tableName, partitionName, newPartitionName, partitionId);
     }
 
     public void dropCatalogRecycleBin(IdType idType, long id) throws DdlException {
@@ -3539,6 +3605,13 @@ public class Env {
             sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
         }
 
+        // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
+                && olapTable.getEnableUniqueKeySkipBitmap()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN).append("\" = \"");
+            sb.append(olapTable.getEnableUniqueKeySkipBitmap()).append("\"");
+        }
+
         // show lightSchemaChange only when it is set true
         if (olapTable.getEnableLightSchemaChange()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE).append("\" = \"");
@@ -3578,6 +3651,12 @@ public class Env {
             // row store page size
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ROW_STORE_PAGE_SIZE).append("\" = \"");
             sb.append(olapTable.rowStorePageSize()).append("\"");
+        }
+
+        // storage page size
+        if (olapTable.storagePageSize() != PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORAGE_PAGE_SIZE).append("\" = \"");
+            sb.append(olapTable.storagePageSize()).append("\"");
         }
 
         // skip inverted index on load
@@ -4176,6 +4255,10 @@ public class Env {
         return this.clusterId;
     }
 
+    public String getDeployMode() {
+        return Config.isCloudMode() ? Storage.CLOUD_MODE : Storage.LOCAL_MODE;
+    }
+
     public String getToken() {
         return token;
     }
@@ -4350,6 +4433,10 @@ public class Env {
         return loadManager;
     }
 
+    public TokenManager getTokenManager() {
+        return tokenManager;
+    }
+
     public ProgressManager getProgressManager() {
         return progressManager;
     }
@@ -4396,11 +4483,6 @@ public class Env {
 
     public SyncJobManager getSyncJobManager() {
         return this.syncJobManager;
-    }
-
-
-    public ExportTaskRegister getExportTaskRegister() {
-        return exportTaskRegister;
     }
 
     public JobManager getJobManager() {
@@ -4618,13 +4700,13 @@ public class Env {
 
         if (clusterColumns.size() > 0 && shortKeyColumnCount < clusterColumns.size()) {
             boolean sameKey = true;
-            for (int i = 0; i < shortKeyColumnCount; i++) {
+            for (int i = 0; i < shortKeyColumnCount && i < indexColumns.size(); i++) {
                 if (!clusterColumns.get(i).getName().equals(indexColumns.get(i).getName())) {
                     sameKey = false;
                     break;
                 }
             }
-            if (sameKey) {
+            if (sameKey && !Config.random_add_cluster_keys_for_mow) {
                 throw new DdlException(shortKeyColumnCount + " short keys is a part of unique keys");
             }
         }
@@ -5813,8 +5895,9 @@ public class Env {
         ConfigBase.setMutableConfig(key, value);
         if (configtoThreads.get(key) != null) {
             try {
+                // not atomic. maybe delay to aware. but acceptable.
                 configtoThreads.get(key).get().setInterval(Config.getField(key).getLong(null) * 1000L);
-                configtoThreads.get(key).get().interrupt();
+                // shouldn't interrupt to keep possible bdbje writing safe.
                 LOG.info("set config " + key + " to " + value);
             } catch (IllegalAccessException e) {
                 LOG.warn("set config " + key + " failed: " + e.getMessage());
@@ -6420,7 +6503,7 @@ public class Env {
                         for (Replica replica : tablet.getReplicas()) {
                             TGetMetaReplicaMeta replicaMeta = new TGetMetaReplicaMeta();
                             replicaMeta.setId(replica.getId());
-                            replicaMeta.setBackendId(replica.getBackendId());
+                            replicaMeta.setBackendId(replica.getBackendIdWithoutException());
                             replicaMeta.setVersion(replica.getVersion());
                             tabletMeta.addToReplicas(replicaMeta);
                         }
@@ -6465,6 +6548,7 @@ public class Env {
             BinlogManager binlogManager = Env.getCurrentEnv().getBinlogManager();
             dbMeta.setDroppedPartitions(binlogManager.getDroppedPartitions(db.getId()));
             dbMeta.setDroppedTables(binlogManager.getDroppedTables(db.getId()));
+            dbMeta.setDroppedIndexes(binlogManager.getDroppedIndexes(db.getId()));
         }
 
         result.setDbMeta(dbMeta);
@@ -6494,8 +6578,8 @@ public class Env {
                 for (MaterializedIndex idx : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     for (Tablet tablet : idx.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            CompactionTask compactionTask = new CompactionTask(replica.getBackendId(), db.getId(),
-                                    olapTable.getId(), partition.getId(), idx.getId(), tablet.getId(),
+                            CompactionTask compactionTask = new CompactionTask(replica.getBackendIdWithoutException(),
+                                    db.getId(), olapTable.getId(), partition.getId(), idx.getId(), tablet.getId(),
                                     olapTable.getSchemaHashByIndexId(idx.getId()), type);
                             batchTask.addTask(compactionTask);
                         }
@@ -6573,6 +6657,10 @@ public class Env {
 
     public SplitSourceManager getSplitSourceManager() {
         return splitSourceManager;
+    }
+
+    public GlobalExternalTransactionInfoMgr getGlobalExternalTransactionInfoMgr() {
+        return globalExternalTransactionInfoMgr;
     }
 
     public StatisticsJobAppender getStatisticsJobAppender() {
@@ -6678,3 +6766,4 @@ public class Env {
         System.exit(0);
     }
 }
+

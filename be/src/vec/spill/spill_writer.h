@@ -25,6 +25,7 @@
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 namespace doris {
+#include "common/compile_check_begin.h"
 class RuntimeState;
 
 namespace vectorized {
@@ -86,3 +87,5 @@ private:
 using SpillWriterUPtr = std::unique_ptr<SpillWriter>;
 } // namespace vectorized
 } // namespace doris
+
+#include "common/compile_check_end.h"

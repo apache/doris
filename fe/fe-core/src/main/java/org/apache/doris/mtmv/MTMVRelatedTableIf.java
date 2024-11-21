@@ -35,10 +35,12 @@ public interface MTMVRelatedTableIf extends TableIf {
 
     /**
      * Get all partitions of the table
+     * Note: This method is called every time there is a refresh and transparent rewrite,
+     * so if this method is slow, it will significantly reduce query performance
      *
-     * @return partitionId->PartitionItem
+     * @return partitionName->PartitionItem
      */
-    Map<String, PartitionItem> getAndCopyPartitionItems();
+    Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException;
 
     /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
@@ -64,8 +66,12 @@ public interface MTMVRelatedTableIf extends TableIf {
 
     /**
      * getPartitionSnapshot
+     * It is best to use the version. If there is no version, use the last update time
+     * If snapshots have already been obtained in bulk in the context,
+     * the results should be obtained directly from the context
      *
      * @param partitionName
+     * @param context
      * @return partition snapshot at current time
      * @throws AnalysisException
      */
@@ -73,7 +79,11 @@ public interface MTMVRelatedTableIf extends TableIf {
 
     /**
      * getTableSnapshot
+     * It is best to use the version. If there is no version, use the last update time
+     * If snapshots have already been obtained in bulk in the context,
+     * the results should be obtained directly from the context
      *
+     * @param context
      * @return table snapshot at current time
      * @throws AnalysisException
      */
@@ -85,7 +95,9 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return If return false,The method of comparing whether to synchronize will directly return true,
      *         otherwise the snapshot information will be compared
      */
-    boolean needAutoRefresh();
+    default boolean needAutoRefresh() {
+        return true;
+    }
 
     /**
      * if allow partition column `isAllowNull`

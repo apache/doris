@@ -372,7 +372,7 @@ suite("regression_test_variant", "p0"){
                 "is_being_synced" = "false",
                 "storage_medium" = "hdd",
                 "storage_format" = "V2",
-                "inverted_index_storage_format" = "V1",
+                "inverted_index_storage_format" = "V2",
                 "enable_unique_key_merge_on_write" = "true",
                 "light_schema_change" = "true",
                 "store_row_column" = "true",
@@ -446,6 +446,23 @@ suite("regression_test_variant", "p0"){
             exception("Invalid type for variant column: 36")
         }
 
+        if (!isCloudMode()) {
+            test {
+                sql """
+                create table var(
+                    `key` int,
+                    `content` variant
+                )
+                DUPLICATE KEY(`key`)
+                distributed by hash(`key`) buckets 8
+                properties(
+                  "replication_allocation" = "tag.location.default: 1",
+                  "light_schema_change" = "false"
+                );
+                """
+                exception("errCode = 2, detailMessage = Variant type rely on light schema change")
+            }
+        }
     } finally {
         // reset flags
     }

@@ -67,7 +67,6 @@ import org.apache.hudi.common.table.TableSchemaResolver;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.net.URI;
 import java.security.PrivilegedExceptionAction;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -829,15 +828,6 @@ public class HiveMetaStoreClientHelper {
     public static HoodieTableMetaClient getHudiClient(HMSExternalTable table) {
         String hudiBasePath = table.getRemoteTable().getSd().getLocation();
         Configuration conf = getConfiguration(table);
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("try setting 'fs.xxx.impl.disable.cache' to true for hudi's base path: {}", hudiBasePath);
-        }
-        URI hudiBasePathUri = URI.create(hudiBasePath);
-        String scheme = hudiBasePathUri.getScheme();
-        if (!Strings.isNullOrEmpty(scheme)) {
-            // Avoid using Cache in Hadoop FileSystem, which may cause FE OOM.
-            conf.set("fs." + scheme + ".impl.disable.cache", "true");
-        }
         return HadoopUGI.ugiDoAs(AuthenticationConfig.getKerberosConfig(conf),
                 () -> HoodieTableMetaClient.builder().setConf(conf).setBasePath(hudiBasePath).build());
     }

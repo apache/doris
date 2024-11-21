@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "common/logging.h"
+#include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
 #include "meta-service/keys.h"
@@ -159,6 +160,16 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
     int master_num = 0;
     int follower_num = 0;
     for (auto& n : cluster.nodes()) {
+        // check here cloud_unique_id
+        std::string cloud_unique_id = n.cloud_unique_id();
+        auto [is_degrade_format, instance_id] = get_instance_id_by_cloud_unique_id(cloud_unique_id);
+        if (config::enable_check_instance_id && is_degrade_format &&
+            !is_instance_id_registered(instance_id)) {
+            ss << "node=" << n.DebugString()
+               << " cloud_unique_id use degrade format, but check instance failed";
+            *err = ss.str();
+            return false;
+        }
         if (ClusterPB::SQL == cluster.type() && n.has_edit_log_port() && n.edit_log_port() &&
             n.has_node_type() &&
             (n.node_type() == NodeInfoPB_NodeType_FE_MASTER ||
@@ -197,6 +208,27 @@ bool ResourceManager::check_cluster_params_valid(const ClusterPB& cluster, std::
         *err = ss.str();
     }
     return no_err;
+}
+
+std::pair<bool, std::string> ResourceManager::get_instance_id_by_cloud_unique_id(
+        const std::string& cloud_unique_id) {
+    auto v = split(cloud_unique_id, ':');
+    if (v.size() != 3) return {false, ""};
+    // degraded format check it
+    int version = std::atoi(v[0].c_str());
+    if (version != 1) return {false, ""};
+    return {true, v[1]};
+}
+
+bool ResourceManager::is_instance_id_registered(const std::string& instance_id) {
+    // check kv
+    auto [c0, m0] = get_instance(nullptr, instance_id, nullptr);
+    { TEST_SYNC_POINT_CALLBACK("is_instance_id_registered", &c0); }
+    if (c0 != TxnErrorCode::TXN_OK) {
+        LOG(WARNING) << "failed to check instance instance_id=" << instance_id
+                     << ", code=" << format_as(c0) << ", info=" + m0;
+    }
+    return c0 == TxnErrorCode::TXN_OK;
 }
 
 std::pair<MetaServiceCode, std::string> ResourceManager::add_cluster(const std::string& instance_id,
@@ -624,7 +656,7 @@ std::pair<TxnErrorCode, std::string> ResourceManager::get_instance(std::shared_p
         return ec;
     }
 
-    if (!inst_pb->ParseFromString(val)) {
+    if (inst_pb != nullptr && !inst_pb->ParseFromString(val)) {
         code = TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
         msg = "failed to parse InstanceInfoPB";
         return ec;

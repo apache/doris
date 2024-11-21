@@ -113,14 +113,3 @@ if (OS_MACOSX AND ARCH_ARM)
         COMMAND ${LLVM_STRIP} --strip-all $<TARGET_FILE:doris_be_test>
     )
 endif()
-
-if (BUILD_BENCHMARK_TOOL AND BUILD_BENCHMARK_TOOL STREQUAL "ON")
-    add_executable(benchmark_tool
-    tools/benchmark_tool.cpp
-    testutil/test_util.cpp
-    olap/tablet_schema_helper.cpp
-    )
-
-    target_link_libraries(benchmark_tool ${TEST_LINK_LIBS})
-    set_target_properties(benchmark_tool PROPERTIES COMPILE_FLAGS "-fno-access-control")
-endif()

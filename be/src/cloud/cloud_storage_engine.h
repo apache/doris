@@ -57,7 +57,7 @@ public:
 
     Result<BaseTabletSPtr> get_tablet(int64_t tablet_id) override;
 
-    Status start_bg_threads() override;
+    Status start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sptr = nullptr) override;
 
     Status set_cluster_id(int32_t cluster_id) override {
         _effective_cluster_id = cluster_id;
@@ -76,16 +76,12 @@ public:
 
     std::optional<StorageResource> get_storage_resource(const std::string& vault_id) {
         LOG(INFO) << "Getting storage resource for vault_id: " << vault_id;
-        if (vault_id.empty()) {
-            if (latest_fs() == nullptr) {
-                LOG(INFO) << "there is not latest fs";
-                return std::nullopt;
-            }
-            return StorageResource {latest_fs()};
-        }
 
         bool synced = false;
         do {
+            if (vault_id.empty() && latest_fs() != nullptr) {
+                return StorageResource {latest_fs()};
+            }
             if (auto storage_resource = doris::get_storage_resource(vault_id); storage_resource) {
                 return storage_resource->first;
             }

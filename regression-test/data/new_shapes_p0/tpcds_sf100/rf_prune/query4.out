@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------hashJoin[INNER_JOIN shuffle] hashCondition=((PULL_UP_UNIFIED_OUTPUT_ALIAS = customer.c_customer_sk)) otherCondition=()
+------hashJoin[INNER_JOIN shuffle] hashCondition=((ss_customer_sk = customer.c_customer_sk)) otherCondition=()
 --------PhysicalProject
 ----------PhysicalUnion
 ------------PhysicalProject

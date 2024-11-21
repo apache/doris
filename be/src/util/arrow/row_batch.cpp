@@ -46,7 +46,8 @@ namespace doris {
 
 using strings::Substitute;
 
-Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result) {
+Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result,
+                             const std::string& timezone) {
     switch (type.type) {
     case TYPE_NULL:
         *result = arrow::null();
@@ -69,7 +70,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DOUBLE:
         *result = arrow::float64();
         break;
-    case TYPE_TIME:
+    case TYPE_TIMEV2:
         *result = arrow::float64();
         break;
     case TYPE_IPV4:
@@ -96,11 +97,11 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         break;
     case TYPE_DATETIMEV2:
         if (type.scale > 3) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO);
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
         } else if (type.scale > 0) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI);
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI, timezone);
         } else {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND);
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND, timezone);
         }
         break;
     case TYPE_DECIMALV2:
@@ -120,7 +121,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_ARRAY: {
         DCHECK_EQ(type.children.size(), 1);
         std::shared_ptr<arrow::DataType> item_type;
-        static_cast<void>(convert_to_arrow_type(type.children[0], &item_type));
+        static_cast<void>(convert_to_arrow_type(type.children[0], &item_type, timezone));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -128,8 +129,8 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         DCHECK_EQ(type.children.size(), 2);
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        static_cast<void>(convert_to_arrow_type(type.children[0], &key_type));
-        static_cast<void>(convert_to_arrow_type(type.children[1], &val_type));
+        static_cast<void>(convert_to_arrow_type(type.children[0], &key_type, timezone));
+        static_cast<void>(convert_to_arrow_type(type.children[1], &val_type, timezone));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -138,7 +139,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type.children.size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            static_cast<void>(convert_to_arrow_type(type.children[i], &field_type));
+            static_cast<void>(convert_to_arrow_type(type.children[i], &field_type, timezone));
             fields.push_back(std::make_shared<arrow::Field>(type.field_names[i], field_type,
                                                             type.contains_nulls[i]));
         }
@@ -156,20 +157,14 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     return Status::OK();
 }
 
-Status convert_to_arrow_field(SlotDescriptor* desc, std::shared_ptr<arrow::Field>* field) {
-    std::shared_ptr<arrow::DataType> type;
-    RETURN_IF_ERROR(convert_to_arrow_type(desc->type(), &type));
-    *field = arrow::field(desc->col_name(), type, desc->is_nullable());
-    return Status::OK();
-}
-
-Status convert_block_arrow_schema(const vectorized::Block& block,
-                                  std::shared_ptr<arrow::Schema>* result) {
+Status get_arrow_schema_from_block(const vectorized::Block& block,
+                                   std::shared_ptr<arrow::Schema>* result,
+                                   const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (const auto& type_and_name : block) {
         std::shared_ptr<arrow::DataType> arrow_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_and_name.type->get_type_as_type_descriptor(),
-                                              &arrow_type));
+                                              &arrow_type, timezone));
         fields.push_back(std::make_shared<arrow::Field>(type_and_name.name, arrow_type,
                                                         type_and_name.type->is_nullable()));
     }
@@ -177,27 +172,14 @@ Status convert_block_arrow_schema(const vectorized::Block& block,
     return Status::OK();
 }
 
-Status convert_to_arrow_schema(const RowDescriptor& row_desc,
-                               std::shared_ptr<arrow::Schema>* result) {
-    std::vector<std::shared_ptr<arrow::Field>> fields;
-    for (auto tuple_desc : row_desc.tuple_descriptors()) {
-        for (auto desc : tuple_desc->slots()) {
-            std::shared_ptr<arrow::Field> field;
-            RETURN_IF_ERROR(convert_to_arrow_field(desc, &field));
-            fields.push_back(field);
-        }
-    }
-    *result = arrow::schema(std::move(fields));
-    return Status::OK();
-}
-
-Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
-                                      std::shared_ptr<arrow::Schema>* result) {
+Status get_arrow_schema_from_expr_ctxs(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+                                       std::shared_ptr<arrow::Schema>* result,
+                                       const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
     for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
         auto root_expr = output_vexpr_ctxs.at(i)->root();
-        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type));
+        RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type, timezone));
         auto field_name = root_expr->is_slot_ref() && !root_expr->expr_label().empty()
                                   ? root_expr->expr_label()
                                   : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);

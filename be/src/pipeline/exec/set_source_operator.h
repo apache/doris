@@ -26,7 +26,7 @@ namespace doris {
 class RuntimeState;
 
 namespace pipeline {
-
+#include "common/compile_check_begin.h"
 template <bool is_intersect>
 class SetSourceOperatorX;
 
@@ -46,6 +46,9 @@ private:
     std::vector<vectorized::MutableColumnPtr> _mutable_cols;
     //record build column type
     vectorized::DataTypes _left_table_data_types;
+
+    RuntimeProfile::Counter* _get_data_timer = nullptr;
+    RuntimeProfile::Counter* _filter_timer = nullptr;
 };
 
 template <bool is_intersect>
@@ -82,8 +85,8 @@ private:
 
     void _add_result_columns(SetSourceLocalState<is_intersect>& local_state,
                              RowRefListWithFlags& value, int& block_size);
-    const int _child_quantity;
+    const size_t _child_quantity;
 };
-
+#include "common/compile_check_end.h"
 } // namespace pipeline
 } // namespace doris

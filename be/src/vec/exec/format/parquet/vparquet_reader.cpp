@@ -412,7 +412,7 @@ Status ParquetReader::set_fill_columns(
                     visit_slot(child.get());
                 }
             } else if (VInPredicate* in_predicate = typeid_cast<VInPredicate*>(filter_impl)) {
-                if (in_predicate->children().size() > 0) {
+                if (in_predicate->get_num_children() > 0) {
                     visit_slot(in_predicate->children()[0].get());
                 }
             } else {

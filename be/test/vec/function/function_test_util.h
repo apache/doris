@@ -53,12 +53,12 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
 class DataTypeJsonb;
-class DataTypeTime;
 class TableFunction;
 template <typename T>
 class DataTypeDecimal;
@@ -271,7 +271,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     } else if constexpr (std::is_same_v<ReturnType, DataTypeInt32>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_INT;
     } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat64> ||
-                         std::is_same_v<ReturnType, DataTypeTime>) {
+                         std::is_same_v<ReturnType, DataTypeTimeV2>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DOUBLE;
     } else if constexpr (std::is_same_v<ReturnType, DateTime>) {
         fn_ctx_return.type = doris::PrimitiveType::TYPE_DATETIME;
@@ -358,7 +358,7 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                             << " at row " << i;
                 } else if constexpr (std::is_same_v<ReturnType, DataTypeFloat32> ||
                                      std::is_same_v<ReturnType, DataTypeFloat64> ||
-                                     std::is_same_v<ReturnType, DataTypeTime>) {
+                                     std::is_same_v<ReturnType, DataTypeTimeV2>) {
                     const auto& column_data = field.get<DataTypeFloat64::FieldType>();
                     EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
                 } else {

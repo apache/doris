@@ -19,6 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.util.LocationPath.Scheme;
+import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.fs.FileSystemType;
 
 import org.junit.jupiter.api.Assertions;
@@ -119,13 +120,14 @@ public class LocationPathTest {
         Assertions.assertTrue(beLocation.startsWith("s3://"));
         Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.S3);
 
+        rangeProps.put(OssProperties.ENDPOINT, "oss-dls.aliyuncs.com");
         locationPath = new LocationPath("oss://test.oss-dls.aliyuncs.com/path", rangeProps);
         // FE
         Assertions.assertTrue(locationPath.get().startsWith("oss://test.oss-dls.aliyuncs"));
         // BE
         beLocation = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(beLocation.startsWith("oss://test.oss-dls.aliyuncs"));
-        Assertions.assertEquals(LocationPath.getFSIdentity(beLocation, null).first, FileSystemType.DFS);
+        Assertions.assertEquals(locationPath.getFileSystemType(), FileSystemType.DFS);
 
     }
 

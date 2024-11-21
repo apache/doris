@@ -20,7 +20,6 @@ package org.apache.doris.metric;
 import org.apache.doris.alter.Alter;
 import org.apache.doris.alter.AlterJobV2.JobType;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -652,7 +651,6 @@ public final class MetricRepo {
         DORIS_METRIC_REGISTER.removeMetrics(TABLET_MAX_COMPACTION_SCORE);
 
         SystemInfoService infoService = Env.getCurrentSystemInfo();
-        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
 
         for (Long beId : infoService.getAllBackendIds(false)) {
             Backend be = infoService.getBackend(beId);
@@ -667,7 +665,7 @@ public final class MetricRepo {
                     if (!Env.getCurrentEnv().isMaster()) {
                         return 0L;
                     }
-                    return (long) invertedIndex.getTabletNumByBackendId(beId);
+                    return (long) infoService.getTabletNumByBackendId(beId);
                 }
             };
             tabletNum.addLabel(new MetricLabel("backend",
@@ -720,6 +718,8 @@ public final class MetricRepo {
         visitor.visitNodeInfo();
 
         visitor.visitCloudTableStats();
+
+        visitor.visitWorkloadGroup();
 
         return visitor.finish();
     }

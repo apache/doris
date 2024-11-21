@@ -72,22 +72,13 @@ suite("test_partial_update_mow_with_sync_mv") {
             from test_partial_update_mow_with_sync_mv;
     """)
 
-    for (def use_nereids : [true, false]) {
-        if (use_nereids) {
-            sql "set enable_nereids_planner=true"
-            sql "set enable_fallback_to_original_planner=false"
-        } else {
-            sql "set enable_nereids_planner=false"
-        }
+    sql "set enable_unique_key_partial_update=true;"
+    sql "sync;"
 
-        sql "set enable_unique_key_partial_update=true;"
-        sql "sync;"
-
-        test {
-            sql """insert into test_partial_update_mow_with_sync_mv(l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate, l_returnflag) values
+    test {
+        sql """insert into test_partial_update_mow_with_sync_mv(l_orderkey, l_linenumber, l_partkey, l_suppkey, l_shipdate, l_returnflag) values
             (2, 3, 2, 1, '2023-10-18', 'k'); """
-            exception "Can't do partial update on merge-on-write Unique table with sync materialized view."
-        }
+        exception "Can't do partial update on merge-on-write Unique table with sync materialized view."
     }
 
     streamLoad {

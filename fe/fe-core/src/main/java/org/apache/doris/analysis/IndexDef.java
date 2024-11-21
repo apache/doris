@@ -42,6 +42,7 @@ public class IndexDef {
     private Map<String, String> properties;
     private boolean isBuildDeferred = false;
     private PartitionNames partitionNames;
+    private List<Integer> columnUniqueIds = Lists.newArrayList();
 
     public static final String NGRAM_SIZE_KEY = "gram_size";
     public static final String NGRAM_BF_SIZE_KEY = "bf_size";
@@ -196,6 +197,10 @@ public class IndexDef {
         return partitionNames == null ? Lists.newArrayList() : partitionNames.getPartitionNames();
     }
 
+    public List<Integer> getColumnUniqueIds() {
+        return columnUniqueIds;
+    }
+
     public enum IndexType {
         BITMAP,
         INVERTED,
@@ -207,8 +212,8 @@ public class IndexDef {
         return (this.indexType == IndexType.INVERTED);
     }
 
-    public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite)
-            throws AnalysisException {
+    public void checkColumn(Column column, KeysType keysType, boolean enableUniqueKeyMergeOnWrite,
+                boolean disableInvertedIndexV1ForVariant) throws AnalysisException {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
                 || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
@@ -219,6 +224,14 @@ public class IndexDef {
                     || colType.isVariantType() || colType.isIPType() || colType.isArrayType())) {
                 throw new AnalysisException(colType + " is not supported in " + indexType.toString() + " index. "
                         + "invalid index: " + indexName);
+            }
+
+            // In inverted index format v1, each subcolumn of a variant has its own index file, leading to high IOPS.
+            // when the subcolumn type changes, it may result in missing files, causing link file failure.
+            if (colType.isVariantType() && disableInvertedIndexV1ForVariant) {
+                throw new AnalysisException(colType + " is not supported in inverted index format V1,"
+                        + "Please set properties(\"inverted_index_storage_format\"= \"v2\"),"
+                        + "or upgrade to a newer version");
             }
             if (!column.isKey()) {
                 if (keysType == KeysType.AGG_KEYS) {
@@ -249,8 +262,8 @@ public class IndexDef {
                     if (ngramSize > 256 || ngramSize < 1) {
                         throw new AnalysisException("gram_size should be integer and less than 256");
                     }
-                    if (bfSize > 65536 || bfSize < 64) {
-                        throw new AnalysisException("bf_size should be integer and between 64 and 65536");
+                    if (bfSize > 65535 || bfSize < 64) {
+                        throw new AnalysisException("bf_size should be integer and between 64 and 65535");
                     }
                 } catch (NumberFormatException e) {
                     throw new AnalysisException("invalid ngram properties:" + e.getMessage(), e);

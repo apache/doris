@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -384,7 +385,12 @@ public class LoadAction extends RestBaseController {
             return cloudClusterName;
         }
 
-        cloudClusterName = ConnectContext.get().getCloudCluster();
+        try {
+            cloudClusterName = ConnectContext.get().getCloudCluster();
+        } catch (ComputeGroupException e) {
+            LOG.warn("get cloud cluster name failed", e);
+            return "";
+        }
         if (!Strings.isNullOrEmpty(cloudClusterName)) {
             return cloudClusterName;
         }
@@ -569,7 +575,7 @@ public class LoadAction extends RestBaseController {
     // So this function is not widely tested under general scenario
     private boolean checkClusterToken(String token) {
         try {
-            return Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token);
+            return Env.getCurrentEnv().getTokenManager().checkAuthToken(token);
         } catch (UserException e) {
             throw new UnauthorizedException(e.getMessage());
         }

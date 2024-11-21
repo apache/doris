@@ -25,11 +25,17 @@ import java.util.Map;
  * properties for aliyun max compute
  */
 public class MCProperties extends BaseProperties {
+
+    //To be compatible with previous versions of the catalog.
     public static final String REGION = "mc.region";
-    public static final String PROJECT = "mc.default.project";
-    public static final String SESSION_TOKEN = "mc.session_token";
     public static final String PUBLIC_ACCESS = "mc.public_access";
     public static final String DEFAULT_PUBLIC_ACCESS = "false";
+    public static final String ODPS_ENDPOINT = "mc.odps_endpoint";
+    public static final String TUNNEL_SDK_ENDPOINT = "mc.tunnel_endpoint";
+
+
+    public static final String PROJECT = "mc.default.project";
+    public static final String SESSION_TOKEN = "mc.session_token";
 
     public static final String ACCESS_KEY = "mc.access_key";
     public static final String SECRET_KEY = "mc.secret_key";

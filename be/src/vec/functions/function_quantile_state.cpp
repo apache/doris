@@ -126,7 +126,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr& column = block.get_by_position(arguments[0]).column;
         const DataTypePtr& data_type = block.get_by_position(arguments[0]).type;
         auto compression_arg = check_and_get_column_const<ColumnFloat32>(
@@ -175,7 +175,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto res_data_column = ColumnFloat64::create();
         auto& res = res_data_column->get_data();
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);

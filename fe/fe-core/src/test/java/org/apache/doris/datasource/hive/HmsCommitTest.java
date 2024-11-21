@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
@@ -35,6 +36,7 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUpdateMode;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -54,6 +56,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
@@ -127,7 +130,7 @@ public class HmsCommitTest {
     }
 
     @Before
-    public void before() {
+    public void before() throws IOException {
         // create table for tbWithPartition
         List<Column> columns = new ArrayList<>();
         columns.add(new Column("c1", PrimitiveType.INT, true));
@@ -136,11 +139,15 @@ public class HmsCommitTest {
         List<String> partitionKeys = new ArrayList<>();
         partitionKeys.add("c3");
         String fileFormat = "orc";
+        Map<String, String> tblProperties = Maps.newHashMap();
+        tblProperties.put("owner", "admin");
         HiveTableMetadata tableMetadata = new HiveTableMetadata(
                 dbName, tbWithPartition, Optional.of(dbLocation + tbWithPartition + UUID.randomUUID()),
                 columns, partitionKeys,
-                new HashMap<>(), fileFormat, "");
+                tblProperties, fileFormat, "");
         hmsClient.createTable(tableMetadata, true);
+        Table tbl = hmsClient.getTable(dbName, tbWithPartition);
+        Assert.assertEquals(UserIdentity.ADMIN.getUser(), tbl.getParameters().get("owner"));
 
         // create table for tbWithoutPartition
         HiveTableMetadata tableMetadata2 = new HiveTableMetadata(

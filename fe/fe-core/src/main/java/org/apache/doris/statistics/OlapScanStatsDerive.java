@@ -67,9 +67,6 @@ public class OlapScanStatsDerive extends BaseStatsDerive {
                     Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                         table.getDatabase().getCatalog().getId(),
                         table.getDatabase().getId(), table.getId(), -1, colName);
-            if (!statistic.isUnKnown) {
-                rowCount = statistic.count;
-            }
             columnStatisticMap.put(entry.getKey(), statistic);
         }
         return new StatsDeriveResult(rowCount, columnStatisticMap);

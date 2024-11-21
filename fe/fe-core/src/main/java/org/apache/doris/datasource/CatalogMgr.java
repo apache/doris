@@ -24,6 +24,7 @@ import org.apache.doris.analysis.CreateCatalogStmt;
 import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.ShowCreateCatalogStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
@@ -92,9 +93,9 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     private final MonitoredReentrantReadWriteLock lock = new MonitoredReentrantReadWriteLock(true);
 
     @SerializedName(value = "idToCatalog")
-    private final Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog = Maps.newConcurrentMap();
+    private Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> idToCatalog = Maps.newConcurrentMap();
     // this map will be regenerated from idToCatalog, so not need to persist.
-    private final Map<String, CatalogIf> nameToCatalog = Maps.newConcurrentMap();
+    private Map<String, CatalogIf> nameToCatalog = Maps.newConcurrentMap();
 
     // Use a separate instance to facilitate access.
     // internalDataSource still exists in idToCatalog and nameToCatalog
@@ -134,6 +135,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     private CatalogIf removeCatalog(long catalogId) {
         CatalogIf catalog = idToCatalog.remove(catalogId);
+        LOG.info("Removed catalog with id {}, name {}", catalogId, catalog == null ? "N/A" : catalog.getName());
         if (catalog != null) {
             catalog.onClose();
             nameToCatalog.remove(catalog.getName());
@@ -370,30 +372,27 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                             CaseSensibility.CATALOG.getCaseSensibility());
                 }
-                for (CatalogIf catalog : nameToCatalog.values()) {
-                    if (Env.getCurrentEnv().getAccessManager()
-                            .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
-                        String name = catalog.getName();
-                        // Filter catalog name
-                        if (matcher != null && !matcher.match(name)) {
-                            continue;
-                        }
-                        List<String> row = Lists.newArrayList();
-                        row.add(String.valueOf(catalog.getId()));
-                        row.add(name);
-                        row.add(catalog.getType());
-                        if (name.equals(currentCtlg)) {
-                            row.add("Yes");
-                        } else {
-                            row.add("No");
-                        }
-                        Map<String, String> props = catalog.getProperties();
-                        String createTime = props.getOrDefault(ExternalCatalog.CREATE_TIME, FeConstants.null_string);
-                        row.add(createTime);
-                        row.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
-                        row.add(catalog.getComment());
-                        rows.add(row);
+                for (CatalogIf catalog : listCatalogsWithCheckPriv(ConnectContext.get().getCurrentUserIdentity())) {
+                    String name = catalog.getName();
+                    // Filter catalog name
+                    if (matcher != null && !matcher.match(name)) {
+                        continue;
                     }
+                    List<String> row = Lists.newArrayList();
+                    row.add(String.valueOf(catalog.getId()));
+                    row.add(name);
+                    row.add(catalog.getType());
+                    if (name.equals(currentCtlg)) {
+                        row.add("Yes");
+                    } else {
+                        row.add("No");
+                    }
+                    Map<String, String> props = catalog.getProperties();
+                    String createTime = props.getOrDefault(ExternalCatalog.CREATE_TIME, FeConstants.null_string);
+                    row.add(createTime);
+                    row.add(TimeUtils.longToTimeString(catalog.getLastUpdateTime()));
+                    row.add(catalog.getComment());
+                    rows.add(row);
 
                     // sort by catalog name
                     rows.sort((x, y) -> {
@@ -413,18 +412,8 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 if (!Strings.isNullOrEmpty(catalog.getResource())) {
                     rows.add(Arrays.asList("resource", catalog.getResource()));
                 }
-                // use tree map to maintain display order, making it easier to view properties
-                Map<String, String> sortedMap = new TreeMap<>(catalog.getProperties()).descendingMap();
-                for (Map.Entry<String, String> elem : sortedMap.entrySet()) {
-                    if (PrintableMap.HIDDEN_KEY.contains(elem.getKey())) {
-                        continue;
-                    }
-                    if (PrintableMap.SENSITIVE_KEY.contains(elem.getKey())) {
-                        rows.add(Arrays.asList(elem.getKey(), PrintableMap.PASSWORD_MASK));
-                    } else {
-                        rows.add(Arrays.asList(elem.getKey(), elem.getValue()));
-                    }
-                }
+                Map<String, String> sortedMap = getCatalogPropertiesWithPrintable(catalog);
+                sortedMap.forEach((k, v) -> rows.add(Arrays.asList(k, v)));
             }
         } finally {
             readUnlock();
@@ -433,16 +422,34 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    public ShowResultSet showCreateCatalog(ShowCreateCatalogStmt showStmt) throws AnalysisException {
+    public static Map<String, String> getCatalogPropertiesWithPrintable(CatalogIf<?> catalog) {
+        // use tree map to maintain display order, making it easier to view properties
+        Map<String, String> sortedMap = new TreeMap<>();
+        catalog.getProperties().forEach(
+                (key, value) -> {
+                    if (PrintableMap.HIDDEN_KEY.contains(key)) {
+                        return;
+                    }
+                    if (PrintableMap.SENSITIVE_KEY.contains(key)) {
+                        sortedMap.put(key, PrintableMap.PASSWORD_MASK);
+                    } else {
+                        sortedMap.put(key, value);
+                    }
+                }
+        );
+        return sortedMap;
+    }
+
+    public List<List<String>> showCreateCatalog(String catalogName) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         readLock();
         try {
-            CatalogIf catalog = nameToCatalog.get(showStmt.getCatalog());
+            CatalogIf catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
-                throw new AnalysisException("No catalog found with name " + showStmt.getCatalog());
+                throw new AnalysisException("No catalog found with name " + catalogName);
             }
             StringBuilder sb = new StringBuilder();
-            sb.append("\nCREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
+            sb.append("\nCREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(catalogName))
                     .append("`");
             if (!Strings.isNullOrEmpty(catalog.getComment())) {
                 sb.append("\nCOMMENT \"").append(catalog.getComment()).append("\"\n");
@@ -456,10 +463,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 sb.append("\n);");
             }
 
-            rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()), sb.toString()));
+            rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(catalogName), sb.toString()));
         } finally {
             readUnlock();
         }
+
+        return rows;
+    }
+
+    public ShowResultSet showCreateCatalog(ShowCreateCatalogStmt showStmt) throws AnalysisException {
+        List<List<String>> rows = showCreateCatalog(showStmt.getCatalog());
 
         return new ShowResultSet(showStmt.getMetaData(), rows);
     }
@@ -536,6 +549,14 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
     public List<CatalogIf> listCatalogs() {
         return nameToCatalog.values().stream().collect(Collectors.toList());
     }
+
+    public List<CatalogIf> listCatalogsWithCheckPriv(UserIdentity userIdentity) {
+        return nameToCatalog.values().stream().filter(
+                catalog -> Env.getCurrentEnv().getAccessManager()
+                        .checkCtlPriv(userIdentity, catalog.getName(), PrivPredicate.SHOW)
+        ).collect(Collectors.toList());
+    }
+
 
     /**
      * Reply for alter catalog props event.
@@ -679,7 +700,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
     }
 
-    public void unregisterExternalDatabase(String dbName, String catalogName, boolean ignoreIfNotExists)
+    public void unregisterExternalDatabase(String dbName, String catalogName)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -688,17 +709,10 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         if (!(catalog instanceof ExternalCatalog)) {
             throw new DdlException("Only support drop ExternalCatalog databases");
         }
-        DatabaseIf db = catalog.getDbNullable(dbName);
-        if (db == null) {
-            if (!ignoreIfNotExists) {
-                throw new DdlException("Database " + dbName + " does not exist in catalog " + catalog.getName());
-            }
-            return;
-        }
         ((HMSExternalCatalog) catalog).unregisterDatabase(dbName);
     }
 
-    public void registerExternalDatabaseFromEvent(String dbName, String catalogName, boolean ignoreIfExists)
+    public void registerExternalDatabaseFromEvent(String dbName, String catalogName)
             throws DdlException {
         CatalogIf catalog = nameToCatalog.get(catalogName);
         if (catalog == null) {
@@ -808,10 +822,17 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        // After deserializing from Gson, the concurrent map may become a normal map.
+        // So here we reconstruct the concurrent map.
+        Map<Long, CatalogIf<? extends DatabaseIf<? extends TableIf>>> newIdToCatalog = Maps.newConcurrentMap();
+        Map<String, CatalogIf> newNameToCatalog = Maps.newConcurrentMap();
         for (CatalogIf catalog : idToCatalog.values()) {
-            nameToCatalog.put(catalog.getName(), catalog);
+            newNameToCatalog.put(catalog.getName(), catalog);
+            newIdToCatalog.put(catalog.getId(), catalog);
             // ATTN: can not call catalog.getProperties() here, because ResourceMgr is not replayed yet.
         }
+        this.idToCatalog = newIdToCatalog;
+        this.nameToCatalog = newNameToCatalog;
         internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }
 

@@ -38,15 +38,17 @@ import org.apache.http.impl.client.LaxRedirectStrategy;
 //  - set smaller max_ttl_cache_ratio in this test
 
 suite("test_ttl_lru_evict") {
-    sql """ use @regression_cluster_name1 """
-    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="3600") """
+    //sql """ use @regression_cluster_name1 """
+    sql """ use @compute_cluster """
+    def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="150") """
     String[][] backends = sql """ show backends """
     String backendId;
     def backendIdToBackendIP = [:]
     def backendIdToBackendHttpPort = [:]
     def backendIdToBackendBrpcPort = [:]
     for (String[] backend in backends) {
-        if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
+        // if (backend[9].equals("true") && backend[19].contains("regression_cluster_name1")) {
+        if (backend[9].equals("true") && backend[19].contains("compute_cluster")) {
             backendIdToBackendIP.put(backend[0], backend[1])
             backendIdToBackendHttpPort.put(backend[0], backend[4])
             backendIdToBackendBrpcPort.put(backend[0], backend[5])
@@ -141,11 +143,43 @@ suite("test_ttl_lru_evict") {
         }
     }
 
-    long org_max_ttl_cache_ratio = Long.parseLong(get_be_param.call("max_ttl_cache_ratio"))
+    def enable_be_injection = {
+        for (String id in backendIdToBackendIP.keySet()) {
+            def beIp = backendIdToBackendIP.get(id)
+            def bePort = backendIdToBackendHttpPort.get(id)
+            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/enable", beIp, bePort))
+            assertTrue(out.contains("OK"))
+        }
+    }
+
+    def clear_be_injection = {
+        for (String id in backendIdToBackendIP.keySet()) {
+            def beIp = backendIdToBackendIP.get(id)
+            def bePort = backendIdToBackendHttpPort.get(id)
+            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/clear", beIp, bePort))
+            assertTrue(out.contains("OK"))
+        }
+    }
+
+    def disable_be_injection = {
+        for (String id in backendIdToBackendIP.keySet()) {
+            def beIp = backendIdToBackendIP.get(id)
+            def bePort = backendIdToBackendHttpPort.get(id)
+            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/disable", beIp, bePort))
+            assertTrue(out.contains("OK"))
+        }
+    }
+
+    def injection_limit_for_all_be = {
+        for (String id in backendIdToBackendIP.keySet()) {
+            def beIp = backendIdToBackendIP.get(id)
+            def bePort = backendIdToBackendHttpPort.get(id)
+            def (code, out, err) = curl("GET", String.format("http://%s:%s/api/injection_point/apply_suite?name=test_ttl_lru_evict", beIp, bePort))
+            assertTrue(out.contains("OK"))
+        }
+    }
 
     try {
-        set_be_param.call("max_ttl_cache_ratio", "2")
-
         def tables = [customer_ttl: 15000000]
         def s3BucketName = getS3BucketName()
         def s3WithProperties = """WITH S3 (
@@ -219,6 +253,10 @@ suite("test_ttl_lru_evict") {
         // load for MANY times to this dup table to make cache full enough to evict
         // It will takes huge amount of time, so it should be p1/p2 level case.
         // But someone told me it is the right place. Never mind just do it!
+
+        enable_be_injection()
+        injection_limit_for_all_be()
+
         for (int i = 0; i < 10; i++) {
             load_customer_once("customer_ttl")
         }
@@ -333,6 +371,7 @@ suite("test_ttl_lru_evict") {
                 assertTrue(flag1)
         }
     } finally {
-        set_be_param.call("max_ttl_cache_ratio", org_max_ttl_cache_ratio.toString())
+        clear_be_injection()
+        disable_be_injection()
     }
 }

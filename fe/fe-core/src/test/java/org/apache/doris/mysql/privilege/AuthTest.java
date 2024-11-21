@@ -2478,7 +2478,7 @@ public class AuthTest {
             String name = row.get(0);
             if (role.equals(name)) {
                 findWgPriv = true;
-                String wgPriv = row.get(row.size() - 1);
+                String wgPriv = row.get(row.size() - 2);
                 Assert.assertTrue("test_wg: Usage_priv".equals(wgPriv));
             }
         }

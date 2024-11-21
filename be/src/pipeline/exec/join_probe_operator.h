@@ -49,10 +49,10 @@ protected:
 
     size_t _mark_column_id = -1;
 
-    RuntimeProfile::Counter* _probe_timer = nullptr;
     RuntimeProfile::Counter* _probe_rows_counter = nullptr;
     RuntimeProfile::Counter* _join_filter_timer = nullptr;
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
+    RuntimeProfile::Counter* _finish_probe_phase_timer = nullptr;
 
     std::unique_ptr<vectorized::Block> _child_block = nullptr;
     bool _child_eos = false;

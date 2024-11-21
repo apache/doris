@@ -219,10 +219,6 @@ public:
         offsets_to.push_back(offsets_to.back() + state.dynamic_array_size);
     }
 
-    bool allocates_memory_in_arena() const override {
-        return nested_function->allocates_memory_in_arena();
-    }
-
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena* arena) const override {
         std::vector<const IColumn*> nested(num_arguments);

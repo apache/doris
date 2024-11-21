@@ -69,18 +69,6 @@ suite("dml_into_outfile", "p0") {
 
     sql """analyze table partsupp with sync;"""
 
-    def create_async_mv = { mv_name, mv_sql ->
-        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
-        sql"""
-        CREATE MATERIALIZED VIEW ${mv_name} 
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS ${mv_sql}
-        """
-        waitingMTMVTaskFinished(getJobName(db, mv_name))
-    }
-
     def outfile_to_S3 = {query_sql ->
         // select ... into outfile ...
         def res = sql """
@@ -117,7 +105,7 @@ suite("dml_into_outfile", "p0") {
             );
     """
 
-    create_async_mv(into_outfile_async_mv_name,
+    create_async_mv(db, into_outfile_async_mv_name,
             """select
         ps_partkey,
         ps_suppkey,
@@ -138,13 +126,8 @@ suite("dml_into_outfile", "p0") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """${into_outfile_async_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(into_outfile_async_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen (
+            """${into_outfile_async_query}""", into_outfile_async_mv_name)
 
     def outfile_url = outfile_to_S3(into_outfile_async_query)
     order_qt_query_into_outfile_async_mv_after """ SELECT * FROM S3 (
@@ -206,13 +189,7 @@ suite("dml_into_outfile", "p0") {
     // enable dml rewrite by mv
     sql "set enable_dml_materialized_view_rewrite=true";
 
-    explain {
-        sql """${into_outfile_sync_query}"""
-        check {result ->
-            def splitResult = result.split("MaterializedViewRewriteFail")
-            splitResult.length == 2 ? splitResult[0].contains(into_outfile_sync_mv_name) : false
-        }
-    }
+    mv_rewrite_success_without_check_chosen ("""${into_outfile_sync_query}""", into_outfile_sync_mv_name)
 
     def sync_outfile_url = outfile_to_S3(into_outfile_sync_query)
     order_qt_query_into_outfile_sync_mv_after """ SELECT * FROM S3 (

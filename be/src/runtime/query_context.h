@@ -20,6 +20,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/RuntimeProfile_types.h>
 #include <gen_cpp/Types_types.h>
+#include <glog/logging.h>
 
 #include <atomic>
 #include <memory>
@@ -50,8 +51,6 @@ class PipelineFragmentContext;
 struct ReportStatusRequest {
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile = nullptr;
-    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -81,8 +80,8 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, ExecEnv* exec_env, const TQueryOptions& query_options,
-                 TNetworkAddress coord_addr, bool is_pipeline, bool is_nereids,
-                 TNetworkAddress current_connect_fe, QuerySource query_type);
+                 TNetworkAddress coord_addr, bool is_nereids, TNetworkAddress current_connect_fe,
+                 QuerySource query_type);
 
     ~QueryContext();
 
@@ -166,6 +165,12 @@ public:
         return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
     }
 
+    bool ignore_runtime_filter_error() const {
+        return _query_options.__isset.ignore_runtime_filter_error
+                       ? _query_options.ignore_runtime_filter_error
+                       : false;
+    }
+
     // global runtime filter mgr, the runtime filter have remote target or
     // need local merge should regist here. before publish() or push_to_remote()
     // the runtime filter should do the local merge work
@@ -194,8 +199,6 @@ public:
     doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
 
     ThreadPool* get_memtable_flush_pool();
-
-    std::vector<TUniqueId> get_fragment_instance_ids() const { return fragment_instance_ids; }
 
     int64_t mem_limit() const { return _bytes_limit; }
 
@@ -244,13 +247,31 @@ public:
         }
     }
 
+    void add_using_brpc_stub(const TNetworkAddress& network_address,
+                             std::shared_ptr<PBackendService_Stub> brpc_stub) {
+        if (network_address.port == 0) {
+            return;
+        }
+        std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
+        if (!_using_brpc_stubs.contains(network_address)) {
+            _using_brpc_stubs.emplace(network_address, brpc_stub);
+        }
+
+        DCHECK_EQ(_using_brpc_stubs[network_address].get(), brpc_stub.get());
+    }
+
+    std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>>
+    get_using_brpc_stubs() {
+        std::lock_guard<std::mutex> lock(_brpc_stubs_mutex);
+        return _using_brpc_stubs;
+    }
+
 private:
     int _timeout_second;
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
     MonotonicStopWatch _query_watcher;
     int64_t _bytes_limit = 0;
-    bool _is_pipeline = false;
     bool _is_nereids = false;
     std::atomic<int> _running_big_mem_op_num = 0;
 
@@ -259,7 +280,7 @@ private:
     // And will be shared by all instances of this query.
     // So that we can control the max thread that a query can be used to execute.
     // If this token is not set, the scanner will be executed in "_scan_thread_pool" in exec env.
-    std::unique_ptr<ThreadPoolToken> _thread_token;
+    std::unique_ptr<ThreadPoolToken> _thread_token {nullptr};
 
     void _init_query_mem_tracker();
 
@@ -295,6 +316,9 @@ private:
     // Distinguish the query source, for query that comes from fe, we will have some memory structure on FE to
     // help us manage the query.
     QuerySource _query_source;
+
+    std::mutex _brpc_stubs_mutex;
+    std::unordered_map<TNetworkAddress, std::shared_ptr<PBackendService_Stub>> _using_brpc_stubs;
 
     // when fragment of pipeline is closed, it will register its profile to this map by using add_fragment_profile
     // flatten profile of one fragment:

@@ -32,6 +32,7 @@ class Analyzer;
 } // namespace lucene
 
 namespace doris::segment_v2::inverted_index {
+
 class InvertedIndexAnalyzer {
 public:
     static std::unique_ptr<lucene::util::Reader> create_reader(CharFilterMap& char_filter_map);
@@ -44,5 +45,10 @@ public:
                                                        const std::string& field_name,
                                                        InvertedIndexQueryType query_type,
                                                        bool drop_duplicates = true);
+
+    static std::vector<std::string> get_analyse_result(
+            const std::string& search_str, const std::string& field_name,
+            InvertedIndexQueryType query_type,
+            const std::map<std::string, std::string>& properties);
 };
 } // namespace doris::segment_v2::inverted_index

@@ -78,6 +78,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     protected long id;
     @SerializedName(value = "name")
     protected volatile String name;
+    @SerializedName(value = "qualifiedDbName")
     protected volatile String qualifiedDbName;
     @SerializedName(value = "type")
     protected TableType type;
@@ -323,7 +324,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
             boolean res = this.commitLock.tryLock(timeout, unit);
             if (!res && unit.toSeconds(timeout) >= 1) {
                 LOG.warn("Failed to try table {}'s cloud commit lock. timeout {} {}. Current owner: {}",
-                        name, timeout, unit.name(), rwLock.getOwner());
+                        name, timeout, unit.name(), this.commitLock.getOwner());
             }
             return res;
         } catch (InterruptedException e) {
@@ -622,7 +623,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
 
     @Override
     public long fetchRowCount() {
-        return 0;
+        return UNKNOWN_ROW_COUNT;
     }
 
     @Override
@@ -638,5 +639,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf, Gso
     @Override
     public boolean autoAnalyzeEnabled() {
         return true;
+    }
+
+    @Override
+    public TableIndexes getTableIndexes() {
+        return new TableIndexes();
     }
 }

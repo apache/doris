@@ -17,6 +17,9 @@
 
 testGroups = "p0"
 
+jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+targetJdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&zeroDateTimeBehavior=round"
+
 // exclude groups and exclude suites is more prior than include groups and include suites.
 // keep them in lexico order(add/remove cases between the sentinals and sort):
 // * sort lines in vim: select lines and then type :sort
@@ -25,19 +28,14 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "mv_contain_external_table," + // run on external pipeline
     "set_replica_status," + // not a case for cloud mode, no need to run
     "test_be_inject_publish_txn_fail," + // not a case for cloud mode, no need to run
-    "test_compaction_uniq_cluster_keys_with_delete," +
-    "test_compaction_uniq_keys_cluster_key," +
     "test_dump_image," +
     "test_index_failure_injection," +
     "test_information_schema_external," +
-    "test_pk_uk_case_cluster," +
-    "test_point_query_cluster_key," +
     "test_profile," +
     "test_publish_timeout," +
     "test_refresh_mtmv," + // not supported yet
     "test_report_version_missing," +
     "test_set_partition_version," +
-    "test_show_transaction," + // not supported yet
     "test_spark_load," +
     "test_index_lowercase_fault_injection," +
     "test_index_compaction_failure_injection," +
@@ -55,7 +53,6 @@ excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line 
     "cloud_p0/cache," +
     "workload_manager_p1," +
     "nereids_rules_p0/subquery," +
-    "unique_with_mow_c_p0," +
     "backup_restore," + // not a case for cloud mode, no need to run
     "cold_heat_separation," +
     "storage_medium_p0," +

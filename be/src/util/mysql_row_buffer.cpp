@@ -87,9 +87,9 @@ MysqlRowBuffer<is_binary_format>::MysqlRowBuffer()
           _len_pos(0) {}
 
 template <bool is_binary_format>
-void MysqlRowBuffer<is_binary_format>::start_binary_row(uint32_t num_cols) {
+void MysqlRowBuffer<is_binary_format>::start_binary_row(uint64_t num_cols) {
     assert(is_binary_format);
-    int bit_fields = (num_cols + 9) / 8;
+    auto bit_fields = (num_cols + 9) / 8;
     reserve(bit_fields + 1);
     memset(_pos, 0, 1 + bit_fields);
     _pos += bit_fields + 1;

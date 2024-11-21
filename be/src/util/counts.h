@@ -157,6 +157,12 @@ public:
         }
     }
 
+    void increment(Ty key) { _nums.push_back(key); }
+
+    void increment_batch(const vectorized::PaddedPODArray<Ty>& keys) {
+        _nums.insert(keys.begin(), keys.end());
+    }
+
     void serialize(vectorized::BufferWritable& buf) {
         if (!_nums.empty()) {
             pdqsort(_nums.begin(), _nums.end());
@@ -234,7 +240,7 @@ private:
         int array_index;
         int64_t element_index;
 
-        std::strong_ordering operator<=>(const Node& other) const { return value <=> other.value; }
+        auto operator<=>(const Node& other) const { return value <=> other.value; }
     };
 
     void _convert_sorted_num_vec_to_nums() {

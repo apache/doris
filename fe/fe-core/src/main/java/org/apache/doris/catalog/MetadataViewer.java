@@ -88,7 +88,7 @@ public class MetadataViewer {
                             List<String> row = Lists.newArrayList();
 
                             ReplicaStatus status = ReplicaStatus.OK;
-                            Backend be = infoService.getBackend(replica.getBackendId());
+                            Backend be = infoService.getBackend(replica.getBackendIdWithoutException());
                             if (be == null || !be.isAlive() || replica.isBad()) {
                                 status = ReplicaStatus.DEAD;
                             } else if (replica.getVersion() < visibleVersion
@@ -107,7 +107,7 @@ public class MetadataViewer {
 
                             row.add(String.valueOf(tabletId));
                             row.add(String.valueOf(replica.getId()));
-                            row.add(String.valueOf(replica.getBackendId()));
+                            row.add(String.valueOf(replica.getBackendIdWithoutException()));
                             row.add(String.valueOf(replica.getVersion()));
                             row.add(String.valueOf(replica.getLastFailedVersion()));
                             row.add(String.valueOf(replica.getLastSuccessVersion()));
@@ -215,12 +215,13 @@ public class MetadataViewer {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
                     for (Tablet tablet : index.getTablets()) {
                         for (Replica replica : tablet.getReplicas()) {
-                            if (!countMap.containsKey(replica.getBackendId())) {
+                            if (!countMap.containsKey(replica.getBackendIdWithoutException())) {
                                 continue;
                             }
-                            countMap.put(replica.getBackendId(), countMap.get(replica.getBackendId()) + 1);
-                            sizeMap.put(replica.getBackendId(),
-                                    sizeMap.get(replica.getBackendId()) + replica.getDataSize());
+                            countMap.put(replica.getBackendIdWithoutException(),
+                                    countMap.get(replica.getBackendIdWithoutException()) + 1);
+                            sizeMap.put(replica.getBackendIdWithoutException(),
+                                    sizeMap.get(replica.getBackendIdWithoutException()) + replica.getDataSize());
                             totalReplicaNum++;
                             totalReplicaSize += replica.getDataSize();
                         }

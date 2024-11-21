@@ -69,15 +69,17 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto array_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto offset_column =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         ColumnPtr length_column = nullptr;
+        const ColumnInt64* length_column_int64 = nullptr;
         if (arguments.size() > 2) {
             length_column =
                     block.get_by_position(arguments[2]).column->convert_to_full_column_if_const();
+            length_column_int64 = assert_cast<const ColumnInt64*>(length_column.get());
         }
         // extract src array column
         ColumnArrayExecutionData src;
@@ -92,7 +94,8 @@ public:
         ColumnArrayMutableData dst = create_mutable_data(src.nested_col, is_nullable);
         dst.offsets_ptr->reserve(input_rows_count);
         // execute
-        slice_array(dst, src, *offset_column, length_column.get());
+        const auto* offset_column_int64 = assert_cast<const ColumnInt64*>(offset_column.get());
+        slice_array(dst, src, *offset_column_int64, length_column_int64);
         ColumnPtr res_column = assemble_column_array(dst);
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();

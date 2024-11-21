@@ -30,6 +30,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
@@ -83,7 +84,12 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
         super(rawSql, jobId, dbId, tableId, tableName, timeoutMs);
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            String clusterName = context.getCloudCluster();
+            String clusterName = "";
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+            }
             LOG.debug("rollup job add cloud cluster, context not null, cluster: {}", clusterName);
             if (!Strings.isNullOrEmpty(clusterName)) {
                 setCloudClusterName(clusterName);
@@ -236,6 +242,10 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
 
                 short shadowShortKeyColumnCount = indexShortKeyMap.get(shadowIdxId);
                 List<Column> shadowSchema = indexSchemaMap.get(shadowIdxId);
+                List<Integer> clusterKeyIndexes = null;
+                if (shadowIdxId == tbl.getBaseIndexId() || isShadowIndexOfBase(shadowIdxId, tbl)) {
+                    clusterKeyIndexes = OlapTable.getClusterKeyIndexes(shadowSchema);
+                }
                 int shadowSchemaHash = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaHash;
                 int shadowSchemaVersion = indexSchemaVersionAndHashMap.get(shadowIdxId).schemaVersion;
                 long originIndexId = indexIdMap.get(shadowIdxId);
@@ -267,7 +277,8 @@ public class CloudSchemaChangeJobV2 extends SchemaChangeJobV2 {
                                             tbl.getEnableMowLightDelete(),
                                             tbl.getInvertedIndexFileStorageFormat(),
                                             tbl.rowStorePageSize(),
-                                            tbl.variantEnableFlattenNested());
+                                            tbl.variantEnableFlattenNested(), clusterKeyIndexes,
+                                            tbl.storagePageSize());
                     requestBuilder.addTabletMetas(builder);
                 } // end for rollupTablets
                 requestBuilder.setDbId(dbId);

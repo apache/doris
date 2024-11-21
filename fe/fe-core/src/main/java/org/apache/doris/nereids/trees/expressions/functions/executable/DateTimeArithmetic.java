@@ -175,6 +175,16 @@ public class DateTimeArithmetic {
      * datetime arithmetic function hours-add.
      */
     @ExecFunction(name = "hours_add")
+    public static Expression hoursAdd(DateLiteral date, IntegerLiteral hour) {
+        return date.toBeginOfTheDay().plusHours(hour.getValue());
+    }
+
+    @ExecFunction(name = "hours_add")
+    public static Expression hoursAdd(DateV2Literal date, IntegerLiteral hour) {
+        return date.toBeginOfTheDay().plusHours(hour.getValue());
+    }
+
+    @ExecFunction(name = "hours_add")
     public static Expression hoursAdd(DateTimeLiteral date, IntegerLiteral hour) {
         return date.plusHours(hour.getValue());
     }
@@ -188,6 +198,16 @@ public class DateTimeArithmetic {
      * datetime arithmetic function minutes-add.
      */
     @ExecFunction(name = "minutes_add")
+    public static Expression minutesAdd(DateLiteral date, IntegerLiteral minute) {
+        return date.toBeginOfTheDay().plusMinutes(minute.getValue());
+    }
+
+    @ExecFunction(name = "minutes_add")
+    public static Expression minutesAdd(DateV2Literal date, IntegerLiteral minute) {
+        return date.toBeginOfTheDay().plusMinutes(minute.getValue());
+    }
+
+    @ExecFunction(name = "minutes_add")
     public static Expression minutesAdd(DateTimeLiteral date, IntegerLiteral minute) {
         return date.plusMinutes(minute.getValue());
     }
@@ -200,6 +220,16 @@ public class DateTimeArithmetic {
     /**
      * datetime arithmetic function seconds-add.
      */
+    @ExecFunction(name = "seconds_add")
+    public static Expression secondsAdd(DateLiteral date, IntegerLiteral second) {
+        return date.toBeginOfTheDay().plusSeconds(second.getValue());
+    }
+
+    @ExecFunction(name = "seconds_add")
+    public static Expression secondsAdd(DateV2Literal date, IntegerLiteral second) {
+        return date.toBeginOfTheDay().plusSeconds(second.getValue());
+    }
+
     @ExecFunction(name = "seconds_add")
     public static Expression secondsAdd(DateTimeLiteral date, IntegerLiteral second) {
         return date.plusSeconds(second.getValue());
@@ -403,5 +433,15 @@ public class DateTimeArithmetic {
 
     private static int dateDiff(LocalDateTime date1, LocalDateTime date2) {
         return ((int) ChronoUnit.DAYS.between(date2.toLocalDate(), date1.toLocalDate()));
+    }
+
+    @ExecFunction(name = "to_days")
+    public static Expression toDays(DateLiteral date) {
+        return new IntegerLiteral((int) date.getDay());
+    }
+
+    @ExecFunction(name = "to_days")
+    public static Expression toDays(DateV2Literal date) {
+        return new IntegerLiteral((int) date.getDay());
     }
 }

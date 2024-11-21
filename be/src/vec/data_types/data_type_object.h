@@ -75,15 +75,16 @@ public:
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
-    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
+    const char* deserialize(const char* buf, MutableColumnPtr* column,
+                            int be_exec_version) const override;
     Field get_default() const override { return VariantMap(); }
 
     Field get_field(const TExprNode& node) const override {
         if (node.__isset.string_literal) {
-            return node.string_literal.value;
+            return Field(node.string_literal.value);
         }
         if (node.node_type == TExprNodeType::NULL_LITERAL) {
-            return Field();
+            return {};
         }
         std::stringstream error_string;
         node.printTo(error_string);

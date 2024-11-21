@@ -89,6 +89,15 @@ TxnManager::TxnManager(StorageEngine& engine, int32_t txn_map_shard_size, int32_
 Status TxnManager::prepare_txn(TPartitionId partition_id, const Tablet& tablet,
                                TTransactionId transaction_id, const PUniqueId& load_id,
                                bool ingest) {
+    // check if the tablet has already been shutdown. If it has, it indicates that
+    // it is an old tablet, and data should not be imported into the old tablet.
+    // Otherwise, it may lead to data loss during migration.
+    if (tablet.tablet_state() == TABLET_SHUTDOWN) {
+        return Status::InternalError<false>(
+                "The tablet's state is shutdown, tablet_id: {}. The tablet may have been dropped "
+                "or migrationed. Please check if the table has been dropped or try again.",
+                tablet.tablet_id());
+    }
     return prepare_txn(partition_id, transaction_id, tablet.tablet_id(), tablet.tablet_uid(),
                        load_id, ingest);
 }
@@ -374,7 +383,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             return save_status;
         }
 
-        if (partial_update_info && partial_update_info->is_partial_update) {
+        if (partial_update_info && partial_update_info->is_partial_update()) {
             PartialUpdateInfoPB partial_update_info_pb;
             partial_update_info->to_pb(&partial_update_info_pb);
             save_status = RowsetMetaManager::save_partial_update_info(
@@ -397,7 +406,7 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             if (st.ok()) {
                 decoded_partial_update_info = std::make_shared<PartialUpdateInfo>();
                 decoded_partial_update_info->from_pb(&partial_update_info_pb);
-                DCHECK(decoded_partial_update_info->is_partial_update);
+                DCHECK(decoded_partial_update_info->is_partial_update());
             } else if (!st.is<META_KEY_NOT_FOUND>()) {
                 // the load is not a partial update
                 return st;
@@ -555,7 +564,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     }
 
     if (tablet_txn_info->unique_key_merge_on_write && tablet_txn_info->partial_update_info &&
-        tablet_txn_info->partial_update_info->is_partial_update) {
+        tablet_txn_info->partial_update_info->is_partial_update()) {
         status = RowsetMetaManager::remove_partial_update_info(meta, tablet_id, partition_id,
                                                                transaction_id);
         if (!status) {

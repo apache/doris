@@ -55,7 +55,7 @@ import java.util.Optional;
 
 /**
  * The Implement of table valued function
- * partitions("database" = "db1","table" = "table1").
+ * partitions("catalog"="ctl1", "database" = "db1","table" = "table1").
  */
 public class PartitionsTableValuedFunction extends MetadataTableValuedFunction {
     private static final Logger LOG = LogManager.getLogger(PartitionsTableValuedFunction.class);

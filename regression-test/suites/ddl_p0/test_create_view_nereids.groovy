@@ -267,16 +267,43 @@ suite("test_create_view_nereids") {
     qt_test_create_view_from_view_sql "show create view test_view_from_view"
 
     // test backquote in name
+    try {
+        sql "create view test_backquote_in_view_define(`ab``c`, c2) as select a,b from mal_test_view;"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Incorrect column name 'ab`c'"))
+    }
 
     sql "drop view if exists test_backquote_in_view_define;"
-    sql "create view test_backquote_in_view_define(`ab``c`, c2) as select a,b from mal_test_view;"
-    qt_test_backquote_in_view_define "select * from test_backquote_in_view_define order by `ab``c`, c2;"
+    sql "create view test_backquote_in_view_define(`abc`, c2) as select a,b from mal_test_view;"
+    qt_test_backquote_in_view_define "select * from test_backquote_in_view_define order by abc, c2;"
     qt_test_backquote_in_view_define_sql "show create view test_backquote_in_view_define;"
 
     sql "drop view if exists test_backquote_in_table_alias;"
     sql "create view test_backquote_in_table_alias(c1, c2) as  select * from (select a,b from mal_test_view) `ab``c`;"
     qt_test_backquote_in_table_alias "select * from test_backquote_in_table_alias order by c1, c2;"
     qt_test_backquote_in_table_alias_sql "show create view test_backquote_in_table_alias;"
+
+    // test invalid column name
+    sql """set enable_unicode_name_support = true;"""
+    sql "drop view if exists test_invalid_column_name_in_table;"
+    try {
+        // create view should fail if contains invalid column name
+        sql "create view test_invalid_column_name_in_table as select a as '(第一列)',b from mal_test_view;"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Incorrect column name '(第一列)'"))
+    }
+
+    sql "create view test_invalid_column_name_in_table as select a ,b from mal_test_view;"
+    order_qt_test_invalid_column_name_in_table "select * from test_invalid_column_name_in_table"
+    order_qt_test_invalid_column_name_in_table_define_sql "show create view test_invalid_column_name_in_table;"
+
+    try {
+        // alter view should fail if contains invalid column name
+        sql "alter view test_invalid_column_name_in_table as select a as '(第一列)',b from mal_test_view;"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Incorrect column name '(第一列)'"))
+    }
+    sql """set enable_unicode_name_support = false;"""
 
     sql "drop table if exists create_view_table1"
     sql """CREATE TABLE create_view_table1 (
@@ -390,4 +417,51 @@ suite("test_create_view_nereids") {
     WHERE value3 < 280 AND (id < 3 or id >8);"""
     qt_complicated_view1 "select * from test_view_complicated order by 1,2,3"
     qt_complicated_view1_sql "show create view test_view_complicated;"
+
+    sql "drop table if exists v_t1"
+    sql "drop table if exists v_t2"
+    sql """CREATE TABLE `v_t1` ( `id` VARCHAR(64) NOT NULL, `name` VARCHAR(512) NULL , `code` VARCHAR(512) NULL
+    , `hid` INT NULL , `status` VARCHAR(3) NULL, `update_time` DATETIME NULL
+    , `mark` VARCHAR(8) NULL ,
+    `create_by` VARCHAR(64) NULL , `create_time` DATETIME NULL ,
+    `update_by` VARCHAR(64) NULL , `operate_status` INT NULL DEFAULT "0" )
+    ENGINE=OLAP UNIQUE KEY(`id`)  DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES
+    ( "replication_allocation" = "tag.location.default: 1");"""
+    sql """CREATE TABLE `v_t2` ( `id` INT NULL , `name` VARCHAR(500) NULL , `hid` INT NULL , 
+    `hname` VARCHAR(200) NULL , `com_id` INT NULL , `com_name` VARCHAR(200) NULL , `hsid` INT NULL ,
+    `subcom_name` VARCHAR(255) NULL , `status` VARCHAR(3) NULL, `update_time` DATETIME NULL ) ENGINE=OLAP UNIQUE KEY(`id`)
+     DISTRIBUTED BY HASH(`id`) BUCKETS 1 PROPERTIES ( "replication_allocation" = "tag.location.default: 1");"""
+
+    sql """drop view if exists t_view_nullable1;"""
+    sql """CREATE VIEW `t_view_nullable1` COMMENT 'VIEW' AS SELECT `t`.`id` AS `community_id`, `t`.`name` AS `community_name`, `t2`.`com_id`
+    AS `company_id`, `t`.`status` AS `del_flag`, `t`.`create_time` AS `create_time`, `t`.`update_time` AS `update_time`
+    FROM `v_t1` t  LEFT OUTER JOIN `v_t2` t2
+    ON (`t2`.`id` = `t`.`hid`) AND (`t2`.`status` != '0') GROUP BY `t`.`id`, `t`.`name`, `t2`.`com_id`, `t`.`status`,
+    `t`.`create_time`, `t`.`update_time`;"""
+
+    sql """INSERT INTO v_t2 (id, name, hid, hname, com_id, com_name, hsid, subcom_name, status, update_time)
+    VALUES
+    (100, '中心站A', 1, '供热处A', 10, '分公司A', 1000, '公司A', '1', '2024-09-01 10:00:00'),
+    (101, '中心站B', 2, '供热处B', 11, '分公司B', 1001, '公司B', '1', '2024-09-01 10:00:00'),
+    (102, '中心站C', 3, '供热处C', 12, '分公司C', 1002, '公司C', '0', '2024-09-01 10:00:00');
+    """
+
+    sql """INSERT INTO v_t1 (id, name, code, hid, status, update_time, mark, create_by, create_time, update_by, operate_status)
+    VALUES
+    ('1', '小区A', '001', 100, '1', '2024-09-01 10:00:00', '0', 'user1', '2024-09-01 09:00:00', 'user2', 1),
+    ('2', '小区B', '002', 101, '1', '2024-09-01 10:00:00', '0', 'user1', '2024-09-01 09:00:00', 'user2', 1),
+    ('3', '小区C', '003', NULL, '1', '2024-09-01 10:00:00', '0', 'user1', '2024-09-01 09:00:00', 'user2', 0);"""
+    qt_nullable """SELECT * FROM t_view_nullable1 order by community_id;"""
+
+    sql "drop view if exists t_view_nullable2"
+    sql """CREATE VIEW `t_view_nullable2`(a,b,c,d,e,f) COMMENT 'VIEW' AS SELECT `t`.`id` AS `community_id`, `t`.`name` AS `community_name`, `t2`.`com_id`
+    AS `company_id`, `t`.`status` AS `del_flag`, `t`.`create_time` AS `create_time`, `t`.`update_time` AS `update_time`
+    FROM `v_t1` t  LEFT OUTER JOIN `v_t2` t2
+    ON (`t2`.`id` = `t`.`hid`) AND (`t2`.`status` != '0') GROUP BY `t`.`id`, `t`.`name`, `t2`.`com_id`, `t`.`status`,
+    `t`.`create_time`, `t`.`update_time`;"""
+    qt_nullable_view_with_cols "select * from t_view_nullable2 order by a;"
+    def res1 = sql "desc t_view_nullable1"
+    def res2 = sql "desc t_view_nullable2"
+    mustContain(res1[1][2], "Yes")
+    mustContain(res2[1][2], "Yes")
 }

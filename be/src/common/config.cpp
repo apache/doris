@@ -63,7 +63,29 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "-1");
 
-DEFINE_mString(public_access_ip, "");
+// If the external client cannot directly access priority_networks, set public_host to be accessible
+// to external client.
+// There are usually two usage scenarios:
+// 1. in production environment, it is often inconvenient to expose Doris BE nodes to the external network.
+// However, a reverse proxy (such as Nginx) can be added to all Doris BE nodes, and the external client will be
+// randomly routed to a Doris BE node when connecting to Nginx. set public_host to the host of Nginx.
+// 2. if priority_networks is an internal network IP, and BE node has its own independent external IP,
+// but Doris currently does not support modifying priority_networks, setting public_host to the real external IP.
+DEFINE_mString(public_host, "");
+
+// If the BE node is connected to the external network through a reverse proxy like Nginx
+// and need to use Arrow Flight SQL, should add a server in Nginx to reverse proxy
+// `Nginx:arrow_flight_sql_proxy_port` to `BE_priority_networks:arrow_flight_sql_port`. For example:
+// upstream arrowflight {
+//    server 10.16.10.8:8069;
+//    server 10.16.10.8:8068;
+//}
+// server {
+//    listen 8167 http2;
+//    listen [::]:8167 http2;
+//    server_name doris.arrowflight.com;
+// }
+DEFINE_Int32(arrow_flight_sql_proxy_port, "-1");
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -150,7 +172,10 @@ DEFINE_mInt64(stacktrace_in_alloc_large_memory_bytes, "2147483648");
 
 DEFINE_mInt64(crash_in_alloc_large_memory_bytes, "-1");
 
-// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+// The actual meaning of this parameter is `debug_memory`.
+// 1. crash in memory tracker inaccurate, if memory tracker value is inaccurate, BE will crash.
+//    usually used in test environments, default value is false.
+// 2. print more memory logs.
 DEFINE_mBool(crash_in_memory_tracker_inaccurate, "false");
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
@@ -284,6 +309,8 @@ DEFINE_mInt32(doris_scan_range_max_mb, "1024");
 DEFINE_mInt32(doris_scanner_row_num, "16384");
 // single read execute fragment row bytes
 DEFINE_mInt32(doris_scanner_row_bytes, "10485760");
+// single read execute fragment max run time millseconds
+DEFINE_mInt32(doris_scanner_max_run_time_ms, "1000");
 // (Advanced) Maximum size of per-query receive-side buffer
 DEFINE_mInt32(exchg_node_buffer_size_bytes, "20485760");
 DEFINE_mInt32(exchg_buffer_queue_capacity_factor, "64");
@@ -391,7 +418,7 @@ DEFINE_mInt64(base_compaction_max_compaction_score, "20");
 DEFINE_mDouble(base_compaction_min_data_ratio, "0.3");
 DEFINE_mInt64(base_compaction_dup_key_max_file_size_mbytes, "1024");
 
-DEFINE_Bool(enable_skip_tablet_compaction, "true");
+DEFINE_Bool(enable_skip_tablet_compaction, "false");
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 DEFINE_mInt64(compaction_promotion_size_mbytes, "1024");
@@ -515,10 +542,15 @@ DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
+DEFINE_Int32(brpc_arrow_flight_work_pool_threads, "-1");
+DEFINE_Int32(brpc_arrow_flight_work_pool_max_queue_size, "-1");
 
 //Enable brpc builtin services, see:
 //https://brpc.apache.org/docs/server/basics/#disable-built-in-services-completely
 DEFINE_Bool(enable_brpc_builtin_services, "true");
+
+// Enable brpc connection check
+DEFINE_Bool(enable_brpc_connection_check, "false");
 
 // The maximum amount of data that can be processed by a stream load
 DEFINE_mInt64(streaming_load_max_mb, "102400");
@@ -535,7 +567,6 @@ DEFINE_mInt32(streaming_load_rpc_max_alive_time_sec, "1200");
 DEFINE_Int32(tablet_writer_open_rpc_timeout_sec, "60");
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DEFINE_mBool(tablet_writer_ignore_eovercrowded, "true");
-DEFINE_mBool(exchange_sink_ignore_eovercrowded, "true");
 DEFINE_mInt32(slave_replica_writer_rpc_timeout_sec, "60");
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -598,12 +629,6 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "20");
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DEFINE_mInt32(memory_gc_sleep_time_ms, "500");
 
-// percent of (active memtables size / all memtables size) when reach hard limit
-DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
-
-// percent of (active memtables size / all memtables size) when reach soft limit
-DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
-
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -627,7 +652,11 @@ DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
 
+// arrow flight result sink buffer rows size, default 4096 * 8
 DEFINE_mInt32(arrow_flight_result_sink_buffer_size_rows, "32768");
+// The timeout for ADBC Client to wait for data using arrow flight reader.
+// If the query is very complex and no result is generated after this time, consider increasing this timeout.
+DEFINE_mInt32(arrow_flight_reader_brpc_controller_timeout_ms, "300000");
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DEFINE_mInt32(priority_queue_remaining_tasks_increased_frequency, "512");
@@ -902,9 +931,10 @@ DEFINE_mInt32(orc_natural_read_size_mb, "8");
 DEFINE_mInt64(big_column_size_buffer, "65535");
 DEFINE_mInt64(small_column_size_buffer, "100");
 
-// rf will decide whether the next sampling_frequency blocks need to be filtered based on the filtering rate of the current block.
+// Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "64");
-
+DEFINE_mInt32(execution_max_rpc_timeout_sec, "3600");
+DEFINE_mBool(execution_ignore_eovercrowded, "true");
 // cooldown task configs
 DEFINE_Int32(cooldown_thread_num, "5");
 DEFINE_mInt64(generate_cooldown_task_interval_sec, "20");
@@ -926,6 +956,9 @@ DEFINE_mBool(enable_query_like_bloom_filter, "true");
 DEFINE_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
 DEFINE_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
+DEFINE_mInt64(block_cache_wait_timeout_ms, "1000");
+DEFINE_mInt64(cache_lock_long_tail_threshold, "1000");
+DEFINE_Int64(file_cache_recycle_keys_size, "1000000");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 DEFINE_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
@@ -939,6 +972,8 @@ DEFINE_mInt64(brpc_streaming_client_batch_bytes, "262144");
 // and the BE can automatically cancel the relevant fragment after the timeout,
 // so as to avoid occupying the execution thread for a long time.
 DEFINE_mInt32(max_fragment_start_wait_time_seconds, "30");
+
+DEFINE_mInt32(fragment_mgr_cancel_worker_interval_seconds, "1");
 
 // Node role tag for backend. Mix role is the default role, and computation role have no
 // any tablet.
@@ -980,6 +1015,8 @@ DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
+// Whether use schema dict in backend side instead of MetaService side(cloud mode)
+DEFINE_mBool(variant_use_cloud_schema_dict, "true");
 DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "2048");
 DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
@@ -988,29 +1025,40 @@ DEFINE_mBool(variant_throw_exeception_on_invalid_json, "false");
 DEFINE_Bool(enable_file_cache, "false");
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
-// format: {"path": "/path/to/file_cache", "total_size":53687091200, "normal_percent":85, "disposable_percent":10, "index_percent":5}
-DEFINE_String(file_cache_path, "");
+// format: {"path": "/path/to/file_cache", "total_size":53687091200, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}
+// format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
+// Note1: storage is "disk" by default
+// Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
+// and doris will just reset the path to "memory" internally.
+// In a very wierd case when your storage is disk, and the directory, by accident, is named
+// "memory" for some reason, you should write the path as:
+//     {"path": "memory", "total_size":53687091200, "storage": "disk"}
+// or use the default storage value:
+//     {"path": "memory", "total_size":53687091200}
+// Both will use the directory "memory" on the disk instead of the real RAM.
+DEFINE_String(file_cache_path, "[{\"path\":\"${DORIS_HOME}/file_cache\"}]");
 DEFINE_Int64(file_cache_each_block_size, "1048576"); // 1MB
 
 DEFINE_Bool(clear_file_cache, "false");
 DEFINE_Bool(enable_file_cache_query_limit, "false");
-DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "90");
+DEFINE_mInt32(file_cache_enter_disk_resource_limit_mode_percent, "88");
 DEFINE_mInt32(file_cache_exit_disk_resource_limit_mode_percent, "80");
 DEFINE_mBool(enable_read_cache_file_directly, "false");
-DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "false");
+DEFINE_mBool(file_cache_enable_evict_from_other_queue_by_size, "true");
 DEFINE_mInt64(file_cache_ttl_valid_check_interval_second, "0"); // zero for not checking
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DEFINE_Bool(enable_ttl_cache_evict_using_lru, "true");
-// rename ttl filename to new format during read, with some performance cost
-DEFINE_mBool(translate_to_new_ttl_format_during_read, "false");
+DEFINE_mBool(enbale_dump_error_file, "true");
+// limit the max size of error log on disk
+DEFINE_mInt64(file_cache_error_log_limit_bytes, "209715200"); // 200MB
 
 DEFINE_mInt32(index_cache_entry_stay_time_after_lookup_s, "1800");
 DEFINE_mInt32(inverted_index_cache_stale_sweep_time_sec, "600");
 // inverted index searcher cache size
 DEFINE_String(inverted_index_searcher_cache_limit, "10%");
 DEFINE_Bool(enable_inverted_index_cache_check_timestamp, "true");
-DEFINE_Int32(inverted_index_fd_number_limit_percent, "40"); // 40%
+DEFINE_Int32(inverted_index_fd_number_limit_percent, "20"); // 20%
 DEFINE_Int32(inverted_index_query_cache_shards, "256");
 
 // inverted index match bitmap cache size
@@ -1059,9 +1107,9 @@ DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
 // max number of segment cache, default -1 for backward compatibility fd_number*2/5
 DEFINE_Int32(segment_cache_capacity, "-1");
-DEFINE_Int32(segment_cache_fd_percentage, "40");
-DEFINE_mInt32(estimated_mem_per_column_reader, "1024");
-DEFINE_Int32(segment_cache_memory_percentage, "2");
+DEFINE_Int32(segment_cache_fd_percentage, "20");
+DEFINE_mInt32(estimated_mem_per_column_reader, "512");
+DEFINE_Int32(segment_cache_memory_percentage, "5");
 
 // enable feature binlog, default false
 DEFINE_Bool(enable_feature_binlog, "false");
@@ -1113,11 +1161,13 @@ DEFINE_mBool(enable_missing_rows_correctness_check, "false");
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
+// When the version is not continuous for MOW table in publish phase and the gap between
+// current txn's publishing version and the max version of the tablet exceeds this value,
+// don't print warning log
+DEFINE_mInt32(publish_version_gap_logging_threshold, "200");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
-
-DEFINE_Int32(partition_topn_partition_threshold, "1024");
 
 DEFINE_Int32(fe_expire_duration_seconds, "60");
 
@@ -1272,8 +1322,6 @@ DEFINE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread, "64");
 DEFINE_Int64(num_s3_file_upload_thread_pool_min_thread, "16");
 // The max thread num for S3FileUploadThreadPool
 DEFINE_Int64(num_s3_file_upload_thread_pool_max_thread, "64");
-// The max ratio for ttl cache's size
-DEFINE_mInt64(max_ttl_cache_ratio, "90");
 // The maximum jvm heap usage ratio for hdfs write workload
 DEFINE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio, "0.5");
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1334,7 +1382,14 @@ DEFINE_mInt32(lz4_compression_block_size, "262144");
 
 DEFINE_mBool(enable_pipeline_task_leakage_detect, "false");
 
+DEFINE_mInt32(check_score_rounds_num, "1000");
+
 DEFINE_Int32(query_cache_size, "512");
+
+DEFINE_mBool(enable_delete_bitmap_merge_on_compaction, "false");
+// Enable validation to check the correctness of table size.
+DEFINE_Bool(enable_table_size_correctness_check, "false");
+DEFINE_Bool(force_regenerate_rowsetid_on_start_error, "false");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1672,7 +1727,12 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         SET_FIELD(it.second, std::vector<std::string>, fill_conf_map, set_to_default);
     }
 
-    set_cloud_unique_id(cloud_instance_id);
+    if (config::is_cloud_mode()) {
+        auto st = config::set_config("enable_file_cache", "true", true, true);
+        LOG(INFO) << "set config enable_file_cache "
+                  << "true"
+                  << " " << st;
+    }
 
     return true;
 }

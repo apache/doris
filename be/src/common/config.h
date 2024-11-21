@@ -100,10 +100,29 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
-// If priority_networks is incorrect but cannot be modified, set public_access_ip as BE’s real IP.
-// For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
-// If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
-DECLARE_mString(public_access_ip);
+// If the external client cannot directly access priority_networks, set public_host to be accessible
+// to external client.
+// There are usually two usage scenarios:
+// 1. in production environment, it is often inconvenient to expose Doris BE nodes to the external network.
+// However, a reverse proxy (such as Nginx) can be added to all Doris BE nodes, and the external client will be
+// randomly routed to a Doris BE node when connecting to Nginx. set public_host to the host of Nginx.
+// 2. if priority_networks is an internal network IP, and BE node has its own independent external IP,
+// but Doris currently does not support modifying priority_networks, setting public_host to the real external IP.
+DECLARE_mString(public_host);
+
+// If the BE node is connected to the external network through a reverse proxy like Nginx
+// and need to use Arrow Flight SQL, should add a server in Nginx to reverse proxy
+// `Nginx:arrow_flight_sql_proxy_port` to `BE_priority_networks:arrow_flight_sql_port`. For example:
+// upstream arrowflight {
+//    server 10.16.10.8:8069;
+//    server 10.16.10.8:8068;
+//}
+// server {
+//    listen 8167 http2;
+//    listen [::]:8167 http2;
+//    server_name doris.arrowflight.com;
+// }
+DECLARE_Int32(arrow_flight_sql_proxy_port);
 
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
@@ -200,7 +219,10 @@ DECLARE_mInt64(stacktrace_in_alloc_large_memory_bytes);
 // modify this parameter to crash when large memory allocation occur will help
 DECLARE_mInt64(crash_in_alloc_large_memory_bytes);
 
-// If memory tracker value is inaccurate, BE will crash. usually used in test environments, default value is false.
+// The actual meaning of this parameter is `debug_memory`.
+// 1. crash in memory tracker inaccurate, if memory tracker value is inaccurate, BE will crash.
+//    usually used in test environments, default value is false.
+// 2. print more memory logs.
 DECLARE_mBool(crash_in_memory_tracker_inaccurate);
 
 // default is true. if any memory tracking in Orphan mem tracker will report error.
@@ -332,6 +354,8 @@ DECLARE_mInt32(doris_scan_range_max_mb);
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
+// single read execute fragment max run time millseconds
+DECLARE_mInt32(doris_scanner_max_run_time_ms);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
@@ -566,6 +590,8 @@ DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
+DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
+DECLARE_Int32(brpc_arrow_flight_work_pool_max_queue_size);
 
 // The maximum amount of data that can be processed by a stream load
 DECLARE_mInt64(streaming_load_max_mb);
@@ -582,7 +608,6 @@ DECLARE_mInt32(streaming_load_rpc_max_alive_time_sec);
 DECLARE_Int32(tablet_writer_open_rpc_timeout_sec);
 // You can ignore brpc error '[E1011]The server is overcrowded' when writing data.
 DECLARE_mBool(tablet_writer_ignore_eovercrowded);
-DECLARE_mBool(exchange_sink_ignore_eovercrowded);
 DECLARE_mInt32(slave_replica_writer_rpc_timeout_sec);
 // Whether to enable stream load record function, the default is false.
 // False: disable stream load record
@@ -648,12 +673,6 @@ DECLARE_mInt32(memory_maintenance_sleep_time_ms);
 // After minor gc, no minor gc during sleep, but full gc is possible.
 DECLARE_mInt32(memory_gc_sleep_time_ms);
 
-// percent of (active memtables size / all memtables size) when reach hard limit
-DECLARE_mInt32(memtable_hard_limit_active_percent);
-
-// percent of (active memtables size / all memtables size) when reach soft limit
-DECLARE_mInt32(memtable_soft_limit_active_percent);
-
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -679,6 +698,9 @@ DECLARE_mInt32(result_buffer_cancelled_interval_time);
 
 // arrow flight result sink buffer rows size, default 4096 * 8
 DECLARE_mInt32(arrow_flight_result_sink_buffer_size_rows);
+// The timeout for ADBC Client to wait for data using arrow flight reader.
+// If the query is very complex and no result is generated after this time, consider increasing this timeout.
+DECLARE_mInt32(arrow_flight_reader_brpc_controller_timeout_ms);
 
 // the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 DECLARE_mInt32(priority_queue_remaining_tasks_increased_frequency);
@@ -959,6 +981,8 @@ DECLARE_mInt64(big_column_size_buffer);
 DECLARE_mInt64(small_column_size_buffer);
 
 DECLARE_mInt32(runtime_filter_sampling_frequency);
+DECLARE_mInt32(execution_max_rpc_timeout_sec);
+DECLARE_mBool(execution_ignore_eovercrowded);
 
 // cooldown task configs
 DECLARE_Int32(cooldown_thread_num);
@@ -985,8 +1009,13 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
+DECLARE_mInt64(block_cache_wait_timeout_ms);
+DECLARE_mInt64(cache_lock_long_tail_threshold);
+DECLARE_Int64(file_cache_recycle_keys_size);
 
 DECLARE_Bool(enable_brpc_builtin_services);
+
+DECLARE_Bool(enable_brpc_connection_check);
 
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
@@ -994,6 +1023,8 @@ DECLARE_Bool(enable_brpc_builtin_services);
 // and the BE can automatically cancel the relevant fragment after the timeout,
 // so as to avoid occupying the execution thread for a long time.
 DECLARE_mInt32(max_fragment_start_wait_time_seconds);
+
+DECLARE_Int32(fragment_mgr_cancel_worker_interval_seconds);
 
 // Node role tag for backend. Mix role is the default role, and computation role have no
 // any tablet.
@@ -1037,7 +1068,17 @@ DECLARE_Int32(pipeline_executor_size);
 DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
-// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}]
+// format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
+// Note1: storage is "disk" by default
+// Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
+// and doris will just reset the path to "memory" internally.
+// In a very wierd case when your storage is disk, and the directory, by accident, is named
+// "memory" for some reason, you should write the path as:
+//     {"path": "memory", "total_size":53687091200, "storage": "disk"}
+// or use the default storage value:
+//     {"path": "memory", "total_size":53687091200}
+// Both will use the directory "memory" on the disk instead of the real RAM.
 DECLARE_String(file_cache_path);
 DECLARE_Int64(file_cache_each_block_size);
 DECLARE_Bool(clear_file_cache);
@@ -1050,8 +1091,9 @@ DECLARE_mInt64(file_cache_ttl_valid_check_interval_second);
 // If true, evict the ttl cache using LRU when full.
 // Otherwise, only expiration can evict ttl and new data won't add to cache when full.
 DECLARE_Bool(enable_ttl_cache_evict_using_lru);
-// rename ttl filename to new format during read, with some performance cost
-DECLARE_Bool(translate_to_new_ttl_format_during_read);
+DECLARE_mBool(enbale_dump_error_file);
+// limit the max size of error log on disk
+DECLARE_mInt64(file_cache_error_log_limit_bytes);
 
 // inverted index searcher cache
 // cache entry stay time after lookup
@@ -1166,6 +1208,7 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
 DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
+DECLARE_mBool(variant_use_cloud_schema_dict);
 // Threshold to estimate a column is sparsed
 // Notice: TEST ONLY
 DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
@@ -1183,13 +1226,13 @@ DECLARE_mBool(enable_missing_rows_correctness_check);
 // When the number of missing versions is more than this value, do not directly
 // retry the publish and handle it through async publish.
 DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
+// When the version is not continuous for MOW table in publish phase and the gap between
+// current txn's publishing version and the max version of the tablet exceeds this value,
+// don't print warning log
+DECLARE_mInt32(publish_version_gap_logging_threshold);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
-
-// This threshold determines how many partitions will be allocated for window function get topn.
-// and if this threshold is exceeded, the remaining data will be pass through to other node directly.
-DECLARE_Int32(partition_topn_partition_threshold);
 
 // If fe's frontend info has not been updated for more than fe_expire_duration_seconds, it will be regarded
 // as an abnormal fe, this will cause be to cancel this fe's related query.
@@ -1357,8 +1400,6 @@ DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
 DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
 DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
-// The max ratio for ttl cache's size
-DECLARE_mInt64(max_ttl_cache_ratio);
 // The maximum jvm heap usage ratio for hdfs write workload
 DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1421,8 +1462,15 @@ DECLARE_mInt32(lz4_compression_block_size);
 
 DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
+DECLARE_mInt32(check_score_rounds_num);
+
 // MB
 DECLARE_Int32(query_cache_size);
+DECLARE_Bool(force_regenerate_rowsetid_on_start_error);
+
+DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
+// Enable validation to check the correctness of table size.
+DECLARE_Bool(enable_table_size_correctness_check);
 
 #ifdef BE_TEST
 // test s3

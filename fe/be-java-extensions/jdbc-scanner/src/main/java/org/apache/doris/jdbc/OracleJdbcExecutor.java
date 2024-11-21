@@ -39,9 +39,11 @@ import java.time.LocalDateTime;
 public class OracleJdbcExecutor extends BaseJdbcExecutor {
     private static final Logger LOG = Logger.getLogger(OracleJdbcExecutor.class);
     private final CharsetDecoder utf8Decoder = StandardCharsets.UTF_8.newDecoder();
+    private final boolean isNewJdbcVersion;
 
     public OracleJdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);
+        isNewJdbcVersion = isJdbcVersionGreaterThanOrEqualTo("12.2.0");
     }
 
     @Override
@@ -65,7 +67,7 @@ public class OracleJdbcExecutor extends BaseJdbcExecutor {
 
     @Override
     protected Object getColumnValue(int columnIndex, ColumnType type, String[] replaceStringList) throws SQLException {
-        if (isJdbcVersionGreaterThanOrEqualTo("12.2.0")) {
+        if (isNewJdbcVersion) {
             return newGetColumnValue(columnIndex, type, replaceStringList);
         } else {
             return oldGetColumnValue(columnIndex, type, replaceStringList);

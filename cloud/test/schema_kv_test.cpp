@@ -293,6 +293,8 @@ static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
     rowset.set_num_rows(100);
     rowset.set_num_segments(1);
     rowset.set_data_disk_size(10000);
+    rowset.set_index_disk_size(1000);
+    rowset.set_total_disk_size(11000);
     if (version > 0) {
         rowset.set_start_version(version);
         rowset.set_end_version(version);
@@ -478,7 +480,7 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         EXPECT_EQ(get_rowset_res.stats().num_rows(), 100);
         EXPECT_EQ(get_rowset_res.stats().num_rowsets(), 2);
         EXPECT_EQ(get_rowset_res.stats().num_segments(), 1);
-        EXPECT_EQ(get_rowset_res.stats().data_size(), 10000);
+        EXPECT_EQ(get_rowset_res.stats().data_size(), 11000);
     }
 
     // new MS read rowsets committed by both old and new MS
@@ -527,7 +529,7 @@ TEST(DetachSchemaKVTest, RowsetTest) {
         EXPECT_EQ(get_rowset_res->stats().num_rows(), 2500);
         EXPECT_EQ(get_rowset_res->stats().num_rowsets(), 26);
         EXPECT_EQ(get_rowset_res->stats().num_segments(), 25);
-        EXPECT_EQ(get_rowset_res->stats().data_size(), 250000);
+        EXPECT_EQ(get_rowset_res->stats().data_size(), 275000);
         if (schema != nullptr) {
             auto schema_version = get_rowset_res->rowset_meta(10).schema_version();
             get_rowset_res->mutable_rowset_meta(10)->mutable_tablet_schema()->set_schema_version(3);

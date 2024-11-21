@@ -32,6 +32,7 @@ OPTS="$(getopt \
     -l 'daemon' \
     -l 'console' \
     -l 'version' \
+    -l 'benchmark' \
     -- "$@")"
 
 eval set -- "${OPTS}"
@@ -39,6 +40,8 @@ eval set -- "${OPTS}"
 RUN_DAEMON=0
 RUN_CONSOLE=0
 RUN_VERSION=0
+RUN_BENCHMARK=0
+
 while true; do
     case "$1" in
     --daemon)
@@ -51,6 +54,10 @@ while true; do
         ;;
     --version)
         RUN_VERSION=1
+        shift
+        ;;
+    --benchmark)
+        RUN_BENCHMARK=1
         shift
         ;;
     --)
@@ -282,7 +289,7 @@ fi
 
 for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
     if [[ -n ${!var} ]]; then
-        log "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
         exit 1
     fi
 done
@@ -293,7 +300,7 @@ fi
 
 pidfile="${PID_DIR}/be.pid"
 
-if [[ -f "${pidfile}" ]]; then
+if [[ -f "${pidfile}" && "${RUN_BENCHMARK}" -eq 0 ]]; then
     if kill -0 "$(cat "${pidfile}")" >/dev/null 2>&1; then
         echo "Backend is already running as process $(cat "${pidfile}"), stop it first"
         exit 1
@@ -354,7 +361,7 @@ set_tcmalloc_heap_limit() {
     fi
 
     if [[ "${mem_limit_mb}" -gt "${total_mem_mb}" ]]; then
-        log "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
+        echo "mem_limit is larger than the total memory of the server. ${mem_limit_mb} > ${total_mem_mb}"
         return 1
     fi
     export TCMALLOC_HEAP_LIMIT_MB=${mem_limit_mb}
@@ -407,7 +414,7 @@ export LIBHDFS_OPTS="${final_java_opt}"
 # log "LIBHDFS_OPTS: ${LIBHDFS_OPTS}"
 
 if [[ -z ${JEMALLOC_CONF} ]]; then
-    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:false,lg_prof_interval:-1"
+    JEMALLOC_CONF="percpu_arena:percpu,background_thread:true,metadata_thp:auto,muzzy_decay_ms:5000,dirty_decay_ms:5000,oversize_threshold:0,prof:true,prof_active:false,lg_prof_interval:-1"
 fi
 
 if [[ -z ${JEMALLOC_PROF_PRFIX} ]]; then
@@ -419,7 +426,13 @@ else
     export MALLOC_CONF="${JEMALLOC_CONF},prof_prefix:${JEMALLOC_PROF_PRFIX}"
 fi
 
-if [[ "${RUN_DAEMON}" -eq 1 ]]; then
+if [[ "${RUN_BENCHMARK}" -eq 1 ]]; then
+    if [[ "$(uname -s)" == 'Darwin' ]]; then
+        env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+    else
+        ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/benchmark_test"
+    fi
+elif [[ "${RUN_DAEMON}" -eq 1 ]]; then
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         nohup env DYLD_LIBRARY_PATH="${DYLD_LIBRARY_PATH}" ${LIMIT:+${LIMIT}} "${DORIS_HOME}/lib/doris_be" "$@" >>"${LOG_DIR}/be.out" 2>&1 </dev/null &
     else

@@ -39,7 +39,6 @@
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/runtime_profile.h"
-#include "vec/common/hash_table/hash_map.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/exec/format/generic_reader.h"
@@ -200,6 +199,14 @@ private:
     Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
                                 bool* valid);
 
+    // fe will add skip_bitmap_col to _file_slot_descs iff the target olap table has skip_bitmap_col
+    // and the current load is a flexible partial update
+    // flexible partial update can not be used when user specify jsonpaths, so we just fill the skip bitmap
+    // in `_simdjson_handle_simple_json` and `_vhandle_simple_json` (which will be used when jsonpaths is not specified)
+    bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
+    void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
+    void _process_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
+                                   size_t cur_row_count, bool* valid);
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
@@ -259,10 +266,10 @@ private:
     // ======SIMD JSON======
     // name mapping
     /// Hash table match `field name -> position in the block`. NOTE You can use perfect hash map.
-    using NameMap = HashMap<StringRef, size_t, StringRefHash>;
+    using NameMap = phmap::flat_hash_map<StringRef, size_t, StringRefHash>;
     NameMap _slot_desc_index;
     /// Cached search results for previous row (keyed as index in JSON object) - used as a hint.
-    std::vector<NameMap::LookupResult> _prev_positions;
+    std::vector<NameMap::iterator> _prev_positions;
     /// Set of columns which already met in row. Exception is thrown if there are more than one column with the same name.
     std::vector<UInt8> _seen_columns;
     // simdjson
@@ -283,6 +290,8 @@ private:
     std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
+
+    int32_t skip_bitmap_col_idx {-1};
 };
 
 } // namespace vectorized

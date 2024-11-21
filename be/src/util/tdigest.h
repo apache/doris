@@ -57,7 +57,6 @@
 #include "common/logging.h"
 #include "udf/udf.h"
 #include "util/debug_util.h"
-#include "util/radix_sort.h"
 
 namespace doris {
 
@@ -123,19 +122,6 @@ struct CentroidComparator {
 
 class TDigest {
     ENABLE_FACTORY_CREATOR(TDigest);
-    struct TDigestRadixSortTraits {
-        using Element = Centroid;
-        using Key = Value;
-        using CountType = uint32_t;
-        using KeyBits = uint32_t;
-
-        static constexpr size_t PART_SIZE_BITS = 8;
-
-        using Transform = RadixSortFloatTransform<KeyBits>;
-        using Allocator = RadixSortMallocAllocator;
-
-        static Key& extractKey(Element& elem) { return elem.mean(); }
-    };
 
     class TDigestComparator {
     public:

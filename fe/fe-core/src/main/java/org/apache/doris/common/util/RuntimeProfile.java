@@ -682,8 +682,17 @@ public class RuntimeProfile {
         if (planNodeMap == null || !planNodeMap.containsKey(child.nodeId())) {
             return;
         }
-        child.addPlanNodeInfos(planNodeMap.get(child.nodeId()));
-        planNodeMap.remove(child.nodeId());
+
+        /*
+         * The check for SINK_OPERATOR is performed because SINK_OPERATOR does not have
+         * a corresponding plan node ID.
+         * Currently, the plan node info is only printed for non-sink nodes in the merge
+         * profile.
+         */
+        if (name.contains("_SINK_OPERATOR")) {
+            child.addPlanNodeInfos(planNodeMap.get(child.nodeId()));
+            planNodeMap.remove(child.nodeId());
+        }
     }
 
     public void addPlanNodeInfos(String infos) {

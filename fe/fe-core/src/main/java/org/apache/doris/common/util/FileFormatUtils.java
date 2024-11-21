@@ -26,6 +26,7 @@ import org.apache.doris.common.FeNameFormat;
 import com.google.common.base.Strings;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.regex.Matcher;
 
 public class FileFormatUtils {
@@ -103,6 +104,20 @@ public class FileFormatUtils {
             }
         } catch (Exception e) {
             throw new AnalysisException("invalid csv schema: " + e.getMessage());
+        }
+    }
+
+    public static Optional<String> getFileFormatBySuffix(String filename) {
+        String fileString = filename.toLowerCase();
+        if (fileString.endsWith(".avro")) {
+            return Optional.of("avro");
+        } else if (fileString.endsWith(".orc")) {
+            return Optional.of("orc");
+        } else if (fileString.endsWith(".parquet")) {
+            return Optional.of("parquet");
+        } else {
+            // Unable to get file format from file path
+            return Optional.empty();
         }
     }
 }

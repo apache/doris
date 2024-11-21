@@ -20,6 +20,7 @@ package org.apache.doris.persist;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TBinlogType;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -37,7 +38,17 @@ public class BarrierLog implements Writable {
     @SerializedName(value = "tableName")
     String tableName;
 
+    @SerializedName(value = "binlogType")
+    int binlogType;
+    @SerializedName(value = "binlog")
+    String binlog;
+
     public BarrierLog() {
+    }
+
+    public BarrierLog(long dbId, String dbName) {
+        this.dbId = dbId;
+        this.dbName = dbName;
     }
 
     public BarrierLog(long dbId, String dbName, long tableId, String tableName) {
@@ -45,6 +56,28 @@ public class BarrierLog implements Writable {
         this.dbName = dbName;
         this.tableId = tableId;
         this.tableName = tableName;
+    }
+
+    // A trick: Wrap the binlog as part of the BarrierLog so that it can work in
+    // the old Doris version without breaking the compatibility.
+    public BarrierLog(long dbId, long tableId, TBinlogType binlogType, String binlog) {
+        this.dbId = dbId;
+        this.tableId = tableId;
+        this.binlogType = binlogType.getValue();
+        this.binlog = binlog;
+    }
+
+    public boolean hasBinlog() {
+        return binlog != null;
+    }
+
+    public String getBinlog() {
+        return binlog;
+    }
+
+    // null is returned if binlog is not set or binlogType is not recognized.
+    public TBinlogType getBinlogType() {
+        return binlog == null ? null : TBinlogType.findByValue(binlogType);
     }
 
     public long getDbId() {

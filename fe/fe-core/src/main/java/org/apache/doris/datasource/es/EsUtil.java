@@ -189,18 +189,18 @@ public class EsUtil {
      * Add mappingEsId config in es external catalog.
      **/
     public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType,
-            boolean mappingEsId) {
+            boolean mappingEsId, Map<String, String> column2typeMap) {
         String mapping = client.getMapping(indexName);
         ObjectNode mappings = getMapping(mapping);
         // Get array_fields while removing _meta property.
         List<String> arrayFields = new ArrayList<>();
         ObjectNode rootSchema = getRootSchema(mappings, mappingType, arrayFields);
-        return genColumnsFromEs(indexName, mappingType, rootSchema, mappingEsId, arrayFields);
+        return genColumnsFromEs(indexName, mappingType, rootSchema, mappingEsId, arrayFields, column2typeMap);
     }
 
     @VisibleForTesting
     public static List<Column> genColumnsFromEs(String indexName, String mappingType, ObjectNode rootSchema,
-            boolean mappingEsId, List<String> arrayFields) {
+            boolean mappingEsId, List<String> arrayFields, Map<String, String> column2typeMap) {
         List<Column> columns = new ArrayList<>();
         if (mappingEsId) {
             Column column = new Column();
@@ -220,7 +220,8 @@ public class EsUtil {
         while (iterator.hasNext()) {
             String fieldName = iterator.next();
             ObjectNode fieldValue = (ObjectNode) mappingProps.get(fieldName);
-            Column column = parseEsField(fieldName, replaceFieldAlias(mappingProps, fieldValue), arrayFields);
+            Column column = parseEsField(fieldName, replaceFieldAlias(mappingProps, fieldValue), arrayFields,
+                    column2typeMap);
             columns.add(column);
         }
         return columns;
@@ -245,7 +246,8 @@ public class EsUtil {
         return fieldValue;
     }
 
-    private static Column parseEsField(String fieldName, ObjectNode fieldValue, List<String> arrayFields) {
+    private static Column parseEsField(String fieldName, ObjectNode fieldValue, List<String> arrayFields,
+            Map<String, String> column2typeMap) {
         Column column = new Column();
         column.setName(fieldName);
         column.setIsKey(true);
@@ -256,6 +258,7 @@ public class EsUtil {
         if (fieldValue.has("type")) {
             String typeStr = fieldValue.get("type").asText();
             column.setComment("Elasticsearch type is " + typeStr);
+            column2typeMap.put(fieldName, typeStr);
             // reference https://www.elastic.co/guide/en/elasticsearch/reference/8.3/sql-data-types.html
             switch (typeStr) {
                 case "null":
@@ -298,15 +301,17 @@ public class EsUtil {
                     type = ScalarType.createStringType();
                     break;
                 case "nested":
-                case "object":
                     type = Type.JSONB;
                     break;
                 default:
                     type = Type.UNSUPPORTED;
             }
         } else {
+            // When there is no explicit type in mapping, it indicates this type is an `object` in Elasticsearch.
+            // reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/object.html
             type = Type.JSONB;
-            column.setComment("Elasticsearch no type");
+            column.setComment("Elasticsearch type is object");
+            column2typeMap.put(fieldName, "object");
         }
         if (arrayFields.contains(fieldName)) {
             column.setType(ArrayType.create(type, true));

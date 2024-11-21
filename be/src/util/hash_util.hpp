@@ -134,7 +134,7 @@ public:
     static const uint32_t MURMUR3_32_SEED = 104729;
 
     // modify from https://github.com/aappleby/smhasher/blob/master/src/MurmurHash3.cpp
-    static uint32_t murmur_hash3_32(const void* key, int32_t len, uint32_t seed) {
+    static uint32_t murmur_hash3_32(const void* key, int64_t len, uint32_t seed) {
         uint32_t out = 0;
         murmur_hash3_x86_32(key, len, seed, &out);
         return out;
@@ -227,7 +227,7 @@ public:
     // Our hash function is MurmurHash2, 64 bit version.
     // It was modified in order to provide the same result in
     // big and little endian archs (endian neutral).
-    static uint64_t murmur_hash64A(const void* key, int32_t len, unsigned int seed) {
+    static uint64_t murmur_hash64A(const void* key, int64_t len, unsigned int seed) {
         const uint64_t m = MURMUR_PRIME;
         const int r = 47;
         uint64_t h = seed ^ (len * m);

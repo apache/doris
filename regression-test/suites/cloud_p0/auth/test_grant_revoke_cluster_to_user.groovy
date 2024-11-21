@@ -107,7 +107,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
     connect(user = "${user3}", password = 'Cloud12345', url = context.config.jdbcUrl) {
         test {
             sql """select * from ${db}.${tbl}"""
-            exception "or you may not have permission to access the current cluster"
+            exception "the user is not granted permission to the compute group"
         }
     }
 
@@ -135,7 +135,7 @@ suite("test_grant_revoke_cluster_to_user", "cloud_auth") {
     connect(user = "${user1}", password = 'Cloud12345', url = context.config.jdbcUrl) {
         test {
             sql """use @${cluster1}"""
-            exception "Cluster ${cluster1} not exist"
+            exception "${cluster1} not exist"
         }
         result = sql_return_maparray """show grants for '${user1}'"""
         commonAuth result, "'${user1}'@'%'", "Yes", "admin", "Admin_priv"

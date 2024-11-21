@@ -29,20 +29,16 @@
 
 namespace doris::vectorized {
 
-template <template <typename, bool> class AggregateFunctionTemplate,
-          template <typename> class NameData, template <typename, typename> class Data,
-          bool is_stddev, bool is_nullable = false>
+template <template <typename> class Function, typename Name,
+          template <typename, typename, bool> class Data, bool is_stddev>
 AggregateFunctionPtr create_function_single_value(const String& name,
                                                   const DataTypes& argument_types,
-                                                  const bool result_is_nullable,
-                                                  bool custom_nullable) {
+                                                  const bool result_is_nullable) {
     WhichDataType which(remove_nullable(argument_types[0]));
 #define DISPATCH(TYPE)                                                              \
     if (which.idx == TypeIndex::TYPE)                                               \
-        return creator_without_type::create<AggregateFunctionTemplate<              \
-                NameData<Data<TYPE, BaseData<TYPE, is_stddev>>>, is_nullable>>(     \
-                custom_nullable ? remove_nullable(argument_types) : argument_types, \
-                result_is_nullable);
+        return creator_without_type::create<Function<Data<TYPE, Name, is_stddev>>>( \
+                argument_types, result_is_nullable);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
 
@@ -51,71 +47,49 @@ AggregateFunctionPtr create_function_single_value(const String& name,
     return nullptr;
 }
 
-template <bool is_stddev, bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_variance_samp_older(const std::string& name,
-                                                                   const DataTypes& argument_types,
-                                                                   const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionSamp_OLDER, VarianceSampName,
-                                        SampData_OLDER, is_stddev, is_nullable>(
-            name, argument_types, result_is_nullable, true);
-}
-
 AggregateFunctionPtr create_aggregate_function_variance_samp(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionSamp, VarianceSampName, SampData, false>(
-            name, argument_types, result_is_nullable, false);
+                                                             const bool result_is_nullable,
+                                                             const AggregateFunctionAttr& attr) {
+    return create_function_single_value<AggregateFunctionSampVariance, VarianceSampName, SampData,
+                                        false>(name, argument_types, result_is_nullable);
 }
 
-template <bool is_stddev, bool is_nullable>
-AggregateFunctionPtr create_aggregate_function_stddev_samp_older(const std::string& name,
-                                                                 const DataTypes& argument_types,
-                                                                 const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionSamp_OLDER, StddevSampName, SampData_OLDER,
-                                        is_stddev, is_nullable>(name, argument_types,
-                                                                result_is_nullable, true);
-}
-
-template <bool is_stddev>
 AggregateFunctionPtr create_aggregate_function_variance_pop(const std::string& name,
                                                             const DataTypes& argument_types,
-                                                            const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionPop, VarianceName, PopData, is_stddev>(
-            name, argument_types, result_is_nullable, false);
+                                                            const bool result_is_nullable,
+                                                            const AggregateFunctionAttr& attr) {
+    return create_function_single_value<AggregateFunctionSampVariance, VarianceName, PopData,
+                                        false>(name, argument_types, result_is_nullable);
 }
 
-template <bool is_stddev>
 AggregateFunctionPtr create_aggregate_function_stddev_pop(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionPop, StddevName, PopData, is_stddev>(
-            name, argument_types, result_is_nullable, false);
+                                                          const bool result_is_nullable,
+                                                          const AggregateFunctionAttr& attr) {
+    return create_function_single_value<AggregateFunctionSampVariance, StddevName, PopData, true>(
+            name, argument_types, result_is_nullable);
 }
 
 AggregateFunctionPtr create_aggregate_function_stddev_samp(const std::string& name,
                                                            const DataTypes& argument_types,
-                                                           const bool result_is_nullable) {
-    return create_function_single_value<AggregateFunctionSamp, StddevSampName, SampData, true>(
-            name, argument_types, result_is_nullable, false);
+                                                           const bool result_is_nullable,
+                                                           const AggregateFunctionAttr& attr) {
+    return create_function_single_value<AggregateFunctionSampVariance, StddevSampName, SampData,
+                                        true>(name, argument_types, result_is_nullable);
 }
 
 void register_aggregate_function_stddev_variance_pop(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("variance", create_aggregate_function_variance_pop<false>);
+    factory.register_function_both("variance", create_aggregate_function_variance_pop);
     factory.register_alias("variance", "var_pop");
     factory.register_alias("variance", "variance_pop");
-    factory.register_function_both("stddev", create_aggregate_function_stddev_pop<true>);
+    factory.register_function_both("stddev", create_aggregate_function_stddev_pop);
     factory.register_alias("stddev", "stddev_pop");
 }
 
 void register_aggregate_function_stddev_variance_samp_old(AggregateFunctionSimpleFactory& factory) {
-    factory.register_alternative_function(
-            "variance_samp", create_aggregate_function_variance_samp_older<false, false>);
-    factory.register_alternative_function(
-            "variance_samp", create_aggregate_function_variance_samp_older<false, true>, true);
-    factory.register_alternative_function("stddev_samp",
-                                          create_aggregate_function_stddev_samp_older<true, false>);
-    factory.register_alternative_function(
-            "stddev_samp", create_aggregate_function_stddev_samp_older<true, true>, true);
+    BeExecVersionManager::registe_restrict_function_compatibility("variance_samp");
+    BeExecVersionManager::registe_restrict_function_compatibility("stddev_samp");
 }
 
 void register_aggregate_function_stddev_variance_samp(AggregateFunctionSimpleFactory& factory) {

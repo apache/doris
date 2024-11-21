@@ -62,11 +62,11 @@ struct AggregateFunctionBinary
 
     String get_name() const override { return StatFunc::Data::name(); }
 
+    void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
+
     DataTypePtr get_return_type() const override {
         return std::make_shared<DataTypeNumber<ResultType>>();
     }
-
-    bool allocates_memory_in_arena() const override { return false; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena*) const override {

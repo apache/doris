@@ -29,18 +29,19 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
+import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.profile.Profile;
+import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.MetaLockUtils;
-import org.apache.doris.common.util.ProfileManager.ProfileType;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -226,7 +227,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, batchSize);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize);
 
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
@@ -335,42 +336,59 @@ public class BrokerLoadJob extends BulkLoadJob {
         }
         Database db = null;
         List<Table> tableList = null;
-        try {
-            db = getDb();
-            tableList = db.getTablesOnIdOrderOrThrowException(Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
-            if (Config.isCloudMode()) {
-                MetaLockUtils.commitLockTables(tableList);
-            } else {
-                MetaLockUtils.writeLockTablesOrMetaException(tableList);
+        int retryTimes = 0;
+        while (true) {
+            try {
+                db = getDb();
+                tableList = db.getTablesOnIdOrderOrThrowException(
+                        Lists.newArrayList(fileGroupAggInfo.getAllTableIds()));
+                if (Config.isCloudMode()) {
+                    MetaLockUtils.commitLockTables(tableList);
+                } else {
+                    MetaLockUtils.writeLockTablesOrMetaException(tableList);
+                }
+            } catch (MetaNotFoundException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("database_id", dbId)
+                        .add("error_msg", "db has been deleted when job is loading")
+                        .build(), e);
+                cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+                return;
             }
-        } catch (MetaNotFoundException e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("database_id", dbId)
-                    .add("error_msg", "db has been deleted when job is loading")
-                    .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-            return;
-        }
-        try {
-            LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("txn_id", transactionId)
-                    .add("msg", "Load job try to commit txn")
-                    .build());
-            Env.getCurrentGlobalTransactionMgr().commitTransaction(
-                    dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
-            afterLoadingTaskCommitTransaction(tableList);
-            afterCommit();
-        } catch (UserException e) {
-            LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
-                    .add("database_id", dbId)
-                    .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
-                    .build(), e);
-            cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
-        } finally {
-            if (Config.isCloudMode()) {
-                MetaLockUtils.commitUnlockTables(tableList);
-            } else {
-                MetaLockUtils.writeUnlockTables(tableList);
+            try {
+                LOG.info(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("txn_id", transactionId)
+                        .add("msg", "Load job try to commit txn")
+                        .build());
+                Env.getCurrentGlobalTransactionMgr().commitTransaction(
+                        dbId, tableList, transactionId, commitInfos, getLoadJobFinalOperation());
+                afterLoadingTaskCommitTransaction(tableList);
+                afterCommit();
+                return;
+            } catch (UserException e) {
+                LOG.warn(new LogBuilder(LogKey.LOAD_JOB, id)
+                        .add("database_id", dbId)
+                        .add("retry_times", retryTimes)
+                        .add("error_msg", "Failed to commit txn with error:" + e.getMessage())
+                        .build(), e);
+                if (e.getErrorCode() == InternalErrorCode.DELETE_BITMAP_LOCK_ERR) {
+                    retryTimes++;
+                    if (retryTimes >= Config.mow_calculate_delete_bitmap_retry_times) {
+                        LOG.warn("cancelJob {} because up to max retry time,exception {}", id, e);
+                        cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true,
+                                true);
+                        return;
+                    }
+                } else {
+                    cancelJobWithoutCheck(new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, e.getMessage()), true, true);
+                    return;
+                }
+            } finally {
+                if (Config.isCloudMode()) {
+                    MetaLockUtils.commitUnlockTables(tableList);
+                } else {
+                    MetaLockUtils.writeUnlockTables(tableList);
+                }
             }
         }
     }

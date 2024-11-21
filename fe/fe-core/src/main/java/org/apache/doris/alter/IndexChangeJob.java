@@ -42,12 +42,12 @@ import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.thrift.TColumn;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -56,12 +56,12 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
-import java.util.Map;
 
 
 public class IndexChangeJob implements Writable {
     private static final Logger LOG = LogManager.getLogger(IndexChangeJob.class);
-
+    static final int MAX_FAILED_NUM = 10;
+    static final int MIN_FAILED_NUM = 3;
 
     public enum JobState {
         // CHECKSTYLE OFF
@@ -109,9 +109,6 @@ public class IndexChangeJob implements Writable {
     private long originIndexId;
     @SerializedName(value = "invertedIndexBatchTask")
     AgentBatchTask invertedIndexBatchTask = new AgentBatchTask();
-    // save failed task after retry three times, tablet -> backends
-    @SerializedName(value = "failedTabletBackends")
-    protected Map<Long, List<Long>> failedTabletBackends = Maps.newHashMap();
     @SerializedName(value = "timeoutMs")
     protected long timeoutMs = -1;
 
@@ -326,13 +323,14 @@ public class IndexChangeJob implements Writable {
                 long originTabletId = originTablet.getId();
                 List<Replica> originReplicas = originTablet.getReplicas();
                 for (Replica originReplica : originReplicas) {
-                    if (originReplica.getBackendId() < 0) {
-                        LOG.warn("replica:{}, backendId: {}", originReplica, originReplica.getBackendId());
+                    if (originReplica.getBackendIdWithoutException() < 0) {
+                        LOG.warn("replica:{}, backendId: {}", originReplica,
+                                originReplica.getBackendIdWithoutException());
                         throw new AlterCancelException("originReplica:" + originReplica.getId()
                                 + " backendId < 0");
                     }
                     AlterInvertedIndexTask alterInvertedIndexTask = new AlterInvertedIndexTask(
-                            originReplica.getBackendId(), db.getId(), olapTable.getId(),
+                            originReplica.getBackendIdWithoutException(), db.getId(), olapTable.getId(),
                             partitionId, originIndexId, originTabletId,
                             originSchemaHash, olapTable.getIndexes(),
                             alterInvertedIndexes, originSchemaColumns,
@@ -343,7 +341,9 @@ public class IndexChangeJob implements Writable {
 
             LOG.info("invertedIndexBatchTask:{}", invertedIndexBatchTask);
             AgentTaskQueue.addBatchTask(invertedIndexBatchTask);
-            AgentTaskExecutor.submit(invertedIndexBatchTask);
+            if (!FeConstants.runningUnitTest) {
+                AgentTaskExecutor.submit(invertedIndexBatchTask);
+            }
         } finally {
             olapTable.readUnlock();
         }
@@ -358,9 +358,8 @@ public class IndexChangeJob implements Writable {
         // and the job will be in RUNNING state forever.
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
-        OlapTable tbl;
         try {
-            tbl = (OlapTable) db.getTableOrMetaException(tableId, TableType.OLAP);
+            db.getTableOrMetaException(tableId, TableType.OLAP);
         } catch (MetaNotFoundException e) {
             throw new AlterCancelException(e.getMessage());
         }
@@ -369,18 +368,19 @@ public class IndexChangeJob implements Writable {
             LOG.info("inverted index tasks not finished. job: {}, partitionId: {}", jobId, partitionId);
             List<AgentTask> tasks = invertedIndexBatchTask.getUnfinishedTasks(2000);
             for (AgentTask task : tasks) {
-                if (task.getFailedTimes() > 3) {
+                if (task.getFailedTimes() >= MIN_FAILED_NUM) {
                     LOG.warn("alter inverted index task failed: " + task.getErrorMsg());
-                    List<Long> failedBackends = failedTabletBackends.computeIfAbsent(task.getTabletId(),
-                            k -> Lists.newArrayList());
-                    failedBackends.add(task.getBackendId());
-                    int expectSucceedTaskNum = tbl.getPartitionInfo()
-                            .getReplicaAllocation(task.getPartitionId()).getTotalReplicaNum();
-                    int failedTaskCount = failedBackends.size();
-                    if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
-                        throw new AlterCancelException("inverted index tasks failed on same tablet reach threshold "
-                            + failedTaskCount);
+                    // If error is obtaining lock failed.
+                    // we should do more tries.
+                    if (task.getErrorCode().equals(TStatusCode.OBTAIN_LOCK_FAILED)) {
+                        if (task.getFailedTimes() < MAX_FAILED_NUM) {
+                            continue;
+                        }
+                        throw new AlterCancelException("inverted index tasks failed times reach threshold "
+                            + MAX_FAILED_NUM + ", error: " + task.getErrorMsg());
                     }
+                    throw new AlterCancelException("inverted index tasks failed times reach threshold "
+                        + MIN_FAILED_NUM + ", error: " + task.getErrorMsg());
                 }
             }
             return;
@@ -389,7 +389,9 @@ public class IndexChangeJob implements Writable {
         this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
 
-        Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        }
         LOG.info("inverted index job finished: {}", jobId);
     }
 
@@ -407,7 +409,9 @@ public class IndexChangeJob implements Writable {
         jobState = JobState.CANCELLED;
         this.errMsg = errMsg;
         this.finishedTimeMs = System.currentTimeMillis();
-        Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentEnv().getEditLog().logIndexChangeJob(this);
+        }
         LOG.info("cancel index job {}, err: {}", jobId, errMsg);
         return true;
     }

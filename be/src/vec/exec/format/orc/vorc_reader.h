@@ -34,6 +34,7 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
@@ -587,7 +588,6 @@ private:
     std::unique_ptr<orc::Reader> _reader;
     std::unique_ptr<orc::RowReader> _row_reader;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
-    orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
 
     std::shared_ptr<io::FileSystem> _file_system;
@@ -643,7 +643,11 @@ public:
               _io_ctx(io_ctx),
               _profile(profile) {}
 
-    ~ORCFileInputStream() override = default;
+    ~ORCFileInputStream() override {
+        if (_file_reader != nullptr) {
+            _file_reader->collect_profile_before_close();
+        }
+    }
 
     uint64_t getLength() const override { return _file_reader->size(); }
 
@@ -656,6 +660,12 @@ public:
     void beforeReadStripe(std::unique_ptr<orc::StripeInformation> current_strip_information,
                           std::vector<bool> selected_columns) override;
 
+    void set_all_tiny_stripes() { _is_all_tiny_stripes = true; }
+
+    io::FileReaderSPtr& get_file_reader() { return _file_reader; }
+
+    io::FileReaderSPtr& get_inner_reader() { return _inner_reader; }
+
 protected:
     void _collect_profile_at_runtime() override {};
     void _collect_profile_before_close() override;
@@ -664,10 +674,10 @@ private:
     const std::string& _file_name;
     io::FileReaderSPtr _inner_reader;
     io::FileReaderSPtr _file_reader;
+    bool _is_all_tiny_stripes = false;
     // Owned by OrcReader
     OrcReader::Statistics* _statistics = nullptr;
     const io::IOContext* _io_ctx = nullptr;
     RuntimeProfile* _profile = nullptr;
 };
-
 } // namespace doris::vectorized

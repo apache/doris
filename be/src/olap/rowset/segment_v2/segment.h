@@ -78,10 +78,10 @@ using SegmentSharedPtr = std::shared_ptr<Segment>;
 // NOTE: This segment is used to a specified TabletSchema, when TabletSchema
 // is changed, this segment can not be used any more. For example, after a schema
 // change finished, client should disable all cached Segment for old TabletSchema.
-class Segment : public std::enable_shared_from_this<Segment> {
+class Segment : public std::enable_shared_from_this<Segment>, public MetadataAdder<Segment> {
 public:
-    static Status open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
-                       RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+    static Status open(io::FileSystemSPtr fs, const std::string& path, int64_t tablet_id,
+                       uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                        const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info = {});
 
@@ -91,6 +91,8 @@ public:
     }
 
     ~Segment();
+
+    int64_t get_metadata_size() const override;
 
     Status new_iterator(SchemaSPtr schema, const StorageReadOptions& read_options,
                         std::unique_ptr<RowwiseIterator>* iter);
@@ -130,7 +132,9 @@ public:
     }
 
     Status lookup_row_key(const Slice& key, const TabletSchema* latest_schema, bool with_seq_col,
-                          bool with_rowid, RowLocation* row_location);
+                          bool with_rowid, RowLocation* row_location,
+                          std::string* encoded_seq_value = nullptr,
+                          OlapReaderStatistics* stats = nullptr);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
@@ -140,7 +144,13 @@ public:
 
     Status load_index();
 
-    Status load_pk_index_and_bf();
+    Status load_pk_index_and_bf(OlapReaderStatistics* index_load_stats = nullptr);
+
+    void update_healthy_status(Status new_status) { _healthy_status.update(new_status); }
+    // The segment is loaded into SegmentCache and then will load indices, if there are something wrong
+    // during loading indices, should remove it from SegmentCache. If not, it will always report error during
+    // query. So we add a healthy status API, the caller should check the healhty status before using the segment.
+    Status healthy_status();
 
     std::string min_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _pk_index_meta != nullptr);
@@ -154,8 +164,6 @@ public:
     io::FileReaderSPtr file_reader() { return _file_reader; }
 
     int64_t meta_mem_usage() const { return _meta_mem_usage; }
-
-    void remove_from_segment_cache() const;
 
     // Identify the column by unique id or path info
     struct ColumnIdentifier {
@@ -207,6 +215,10 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
             InvertedIndexFileInfo idx_file_info = InvertedIndexFileInfo());
+    static Status _open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
+                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                        const io::FileReaderOptions& reader_options,
+                        std::shared_ptr<Segment>* output, InvertedIndexFileInfo idx_file_info);
     // open segment file and read the minimum amount of necessary information (footer)
     Status _open();
     Status _parse_footer(SegmentFooterPB* footer);
@@ -219,8 +231,9 @@ private:
                                            std::unique_ptr<ColumnIterator>* iter,
                                            const SubcolumnColumnReaders::Node* root,
                                            vectorized::DataTypePtr target_type_hint);
+    Status _write_error_file(size_t file_size, size_t offset, size_t bytes_read, char* data,
+                             io::IOContext& io_ctx);
 
-    Status _load_index_impl();
     Status _open_inverted_index();
 
     Status _create_column_readers_once();
@@ -231,6 +244,7 @@ private:
     io::FileReaderSPtr _file_reader;
     uint32_t _segment_id;
     uint32_t _num_rows;
+    AtomicStatus _healthy_status;
 
     // 1. Tracking memory use by segment meta data such as footer or index page.
     // 2. Tracking memory use by segment column reader
@@ -288,6 +302,7 @@ private:
     InvertedIndexFileInfo _idx_file_info;
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
+    OlapReaderStatistics* _pk_index_load_stats = nullptr;
 };
 
 } // namespace segment_v2

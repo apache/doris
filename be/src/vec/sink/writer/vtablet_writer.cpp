@@ -1264,7 +1264,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     // on exchange node rather than on TabletWriter
     _block_convertor->init_autoinc_info(
             _schema->db_id(), _schema->table_id(), _state->batch_size(),
-            _schema->is_partial_update() && !_schema->auto_increment_coulumn().empty(),
+            _schema->is_fixed_partial_update() && !_schema->auto_increment_coulumn().empty(),
             _schema->auto_increment_column_unique_id());
     _output_row_desc = _pool->add(new RowDescriptor(_output_tuple_desc, false));
 
@@ -1431,7 +1431,7 @@ Status VTabletWriter::_send_new_partition_batch() {
 
         Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
 
-        // these order is only.
+        // these order is unique.
         //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.

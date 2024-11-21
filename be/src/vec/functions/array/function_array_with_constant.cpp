@@ -75,7 +75,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         auto num = block.get_by_position(arguments[FunctionType::param_num_idx])
                            .column->convert_to_full_column_if_const();
         num = num->is_nullable()
@@ -92,8 +92,8 @@ public:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto array_size = num->get_int(i);
             if (UNLIKELY(array_size < 0) || UNLIKELY(array_size > max_array_size_as_field)) {
-                return Status::RuntimeError("Array size should in range(0, {}) in function: {}",
-                                            max_array_size_as_field, get_name());
+                return Status::InvalidArgument("Array size should in range(0, {}) in function: {}",
+                                               max_array_size_as_field, get_name());
             }
             offset += array_size;
             offsets.push_back(offset);

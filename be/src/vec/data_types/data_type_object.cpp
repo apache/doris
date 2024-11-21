@@ -134,9 +134,9 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_ve
     return buf;
 }
 
-const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
+const char* DataTypeObject::deserialize(const char* buf, MutableColumnPtr* column,
                                         int be_exec_version) const {
-    auto column_object = assert_cast<ColumnObject*>(column);
+    auto column_object = assert_cast<ColumnObject*>(column->get());
 
     // 1. deserialize num of subcolumns
     uint32_t num_subcolumns = *reinterpret_cast<const uint32_t*>(buf);
@@ -155,7 +155,7 @@ const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
         // 2.2 deserialize subcolumn
         auto type = DataTypeFactory::instance().create_data_type(column_meta_pb);
         MutableColumnPtr sub_column = type->create_column();
-        buf = type->deserialize(buf, sub_column.get(), be_exec_version);
+        buf = type->deserialize(buf, &sub_column, be_exec_version);
 
         // add subcolumn to column_object
         PathInData key;

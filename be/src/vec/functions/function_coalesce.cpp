@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "runtime/runtime_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
@@ -86,7 +87,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        uint32_t result, size_t input_rows_count) const override {
         DCHECK_GE(arguments.size(), 1);
         DataTypePtr result_type = block.get_by_position(result).type;
         ColumnNumbers filtered_args;

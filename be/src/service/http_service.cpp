@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "cloud/cloud_compaction_action.h"
+#include "cloud/cloud_delete_bitmap_action.h"
 #include "cloud/config.h"
 #include "cloud/injection_point_action.h"
 #include "common/config.h"
@@ -202,7 +203,20 @@ Status HttpService::start() {
     static_cast<void>(PprofActions::setup(_env, _ev_http_server.get(), _pool));
 
     // register jeprof actions
-    static_cast<void>(JeprofileActions::setup(_env, _ev_http_server.get(), _pool));
+    SetJeHeapProfileActiveActions* set_jeheap_profile_active_action =
+            _pool.add(new SetJeHeapProfileActiveActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/active/{prof_value}",
+                                      set_jeheap_profile_active_action);
+
+    DumpJeHeapProfileToDotActions* dump_jeheap_profile_to_dot_action =
+            _pool.add(new DumpJeHeapProfileToDotActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump",
+                                      dump_jeheap_profile_to_dot_action);
+
+    DumpJeHeapProfileActions* dump_jeheap_profile_action =
+            _pool.add(new DumpJeHeapProfileActions(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/jeheap/dump_only",
+                                      dump_jeheap_profile_action);
 
     // register metrics
     {
@@ -373,7 +387,7 @@ void HttpService::register_local_handler(StorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::POST, "/api/pad_rowset", pad_rowset_action);
 
     ReportAction* report_tablet_action = _pool.add(new ReportAction(
-            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_OLAP_TABLE"));
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_OLAP_TABLET"));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/report/tablet", report_tablet_action);
 
     ReportAction* report_disk_action = _pool.add(new ReportAction(
@@ -411,6 +425,11 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
                                       TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/compaction/run_status",
                                       run_status_compaction_action);
+    CloudDeleteBitmapAction* count_delete_bitmap_action =
+            _pool.add(new CloudDeleteBitmapAction(DeleteBitmapActionType::COUNT_INFO, _env, engine,
+                                                  TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/delete_bitmap/count",
+                                      count_delete_bitmap_action);
 #ifdef ENABLE_INJECTION_POINT
     InjectionPointAction* injection_point_action = _pool.add(new InjectionPointAction);
     _ev_http_server->register_handler(HttpMethod::GET, "/api/injection_point/{op}",

@@ -21,6 +21,9 @@
 #include "io/cache/block_file_cache_factory.h"
 
 #include <glog/logging.h>
+
+#include <string>
+#include <vector>
 #if defined(__APPLE__)
 #include <sys/mount.h>
 #else
@@ -32,9 +35,12 @@
 #include <utility>
 
 #include "common/config.h"
+#include "exec/schema_scanner/schema_scanner_helper.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
+#include "service/backend_options.h"
+#include "vec/core/block.h"
 
 namespace doris {
 class TUniqueId;
@@ -63,32 +69,45 @@ size_t FileCacheFactory::try_release(const std::string& base_path) {
 
 Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
                                            FileCacheSettings file_cache_settings) {
-    const auto& fs = global_local_filesystem();
-    bool exists = false;
-    RETURN_IF_ERROR(fs->exists(cache_base_path, &exists));
-    if (!exists) {
-        auto st = fs->create_directory(cache_base_path);
-        LOG(INFO) << "path " << cache_base_path << " does not exist, create " << st.msg();
-        RETURN_IF_ERROR(st);
-    } else if (config::clear_file_cache) {
-        RETURN_IF_ERROR(fs->delete_directory(cache_base_path));
-        RETURN_IF_ERROR(fs->create_directory(cache_base_path));
-    }
+    if (file_cache_settings.storage == "memory") {
+        if (cache_base_path != "memory") {
+            LOG(WARNING) << "memory storage must use memory path";
+            return Status::InvalidArgument("memory storage must use memory path");
+        }
+    } else {
+        const auto& fs = global_local_filesystem();
+        bool exists = false;
+        RETURN_IF_ERROR(fs->exists(cache_base_path, &exists));
+        if (!exists) {
+            auto st = fs->create_directory(cache_base_path);
+            LOG(INFO) << "path " << cache_base_path << " does not exist, create " << st.msg();
+            RETURN_IF_ERROR(st);
+        } else if (config::clear_file_cache) {
+            RETURN_IF_ERROR(fs->delete_directory(cache_base_path));
+            RETURN_IF_ERROR(fs->create_directory(cache_base_path));
+        }
 
-    struct statfs stat;
-    if (statfs(cache_base_path.c_str(), &stat) < 0) {
-        LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
-        return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
-    }
-    size_t disk_capacity = static_cast<size_t>(
-            static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize) *
-            (static_cast<double>(config::file_cache_enter_disk_resource_limit_mode_percent) / 100));
-    if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
-        LOG_INFO("The cache {} config size {} is larger than {}% disk size {} or zero, recalc it.",
-                 cache_base_path, file_cache_settings.capacity,
-                 config::file_cache_enter_disk_resource_limit_mode_percent, disk_capacity);
-        file_cache_settings =
-                get_file_cache_settings(disk_capacity, file_cache_settings.max_query_cache_size);
+        struct statfs stat;
+        if (statfs(cache_base_path.c_str(), &stat) < 0) {
+            LOG_ERROR("").tag("file cache path", cache_base_path).tag("error", strerror(errno));
+            return Status::IOError("{} statfs error {}", cache_base_path, strerror(errno));
+        }
+        size_t disk_capacity = static_cast<size_t>(
+                static_cast<size_t>(stat.f_blocks) * static_cast<size_t>(stat.f_bsize) *
+                (static_cast<double>(config::file_cache_enter_disk_resource_limit_mode_percent) /
+                 100));
+        if (file_cache_settings.capacity == 0 || disk_capacity < file_cache_settings.capacity) {
+            LOG_INFO(
+                    "The cache {} config size {} is larger than {}% disk size {} or zero, recalc "
+                    "it.",
+                    cache_base_path, file_cache_settings.capacity,
+                    config::file_cache_enter_disk_resource_limit_mode_percent, disk_capacity);
+            file_cache_settings = get_file_cache_settings(disk_capacity,
+                                                          file_cache_settings.max_query_cache_size);
+        }
+        LOG(INFO) << "[FileCache] path: " << cache_base_path
+                  << " total_size: " << file_cache_settings.capacity
+                  << " disk_total_size: " << disk_capacity;
     }
     auto cache = std::make_unique<BlockFileCache>(cache_base_path, file_cache_settings);
     RETURN_IF_ERROR(cache->initialize());
@@ -98,10 +117,22 @@ Status FileCacheFactory::create_file_cache(const std::string& cache_base_path,
         _caches.push_back(std::move(cache));
         _capacity += file_cache_settings.capacity;
     }
-    LOG(INFO) << "[FileCache] path: " << cache_base_path
-              << " total_size: " << file_cache_settings.capacity
-              << " disk_total_size: " << disk_capacity;
+
     return Status::OK();
+}
+
+std::vector<std::string> FileCacheFactory::get_cache_file_by_path(const UInt128Wrapper& hash) {
+    io::BlockFileCache* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+    auto blocks = cache->get_blocks_by_key(hash);
+    std::vector<std::string> ret;
+    if (blocks.empty()) {
+        return ret;
+    } else {
+        for (auto& [_, fb] : blocks) {
+            ret.emplace_back(fb->get_cache_file());
+        }
+    }
+    return ret;
 }
 
 BlockFileCache* FileCacheFactory::get_by_path(const UInt128Wrapper& key) {
@@ -156,6 +187,24 @@ std::string FileCacheFactory::reset_capacity(const std::string& path, int64_t ne
         }
     }
     return "Unknown the cache path " + path;
+}
+
+void FileCacheFactory::get_cache_stats_block(vectorized::Block* block) {
+    // std::shared_lock<std::shared_mutex> read_lock(_qs_ctx_map_lock);
+    TBackend be = BackendOptions::get_local_backend();
+    int64_t be_id = be.id;
+    std::string be_ip = be.host;
+    for (auto& cache : _caches) {
+        std::map<std::string, double> stats = cache->get_stats();
+        for (auto& [k, v] : stats) {
+            SchemaScannerHelper::insert_int64_value(0, be_id, block);  // be id
+            SchemaScannerHelper::insert_string_value(1, be_ip, block); // be ip
+            SchemaScannerHelper::insert_string_value(2, cache->get_base_path(),
+                                                     block);                       // cache path
+            SchemaScannerHelper::insert_string_value(3, k, block);                 // metric name
+            SchemaScannerHelper::insert_string_value(4, std::to_string(v), block); // metric value
+        }
+    }
 }
 
 } // namespace io

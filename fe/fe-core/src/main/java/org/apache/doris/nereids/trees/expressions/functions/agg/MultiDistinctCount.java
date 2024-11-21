@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -86,5 +87,10 @@ public class MultiDistinctCount extends AggregateFunction
     @Override
     public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
         return new MultiDistinctCount(mustUseMultiDistinctAgg, false, children);
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new BigIntLiteral(0);
     }
 }

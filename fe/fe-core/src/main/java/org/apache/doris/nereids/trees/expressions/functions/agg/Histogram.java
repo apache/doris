@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.SearchSignature;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
@@ -111,5 +112,10 @@ public class Histogram extends AggregateFunction
     @Override
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new VarcharLiteral("{\"num_buckets\":0,\"buckets\":[]}");
     }
 }

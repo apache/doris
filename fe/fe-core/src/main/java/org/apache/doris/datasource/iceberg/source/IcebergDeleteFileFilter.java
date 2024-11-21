@@ -25,23 +25,25 @@ import java.util.OptionalLong;
 @Data
 public class IcebergDeleteFileFilter {
     private String deleteFilePath;
+    private long filesize;
 
-    public IcebergDeleteFileFilter(String deleteFilePath) {
+    public IcebergDeleteFileFilter(String deleteFilePath, long filesize) {
         this.deleteFilePath = deleteFilePath;
+        this.filesize = filesize;
     }
 
     public static PositionDelete createPositionDelete(String deleteFilePath, Long positionLowerBound,
-                                                      Long positionUpperBound) {
-        return new PositionDelete(deleteFilePath, positionLowerBound, positionUpperBound);
+                                                      Long positionUpperBound, long filesize) {
+        return new PositionDelete(deleteFilePath, positionLowerBound, positionUpperBound, filesize);
     }
 
-    public static EqualityDelete createEqualityDelete(String deleteFilePath, List<Integer> fieldIds) {
+    public static EqualityDelete createEqualityDelete(String deleteFilePath, List<Integer> fieldIds, long fileSize) {
         // todo:
         // Schema deleteSchema = TypeUtil.select(scan.schema(), new HashSet<>(fieldIds));
         // StructLikeSet deleteSet = StructLikeSet.create(deleteSchema.asStruct());
         // pass deleteSet to BE
         // compare two StructLike value, if equals, filtered
-        return new EqualityDelete(deleteFilePath, fieldIds);
+        return new EqualityDelete(deleteFilePath, fieldIds, fileSize);
     }
 
     static class PositionDelete extends IcebergDeleteFileFilter {
@@ -49,8 +51,8 @@ public class IcebergDeleteFileFilter {
         private final Long positionUpperBound;
 
         public PositionDelete(String deleteFilePath, Long positionLowerBound,
-                              Long positionUpperBound) {
-            super(deleteFilePath);
+                              Long positionUpperBound, long fileSize) {
+            super(deleteFilePath, fileSize);
             this.positionLowerBound = positionLowerBound;
             this.positionUpperBound = positionUpperBound;
         }
@@ -67,8 +69,8 @@ public class IcebergDeleteFileFilter {
     static class EqualityDelete extends IcebergDeleteFileFilter {
         private List<Integer> fieldIds;
 
-        public EqualityDelete(String deleteFilePath, List<Integer> fieldIds) {
-            super(deleteFilePath);
+        public EqualityDelete(String deleteFilePath, List<Integer> fieldIds, long fileSize) {
+            super(deleteFilePath, fileSize);
             this.fieldIds = fieldIds;
         }
 

@@ -23,8 +23,10 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -45,6 +47,7 @@ import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Strings;
@@ -88,10 +91,16 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
     private void setCloudClusterId() throws MetaNotFoundException {
         ConnectContext context = ConnectContext.get();
         if (context != null) {
-            String clusterName = context.getCloudCluster();
+            String clusterName = "";
+            try {
+                clusterName = context.getCloudCluster();
+            } catch (ComputeGroupException e) {
+                LOG.warn("failed to get compute group name", e);
+                throw new MetaNotFoundException("failed to get compute group name " + e);
+            }
             if (Strings.isNullOrEmpty(clusterName)) {
-                LOG.warn("cluster name is empty");
-                throw new MetaNotFoundException("cluster name is empty");
+                LOG.warn("compute group name is empty");
+                throw new MetaNotFoundException("compute group name is empty");
             }
 
             this.cloudClusterId = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
@@ -145,7 +154,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
                 isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                 getLoadParallelism(), getSendBatchParallelism(),
                 getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                useNewLoadScanNode(), getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
+                getPriority(), isEnableMemtableOnSinkNode, batchSize, cloudClusterId);
         UUID uuid = UUID.randomUUID();
         TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
 
@@ -316,7 +325,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         for (TUniqueId loadId : loadIds) {
             Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
             if (coordinator != null) {
-                coordinator.cancel();
+                coordinator.cancel(new Status(TStatusCode.CANCELLED, "load job failed"));
             }
         }
 

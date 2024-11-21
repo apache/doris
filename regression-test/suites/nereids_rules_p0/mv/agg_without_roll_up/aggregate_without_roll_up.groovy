@@ -39,11 +39,6 @@ suite("aggregate_without_roll_up") {
       o_comment        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -74,11 +69,6 @@ suite("aggregate_without_roll_up") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
-    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
-    )
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"

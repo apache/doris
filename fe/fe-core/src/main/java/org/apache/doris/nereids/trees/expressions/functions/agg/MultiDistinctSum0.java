@@ -23,12 +23,19 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
 
 import com.google.common.base.Preconditions;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.List;
 
 /** MultiDistinctSum0 */
@@ -88,5 +95,21 @@ public class MultiDistinctSum0 extends AggregateFunction implements UnaryExpress
     @Override
     public Expression withMustUseMultiDistinctAgg(boolean mustUseMultiDistinctAgg) {
         return new MultiDistinctSum0(mustUseMultiDistinctAgg, false, children.get(0));
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        DataType dataType = getDataType();
+        if (dataType.isBigIntType()) {
+            return new BigIntLiteral(0);
+        } else if (dataType.isLargeIntType()) {
+            return new LargeIntLiteral(new BigInteger("0"));
+        } else if (dataType.isDecimalV3Type()) {
+            return new DecimalV3Literal((DecimalV3Type) dataType, new BigDecimal("0"));
+        } else if (dataType.isDoubleType()) {
+            return new DoubleLiteral(0);
+        } else {
+            return new DoubleLiteral(0);
+        }
     }
 }
