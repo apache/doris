@@ -1668,8 +1668,8 @@ TEST(MetaServiceJobTest, RetrySchemaChangeJobTest) {
     EXPECT_EQ(tablet_stats.num_rowsets(), 6);
     EXPECT_EQ(tablet_stats.num_segments(), 5);
     EXPECT_EQ(tablet_stats.data_size(), 50000);
-    EXPECT_EQ(tablet_stats.index_size(), 20000);
-    EXPECT_EQ(tablet_stats.segment_size(), 30000);
+    EXPECT_EQ(tablet_stats.index_size(), 25000);
+    EXPECT_EQ(tablet_stats.segment_size(), 25000);
 
     std::unique_ptr<Transaction> txn;
     ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
