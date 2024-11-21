@@ -44,6 +44,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/remote_file_system.h"
+#include "io/io_common.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/cumulative_compaction_time_series_policy.h"
 #include "olap/data_dir.h"
@@ -345,8 +346,9 @@ bool CompactionMixin::handle_ordered_data_compaction() {
     if (!config::enable_ordered_data_compaction) {
         return false;
     }
-    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
-        // The remote file system does not support to link files.
+    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION ||
+        compaction_type() == ReaderType::READER_FULL_COMPACTION) {
+        // The remote file system and full compaction does not support to link files.
         return false;
     }
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
