@@ -255,8 +255,7 @@ Status FunctionLikeBase::constant_starts_with_fn_scalar(LikeSearchState* state,
                                                         const StringRef& pattern,
                                                         unsigned char* result) {
     *result = (val.size >= state->search_string_sv.size) &&
-              (state->search_string_sv ==
-               val.substring(0, cast_set<int>(state->search_string_sv.size)));
+              (state->search_string_sv == val.substring(0, state->search_string_sv.size));
     return Status::OK();
 }
 
@@ -290,9 +289,8 @@ Status FunctionLikeBase::constant_ends_with_fn_scalar(LikeSearchState* state, co
                                                       const StringRef& pattern,
                                                       unsigned char* result) {
     *result = (val.size >= state->search_string_sv.size) &&
-              (state->search_string_sv ==
-               val.substring(cast_set<int>(val.size - state->search_string_sv.size),
-                             cast_set<int>(state->search_string_sv.size)));
+              (state->search_string_sv == val.substring(val.size - state->search_string_sv.size,
+                                                        state->search_string_sv.size));
     return Status::OK();
 }
 
