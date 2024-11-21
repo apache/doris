@@ -1417,7 +1417,7 @@ message GetDeleteBitmapRequest {
 message GetDeleteBitmapResponse {
     optional MetaServiceResponseStatus status = 1;
     repeated string rowset_ids = 2;
-    repeated int64 segment_ids = 3;
+    repeated uint32 segment_ids = 3;
     repeated int64 versions = 4;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 5;
