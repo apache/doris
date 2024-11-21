@@ -351,6 +351,8 @@ class SuiteCluster {
             servers.addAll(getFrontends())
         } else if (type == NodeType.BE) {
             servers.addAll(getBackends())
+        } else if (type == NodeType.BE_ANY_ONE) {
+            servers.add(getBackends.get(0))
         } else {
             throw new Exception('Unknown node type: ' + type)
         }

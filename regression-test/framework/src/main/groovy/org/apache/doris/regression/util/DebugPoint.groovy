@@ -27,6 +27,7 @@ enum NodeType {
     // cloud
     MS,
     RECYCLER,
+    BE_ANY_ONE,
 }
 
 class DebugPoint {
