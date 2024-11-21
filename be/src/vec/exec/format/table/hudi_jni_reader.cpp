@@ -74,8 +74,8 @@ HudiJniReader::HudiJniReader(const TFileScanRangeParams& scan_params,
     }
 
     // _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HudiJniScanner", params,
-    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HadoopHudiJniScanner", params,
-                                                    required_fields);
+    _jni_connector = std::make_unique<JniConnector>("org/apache/doris/hudi/HadoopHudiJniScanner",
+                                                    params, required_fields);
 }
 
 Status HudiJniReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
