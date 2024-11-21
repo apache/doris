@@ -206,6 +206,7 @@ supportedShowStatement
     | SHOW AUTHORS                                                                  #showAuthors
     | SHOW DYNAMIC PARTITION TABLES ((FROM | IN) database=multipartIdentifier)?     #showDynamicPartition
     | SHOW LAST INSERT                                                              #showLastInsert 
+    | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALL? GRANTS                                                              #showGrants
     | SHOW GRANTS FOR userIdentify                                                  #showGrantsForUser
     | SHOW VIEW
@@ -295,7 +296,6 @@ unsupportedShowStatement
         sortClause? limitClause?                                                    #showLoad
     | SHOW EXPORT ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showExport
-    | SHOW DELETE ((FROM | IN) database=multipartIdentifier)?                       #showDelete
     | SHOW ALTER TABLE (ROLLUP | (MATERIALIZED VIEW) | COLUMN)
         ((FROM | IN) database=multipartIdentifier)? wildWhere?
         sortClause? limitClause?                                                    #showAlterTable

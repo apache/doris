@@ -208,6 +208,7 @@ import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateTableContext;
+import org.apache.doris.nereids.DorisParser.ShowDeleteContext;
 import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
@@ -472,6 +473,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
@@ -4340,6 +4342,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableId = Long.parseLong(ctx.tableId.getText());
         }
         return new ShowTableIdCommand(tableId);
+    }
+
+    @Override
+    public LogicalPlan visitShowDelete(ShowDeleteContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            dbName = nameParts.get(0); // only one entry possible
+        }
+        return new ShowDeleteCommand(dbName);
     }
 
     @Override

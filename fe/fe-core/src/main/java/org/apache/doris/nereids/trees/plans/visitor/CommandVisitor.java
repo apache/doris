@@ -68,6 +68,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
@@ -404,6 +405,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTrashCommand(ShowTrashCommand showTrashCommand, C context) {
         return visitCommand(showTrashCommand, context);
+    }
+
+    default R visitShowDeleteCommand(ShowDeleteCommand showDeleteCommand, C context) {
+        return visitCommand(showDeleteCommand, context);
     }
 
     default R visitShowPrivilegesCommand(ShowPrivilegesCommand showPrivilegesCommand, C context) {
