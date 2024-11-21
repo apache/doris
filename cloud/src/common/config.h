@@ -214,10 +214,15 @@ CONF_mInt64(max_s3_client_retry, "10");
 // Max aborted txn num for the same label name
 CONF_mInt64(max_num_aborted_txn, "100");
 
+// Max byte getting delete bitmap can return, default is 1GB
+CONF_mInt64(max_get_delete_bitmap_byte, "1073741824");
+
 CONF_Bool(enable_cloud_txn_lazy_commit, "true");
 CONF_Int32(txn_lazy_commit_rowsets_thresold, "1000");
 CONF_Int32(txn_lazy_commit_num_threads, "8");
 CONF_Int32(txn_lazy_max_rowsets_per_batch, "1000");
 // max TabletIndexPB num for batch get
 CONF_Int32(max_tablet_index_num_per_batch, "1000");
+
+CONF_Bool(enable_check_instance_id, "true");
 } // namespace doris::cloud::config

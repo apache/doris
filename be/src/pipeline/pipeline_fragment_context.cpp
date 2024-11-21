@@ -252,11 +252,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
         auto* fragment_context = this;
 
-        LOG_INFO("PipelineFragmentContext::prepare")
-                .tag("query_id", print_id(_query_id))
-                .tag("fragment_id", _fragment_id)
-                .tag("pthread_id", (uintptr_t)pthread_self());
-
         if (request.query_options.__isset.is_report_success) {
             fragment_context->set_is_report_success(request.query_options.is_report_success);
         }
@@ -301,8 +296,6 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         if (local_params.__isset.topn_filter_descs) {
             _query_ctx->init_runtime_predicates(local_params.topn_filter_descs);
         }
-
-        _need_local_merge = request.__isset.parallel_instances;
     }
 
     {
@@ -374,29 +367,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
         auto fragment_instance_id = local_params.fragment_instance_id;
         _fragment_instance_ids[i] = fragment_instance_id;
 
-        auto filterparams = std::make_unique<RuntimeFilterParamsContext>();
-
-        {
-            filterparams->runtime_filter_wait_infinitely =
-                    _runtime_state->runtime_filter_wait_infinitely();
-            filterparams->runtime_filter_wait_time_ms =
-                    _runtime_state->runtime_filter_wait_time_ms();
-            filterparams->execution_timeout = _runtime_state->execution_timeout();
-
-            filterparams->exec_env = ExecEnv::GetInstance();
-            filterparams->query_id.set_hi(_runtime_state->query_id().hi);
-            filterparams->query_id.set_lo(_runtime_state->query_id().lo);
-
-            filterparams->be_exec_version = _runtime_state->be_exec_version();
-            filterparams->query_ctx = _query_ctx.get();
-        }
-
-        auto runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-                request.query_id, filterparams.get(), _query_ctx->query_mem_tracker);
-
-        filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
-
-        _runtime_filter_states[i] = std::move(filterparams);
+        _runtime_filter_states[i] = RuntimeFilterParamsContext::create(_query_ctx.get());
+        std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
+                request.query_id, _runtime_filter_states[i], _query_ctx->query_mem_tracker, false);
         std::map<PipelineId, PipelineTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
@@ -428,6 +401,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
                         _exec_env, _query_ctx.get());
                 auto& task_runtime_state = _task_runtime_states[pip_idx][i];
+                _runtime_filter_states[i]->set_state(task_runtime_state.get());
                 {
                     // Initialize runtime state for this task
                     task_runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
@@ -459,9 +433,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineFrag
                     task_runtime_state->set_load_stream_per_node(request.load_stream_per_node);
                     task_runtime_state->set_total_load_streams(request.total_load_streams);
                     task_runtime_state->set_num_local_sink(request.num_local_sink);
-                    DCHECK(_runtime_filter_states[i]->runtime_filter_mgr);
-                    task_runtime_state->set_runtime_filter_mgr(
-                            _runtime_filter_states[i]->runtime_filter_mgr);
+
+                    task_runtime_state->set_runtime_filter_mgr(runtime_filter_mgr.get());
                 }
                 auto cur_task_id = _total_tasks++;
                 task_runtime_state->set_task_id(cur_task_id);
@@ -1382,8 +1355,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             const uint32_t partition_count = 32;
             auto inner_probe_operator =
                     std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
-            auto inner_sink_operator = std::make_shared<HashJoinBuildSinkOperatorX>(
-                    pool, 0, tnode_, descs, _need_local_merge);
+            auto inner_sink_operator =
+                    std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, tnode_, descs);
 
             RETURN_IF_ERROR(inner_probe_operator->init(tnode_, _runtime_state.get()));
             RETURN_IF_ERROR(inner_sink_operator->init(tnode_, _runtime_state.get()));
@@ -1403,8 +1376,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
             auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
-                    pool, next_sink_operator_id(), tnode_, descs, _need_local_merge,
-                    partition_count);
+                    pool, next_sink_operator_id(), tnode_, descs, partition_count);
             sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
             DataSinkOperatorPtr sink = std::move(sink_operator);
             sink->set_dests_id({op->operator_id()});
@@ -1428,8 +1400,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
             DataSinkOperatorPtr sink;
-            sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                      _need_local_merge));
+            sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
             sink->set_dests_id({op->operator_id()});
             RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
             RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));
@@ -1456,8 +1427,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
         DataSinkOperatorPtr sink;
-        sink.reset(new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                        _need_local_merge));
+        sink.reset(
+                new NestedLoopJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink()->init(tnode, _runtime_state.get()));

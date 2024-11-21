@@ -77,6 +77,7 @@ namespace ErrorCode {
     TStatusError(TABLET_MISSING, true);                   \
     TStatusError(NOT_MASTER, true);                       \
     TStatusError(OBTAIN_LOCK_FAILED, false);              \
+    TStatusError(SNAPSHOT_EXPIRED, false);                \
     TStatusError(DELETE_BITMAP_LOCK_ERROR, false);
 // E error_name, error_code, print_stacktrace
 #define APPLY_FOR_OLAP_ERROR_CODES(E)                        \
@@ -119,7 +120,6 @@ namespace ErrorCode {
     E(NEED_SEND_AGAIN, -241, false);                         \
     E(OS_ERROR, -242, true);                                 \
     E(DIR_NOT_EXIST, -243, true);                            \
-    E(FILE_NOT_EXIST, -244, true);                           \
     E(CREATE_FILE_ERROR, -245, true);                        \
     E(STL_ERROR, -246, true);                                \
     E(MUTEX_ERROR, -247, true);                              \
@@ -479,7 +479,7 @@ public:
     ERROR_CTOR_NOSTACK(Cancelled, CANCELLED)
     ERROR_CTOR(MemoryLimitExceeded, MEM_LIMIT_EXCEEDED)
     ERROR_CTOR(RpcError, THRIFT_RPC_ERROR)
-    ERROR_CTOR(TimedOut, TIMEOUT)
+    ERROR_CTOR_NOSTACK(TimedOut, TIMEOUT)
     ERROR_CTOR_NOSTACK(TooManyTasks, TOO_MANY_TASKS)
     ERROR_CTOR(Uninitialized, UNINITIALIZED)
     ERROR_CTOR(Aborted, ABORTED)

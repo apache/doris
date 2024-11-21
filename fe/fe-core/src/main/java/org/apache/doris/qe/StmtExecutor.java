@@ -259,6 +259,8 @@ public class StmtExecutor {
     private static final AtomicLong STMT_ID_GENERATOR = new AtomicLong(0);
     public static final int MAX_DATA_TO_SEND_FOR_TXN = 100;
     public static final String NULL_VALUE_FOR_LOAD = "\\N";
+    private static Set<String> blockSqlAstNames = Sets.newHashSet();
+
     private Pattern beIpPattern = Pattern.compile("\\[(\\d+):");
     private ConnectContext context;
     private final StatementContext statementContext;
@@ -690,6 +692,7 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        checkSqlBlocked(logicalPlan.getClass());
         if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
             if (isForwardToMaster()) {
                 throw new UserException("Forward master command is not supported for prepare statement");
@@ -826,6 +829,23 @@ public class StmtExecutor {
             }
             profile.getSummaryProfile().setQueryPlanFinishTime();
             handleQueryWithRetry(queryId);
+        }
+    }
+
+    public static void initBlockSqlAstNames() {
+        blockSqlAstNames.clear();
+        blockSqlAstNames = Pattern.compile(",")
+                .splitAsStream(Config.block_sql_ast_names)
+                .map(String::trim)
+                .collect(Collectors.toSet());
+        if (blockSqlAstNames.isEmpty() && !Config.block_sql_ast_names.isEmpty()) {
+            blockSqlAstNames.add(Config.block_sql_ast_names);
+        }
+    }
+
+    public void checkSqlBlocked(Class<?> clazz) throws UserException {
+        if (blockSqlAstNames.contains(clazz.getSimpleName())) {
+            throw new UserException("SQL is blocked with AST name: " + clazz.getSimpleName());
         }
     }
 
@@ -976,6 +996,7 @@ public class StmtExecutor {
         try {
             // parsedStmt maybe null here, we parse it. Or the predicate will not work.
             parseByLegacy();
+            checkSqlBlocked(parsedStmt.getClass());
             if (context.isTxnModel() && !(parsedStmt instanceof InsertStmt)
                     && !(parsedStmt instanceof TransactionStmt)) {
                 throw new TException("This is in a transaction, only insert, update, delete, "
@@ -1962,7 +1983,7 @@ public class StmtExecutor {
                     if (!isSendFields) {
                         if (!isOutfileQuery) {
                             sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                    exprToType(queryStmt.getResultExprs()));
+                                    getReturnTypes(queryStmt));
                         } else {
                             if (!Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
                                 outfileWriteSuccess(queryStmt.getOutFileClause());
@@ -2014,7 +2035,7 @@ public class StmtExecutor {
                         return;
                     } else {
                         sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
-                                exprToType(queryStmt.getResultExprs()));
+                                getReturnTypes(queryStmt));
                     }
                 } else {
                     sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
@@ -2247,10 +2268,10 @@ public class StmtExecutor {
                             ExecuteEnv.getInstance().getStartupTime()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
             txnConf.setToken(token);
         } else {
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            String token = Env.getCurrentEnv().getTokenManager().acquireToken();
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
             request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
@@ -2821,15 +2842,35 @@ public class StmtExecutor {
             LOG.debug("sendFields {}", colNames);
         }
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        StatementContext statementContext = context.getStatementContext();
+        boolean isShortCircuited = statementContext.isShortCircuitQuery()
+                        && statementContext.getShortCircuitQueryContext() != null;
+        ShortCircuitQueryContext ctx = statementContext.getShortCircuitQueryContext();
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {
             serializer.reset();
-            if (fieldInfos != null) {
-                serializer.writeField(fieldInfos.get(i), types.get(i));
+            if (context.getCommand() == MysqlCommand.COM_STMT_EXECUTE && isShortCircuited) {
+                // Using PreparedStatment pre serializedField to avoid serialize each time
+                // we send a field
+                byte[] serializedField = ctx.getSerializedField(i);
+                if (serializedField == null) {
+                    if (fieldInfos != null) {
+                        serializer.writeField(fieldInfos.get(i), types.get(i));
+                    } else {
+                        serializer.writeField(colNames.get(i), types.get(i));
+                    }
+                    serializedField = serializer.toArray();
+                    ctx.addSerializedField(i, serializedField);
+                }
+                context.getMysqlChannel().sendOnePacket(ByteBuffer.wrap(serializedField));
             } else {
-                serializer.writeField(colNames.get(i), types.get(i));
+                if (fieldInfos != null) {
+                    serializer.writeField(fieldInfos.get(i), types.get(i));
+                } else {
+                    serializer.writeField(colNames.get(i), types.get(i));
+                }
+                context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
             }
-            context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         // send EOF
         serializer.reset();
@@ -3334,6 +3375,11 @@ public class StmtExecutor {
         return statisticsForAuditLog.build();
     }
 
+    private boolean isShortCircuitedWithCtx() {
+        return statementContext.isShortCircuitQuery()
+                        && statementContext.getShortCircuitQueryContext() != null;
+    }
+
     private List<Type> exprToType(List<Expr> exprs) {
         return exprs.stream().map(e -> e.getType()).collect(Collectors.toList());
     }
@@ -3454,6 +3500,13 @@ public class StmtExecutor {
 
     public List<Type> getReturnTypes() {
         return exprToType(parsedStmt.getResultExprs());
+    }
+
+    public List<Type> getReturnTypes(Queriable stmt) {
+        if (isShortCircuitedWithCtx()) {
+            return statementContext.getShortCircuitQueryContext().getReturnTypes();
+        }
+        return exprToType(stmt.getResultExprs());
     }
 
     private HttpStreamParams generateHttpStreamNereidsPlan(TUniqueId queryId) {

@@ -452,43 +452,20 @@ public:
 
     Field(Field&& rhs) { create(std::move(rhs)); }
 
+    // Make the constructor with a String parameter explicit to prevent accidentally creating a Field with the wrong string type.
+    // Other types don't require explicit construction to avoid extensive modifications.
     template <typename T>
         requires(!std::is_same_v<std::decay_t<T>, Field>)
-    Field(T&& rhs);
-
-    /// Create a string inplace.
-    Field(const char* data, size_t size) { create(data, size); }
-
-    Field(const unsigned char* data, size_t size) { create(data, size); }
-
-    /// NOTE In case when field already has string type, more direct assign is possible.
-    void assign_string(const char* data, size_t size) {
-        destroy();
-        create(data, size);
-    }
-
-    void assign_string(const unsigned char* data, size_t size) {
-        destroy();
-        create(data, size);
-    }
-
-    void assign_jsonb(const char* data, size_t size) {
-        destroy();
-        create_jsonb(data, size);
-    }
-
-    void assign_jsonb(const unsigned char* data, size_t size) {
-        destroy();
-        create_jsonb(data, size);
-    }
+    explicit(std::is_same_v<std::decay_t<T>, String>) Field(T&& rhs);
 
     Field& operator=(const Field& rhs) {
         if (this != &rhs) {
             if (which != rhs.which) {
                 destroy();
                 create(rhs);
-            } else
+            } else {
                 assign(rhs); /// This assigns string or vector without deallocation of existing buffer.
+            }
         }
         return *this;
     }
@@ -503,8 +480,9 @@ public:
             if (which != rhs.which) {
                 destroy();
                 create(std::move(rhs));
-            } else
+            } else {
                 assign(std::move(rhs));
+            }
         }
         return *this;
     }
@@ -731,7 +709,6 @@ private:
         *ptr = std::forward<T>(x);
     }
 
-private:
     void create(const Field& x) {
         dispatch([this](auto& value) { create_concrete(value); }, x);
     }
@@ -746,25 +723,6 @@ private:
 
     void assign(Field&& x) {
         dispatch([this](auto& value) { assign_concrete(std::move(value)); }, x);
-    }
-
-    void create(const char* data, size_t size) {
-        new (&storage) String(data, size);
-        which = Types::String;
-    }
-
-    void create(const unsigned char* data, size_t size) {
-        create(reinterpret_cast<const char*>(data), size);
-    }
-
-    void create_jsonb(const char* data, size_t size) {
-        new (&storage) JsonbField(data, size);
-        which = Types::JSONB;
-    }
-
-    void create_jsonb(const unsigned char* data, size_t size) {
-        new (&storage) JsonbField(reinterpret_cast<const char*>(data), size);
-        which = Types::JSONB;
     }
 
     ALWAYS_INLINE void destroy() {

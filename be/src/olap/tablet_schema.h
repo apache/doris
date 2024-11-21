@@ -163,6 +163,9 @@ public:
     bool is_extracted_column() const {
         return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
     };
+    std::string suffix_path() const {
+        return is_extracted_column() ? _column_path->get_path() : "";
+    }
     bool is_nested_subcolumn() const {
         return _column_path != nullptr && _column_path->has_nested_part();
     }
@@ -223,13 +226,16 @@ private:
 
     bool _has_bitmap_index = false;
     bool _visible = true;
-    int32_t _parent_col_unique_id = -1;
+
     std::vector<TabletColumnPtr> _sub_columns;
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
     int _be_exec_version = -1;
-    vectorized::PathInDataPtr _column_path;
+
+    // The extracted sub-columns from "variant" contain the following information:
+    int32_t _parent_col_unique_id = -1;     // "variant" -> col_unique_id
+    vectorized::PathInDataPtr _column_path; // the path of the sub-columns themselves
 
     // Record information about columns merged into a sparse column within a variant
     // `{"id": 100, "name" : "jack", "point" : 3.9}`
@@ -315,8 +321,8 @@ public:
     }
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
-    void append_index(TabletIndex index);
-    void update_index(const TabletColumn& column, TabletIndex index);
+    void append_index(TabletIndex&& index);
+    void update_index(const TabletColumn& column, const IndexType& index_type, TabletIndex&& index);
     void remove_index(int64_t index_id);
     void clear_index();
     // Must make sure the row column is always the last column
@@ -385,7 +391,15 @@ public:
     void set_row_store_page_size(long page_size) { _row_store_page_size = page_size; }
     long row_store_page_size() const { return _row_store_page_size; }
 
-    const std::vector<TabletIndex>& indexes() const { return _indexes; }
+    const std::vector<const TabletIndex*> inverted_indexes() const {
+        std::vector<const TabletIndex*> inverted_indexes;
+        for (const auto& index : _indexes) {
+            if (index.index_type() == IndexType::INVERTED) {
+                inverted_indexes.emplace_back(&index);
+            }
+        }
+        return inverted_indexes;
+    }
     bool has_inverted_index() const {
         for (const auto& index : _indexes) {
             if (index.index_type() == IndexType::INVERTED) {
@@ -394,17 +408,15 @@ public:
         }
         return false;
     }
-    std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
-    bool has_inverted_index(const TabletColumn& col) const;
-    bool has_inverted_index_with_index_id(int64_t index_id, const std::string& suffix_path) const;
-    const TabletIndex* get_inverted_index_with_index_id(int64_t index_id,
-                                                        const std::string& suffix_name) const;
-    // check_valid: check if this column supports inverted index
+    bool has_inverted_index_with_index_id(int64_t index_id) const;
+    // Check whether this column supports inverted index
     // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabletIndex.
-    // If returned, the index file will not be found.
-    const TabletIndex* get_inverted_index(const TabletColumn& col, bool check_valid = true) const;
-    const TabletIndex* get_inverted_index(int32_t col_unique_id,
-                                          const std::string& suffix_path) const;
+    const TabletIndex* inverted_index(const TabletColumn& col) const;
+
+    // Regardless of whether this column supports inverted index
+    // TabletIndex information will be returned as long as it exists.
+    const TabletIndex* inverted_index(int32_t col_unique_id,
+                                      const std::string& suffix_path = "") const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);

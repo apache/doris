@@ -837,7 +837,7 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                 Status status;
                 int64_t duration_ns = 0;
                 TNetworkAddress master_addr =
-                        ExecEnv::GetInstance()->master_info()->network_address;
+                        ExecEnv::GetInstance()->cluster_info()->master_fe_addr;
                 if (master_addr.hostname.empty() || master_addr.port == 0) {
                     status = Status::Error<SERVICE_UNAVAILABLE>(
                             "Have not get FE Master heartbeat yet");
@@ -1074,7 +1074,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
 Status CloudMetaMgr::cloud_update_delete_bitmap_without_lock(const CloudTablet& tablet,
                                                              DeleteBitmap* delete_bitmap) {
     LOG(INFO) << "cloud_update_delete_bitmap_without_lock , tablet_id: " << tablet.tablet_id()
-              << ",delete_bitmap size:" << delete_bitmap->delete_bitmap.size();
+              << ",delete_bitmap size:" << delete_bitmap->get_delete_bitmap_count();
     UpdateDeleteBitmapRequest req;
     UpdateDeleteBitmapResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
@@ -1203,7 +1203,7 @@ int64_t CloudMetaMgr::get_segment_file_size(const RowsetMeta& rs_meta) {
         auto st = fs->file_size(segment_path, &segment_file_size);
         if (!st.ok()) {
             segment_file_size = 0;
-            if (st.is<FILE_NOT_EXIST>()) {
+            if (st.is<NOT_FOUND>()) {
                 LOG(INFO) << "cloud table size correctness check get segment size 0 because "
                              "file not exist! msg:"
                           << st.msg() << ", segment path:" << segment_path;
@@ -1225,12 +1225,8 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
     }
     if (rs_meta.tablet_schema()->get_inverted_index_storage_format() ==
         InvertedIndexStorageFormatPB::V1) {
-        auto indices = rs_meta.tablet_schema()->indexes();
+        const auto& indices = rs_meta.tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
-            // only get file_size for inverted index
-            if (index.index_type() != IndexType::INVERTED) {
-                continue;
-            }
             for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
                 std::string segment_path = StorageResource().remote_segment_path(
                         rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
@@ -1239,11 +1235,11 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
                 std::string inverted_index_file_path =
                         InvertedIndexDescriptor::get_index_file_path_v1(
                                 InvertedIndexDescriptor::get_index_file_path_prefix(segment_path),
-                                index.index_id(), index.get_index_suffix());
+                                index->index_id(), index->get_index_suffix());
                 auto st = fs->file_size(inverted_index_file_path, &file_size);
                 if (!st.ok()) {
                     file_size = 0;
-                    if (st.is<FILE_NOT_EXIST>()) {
+                    if (st.is<NOT_FOUND>()) {
                         LOG(INFO) << "cloud table size correctness check get inverted index v1 "
                                      "0 because file not exist! msg:"
                                   << st.msg()
@@ -1269,7 +1265,7 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
             auto st = fs->file_size(inverted_index_file_path, &file_size);
             if (!st.ok()) {
                 file_size = 0;
-                if (st.is<FILE_NOT_EXIST>()) {
+                if (st.is<NOT_FOUND>()) {
                     LOG(INFO) << "cloud table size correctness check get inverted index v2 "
                                  "0 because file not exist! msg:"
                               << st.msg() << ", inverted index path:" << inverted_index_file_path;

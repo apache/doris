@@ -46,11 +46,12 @@ public abstract class StringLikeLiteral extends Literal {
      * get double value
      */
     public static double getDouble(String str) {
+        byte[] bytes = str.getBytes();
         long v = 0;
         int pos = 0;
-        int len = Math.min(str.length(), 7);
+        int len = Math.min(bytes.length, 7);
         while (pos < len) {
-            v += Byte.toUnsignedLong(str.getBytes()[pos]) << ((6 - pos) * 8);
+            v += Byte.toUnsignedLong(bytes[pos]) << ((6 - pos) * 8);
             pos++;
         }
         return (double) v;

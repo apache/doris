@@ -223,7 +223,7 @@ bool query_string(const TabletIndex* index,
     for (int i = 0; i < query_data.size(); i++) {
         TQueryOptions queryOptions;
         auto query = QueryFactory::create(InvertedIndexQueryType::EQUAL_QUERY, *string_searcher,
-                                          queryOptions);
+                                          queryOptions, nullptr);
         EXPECT_TRUE(query != nullptr);
         InvertedIndexQueryInfo query_info;
         query_info.field_name = column_name_ws;
@@ -253,7 +253,7 @@ bool query_fulltext(const TabletIndex* index,
     for (int i = 0; i < query_data.size(); i++) {
         TQueryOptions queryOptions;
         auto query = QueryFactory::create(InvertedIndexQueryType::MATCH_ANY_QUERY, *string_searcher,
-                                          queryOptions);
+                                          queryOptions, nullptr);
         EXPECT_TRUE(query != nullptr);
         InvertedIndexQueryInfo query_info;
         query_info.field_name = column_name_ws;
@@ -289,8 +289,8 @@ TEST_F(IndexCompactionTest, write_index_test) {
         auto columns = block.mutate_columns();
         for (const auto& row : data[i]) {
             vectorized::Field key = Int32(row.key);
-            vectorized::Field v1 = row.word;
-            vectorized::Field v2 = row.url;
+            vectorized::Field v1(row.word);
+            vectorized::Field v2(row.url);
             vectorized::Field v3 = Int32(row.num);
             columns[0]->insert(key);
             columns[1]->insert(v1);
@@ -406,7 +406,7 @@ TEST_F(IndexCompactionTest, write_index_test) {
 
         // read col key
         const auto& key = _tablet_schema->column_by_uid(0);
-        const auto* key_index = _tablet_schema->get_inverted_index(key);
+        const auto* key_index = _tablet_schema->inverted_index(key);
         EXPECT_TRUE(key_index != nullptr);
         std::vector<int> query_data {99, 66, 56, 87, 85, 96, 20000};
         std::vector<int> query_result {21, 25, 22, 18, 14, 18, 0};
@@ -414,7 +414,7 @@ TEST_F(IndexCompactionTest, write_index_test) {
 
         // read col v3
         const auto& v3_column = _tablet_schema->column_by_uid(3);
-        const auto* v3_index = _tablet_schema->get_inverted_index(v3_column);
+        const auto* v3_index = _tablet_schema->inverted_index(v3_column);
         EXPECT_TRUE(v3_index != nullptr);
         std::vector<int> query_data3 {99, 66, 56, 87, 85, 96, 10000};
         std::vector<int> query_result3 {12, 20, 25, 23, 16, 24, 0};
@@ -422,7 +422,7 @@ TEST_F(IndexCompactionTest, write_index_test) {
 
         // read col v1
         const auto& v1_column = _tablet_schema->column_by_uid(1);
-        const auto* v1_index = _tablet_schema->get_inverted_index(v1_column);
+        const auto* v1_index = _tablet_schema->inverted_index(v1_column);
         EXPECT_TRUE(v1_index != nullptr);
         std::vector<std::string> query_data1 {"good", "maybe", "great", "null"};
         std::vector<int> query_result1 {197, 191, 194, 0};
@@ -431,7 +431,7 @@ TEST_F(IndexCompactionTest, write_index_test) {
 
         // read col v2
         const auto& v2_column = _tablet_schema->column_by_uid(2);
-        const auto* v2_index = _tablet_schema->get_inverted_index(v2_column);
+        const auto* v2_index = _tablet_schema->inverted_index(v2_column);
         EXPECT_TRUE(v2_index != nullptr);
         std::vector<std::string> query_data2 {"musicstream.com", "http", "https", "null"};
         std::vector<int> query_result2 {191, 799, 1201, 0};

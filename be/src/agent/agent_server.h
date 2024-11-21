@@ -35,7 +35,7 @@ class ExecEnv;
 class TAgentPublishRequest;
 class TAgentResult;
 class TAgentTaskRequest;
-class TMasterInfo;
+class ClusterInfo;
 class TSnapshotRequest;
 class StorageEngine;
 class CloudStorageEngine;
@@ -43,7 +43,7 @@ class CloudStorageEngine;
 // Each method corresponds to one RPC from FE Master, see BackendService.
 class AgentServer {
 public:
-    explicit AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info);
+    explicit AgentServer(ExecEnv* exec_env, const ClusterInfo* cluster_info);
     ~AgentServer();
 
     void start_workers(StorageEngine& engine, ExecEnv* exec_env);
@@ -63,8 +63,8 @@ public:
     void stop_report_workers();
 
 private:
-    // Reference to the ExecEnv::_master_info
-    const TMasterInfo& _master_info;
+    // Reference to the ExecEnv::_cluster_info
+    const ClusterInfo* _cluster_info;
 
     std::unordered_map<int64_t /* TTaskType */, std::unique_ptr<TaskWorkerPoolIf>> _workers;
 

@@ -729,8 +729,13 @@ public class Coordinator implements CoordInterface {
         DataSink topDataSink = topParams.fragment.getSink();
         this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
-            Boolean enableParallelResultSink = queryOptions.isEnableParallelResultSink()
-                    && topDataSink instanceof ResultSink;
+            Boolean enableParallelResultSink = false;
+            if (topDataSink instanceof ResultSink) {
+                enableParallelResultSink = queryOptions.isEnableParallelResultSink();
+            } else {
+                enableParallelResultSink = queryOptions.isEnableParallelOutfile();
+            }
+
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             Set<TNetworkAddress> addrs = new HashSet<>();
             for (FInstanceExecParam param : topParams.instanceExecParams) {
@@ -1886,11 +1891,17 @@ public class Coordinator implements CoordInterface {
                             return scanNode.getId().asInt() == planNodeId;
                         }).findFirst();
 
+                        /**
+                         * Ignore storage data distribution iff:
+                         * 1. `parallelExecInstanceNum * numBackends` is larger than scan ranges.
+                         * 2. Use Nereids planner.
+                         */
                         boolean sharedScan = true;
                         int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                 leftMostNode.getNumInstances());
-                        boolean ignoreStorageDataDistribution = fragment.useSerialSource(context);
-                        if (ignoreStorageDataDistribution) {
+                        boolean ignoreStorageDataDistribution = node.isPresent()
+                                && fragment.useSerialSource(context);
+                        if (node.isPresent() && ignoreStorageDataDistribution) {
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
                             // if have limit and no conjuncts, only need 1 instance to save cpu and
                             // mem resource

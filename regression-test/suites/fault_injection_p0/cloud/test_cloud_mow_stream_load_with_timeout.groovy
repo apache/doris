@@ -74,13 +74,13 @@ suite("test_cloud_mow_stream_load_with_timeout", "nonConcurrent") {
 
     // store the original value
     get_be_param("mow_stream_load_commit_retry_times")
-    // disable retry to make this problem more clear
-    set_be_param("mow_stream_load_commit_retry_times", "1")
-
 
     def tableName = "tbl_basic"
+    // test fe release lock when calculating delete bitmap timeout
     setFeConfigTemporary(customFeConfig) {
         try {
+            // disable retry to make this problem more clear
+            set_be_param("mow_stream_load_commit_retry_times", "1")
             // create table
             sql """ drop table if exists ${tableName}; """
 
@@ -143,4 +143,47 @@ suite("test_cloud_mow_stream_load_with_timeout", "nonConcurrent") {
         }
 
     }
+
+    //test fe don't send calculating delete bitmap task to be twice when txn is committed or visible
+    GetDebugPoint().clearDebugPointsForAllFEs()
+    GetDebugPoint().enableDebugPointForAllFEs("CloudGlobalTransactionMgr.commitTransaction.timeout")
+    try {
+        // create table
+        sql """ drop table if exists ${tableName}; """
+
+        sql """
+        CREATE TABLE `${tableName}` (
+            `id` int(11) NOT NULL,
+            `name` varchar(1100) NULL,
+            `score` int(11) NULL default "-1"
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+            "enable_unique_key_merge_on_write" = "true",
+            "replication_num" = "1"
+        );
+        """
+        streamLoad {
+            table "${tableName}"
+
+            set 'column_separator', ','
+            set 'columns', 'id, name, score'
+            file "test_stream_load.csv"
+
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                log.info("Stream load result: ${result}")
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+            }
+        }
+        qt_sql """ select * from ${tableName} order by id"""
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs("CloudGlobalTransactionMgr.commitTransaction.timeout")
+        sql "DROP TABLE IF EXISTS ${tableName};"
+        GetDebugPoint().clearDebugPointsForAllFEs()
+    }
+
 }

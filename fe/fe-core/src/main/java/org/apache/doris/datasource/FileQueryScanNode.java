@@ -297,6 +297,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
                 curLocations.addToLocations(location);
                 scanRangeLocations.add(curLocations);
+                scanBackendIds.add(backendId);
                 return;
             }
         }
@@ -346,6 +347,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 // However, even one ScanNode instance can provide maximum scanning concurrency.
                 scanRangeLocations.add(curLocations);
                 setLocationPropertiesIfNecessary(backend, locationType, locationProperties);
+                scanBackendIds.add(backend.getId());
             }
         } else {
             List<Split> inputSplits = getSplits();
@@ -363,6 +365,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                     scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
                     totalFileSize += split.getLength();
                 }
+                scanBackendIds.add(backend.getId());
             }
         }
 

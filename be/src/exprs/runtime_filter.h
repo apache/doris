@@ -128,6 +128,7 @@ struct RuntimeFilterParams {
     int64_t bloom_filter_size;
     int32_t max_in_num;
     int64_t runtime_bloom_filter_min_size;
+    int64_t runtime_bloom_filter_max_size;
     int32_t filter_id;
     bool bitmap_filter_not_in;
     bool build_bf_exactly;
@@ -190,8 +191,7 @@ enum RuntimeFilterState {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
-                   bool need_local_merge = false)
+    IRuntimeFilter(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc)
             : _state(state),
               _filter_id(desc->filter_id),
               _is_broadcast_join(true),
@@ -201,20 +201,19 @@ public:
               _role(RuntimeFilterRole::PRODUCER),
               _expr_order(-1),
               registration_time_(MonotonicMillis()),
-              _wait_infinitely(_state->runtime_filter_wait_infinitely),
-              _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
+              _wait_infinitely(_state->get_query_ctx()->runtime_filter_wait_infinitely()),
+              _rf_wait_time_ms(_state->get_query_ctx()->runtime_filter_wait_time_ms()),
               _runtime_filter_type(get_runtime_filter_type(desc)),
-              _profile(
-                      new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
-                                                     _filter_id, to_string(_runtime_filter_type)))),
-              _need_local_merge(need_local_merge) {}
+              _profile(new RuntimeProfile(fmt::format("RuntimeFilter: (id = {}, type = {})",
+                                                      _filter_id,
+                                                      to_string(_runtime_filter_type)))) {}
 
     ~IRuntimeFilter() = default;
 
     static Status create(RuntimeFilterParamsContext* state, const TRuntimeFilterDesc* desc,
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
                          int node_id, std::shared_ptr<IRuntimeFilter>* res,
-                         bool build_bf_exactly = false, bool need_local_merge = false);
+                         bool build_bf_exactly = false);
 
     RuntimeFilterContextSPtr& get_shared_context_ref();
 
@@ -333,7 +332,7 @@ public:
     int32_t wait_time_ms() const {
         int32_t res = 0;
         if (wait_infinitely()) {
-            res = _state->execution_timeout;
+            res = _state->get_query_ctx()->execution_timeout();
             // Convert to ms
             res *= 1000;
         } else {
@@ -414,9 +413,6 @@ protected:
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
-    // `_need_local_merge` indicates whether this runtime filter is global on this BE.
-    // All runtime filters should be merged on each BE before push_to_remote or publish.
-    bool _need_local_merge = false;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 

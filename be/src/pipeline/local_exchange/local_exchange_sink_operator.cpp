@@ -110,6 +110,18 @@ Status LocalExchangeSinkLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
+Status LocalExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_close_timer);
+    if (Base::_closed) {
+        return Status::OK();
+    }
+    if (_shared_state) {
+        _shared_state->sub_running_sink_operators();
+    }
+    return Base::close(state, exec_status);
+}
+
 std::string LocalExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
@@ -132,11 +144,7 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
     // If all exchange sources ended due to limit reached, current task should also finish
     if (local_state._exchanger->_running_source_operators == 0) {
-        local_state._shared_state->sub_running_sink_operators();
         return Status::EndOfFile("receiver eof");
-    }
-    if (eos) {
-        local_state._shared_state->sub_running_sink_operators();
     }
 
     return Status::OK();

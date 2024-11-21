@@ -122,7 +122,7 @@ public:
 
     Field operator[](size_t n) const override {
         assert(n < size());
-        return Field(&chars[offset_at(n)], size_at(n));
+        return Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
     }
 
     void get(size_t n, Field& res) const override {
@@ -132,7 +132,7 @@ public:
             res = JsonbField(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n));
             return;
         }
-        res.assign_string(&chars[offset_at(n)], size_at(n));
+        res = Field(String(reinterpret_cast<const char*>(&chars[offset_at(n)]), size_at(n)));
     }
 
     StringRef get_data_at(size_t n) const override {

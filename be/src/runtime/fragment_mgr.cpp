@@ -526,8 +526,8 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());
 
-    if (_exec_env->master_info()->__isset.backend_id) {
-        params.__set_backend_id(_exec_env->master_info()->backend_id);
+    if (_exec_env->cluster_info()->backend_id != 0) {
+        params.__set_backend_id(_exec_env->cluster_info()->backend_id);
     }
 
     TReportExecStatusResult res;
@@ -615,17 +615,19 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     }
 }
 
+// Stage 2. prepare finished. then get FE instruction to execute
 Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* request) {
+    TUniqueId query_id;
+    query_id.__set_hi(request->query_id().hi());
+    query_id.__set_lo(request->query_id().lo());
     std::shared_ptr<QueryContext> q_ctx = nullptr;
     {
         std::lock_guard<std::mutex> lock(_lock);
-        TUniqueId query_id;
-        query_id.__set_hi(request->query_id().hi());
-        query_id.__set_lo(request->query_id().lo());
         q_ctx = _get_or_erase_query_ctx(query_id);
     }
     if (q_ctx) {
         q_ctx->set_ready_to_execute(Status::OK());
+        LOG_INFO("Query {} start execution", print_id(query_id));
     } else {
         return Status::InternalError(
                 "Failed to get query fragments context. Query may be "
@@ -645,6 +647,7 @@ void FragmentMgr::remove_pipeline_context(
                             .count();
         g_fragment_executing_count << -1;
         g_fragment_last_active_time.set_value(now);
+        // this log will show when a query is really finished in BEs
         LOG_INFO("Removing query {} fragment {}", print_id(query_id), f_context->get_fragment_id());
         _pipeline_map.erase({query_id, f_context->get_fragment_id()});
     }
@@ -699,6 +702,7 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
             return Status::OK();
         }
 
+        // First time a fragment of a query arrived. print logs.
         LOG(INFO) << "query_id: " << print_id(query_id) << ", coord_addr: " << params.coord
                   << ", total fragment num on current host: " << params.fragment_num_on_host
                   << ", fe process uuid: " << params.query_options.fe_process_uuid
@@ -727,7 +731,6 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         }
 
         _set_scan_concurrency(params, query_ctx.get());
-        const bool is_pipeline = std::is_same_v<TPipelineFragmentParams, Params>;
 
         if (params.__isset.workload_groups && !params.workload_groups.empty()) {
             uint64_t tg_id = params.workload_groups[0].id;
@@ -738,21 +741,14 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
                 RETURN_IF_ERROR(query_ctx->set_workload_group(workload_group_ptr));
                 _exec_env->runtime_query_statistics_mgr()->set_workload_group_id(print_id(query_id),
                                                                                  tg_id);
-
-                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << ", use workload group: " << workload_group_ptr->debug_string()
-                          << ", is pipeline: " << ((int)is_pipeline);
             } else {
-                LOG(INFO) << "Query/load id: " << print_id(query_ctx->query_id())
-                          << " carried group info but can not find group in be";
+                LOG(WARNING) << "Query/load id: " << print_id(query_ctx->query_id())
+                             << "can't find its workload group " << tg_id;
             }
         }
         // There is some logic in query ctx's dctor, we could not check if exists and delete the
         // temp query ctx now. For example, the query id maybe removed from workload group's queryset.
         _query_ctx_map.insert(std::make_pair(query_ctx->query_id(), query_ctx));
-        LOG(INFO) << "Register query/load memory tracker, query/load id: "
-                  << print_id(query_ctx->query_id())
-                  << " limit: " << PrettyPrinter::print(query_ctx->mem_limit(), TUnit::BYTES);
     }
     return Status::OK();
 }
@@ -1185,8 +1181,6 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
                 auto iter = _pipeline_map.find(
                         {UniqueId(request->query_id()).to_thrift(), fragment_id});
                 if (iter == _pipeline_map.end()) {
-                    LOG(WARNING) << "No pipeline fragment is found: Query-ID = "
-                                 << request->query_id() << " fragment_id = " << fragment_id;
                     continue;
                 }
                 pip_context = iter->second;

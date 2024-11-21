@@ -78,7 +78,7 @@ public:
         DCHECK_EQ(node.node_type, TExprNodeType::JSON_LITERAL);
         DCHECK(node.__isset.json_literal);
         JsonBinaryValue value(node.json_literal.value);
-        return String(value.value(), value.size());
+        return Field(String(value.value(), value.size()));
     }
 
     bool equals(const IDataType& rhs) const override;

@@ -1058,7 +1058,7 @@ DECLARE_Int32(pipeline_executor_size);
 DECLARE_Bool(enable_file_cache);
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240}]
 // format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240},{"path":"/path/to/file_cache2","total_size":21474836480,"query_limit":10737418240}]
-// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240,"normal_percent":85, "disposable_percent":10, "index_percent":5}]
+// format: [{"path":"/path/to/file_cache","total_size":21474836480,"query_limit":10737418240, "ttl_percent":50, "normal_percent":40, "disposable_percent":5, "index_percent":5}]
 // format: [{"path": "xxx", "total_size":53687091200, "storage": "memory"}]
 // Note1: storage is "disk" by default
 // Note2: when the storage is "memory", the path is ignored. So you can set xxx to anything you like
@@ -1392,8 +1392,6 @@ DECLARE_Int64(num_buffered_reader_prefetch_thread_pool_max_thread);
 DECLARE_Int64(num_s3_file_upload_thread_pool_min_thread);
 // The max thread num for S3FileUploadThreadPool
 DECLARE_Int64(num_s3_file_upload_thread_pool_max_thread);
-// The max ratio for ttl cache's size
-DECLARE_mInt64(max_ttl_cache_ratio);
 // The maximum jvm heap usage ratio for hdfs write workload
 DECLARE_mDouble(max_hdfs_wirter_jni_heap_usage_ratio);
 // The sleep milliseconds duration when hdfs write exceeds the maximum usage
@@ -1458,6 +1456,8 @@ DECLARE_mBool(enable_pipeline_task_leakage_detect);
 
 // MB
 DECLARE_Int32(query_cache_size);
+
+DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 
 // Enable validation to check the correctness of table size.
 DECLARE_Bool(enable_table_size_correctness_check);

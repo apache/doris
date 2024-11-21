@@ -65,12 +65,16 @@ Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
 }
 
 const std::string& ExecEnv::token() const {
-    return _master_info->token;
+    return _cluster_info->token;
 }
 
-std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_frontends() {
+std::vector<TFrontendInfo> ExecEnv::get_frontends() {
     std::lock_guard<std::mutex> lg(_frontends_lock);
-    return _frontends;
+    std::vector<TFrontendInfo> infos;
+    for (const auto& cur_fe : _frontends) {
+        infos.push_back(cur_fe.second.info);
+    }
+    return infos;
 }
 
 void ExecEnv::update_frontends(const std::vector<TFrontendInfo>& new_fe_infos) {
@@ -171,6 +175,11 @@ void ExecEnv::wait_for_all_tasks_done() {
         sleep(1);
         ++wait_seconds_passed;
     }
+}
+
+bool ExecEnv::check_auth_token(const std::string& auth_token) {
+    return _cluster_info->curr_auth_token == auth_token ||
+           _cluster_info->last_auth_token == auth_token;
 }
 
 } // namespace doris

@@ -132,6 +132,7 @@ suite("test_single_compaction_with_variant_inverted", "p2") {
 
 
     sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """ set disable_inverted_index_v1_for_variant = false """
     sql """
         CREATE TABLE ${tableName} (
             `id` int(11) NULL,
@@ -150,6 +151,7 @@ suite("test_single_compaction_with_variant_inverted", "p2") {
             "compaction_policy" = "time_series"
         );
     """
+    sql """ set disable_inverted_index_v1_for_variant = true """
 
     def tablets = sql_return_maparray """ show tablets from ${tableName}; """
 

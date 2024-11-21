@@ -54,11 +54,11 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.distribute.DistributePlanner;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
-import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -272,8 +272,8 @@ public class NereidsPlanner extends Planner {
         //   2. ut test. In ut test, FeConstants.enableInternalSchemaDb is false or FeConstants.runningUnitTest is true
         if (FeConstants.enableInternalSchemaDb && !FeConstants.runningUnitTest
                 && !cascadesContext.isLeadingDisableJoinReorder()) {
-            List<LogicalOlapScan> scans = cascadesContext.getRewritePlan()
-                    .collectToList(LogicalOlapScan.class::isInstance);
+            List<CatalogRelation> scans = cascadesContext.getRewritePlan()
+                    .collectToList(CatalogRelation.class::isInstance);
             Optional<String> disableJoinReorderReason = StatsCalculator
                     .disableJoinReorderIfStatsInvalid(scans, cascadesContext);
             disableJoinReorderReason.ifPresent(statementContext::setDisableJoinReorderReason);
@@ -595,11 +595,11 @@ public class NereidsPlanner extends Planner {
         ExplainLevel explainLevel = getExplainLevel(explainOptions);
         String plan = "";
         String mvSummary = "";
-        if (this.getPhysicalPlan() != null && cascadesContext != null) {
+        if ((this.getPhysicalPlan() != null || this.getOptimizedPlan() != null) && cascadesContext != null) {
             mvSummary = cascadesContext.getMaterializationContexts().isEmpty() ? "" :
                     "\n\n========== MATERIALIZATIONS ==========\n"
                             + MaterializationContext.toSummaryString(cascadesContext.getMaterializationContexts(),
-                            this.getPhysicalPlan());
+                            this.getPhysicalPlan() == null ? this.getOptimizedPlan() : this.getPhysicalPlan());
         }
         switch (explainLevel) {
             case PARSED_PLAN:

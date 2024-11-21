@@ -25,10 +25,12 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.common.proc.ProcResult;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
+import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BarrierLog;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.BinlogGcInfo;
 import org.apache.doris.persist.DropPartitionInfo;
+import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
@@ -331,6 +333,17 @@ public class BinlogManager {
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
+    public void addModifyComment(ModifyCommentOperationLog info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTblId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_COMMENT;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
     public void addColumnRename(TableRenameColumnInfo info, long commitSeq) {
         long dbId = info.getDbId();
         List<Long> tableIds = Lists.newArrayList();
@@ -340,6 +353,18 @@ public class BinlogManager {
         String data = info.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    // add Modify view
+    public void addModifyViewDef(AlterViewInfo alterViewInfo, long commitSeq) {
+        long dbId = alterViewInfo.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(alterViewInfo.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.MODIFY_VIEW_DEF;
+        String data = alterViewInfo.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterViewInfo);
     }
 
     // get binlog by dbId, return first binlog.version > version
@@ -581,8 +606,13 @@ public class BinlogManager {
                     continue;
                 }
 
-                // Step 2.2: check if there is in next db Binlogs region
                 long dbId = binlog.getDbId();
+                if (binlog.getType().getValue() >= TBinlogType.MIN_UNKNOWN.getValue()) {
+                    LOG.warn("skip unknown binlog, type: {}, db: {}", binlog.getType().getValue(), dbId);
+                    continue;
+                }
+
+                // Step 2.2: check if there is in next db Binlogs region
                 if (dbId != currentDbId) {
                     // if there is in next db Binlogs region, check and update metadata
                     Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);

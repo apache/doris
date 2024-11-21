@@ -26,6 +26,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "http/http_headers.h"
 #include "http/http_method.h"
 
 namespace doris {
@@ -53,6 +54,13 @@ public:
         curl_easy_setopt(_curl, CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
         curl_easy_setopt(_curl, CURLOPT_USERNAME, user.c_str());
         curl_easy_setopt(_curl, CURLOPT_PASSWORD, passwd.c_str());
+    }
+
+    // Auth-Token: xxxx
+    void set_auth_token(const std::string& token) {
+        std::string scratch_str = HttpHeaders::AUTH_TOKEN + ": " + token;
+        _header_list = curl_slist_append(_header_list, scratch_str.c_str());
+        curl_easy_setopt(_curl, CURLOPT_HTTPHEADER, _header_list);
     }
 
     // content_type such as "application/json"
@@ -156,7 +164,8 @@ public:
     Status _escape_url(const std::string& url, std::string* escaped_url);
 
 private:
-    const char* _to_errmsg(CURLcode code);
+    const char* _to_errmsg(CURLcode code) const;
+    const char* _get_url() const;
 
 private:
     CURL* _curl = nullptr;

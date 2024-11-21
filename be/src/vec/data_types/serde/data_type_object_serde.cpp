@@ -26,6 +26,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/common/schema_util.h"
 #include "vec/core/field.h"
+#include "vec/core/types.h"
 
 #ifdef __AVX2__
 #include "util/jsonb_parser_simd.h"
@@ -117,11 +118,11 @@ void DataTypeObjectSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     Field field;
     if (arg->isBinary()) {
         const auto* blob = static_cast<const JsonbBlobVal*>(arg);
-        field.assign_jsonb(blob->getBlob(), blob->getBlobLen());
+        field = JsonbField(blob->getBlob(), blob->getBlobLen());
     } else if (arg->isString()) {
         // not a valid jsonb type, insert as string
         const auto* str = static_cast<const JsonbStringVal*>(arg);
-        field.assign_string(str->getBlob(), str->getBlobLen());
+        field = Field(String(str->getBlob(), str->getBlobLen()));
     } else {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Invalid jsonb type");
     }

@@ -397,10 +397,6 @@ private:
 
     size_t get_available_cache_size(FileCacheType cache_type) const;
 
-    bool try_reserve_for_ttl(size_t size, std::lock_guard<std::mutex>& cache_lock);
-
-    bool try_reserve_for_ttl_without_lru(size_t size, std::lock_guard<std::mutex>& cache_lock);
-
     FileBlocks split_range_into_cells(const UInt128Wrapper& hash, const CacheContext& context,
                                       size_t offset, size_t size, FileBlock::State state,
                                       std::lock_guard<std::mutex>& cache_lock);
@@ -436,10 +432,10 @@ private:
 
     void recycle_deleted_blocks();
 
-    bool try_reserve_from_other_queue_by_hot_interval(FileCacheType cur_type,
-                                                      std::vector<FileCacheType> other_cache_types,
-                                                      size_t size, int64_t cur_time,
-                                                      std::lock_guard<std::mutex>& cache_lock);
+    bool try_reserve_from_other_queue_by_time_interval(FileCacheType cur_type,
+                                                       std::vector<FileCacheType> other_cache_types,
+                                                       size_t size, int64_t cur_time,
+                                                       std::lock_guard<std::mutex>& cache_lock);
 
     bool try_reserve_from_other_queue_by_size(FileCacheType cur_type,
                                               std::vector<FileCacheType> other_cache_types,
@@ -515,7 +511,7 @@ private:
     std::shared_ptr<bvar::Status<size_t>> _cur_disposable_queue_cache_size_metrics;
     std::array<std::shared_ptr<bvar::Adder<size_t>>, 4> _queue_evict_size_metrics;
     std::shared_ptr<bvar::Adder<size_t>> _total_evict_size_metrics;
-    std::shared_ptr<bvar::Adder<size_t>> _evict_by_heat_metrics_matrix[4][4];
+    std::shared_ptr<bvar::Adder<size_t>> _evict_by_time_metrics_matrix[4][4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_size_metrics_matrix[4][4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_self_lru_metrics_matrix[4];
     std::shared_ptr<bvar::Adder<size_t>> _evict_by_try_release;

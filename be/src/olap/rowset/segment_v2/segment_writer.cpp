@@ -192,8 +192,19 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (tablet_index) {
         opts.need_bloom_filter = true;
         opts.is_ngram_bf_index = true;
-        opts.gram_size = tablet_index->get_gram_size();
-        opts.gram_bf_size = tablet_index->get_gram_bf_size();
+        //narrow convert from int32_t to uint8_t and uint16_t which is dangerous
+        auto gram_size = tablet_index->get_gram_size();
+        auto gram_bf_size = tablet_index->get_gram_bf_size();
+        if (gram_size > 256 || gram_size < 1) {
+            return Status::NotSupported("Do not support ngram bloom filter for ngram_size: ",
+                                        gram_size);
+        }
+        if (gram_bf_size > 65535 || gram_bf_size < 64) {
+            return Status::NotSupported("Do not support ngram bloom filter for bf_size: ",
+                                        gram_bf_size);
+        }
+        opts.gram_size = gram_size;
+        opts.gram_bf_size = gram_bf_size;
     }
 
     opts.need_bitmap_index = column.has_bitmap_index();
@@ -207,44 +218,34 @@ Status SegmentWriter::_create_column_writer(uint32_t cid, const TabletColumn& co
     if (_opts.write_type == DataWriteType::TYPE_DIRECT && schema->skip_write_index_on_load()) {
         skip_inverted_index = true;
     }
+
     // indexes for this column
-    opts.indexes = schema->get_indexes_for_column(column);
-    if (!InvertedIndexColumnWriter::check_support_inverted_index(column)) {
-        opts.need_zone_map = false;
-        opts.need_bloom_filter = false;
-        opts.need_bitmap_index = false;
+    if (const auto& index = schema->inverted_index(column);
+        index != nullptr && !skip_inverted_index) {
+        opts.inverted_index = index;
+        opts.need_inverted_index = true;
+        DCHECK(_inverted_index_file_writer != nullptr);
+        opts.inverted_index_file_writer = _inverted_index_file_writer;
+        // TODO support multiple inverted index
     }
-    opts.inverted_index_file_writer = _inverted_index_file_writer;
-    for (const auto* index : opts.indexes) {
-        if (!skip_inverted_index && index->index_type() == IndexType::INVERTED) {
-            opts.inverted_index = index;
-            opts.need_inverted_index = true;
-            DCHECK(_inverted_index_file_writer != nullptr);
-            // TODO support multiple inverted index
-            break;
-        }
-    }
-#define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
-        opts.need_zone_map = false;                                                            \
-        if (opts.need_bloom_filter) {                                                          \
-            return Status::NotSupported("Do not support bloom filter for " type_name " type"); \
-        }                                                                                      \
-        if (opts.need_bitmap_index) {                                                          \
-            return Status::NotSupported("Do not support bitmap index for " type_name " type"); \
-        }                                                                                      \
+#define DISABLE_INDEX_IF_FIELD_TYPE(TYPE, type_name)          \
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) { \
+        opts.need_zone_map = false;                           \
+        opts.need_bloom_filter = false;                       \
+        opts.need_bitmap_index = false;                       \
     }
 
-    CHECK_FIELD_TYPE(STRUCT, "struct")
-    CHECK_FIELD_TYPE(ARRAY, "array")
-    CHECK_FIELD_TYPE(JSONB, "jsonb")
-    CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
-    CHECK_FIELD_TYPE(MAP, "map")
-    CHECK_FIELD_TYPE(OBJECT, "object")
-    CHECK_FIELD_TYPE(HLL, "hll")
-    CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+    DISABLE_INDEX_IF_FIELD_TYPE(STRUCT, "struct")
+    DISABLE_INDEX_IF_FIELD_TYPE(ARRAY, "array")
+    DISABLE_INDEX_IF_FIELD_TYPE(JSONB, "jsonb")
+    DISABLE_INDEX_IF_FIELD_TYPE(AGG_STATE, "agg_state")
+    DISABLE_INDEX_IF_FIELD_TYPE(MAP, "map")
+    DISABLE_INDEX_IF_FIELD_TYPE(OBJECT, "object")
+    DISABLE_INDEX_IF_FIELD_TYPE(HLL, "hll")
+    DISABLE_INDEX_IF_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+    DISABLE_INDEX_IF_FIELD_TYPE(VARIANT, "variant")
 
-#undef CHECK_FIELD_TYPE
+#undef DISABLE_INDEX_IF_FIELD_TYPE
 
     if (column.is_row_store_column()) {
         // smaller page size for row store column

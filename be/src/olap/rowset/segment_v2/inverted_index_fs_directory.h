@@ -180,8 +180,6 @@ class DorisFSDirectory::FSIndexInput : public lucene::store::BufferedIndexInput 
             : BufferedIndexInput(buffer_size) {
         this->_pos = 0;
         this->_handle = std::move(handle);
-        this->_io_ctx.reader_type = ReaderType::READER_QUERY;
-        this->_io_ctx.is_index_data = false;
     }
 
 protected:
@@ -199,8 +197,9 @@ public:
     const char* getDirectoryType() const override { return DorisFSDirectory::getClassName(); }
     const char* getObjectName() const override { return getClassName(); }
     static const char* getClassName() { return "FSIndexInput"; }
-
-    void setIdxFileCache(bool index) override { _io_ctx.is_index_data = index; }
+    void setIoContext(const void* io_ctx) override;
+    const void* getIoContext() override;
+    void setIndexFile(bool isIndexFile) override;
 
     std::mutex _this_lock;
 

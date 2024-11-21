@@ -254,7 +254,7 @@ void WorkloadGroupMgr::refresh_wg_weighted_memory_limit() {
 }
 
 void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
-    int64_t be_id = ExecEnv::GetInstance()->master_info()->backend_id;
+    int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
     int cpu_num = CpuInfo::num_cores();
     cpu_num = cpu_num <= 0 ? 1 : cpu_num;
     uint64_t total_cpu_time_ns_per_second = cpu_num * 1000000000ll;

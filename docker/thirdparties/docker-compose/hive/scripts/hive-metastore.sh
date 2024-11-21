@@ -60,7 +60,7 @@ touch "$lockfile2"
 if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
     echo "/mnt/scripts/tpch1.db does not exist"
     cd /mnt/scripts/
-    curl -O https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/datalake/pipeline_data/tpch1.db.tar.gz
+    curl -O https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/tpch1.db.tar.gz
     tar -zxf tpch1.db.tar.gz
     rm -rf tpch1.db.tar.gz
     cd -
@@ -93,14 +93,38 @@ rm -f "$lockfile2"
 
 # put data file
 ## put tpch1
+if [ -z "$(ls /mnt/scripts/tpch1.db)" ]; then
+    echo "tpch1.db does not exist"
+    exit 1
+fi
 hadoop fs -mkdir -p /user/doris/
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
+if [ -z "$(hadoop fs -ls /user/doris/tpch1.db)" ]; then
+    echo "tpch1.db put failed"
+    exit 1
+fi
 
 ## put paimon1
+if [ -z "$(ls /mnt/scripts/paimon1)" ]; then
+    echo "paimon1 does not exist"
+    exit 1
+fi
 hadoop fs -put /mnt/scripts/paimon1 /user/doris/
+if [ -z "$(hadoop fs -ls /user/doris/paimon1)" ]; then
+    echo "paimon1 put failed"
+    exit 1
+fi
 
 ## put tvf_data
+if [ -z "$(ls /mnt/scripts/tvf_data)" ]; then
+    echo "tvf_data does not exist"
+    exit 1
+fi
 hadoop fs -put /mnt/scripts/tvf_data /user/doris/
+if [ -z "$(hadoop fs -ls /user/doris/tvf_data)" ]; then
+    echo "tvf_data put failed"
+    exit 1
+fi
 
 ## put other preinstalled data
 hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/
@@ -113,6 +137,13 @@ ls /mnt/scripts/create_preinstalled_scripts/*.hql | xargs -n 1 -P 10 -I {} bash 
     EXECUTION_TIME=$((END_TIME - START_TIME))
     echo "Script: {} executed in $EXECUTION_TIME seconds"
 '
+
+# create view
+START_TIME=$(date +%s)
+hive -f /mnt/scripts/create_view_scripts/create_view.hql
+END_TIME=$(date +%s)
+EXECUTION_TIME=$((END_TIME - START_TIME))
+echo "Script: create_view.hql executed in $EXECUTION_TIME seconds"
 
 touch /mnt/SUCCESS
 

@@ -905,18 +905,20 @@ void TabletColumn::append_sparse_column(TabletColumn column) {
     _num_sparse_columns++;
 }
 
-void TabletSchema::append_index(TabletIndex index) {
+void TabletSchema::append_index(TabletIndex&& index) {
     _indexes.push_back(std::move(index));
 }
 
-void TabletSchema::update_index(const TabletColumn& col, TabletIndex index) {
-    int32_t col_unique_id = col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
+void TabletSchema::update_index(const TabletColumn& col, const IndexType& index_type,
+                                TabletIndex&& index) {
+    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
+    const std::string& suffix_path = escape_for_path_name(col.suffix_path());
     for (size_t i = 0; i < _indexes.size(); i++) {
         for (int32_t id : _indexes[i].col_unique_ids()) {
-            if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
-                _indexes[i] = index;
+            if (_indexes[i].index_type() == index_type && id == col_unique_id &&
+                _indexes[i].get_index_suffix() == suffix_path) {
+                _indexes[i] = std::move(index);
+                break;
             }
         }
     }
@@ -1352,28 +1354,6 @@ Result<const TabletColumn*> TabletSchema::column(const std::string& field_name) 
     return _cols[it->second].get();
 }
 
-std::vector<const TabletIndex*> TabletSchema::get_indexes_for_column(
-        const TabletColumn& col) const {
-    std::vector<const TabletIndex*> indexes_for_column;
-    // Some columns (Float, Double, JSONB ...) from the variant do not support index, but they are listed in TabltetIndex.
-    if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
-        return indexes_for_column;
-    }
-    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
-    // TODO use more efficient impl
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        for (int32_t id : _indexes[i].col_unique_ids()) {
-            if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
-                indexes_for_column.push_back(&(_indexes[i]));
-            }
-        }
-    }
-
-    return indexes_for_column;
-}
-
 void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
                                          const std::vector<TColumn>& t_columns) {
     copy_from(tablet_schema);
@@ -1385,49 +1365,17 @@ void TabletSchema::update_tablet_columns(const TabletSchema& tablet_schema,
     }
 }
 
-bool TabletSchema::has_inverted_index(const TabletColumn& col) const {
-    // TODO use more efficient impl
-    int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
+bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::INVERTED) {
-            for (int32_t id : _indexes[i].col_unique_ids()) {
-                if (id == col_unique_id && _indexes[i].get_index_suffix() == suffix_path) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    return false;
-}
-
-bool TabletSchema::has_inverted_index_with_index_id(int64_t index_id,
-                                                    const std::string& suffix_name) const {
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::INVERTED &&
-            _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {
+        if (_indexes[i].index_type() == IndexType::INVERTED && _indexes[i].index_id() == index_id) {
             return true;
         }
     }
     return false;
 }
 
-const TabletIndex* TabletSchema::get_inverted_index_with_index_id(
-        int64_t index_id, const std::string& suffix_name) const {
-    for (size_t i = 0; i < _indexes.size(); i++) {
-        if (_indexes[i].index_type() == IndexType::INVERTED &&
-            _indexes[i].get_index_suffix() == suffix_name && _indexes[i].index_id() == index_id) {
-            return &(_indexes[i]);
-        }
-    }
-
-    return nullptr;
-}
-
-const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
-                                                    const std::string& suffix_path) const {
+const TabletIndex* TabletSchema::inverted_index(int32_t col_unique_id,
+                                                const std::string& suffix_path) const {
     for (size_t i = 0; i < _indexes.size(); i++) {
         if (_indexes[i].index_type() == IndexType::INVERTED) {
             for (int32_t id : _indexes[i].col_unique_ids()) {
@@ -1441,19 +1389,15 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
     return nullptr;
 }
 
-const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col,
-                                                    bool check_valid) const {
-    // With check_valid set to true by default
+const TabletIndex* TabletSchema::inverted_index(const TabletColumn& col) const {
     // Some columns(Float, Double, JSONB ...) from the variant do not support inverted index
-    if (check_valid && !segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
+    if (!segment_v2::InvertedIndexColumnWriter::check_support_inverted_index(col)) {
         return nullptr;
     }
     // TODO use more efficient impl
     // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
     int32_t col_unique_id = col.is_extracted_column() ? col.parent_unique_id() : col.unique_id();
-    const std::string& suffix_path =
-            col.has_path_info() ? escape_for_path_name(col.path_info_ptr()->get_path()) : "";
-    return get_inverted_index(col_unique_id, suffix_path);
+    return inverted_index(col_unique_id, escape_for_path_name(col.suffix_path()));
 }
 
 bool TabletSchema::has_ngram_bf_index(int32_t col_unique_id) const {
@@ -1482,7 +1426,6 @@ const TabletIndex* TabletSchema::get_ngram_bf_index(int32_t col_unique_id) const
             }
         }
     }
-
     return nullptr;
 }
 

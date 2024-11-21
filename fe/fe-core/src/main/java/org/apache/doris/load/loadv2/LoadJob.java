@@ -757,7 +757,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback
 
         // progress
         // check null
-        String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(id));
+        String progress = Env.getCurrentProgressManager()
+                .getProgressInfo(String.valueOf(id), state == JobState.FINISHED);
         switch (state) {
             case PENDING:
                 jobInfo.add("0%");

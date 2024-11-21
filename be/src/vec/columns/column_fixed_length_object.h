@@ -105,11 +105,13 @@ public:
     }
 
     Field operator[](size_t n) const override {
-        return {_data.data() + n * _item_size, _item_size};
+        return Field(
+                String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
     void get(size_t n, Field& res) const override {
-        res.assign_string(_data.data() + n * _item_size, _item_size);
+        res = Field(
+                String(reinterpret_cast<const char*>(_data.data() + n * _item_size), _item_size));
     }
 
     StringRef get_data_at(size_t n) const override {

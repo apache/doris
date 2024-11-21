@@ -33,11 +33,13 @@ suite("test_bloom_filter_drop_column") {
     )"""
 
     sql """INSERT INTO ${table_name} values ('1', '1')"""
+    sql "sync"
 
     qt_select """select * from ${table_name} order by a"""
 
     // drop column c1
     sql """ALTER TABLE ${table_name} DROP COLUMN c1"""
+    sql "sync"
     // show create table
     def res = sql """SHOW CREATE TABLE ${table_name}"""
     assert res[0][1].contains("\"bloom_filter_columns\" = \"\"")
@@ -46,6 +48,7 @@ suite("test_bloom_filter_drop_column") {
     sql """ALTER TABLE ${table_name} ADD COLUMN c1 ARRAY<STRING>"""
     // insert data
     sql """INSERT INTO ${table_name} values ('2', null)"""
+    sql "sync"
     // select data
     qt_select """select * from ${table_name} order by a"""
 }

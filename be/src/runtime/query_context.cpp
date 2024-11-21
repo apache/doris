@@ -26,11 +26,9 @@
 #include <exception>
 #include <memory>
 #include <mutex>
-#include <sstream>
 #include <utility>
 
 #include "common/logging.h"
-#include "olap/olap_common.h"
 #include "pipeline/dependency.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/exec_env.h"
@@ -89,7 +87,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _execution_dependency = pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency");
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(
-            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker);
+            TUniqueId(), RuntimeFilterParamsContext::create(this), query_mem_tracker, true);
 
     _timeout_second = query_options.execution_timeout;
 
@@ -198,7 +196,8 @@ QueryContext::~QueryContext() {
 
     _exec_env->spill_stream_mgr()->async_cleanup_query(_query_id);
     DorisMetrics::instance()->query_ctx_cnt->increment(-1);
-    LOG_INFO("Query {} deconstructed, {}", print_id(this->_query_id), mem_tracker_msg);
+    // the only one msg shows query's end. any other msg should append to it if need.
+    LOG_INFO("Query {} deconstructed, mem_tracker: {}", print_id(this->_query_id), mem_tracker_msg);
 }
 
 void QueryContext::set_ready_to_execute(Status reason) {

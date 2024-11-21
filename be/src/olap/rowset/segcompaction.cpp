@@ -152,8 +152,7 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
         }
         // Delete inverted index files
         for (auto&& column : schema->columns()) {
-            if (schema->has_inverted_index(*column)) {
-                const auto* index_info = schema->get_inverted_index(*column);
+            if (const auto* index_info = schema->inverted_index(*column); index_info != nullptr) {
                 auto index_id = index_info->index_id();
                 if (schema->get_inverted_index_storage_format() ==
                     InvertedIndexStorageFormatPB::V1) {

@@ -35,7 +35,6 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -348,7 +347,7 @@ public abstract class MaterializationContext {
      * ToSummaryString, this contains only summary info.
      */
     public static String toSummaryString(List<MaterializationContext> materializationContexts,
-            PhysicalPlan physicalPlan) {
+            Plan physicalPlan) {
         if (materializationContexts.isEmpty()) {
             return "";
         }

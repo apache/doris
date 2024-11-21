@@ -336,8 +336,7 @@ Status BaseBetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     LOG(INFO) << "[Memtable Flush] construct delete bitmap tablet: " << _context.tablet->tablet_id()
               << ", rowset_ids: " << _context.mow_context->rowset_ids.size()
               << ", cur max_version: " << _context.mow_context->max_version
-              << ", transaction_id: " << _context.mow_context->txn_id << ", delete_bitmap_count: "
-              << _context.tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count()
+              << ", transaction_id: " << _context.mow_context->txn_id
               << ", cost: " << watch.get_elapse_time_us() << "(us), total rows: " << total_rows;
     return Status::OK();
 }
@@ -540,8 +539,8 @@ Status BetaRowsetWriter::_rename_compacted_indices(int64_t begin, int64_t end, u
     }
     // rename remaining inverted index files
     for (auto column : _context.tablet_schema->columns()) {
-        if (_context.tablet_schema->has_inverted_index(*column)) {
-            const auto* index_info = _context.tablet_schema->get_inverted_index(*column);
+        if (const auto& index_info = _context.tablet_schema->inverted_index(*column);
+            index_info != nullptr) {
             auto index_id = index_info->index_id();
             if (_context.tablet_schema->get_inverted_index_storage_format() ==
                 InvertedIndexStorageFormatPB::V1) {
