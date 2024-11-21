@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
-suite("test_nereids_showfrontends") {
-    checkNereidsExecute("""show frontends;""")
+suite("show_trash_nereids") {
+    // can not use qt command since the output change based on cluster and backend ip
+    checkNereidsExecute("""show trash;""")
+    checkNereidsExecute("""show trash on "127.0.0.1:9050";""")
 }
-

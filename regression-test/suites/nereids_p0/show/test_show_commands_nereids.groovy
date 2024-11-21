@@ -15,10 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_engines_nereids") {
+suite("test_show_commands_nereids") {
     checkNereidsExecute("show engines;")
     qt_cmd_1("show engines;")
     checkNereidsExecute("show storage engines;")
     qt_cmd_2("show storage engines;")    
     // can not use qt to check, the output may change.
+
+    checkNereidsExecute("""show frontends;""")
+    checkNereidsExecute("""show backends;""")
+    checkNereidsExecute("""show whitelist;""")
 }

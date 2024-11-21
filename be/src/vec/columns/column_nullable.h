@@ -143,8 +143,8 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
-    MutableColumnPtr get_shrinked_column() override;
-    bool could_shrinked_column() override;
+    void shrink_padding_chars() override;
+
     bool is_variable_length() const override { return nested_column->is_variable_length(); }
 
     std::string get_name() const override { return "Nullable(" + nested_column->get_name() + ")"; }
@@ -245,12 +245,6 @@ public:
         get_nested_column().insert_many_continuous_binary_data(data, offsets, num);
     }
 
-    void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                 uint32_t* start_offset_array, size_t num) override {
-        _push_false_to_nullmap(num);
-        get_nested_column().insert_many_binary_data(data_array, len_array, start_offset_array, num);
-    }
-
     void insert_default() override {
         get_nested_column().insert_default();
         get_null_map_data().push_back(1);
@@ -332,6 +326,7 @@ public:
     void set_datetime_type() override { get_nested_column().set_datetime_type(); }
 
     bool is_nullable() const override { return true; }
+    bool is_concrete_nullable() const override { return true; }
     bool is_bitmap() const override { return get_nested_column().is_bitmap(); }
     bool is_hll() const override { return get_nested_column().is_hll(); }
     bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }
