@@ -397,8 +397,8 @@ int CloudTablet::delete_expired_stale_rowsets() {
         }
 
         for (int64_t path_id : path_ids) {
-            int start_version = -1;
-            int end_version = -1;
+            int64_t start_version = -1;
+            int64_t end_version = -1;
             // delete stale versions in version graph
             auto version_path = _timestamped_version_tracker.fetch_and_delete_path_by_id(path_id);
             for (auto& v_ts : version_path->timestamped_versions()) {
