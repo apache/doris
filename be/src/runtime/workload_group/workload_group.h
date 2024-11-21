@@ -94,11 +94,11 @@ public:
 
     void do_sweep();
 
-    int spill_threshold_low_water_mark() const {
-        return _spill_low_watermark.load(std::memory_order_relaxed);
+    int memory_low_watermark() const {
+        return _memory_low_watermark.load(std::memory_order_relaxed);
     }
-    int spill_threashold_high_water_mark() const {
-        return _spill_high_watermark.load(std::memory_order_relaxed);
+    int memory_high_watermark() const {
+        return _memory_high_watermark.load(std::memory_order_relaxed);
     }
 
     void set_weighted_memory_ratio(double ratio);
@@ -107,7 +107,7 @@ public:
                 _total_mem_used + _wg_refresh_interval_memory_growth.load() + size;
         if ((realtime_total_mem_used >
              ((double)_weighted_memory_limit *
-              _spill_high_watermark.load(std::memory_order_relaxed) / 100))) {
+              _memory_high_watermark.load(std::memory_order_relaxed) / 100))) {
             return false;
         } else {
             _wg_refresh_interval_memory_growth.fetch_add(size);
@@ -122,10 +122,10 @@ public:
         auto realtime_total_mem_used = _total_mem_used + _wg_refresh_interval_memory_growth.load();
         *is_low_wartermark = (realtime_total_mem_used >
                               ((double)_weighted_memory_limit *
-                               _spill_low_watermark.load(std::memory_order_relaxed) / 100));
+                               _memory_low_watermark.load(std::memory_order_relaxed) / 100));
         *is_high_wartermark = (realtime_total_mem_used >
                                ((double)_weighted_memory_limit *
-                                _spill_high_watermark.load(std::memory_order_relaxed) / 100));
+                                _memory_high_watermark.load(std::memory_order_relaxed) / 100));
     }
 
     std::string debug_string() const;
@@ -233,8 +233,8 @@ private:
     std::atomic<int> _scan_thread_num;
     std::atomic<int> _max_remote_scan_thread_num;
     std::atomic<int> _min_remote_scan_thread_num;
-    std::atomic<int> _spill_low_watermark;
-    std::atomic<int> _spill_high_watermark;
+    std::atomic<int> _memory_low_watermark;
+    std::atomic<int> _memory_high_watermark;
     std::atomic<int64_t> _scan_bytes_per_second {-1};
     std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
 
@@ -282,8 +282,8 @@ struct WorkloadGroupInfo {
     const int scan_thread_num = 0;
     const int max_remote_scan_thread_num = 0;
     const int min_remote_scan_thread_num = 0;
-    const int spill_low_watermark = 0;
-    const int spill_high_watermark = 0;
+    const int memory_low_watermark = 0;
+    const int memory_high_watermark = 0;
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
     // log cgroup cpu info

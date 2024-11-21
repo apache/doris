@@ -1245,7 +1245,9 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
 
         std::ranges::for_each(filters, [&](auto& filter) {
-            filter->update_filter(filter_wrapper, request->merge_time(), start_apply);
+            filter->update_filter(
+                    filter_wrapper, request->merge_time(), start_apply,
+                    request->has_local_merge_time() ? request->local_merge_time() : 0);
         });
     }
 
@@ -1271,7 +1273,7 @@ Status FragmentMgr::send_filter_size(const PSendFilterSizeRequest* request) {
 
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
-    auto merge_status = filter_controller->send_filter_size(request);
+    auto merge_status = filter_controller->send_filter_size(query_ctx, request);
     return merge_status;
 }
 
@@ -1313,7 +1315,7 @@ Status FragmentMgr::merge_filter(const PMergeFilterRequest* request,
     SCOPED_ATTACH_TASK(query_ctx.get());
     std::shared_ptr<RuntimeFilterMergeControllerEntity> filter_controller;
     RETURN_IF_ERROR(_runtimefilter_controller.acquire(queryid, &filter_controller));
-    auto merge_status = filter_controller->merge(request, attach_data);
+    auto merge_status = filter_controller->merge(query_ctx, request, attach_data);
     return merge_status;
 }
 

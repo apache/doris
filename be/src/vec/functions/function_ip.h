@@ -1296,9 +1296,12 @@ public:
             auto ipv6_idx = index_check_const(i, ipv6_const);
             auto bytes_to_cut_for_ipv6_idx = index_check_const(i, bytes_to_cut_for_ipv6_const);
             auto bytes_to_cut_for_ipv4_idx = index_check_const(i, bytes_to_cut_for_ipv4_const);
+            // the current function logic is processed in big endian manner
+            // But ipv6 in doris is stored in little-endian byte order
+            // need transfer to big-endian byte order first, so we can't deal this process in column
+            auto val_128 = ipv6_addr_column_data[ipv6_idx];
+            auto* address = reinterpret_cast<unsigned char*>(&val_128);
 
-            auto* address = const_cast<unsigned char*>(
-                    reinterpret_cast<const unsigned char*>(&ipv6_addr_column_data[ipv6_idx]));
             Int8 bytes_to_cut_for_ipv6_count =
                     to_cut_for_ipv6_bytes_column_data[bytes_to_cut_for_ipv6_idx];
             Int8 bytes_to_cut_for_ipv4_count =

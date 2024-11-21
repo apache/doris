@@ -15,10 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_show_engines_nereids") {
-    checkNereidsExecute("show engines;")
-    qt_cmd_1("show engines;")
-    checkNereidsExecute("show storage engines;")
-    qt_cmd_2("show storage engines;")    
-    // can not use qt to check, the output may change.
+import org.junit.Assert;
+
+suite("test_grant_all_auth","p0,auth") {
+    String suiteName = "test_grant_all_auth"
+    String user = "${suiteName}_user"
+    String pwd = 'C123_567p'
+    try_sql("DROP USER ${user}")
+    sql """CREATE USER '${user}' IDENTIFIED BY '${pwd}'"""
+    sql """grant all on *.*.* to ${user}"""
+    def res = sql """ show grants for ${user} """
+    logger.info("res: " + res.toString())
+    assertTrue(res.toString().contains("Select_priv"))
+    assertTrue(res.toString().contains("Load_priv"))
+    assertTrue(res.toString().contains("Alter_priv"))
+    assertTrue(res.toString().contains("Create_priv"))
+    assertTrue(res.toString().contains("Drop_priv"))
+    assertTrue(res.toString().contains("Show_view_priv"))
+    try_sql("DROP USER ${user}")
 }

@@ -356,6 +356,8 @@ struct TQueryOptions {
   138: optional i64 orc_tiny_stripe_threshold_bytes = 8388608;
   139: optional i64 orc_once_max_read_bytes = 8388608;
   140: optional i64 orc_max_merge_distance_bytes = 1048576;
+
+  141: optional bool ignore_runtime_filter_error = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

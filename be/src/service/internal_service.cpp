@@ -903,6 +903,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
         auto st = ExecEnv::GetInstance()->result_mgr()->find_arrow_schema(
                 UniqueId(request->finst_id()).to_thrift(), &schema);
         if (!st.ok()) {
+            LOG(WARNING) << "fetch arrow flight schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
         }
@@ -911,9 +912,11 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
         st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
-            if (!config::public_access_ip.empty() && config::public_access_port != -1) {
-                result->set_be_arrow_flight_ip(config::public_access_ip);
-                result->set_be_arrow_flight_port(config::public_access_port);
+            if (!config::public_host.empty()) {
+                result->set_be_arrow_flight_ip(config::public_host);
+            }
+            if (config::arrow_flight_sql_proxy_port != -1) {
+                result->set_be_arrow_flight_port(config::arrow_flight_sql_proxy_port);
             }
         }
         st.to_protobuf(result->mutable_status());
