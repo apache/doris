@@ -34,6 +34,8 @@ import org.apache.doris.common.VariableAnnotation;
 import org.apache.doris.common.util.SerializationUtils;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
+import org.apache.doris.statistics.StatisticConstants;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -979,6 +981,20 @@ public class VariableMgr {
             VariableMgr.refreshDefaultSessionVariables("update variable version",
                     SessionVariable.ENABLE_PIPELINE_X_ENGINE,
                     String.valueOf(true));
+        }
+        if (currentVariableVersion < GlobalVariable.VARIABLE_VERSION_101) {
+            if (StatisticsUtil.getAutoAnalyzeTableWidthThreshold()
+                    < StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD));
+            }
+            if (StatisticsUtil.getTableStatsHealthThreshold()
+                    < StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD) {
+                VariableMgr.refreshDefaultSessionVariables("update variable version",
+                        SessionVariable.TABLE_STATS_HEALTH_THRESHOLD,
+                        String.valueOf(StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD));
+            }
         }
         if (currentVariableVersion < GlobalVariable.CURRENT_VARIABLE_VERSION) {
             VariableMgr.refreshDefaultSessionVariables("update variable version",
