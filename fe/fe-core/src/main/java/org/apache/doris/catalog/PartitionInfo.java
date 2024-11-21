@@ -264,7 +264,8 @@ public class PartitionInfo implements Writable {
 
     // forbid change metadata.
     public ArrayList<Expr> getPartitionExprs() {
-        LOG.info("Debug16494 getPartitionExprs: " + this.partitionExprs.get(0).debugString());
+        LOG.info("Debug16494 getPartitionExprs: " + (this.partitionExprs.isEmpty() ?
+                partitionExprs : this.partitionExprs.get(0).debugString()));
         return Expr.cloneList(this.partitionExprs);
     }
 
