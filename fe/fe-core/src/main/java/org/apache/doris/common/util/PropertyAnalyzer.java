@@ -62,6 +62,7 @@ import java.util.Arrays;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -1022,10 +1023,16 @@ public class PropertyAnalyzer {
     // analyzeCompressionType will parse the compression type from properties
     public static TCompressionType analyzeCompressionType(Map<String, String> properties) throws AnalysisException {
         String compressionType = "";
+        boolean enableFuzzyCompression = Config.enable_fuzzy_compression;
         if (properties != null && properties.containsKey(PROPERTIES_COMPRESSION)) {
             compressionType = properties.get(PROPERTIES_COMPRESSION);
             properties.remove(PROPERTIES_COMPRESSION);
         } else {
+            if (enableFuzzyCompression) {
+                Random random = new Random();
+                int randomValue = random.nextInt(8) + 1;
+                return TCompressionType.findByValue(randomValue);
+            }
             return TCompressionType.LZ4F;
         }
 
