@@ -47,7 +47,7 @@ public class DropIndexClauseTest {
         DropIndexClause clause = new DropIndexClause("index1", false,
                 new TableName(InternalCatalog.INTERNAL_CATALOG_NAME, "db", "table"), true);
         clause.analyze(analyzer);
-        Assert.assertEquals("ALTER TABLE `db`.`table` DROP INDEX `index1`", clause.toSql());
+        Assert.assertEquals("DROP INDEX `index1`", clause.toSql());
     }
 
     @Test(expected = AnalysisException.class)

@@ -52,8 +52,7 @@ public class CreateIndexClauseTest {
                 new IndexDef("index1", false, Lists.newArrayList("col1"), IndexDef.IndexType.INVERTED, null, "balabala"),
                 true);
         clause.analyze(analyzer);
-        Assert.assertEquals("ALTER TABLE `db`.`table` ADD INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'",
-                clause.toSql());
+        Assert.assertEquals("ADD INDEX `index1` (`col1`) USING INVERTED COMMENT 'balabala'", clause.toSql());
     }
 
     @Test(expected = AnalysisException.class)
