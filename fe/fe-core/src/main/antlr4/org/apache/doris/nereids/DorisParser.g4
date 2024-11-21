@@ -76,7 +76,6 @@ unsupportedStatement
     | unsupportedAdminStatement
     | unsupportedTransactionStatement
     | unsupportedCancelStatement
-    | unsupportedJobStatement
     | unsupportedCleanStatement
     | unsupportedRefreshStatement
     | unsupportedLoadStatement
@@ -117,6 +116,10 @@ supportedJobStatement
             (AT (atTime=STRING_LITERAL | CURRENT_TIMESTAMP)))
         commentSpec?
         DO supportedDmlStatement                                                               #createScheduledJob                                                                    
+   | PAUSE JOB wildWhere?                                                                      #pauseJob
+   | DROP JOB (IF EXISTS)? wildWhere?                                                          #dropJob
+   | RESUME JOB wildWhere?                                                                     #resumeJob
+   | CANCEL TASK wildWhere?                                                                    #cancelJobTask
    ;
 constraintStatement
     : ALTER TABLE table=multipartIdentifier
@@ -435,14 +438,6 @@ unsupportedCleanStatement
     | CLEAN QUERY STATS ((FOR database=identifier)
         | ((FROM | IN) table=multipartIdentifier))                                  #cleanQueryStats
     | CLEAN ALL QUERY STATS                                                         #cleanAllQueryStats
-    ;
-
-unsupportedJobStatement
-
-    : PAUSE JOB wildWhere?                                                          #pauseJob
-    | DROP JOB (IF EXISTS)? wildWhere?                                              #dropJob
-    | RESUME JOB wildWhere?                                                         #resumeJob
-    | CANCEL TASK wildWhere?                                                        #cancelJobTask
     ;
 
 unsupportedCancelStatement
