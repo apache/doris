@@ -109,6 +109,10 @@ public class BarrierLog implements Writable {
         return GsonUtils.GSON.toJson(this);
     }
 
+    public static BarrierLog fromJson(String json) {
+        return GsonUtils.GSON.fromJson(json, BarrierLog.class);
+    }
+
     @Override
     public String toString() {
         return toJson();
