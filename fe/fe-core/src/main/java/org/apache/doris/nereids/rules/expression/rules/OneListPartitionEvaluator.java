@@ -36,7 +36,7 @@ import java.util.stream.IntStream;
 
 /** OneListPartitionInputs */
 public class OneListPartitionEvaluator<K>
-        extends DefaultExpressionRewriter<Map<Slot, PartitionSlotInput>> implements OnePartitionEvaluator<K>{
+        extends DefaultExpressionRewriter<Map<Slot, PartitionSlotInput>> implements OnePartitionEvaluator<K> {
     private final K partitionIdent;
     private final List<Slot> partitionSlots;
     private final ListPartitionItem partitionItem;
