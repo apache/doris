@@ -188,7 +188,7 @@ suite("test_show_index_data", "p1") {
             def result = sql """ show data with detail;"""
             logger.info("show data with detail result is: ${result}")
             def currentLocalIndexSize = convert_size.call(result[0][4])
-            def currentSegmentIndexSize = convert_size.call(result[0][5])
+            def currentSegmentIndexSize = convert_size.call(result[0][3])
 
             if (expect_idx == FileSizeChange.LARGER) {
                 assertTrue(currentLocalIndexSize > localIndexSize)

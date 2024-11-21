@@ -25,7 +25,7 @@ suite("test_show_data") {
     def result2 = connect(context.config.jdbcUser, password = context.config.jdbcPassword, url = jdbcUrlWithoutDbStr[0]) {
         sql """show data;"""
     }
-    logger.info("show data result2:${result2}");
+
     assertTrue(result2.size() > 0);
     assertTrue(result2[0].size() == 6);
 }

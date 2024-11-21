@@ -103,27 +103,27 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
     private static final ShowResultSetMetaData SHOW_DETAILED_TABLE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("LocalInvertedSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("LocalSegmentSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("RemoteInvertedSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("RemoteSegmentSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalTotalSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalDataSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_DETAILED_INDEX_DATA_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("TableName", ScalarType.createVarchar(20)))
                     .addColumn(new Column("IndexName", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("LocalInvertedSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("LocalSegmentSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("RemoteInvertedSize", ScalarType.createVarchar(30)))
-                    .addColumn(new Column("RemoteSegmentSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalTotalSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalDataSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
                     .build();
 
     TableName tableName;
@@ -333,11 +333,11 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
                         DebugUtil.printByteWithUnit((long) row.get(1)), String.valueOf(row.get(2)),
                         DebugUtil.printByteWithUnit((long) row.get(3))));
             } else {
-                totalRows.add(Arrays.asList(String.valueOf(row.get(0)),
-                        DebugUtil.printByteWithUnit((long) row.get(1)), String.valueOf(row.get(2)),
-                        DebugUtil.printByteWithUnit((long) row.get(3)), DebugUtil.printByteWithUnit((long) row.get(4)),
-                        DebugUtil.printByteWithUnit((long) row.get(5)), DebugUtil.printByteWithUnit((long) row.get(6)),
-                        DebugUtil.printByteWithUnit((long) row.get(7))));
+                totalRows.add(Arrays.asList(String.valueOf(row.get(0)), String.valueOf(row.get(2)),
+                        DebugUtil.printByteWithUnit((long) row.get(1)), DebugUtil.printByteWithUnit((long) row.get(5)),
+                        DebugUtil.printByteWithUnit((long) row.get(4)), DebugUtil.printByteWithUnit((long) row.get(3)),
+                        DebugUtil.printByteWithUnit((long) row.get(7)),
+                        DebugUtil.printByteWithUnit((long) row.get(6))));
             }
         }
 
@@ -352,16 +352,17 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
             totalRows.add(Arrays.asList("Left", DebugUtil.printByteWithUnit(left),
                                                                 String.valueOf(replicaCountLeft), ""));
         } else {
-            totalRows.add(Arrays.asList("Total", DebugUtil.printByteWithUnit(totalSize),
-                    String.valueOf(totalReplicaCount), DebugUtil.printByteWithUnit(totalRemoteSize),
-                    DebugUtil.printByteWithUnit(totalLocalInvertedSize),
+            totalRows.add(Arrays.asList("Total", String.valueOf(totalReplicaCount),
+                    DebugUtil.printByteWithUnit(totalSize),
                     DebugUtil.printByteWithUnit(totalLocalSegmentSize),
-                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
-                    DebugUtil.printByteWithUnit(totalRemoteSegmentSize)));
-            totalRows.add(Arrays.asList("Quota", DebugUtil.printByteWithUnit(quota),
-                                                String.valueOf(replicaQuota), "", "", "", "", ""));
-            totalRows.add(Arrays.asList("Left", DebugUtil.printByteWithUnit(left),
-                                                String.valueOf(replicaCountLeft), "", "", "", "", ""));
+                    DebugUtil.printByteWithUnit(totalLocalInvertedSize),
+                    DebugUtil.printByteWithUnit(totalRemoteSize),
+                    DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
+                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize)));
+            totalRows.add(Arrays.asList("Quota", String.valueOf(replicaQuota),
+                                                DebugUtil.printByteWithUnit(quota), "", "", "", "", ""));
+            totalRows.add(Arrays.asList("Left", String.valueOf(replicaCountLeft),
+                                                DebugUtil.printByteWithUnit(left), "", "", "", "", ""));
         }
     }
 
@@ -375,11 +376,11 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
                         String.valueOf(row.get(4)), DebugUtil.printByteWithUnit((long) row.get(5))));
             } else {
                 totalRows.add(Arrays.asList(indexName, String.valueOf(row.get(1)),
-                        DebugUtil.printByteWithUnit((long) row.get(2)), String.valueOf(row.get(3)),
-                        String.valueOf(row.get(4)), DebugUtil.printByteWithUnit((long) row.get(5)),
-                        DebugUtil.printByteWithUnit((long) row.get(6)), DebugUtil.printByteWithUnit((long) row.get(7)),
-                        DebugUtil.printByteWithUnit((long) row.get(8)),
-                        DebugUtil.printByteWithUnit((long) row.get(9))));
+                        String.valueOf(row.get(3)), String.valueOf(row.get(4)),
+                        DebugUtil.printByteWithUnit((long) row.get(2)), DebugUtil.printByteWithUnit((long) row.get(7)),
+                        DebugUtil.printByteWithUnit((long) row.get(6)), DebugUtil.printByteWithUnit((long) row.get(5)),
+                        DebugUtil.printByteWithUnit((long) row.get(9)),
+                        DebugUtil.printByteWithUnit((long) row.get(8))));
             }
         }
 
@@ -398,7 +399,8 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
     }
 
     // |TableName|Size|ReplicaCount|RemoteSize|
-    // |TableName|Size|ReplicaCount|RemoteSize|LocalInvertedSize|LocalSegmentSize|RemoteInvertedSize|RemoteSegmentSize
+    // |TableName|ReplicaCount|LocalTotalSize|LocalDataSize|LocalIndexSize|
+    //                        |RemoteTotalSize|RemoteDataSize|RemoteIndexSize|
     private void getSingleDbStats(Database db) {
         db.readLock();
         long quota = 0;
@@ -416,7 +418,8 @@ public class ShowDataStmt extends ShowStmt implements NotFallbackInParser {
     }
 
     // |TableName|IndexName|Size|ReplicaCount|RowCount|RemoteSize|
-    // |TableName|IndexName|Size|ReplicaCount|RowCount|RemoteSize|LocalInvertedSize|LocalSegmentSize|RemoteInvertedSize|
+    // |TableName|IndexName|ReplicaCount||RowCount|LocalTotalSize |LocalDataSize |LocalIndexSize|
+    //                                            |RemoteTotalSize|RemoteDataSize|RemoteIndexSize|
     private void getSingleTableStats(OlapTable table) {
         table.readLock();
         try {
