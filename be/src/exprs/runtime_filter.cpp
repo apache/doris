@@ -363,8 +363,11 @@ public:
     }
 
     Status init_bloom_filter(const size_t build_bf_cardinality) {
-        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-               _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
+        if (_filter_type != RuntimeFilterType::BLOOM_FILTER &&
+            _filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "init_bloom_filter meet invalid input type {}", int(_filter_type));
+        }
         return _context->bloom_filter_func->init_with_cardinality(build_bf_cardinality);
     }
 
@@ -392,7 +395,9 @@ public:
     BloomFilterFuncBase* get_bloomfilter() const { return _context->bloom_filter_func.get(); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
-        DCHECK(!is_ignored());
+        if (is_ignored()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "insert_fixed_len meet ignored rf");
+        }
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             _context->hybrid_set->insert_fixed_len(column, start);
@@ -919,7 +924,10 @@ public:
             return _context->bloom_filter_func->contain_null();
         }
         if (_context->hybrid_set) {
-            DCHECK(get_real_type() == RuntimeFilterType::IN_FILTER);
+            if (get_real_type() != RuntimeFilterType::IN_FILTER) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "rf has hybrid_set but real type is {}",
+                                int(get_real_type()));
+            }
             return _context->hybrid_set->contain_null();
         }
         if (_context->minmax_func) {
