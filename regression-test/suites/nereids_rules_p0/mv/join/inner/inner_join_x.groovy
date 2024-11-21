@@ -22,6 +22,7 @@ suite("inner_join_x") {
     sql "set enable_sync_mv_cost_based_rewrite=false"
 
 
+    // =======================  test table with aggregate key ============================
     sql """
     drop table if  exists t1;
     """
@@ -41,9 +42,9 @@ suite("inner_join_x") {
     """
 
     def mv_name="v_t1"
-    sql """
+    createMV ( """
      create materialized view ${mv_name} as select k%2 as kk,a, sum(int_value), max(date_value) from t1 group by kk, a;
-    """
+    """)
 
     sql """
     insert into t1 values
@@ -53,28 +54,10 @@ suite("inner_join_x") {
     (4,2,4,'c', '2023-12-01');
     """
 
-    sql """
-    drop table if  exists t2;
-    """
-
-    createMV ("""
-    CREATE TABLE IF NOT EXISTS t2 (
-                k int,
-                a int
-            )
-            ENGINE=OLAP
-            duplicate KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 2 properties("replication_num" = "1")
-    """)
-
-    sql """
-    insert into t2 values(1,2),(2,2);
-    """
-
     def query =  """
-    select max(t1.date_value) from t1 inner join t2 on t1.a=t2.a group by t2.k;
+    select a from t1
     """
-
+    
     explain {
         sql("${query}")
         notContains("${mv_name}(${mv_name})")
@@ -91,7 +74,55 @@ suite("inner_join_x") {
     drop table if exists t1 
     """
 
+    // =======================  test table with duplicate key ============================
     sql """
-    drop table if exists t2 
+    drop table if  exists t1;
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS t1 (
+                k int,
+                a int,
+                int_value int,
+                char_value char(10),
+                date_value date
+            )
+            ENGINE=OLAP
+            duplicate KEY(k,a)
+            DISTRIBUTED BY HASH(k) BUCKETS 2 properties("replication_num" = "1")
+
+    """
+
+    mv_name="v_t1"
+    createMV ( """
+     create materialized view ${mv_name} as select k%2 as kk,a, sum(int_value), max(date_value) from t1 group by kk, a;
+    """)
+
+    sql """
+    insert into t1 values
+    (1,1,1,'a', '2020-12-01'),
+    (2,2,2,'b', '2021-12-01'),
+    (3,2,2,'c', '2022-12-01'),
+    (4,2,4,'c', '2023-12-01');
+    """
+
+    query =  """
+    select a from t1
+    """
+    
+    explain {
+        sql("${query}")
+        notContains("t1(${mv_name})")
+    }
+
+    order_qt_query_before "${query}"
+    
+
+    sql """ DROP MATERIALIZED VIEW IF EXISTS  ${mv_name} on t1"""
+
+    order_qt_query_after "${query}"
+
+    sql """
+    drop table if exists t1 
     """
 }
