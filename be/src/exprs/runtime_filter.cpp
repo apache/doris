@@ -1345,6 +1345,9 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     params.runtime_bloom_filter_min_size = options->__isset.runtime_bloom_filter_min_size
                                                    ? options->runtime_bloom_filter_min_size
                                                    : 0;
+    params.runtime_bloom_filter_max_size = options->__isset.runtime_bloom_filter_max_size
+                                                   ? options->runtime_bloom_filter_max_size
+                                                   : 0;
     // We build runtime filter by exact distinct count iff three conditions are met:
     // 1. Only 1 join key
     // 2. Do not have remote target (e.g. do not need to merge), or broadcast join
