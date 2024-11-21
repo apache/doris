@@ -50,8 +50,8 @@ Status PrimaryKeyIndexBuilder::init() {
 
     auto opt = segment_v2::BloomFilterOptions();
     opt.fpp = 0.01;
-    _bloom_filter_index_builder.reset(
-            new segment_v2::PrimaryKeyBloomFilterIndexWriterImpl(opt, type_info));
+    RETURN_IF_ERROR(segment_v2::PrimaryKeyBloomFilterIndexWriterImpl::create(
+            opt, type_info, &_bloom_filter_index_builder));
     return Status::OK();
 }
 
