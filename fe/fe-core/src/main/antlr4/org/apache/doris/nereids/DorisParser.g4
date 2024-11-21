@@ -201,9 +201,9 @@ supportedDropStatement
     ;
 
 supportedShowStatement
-
     : SHOW (GLOBAL | SESSION | LOCAL)? VARIABLES wildWhere?                         #showVariables
     | SHOW AUTHORS                                                                  #showAuthors
+    | SHOW BROKER                                                                   #showBroker
     | SHOW DYNAMIC PARTITION TABLES ((FROM | IN) database=multipartIdentifier)?     #showDynamicPartition
     | SHOW LAST INSERT                                                              #showLastInsert 
     | SHOW ALL? GRANTS                                                              #showGrants
@@ -310,7 +310,6 @@ unsupportedShowStatement
     | SHOW ALL PROPERTIES wildWhere?                                                #showAllProperties
     | SHOW BACKUP ((FROM | IN) database=multipartIdentifier)? wildWhere?            #showBackup
     | SHOW BRIEF? RESTORE ((FROM | IN) database=multipartIdentifier)? wildWhere?    #showRestore
-    | SHOW BROKER                                                                   #showBroker
     | SHOW RESOURCES wildWhere? sortClause? limitClause?                            #showResources
     | SHOW WORKLOAD GROUPS wildWhere?                                               #showWorkloadGroups
     | SHOW TRASH (ON backend=STRING_LITERAL)?                                       #showTrash

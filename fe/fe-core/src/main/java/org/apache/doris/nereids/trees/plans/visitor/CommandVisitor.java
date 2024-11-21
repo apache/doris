@@ -61,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
@@ -388,6 +389,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitRecoverPartitionCommand(RecoverPartitionCommand recoverPartitionCommand, C context) {
         return visitCommand(recoverPartitionCommand, context);
+    }
+
+    default R visitShowBrokerCommand(ShowBrokerCommand showBrokerCommand, C context) {
+        return visitCommand(showBrokerCommand, context);
     }
 
     default R visitDropRoleCommand(DropRoleCommand dropRoleCommand, C context) {
