@@ -944,7 +944,6 @@ struct ConvertImplFromJsonb {
                     }
                 } else {
                     throw Exception(Status::FatalError("unsupported type"));
-                    __builtin_unreachable();
                 }
             }
 
@@ -1238,7 +1237,6 @@ struct ToNumberMonotonicity {
             }
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 };
 

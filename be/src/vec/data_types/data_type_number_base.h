@@ -125,7 +125,6 @@ public:
             return doris::FieldType::OLAP_FIELD_TYPE_DOUBLE;
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 
     Field get_default() const override;

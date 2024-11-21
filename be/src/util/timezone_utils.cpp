@@ -81,7 +81,6 @@ void TimezoneUtils::load_timezones_to_cache() {
     const auto root_path = fs::path {base_str};
     if (!exists(root_path)) {
         throw Exception(Status::FatalError("Cannot find system tzfile. Doris exiting!"));
-        __builtin_unreachable();
     }
 
     std::set<std::string> ignore_paths = {"posix", "right"}; // duplications. ignore them.

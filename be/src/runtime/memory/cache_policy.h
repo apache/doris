@@ -98,7 +98,6 @@ public:
                                                static_cast<int>(type)));
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 
     inline static std::unordered_map<std::string, CacheType> StringToType = {

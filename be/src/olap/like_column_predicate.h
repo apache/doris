@@ -130,7 +130,6 @@ private:
             } else {
                 throw Exception(Status::FatalError(
                         "vectorized (not) like predicates should be dict column"));
-                __builtin_unreachable();
             }
         } else {
             if (column.is_column_dictionary()) {
@@ -156,7 +155,6 @@ private:
             } else {
                 throw Exception(Status::FatalError(
                         "vectorized (not) like predicates should be dict column"));
-                __builtin_unreachable();
             }
         }
     }

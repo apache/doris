@@ -62,59 +62,46 @@ struct JsonBinaryValue {
 
     bool operator==(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
     // !=
     bool ne(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-
-
-        __builtin_unreachable();
     }
     // <=
     bool le(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
     // >=
     bool ge(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
     // <
     bool lt(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
     // >
     bool gt(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
 
     bool operator!=(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
 
     bool operator<=(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
 
     bool operator>=(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
 
     bool operator<(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
 
     bool operator>(const JsonBinaryValue& other) const {
         throw Exception(Status::FatalError("comparing between JsonBinaryValue is not supported"));
-        __builtin_unreachable();
     }
 
     Status from_json_string(const char* s, int len);

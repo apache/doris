@@ -218,37 +218,29 @@ public:
 
     bool operator<(const JsonbField& r) const {
         throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
-        __builtin_unreachable();
     }
     bool operator<=(const JsonbField& r) const {
         throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
-        __builtin_unreachable();
     }
     bool operator==(const JsonbField& r) const {
         throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
-        __builtin_unreachable();
     }
     bool operator>(const JsonbField& r) const {
         throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
-        __builtin_unreachable();
     }
     bool operator>=(const JsonbField& r) const {
         throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
-        __builtin_unreachable();
     }
     bool operator!=(const JsonbField& r) const {
         throw Exception(Status::FatalError("comparing between JsonbField is not supported"));
-        __builtin_unreachable();
     }
 
     const JsonbField& operator+=(const JsonbField& r) {
         throw Exception(Status::FatalError("Not support plus opration on JsonbField"));
-        __builtin_unreachable();
     }
 
     const JsonbField& operator-=(const JsonbField& r) {
         throw Exception(Status::FatalError("Not support minus opration on JsonbField"));
-        __builtin_unreachable();
     }
 
 private:
@@ -307,7 +299,6 @@ public:
     const DecimalField<T>& operator+=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
             throw Exception(Status::FatalError("Add different decimal fields"));
-            __builtin_unreachable();
         }
         dec += r.get_value();
         return *this;
@@ -316,7 +307,6 @@ public:
     const DecimalField<T>& operator-=(const DecimalField<T>& r) {
         if (scale != r.get_scale()) {
             throw Exception(Status::FatalError("Sub different decimal fields"));
-            __builtin_unreachable();
         }
         dec -= r.get_value();
         return *this;

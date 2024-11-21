@@ -296,7 +296,6 @@ private:
                                                   static_cast<int>(type)));
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 
     static std::string gc_type_string(GCType type) {
@@ -309,7 +308,6 @@ private:
             throw Exception(Status::FatalError("not match gc type:{}", static_cast<int>(type)));
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 
     // only for Type::QUERY or Type::LOAD.

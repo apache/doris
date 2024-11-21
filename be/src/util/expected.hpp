@@ -222,7 +222,6 @@ template <typename E>
   __assume(0);
 #else
  throw Exception(Status::FatalError("__builtin_unreachable"));
-  __builtin_unreachable();
 #endif
 #endif
 }

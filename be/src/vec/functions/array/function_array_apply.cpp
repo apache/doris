@@ -132,7 +132,6 @@ private:
             return data >= comp;
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 
     // need exception safety

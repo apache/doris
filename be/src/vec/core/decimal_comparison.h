@@ -108,7 +108,6 @@ public:
         static const UInt32 max_scale = max_decimal_precision<Decimal256>();
         if (scale_a > max_scale || scale_b > max_scale) {
             throw Exception(Status::FatalError("Bad scale of decimal field"));
-            __builtin_unreachable();
         }
 
         Shift shift;
@@ -215,7 +214,6 @@ private:
                     constant_vector<scale_left, scale_right>(a, c1_vec->get_data(), vec_res, scale);
                 else {
                     throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
-                    __builtin_unreachable();
                 }
             } else if (c1_is_const) {
                 const ColumnConst* c1_const = check_and_get_column_const<ColVecB>(c1.get());
@@ -224,7 +222,6 @@ private:
                     vector_constant<scale_left, scale_right>(c0_vec->get_data(), b, vec_res, scale);
                 else {
                     throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
-                    __builtin_unreachable();
                 }
             } else {
                 if (const ColVecA* c0_vec = check_and_get_column<ColVecA>(c0.get())) {
@@ -233,11 +230,9 @@ private:
                                                                c1_vec->get_data(), vec_res, scale);
                     else {
                         throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
-                        __builtin_unreachable();
                     }
                 } else {
                     throw Exception(Status::FatalError("Wrong column in Decimal comparison"));
-                    __builtin_unreachable();
                 }
             }
             return c_res;
@@ -264,7 +259,6 @@ private:
 
             if (overflow) {
                 throw Exception(Status::FatalError("Can't compare"));
-                __builtin_unreachable();
             }
         } else {
             if constexpr (scale_left) x *= scale;

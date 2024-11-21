@@ -157,7 +157,6 @@ public:
             throw Exception(Status::FatalError("brpc callback error: {}", exp.what()));
         } catch (...) {
             throw Exception(Status::FatalError("brpc callback error."));
-            __builtin_unreachable();
         }
     }
     int64_t start_rpc_time;

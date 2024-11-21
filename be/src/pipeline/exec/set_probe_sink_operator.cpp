@@ -201,9 +201,6 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
         SetProbeSinkLocalState<is_intersect>& local_state) {
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
     auto& hash_table_variants = local_state._shared_state->hash_table_variants;
-    static_assert(!std::is_same_v<decltype(*hash_table_variants), std::monostate>,
-                  "FATAL: uninited hash table");
-    ;
     std::visit(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
@@ -249,6 +246,8 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
                         arg.hash_table = std::move(tmp_hash_table);
                     }
                 } else {
+                    static_assert(!std::is_same_v<decltype(arg), std::monostate>,
+                                  "FATAL: uninited hash table");
                     __builtin_unreachable();
                 }
             },

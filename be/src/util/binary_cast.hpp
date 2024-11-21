@@ -138,7 +138,6 @@ To binary_cast(From from) {
         return conv.i128;
     } else {
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 }
 

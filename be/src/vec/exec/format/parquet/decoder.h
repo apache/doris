@@ -81,7 +81,6 @@ public:
     virtual MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) {
         throw Exception(
                 Status::FatalError("Method convert_dict_column_to_string_column is not supported"));
-        __builtin_unreachable();
     }
 
 protected:

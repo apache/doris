@@ -121,7 +121,6 @@ public:
             throw Exception(Status::FatalError("not match type to convert, from type:{}", type));
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 };
 

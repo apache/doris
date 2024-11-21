@@ -347,7 +347,6 @@ public:
             bthread_context->thread_local_handle_count--;
         } else {
             throw Exception(Status::FatalError("__builtin_unreachable"));
-            __builtin_unreachable();
         }
     }
 };

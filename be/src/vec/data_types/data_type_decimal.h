@@ -251,7 +251,6 @@ public:
         if (get_scale() < x.get_scale()) {
             throw Exception(
                     Status::FatalError("Decimal result's scale is less then argument's one"));
-            __builtin_unreachable();
         }
 
         UInt32 scale_delta = get_scale() - x.get_scale(); /// scale_delta >= 0

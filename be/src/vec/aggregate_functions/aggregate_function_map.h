@@ -41,7 +41,6 @@ struct AggregateFunctionMapAggData {
 
     AggregateFunctionMapAggData() {
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 
     AggregateFunctionMapAggData(const DataTypes& argument_types) {

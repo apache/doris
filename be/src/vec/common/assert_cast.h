@@ -57,7 +57,6 @@ PURE To assert_cast(From&& from) {
         throw doris::Exception(doris::Status::FatalError("Bad cast from type:{} to {}",
                                                          demangle(typeid(from).name()),
                                                          demangle(typeid(To).name())));
-        __builtin_unreachable();
     };
 
 #ifndef NDEBUG

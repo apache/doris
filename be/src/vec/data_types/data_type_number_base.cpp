@@ -156,7 +156,6 @@ Field DataTypeNumberBase<T>::get_field(const TExprNode& node) const {
         return Float64(node.float_literal.value);
     }
     throw Exception(Status::FatalError("__builtin_unreachable"));
-    __builtin_unreachable();
 }
 
 template <typename T>

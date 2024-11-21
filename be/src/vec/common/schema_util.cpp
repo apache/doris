@@ -233,7 +233,6 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
     }
     // TODO handle more types like struct/date/datetime/decimal...
     throw Exception(Status::FatalError("__builtin_unreachable"));
-    __builtin_unreachable();
 }
 
 TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,

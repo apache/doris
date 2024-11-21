@@ -177,10 +177,8 @@ private:
         }
         default:
             throw Exception(Status::FatalError("get error type page cache"));
-            __builtin_unreachable();
         }
         throw Exception(Status::FatalError("__builtin_unreachable"));
-        __builtin_unreachable();
     }
 };
 
