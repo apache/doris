@@ -323,6 +323,8 @@ public class OutFileClause {
             case DATE:
             case DATETIME:
             case IPV6:
+            case VARIANT:
+            case JSONB:
                 orcType = "string";
                 break;
             case DECIMALV2:
@@ -441,6 +443,8 @@ public class OutFileClause {
                 case DATE:
                 case DATETIME:
                 case IPV6:
+                case VARIANT:
+                case JSONB:
                     checkOrcType(schema.second, "string", true, resultType.getPrimitiveType().toString());
                     break;
                 case DECIMAL32:
