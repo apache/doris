@@ -89,30 +89,6 @@ else
     echo "/mnt/scripts/tvf_data exist, continue !"
 fi
 
-# download tvf_data
-if [[ ! -d "/mnt/scripts/tvf_data" ]]; then
-    echo "/mnt/scripts/tvf_data does not exist"
-    cd /mnt/scripts/
-    curl -O https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/tvf_data.tar.gz
-    tar -zxf tvf_data.tar.gz
-    rm -rf tvf_data.tar.gz
-    cd -
-else
-    echo "/mnt/scripts/tvf_data exist, continue !"
-fi
-
-# download hudi_tables.db
-if [[ ! -d "/mnt/scripts/hudi_tables.db" ]]; then
-    echo "/mnt/scripts/hudi_tables.db does not exist"
-    cd /mnt/scripts/
-    curl -O https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/pipeline_data/tvf_data.tar.gz
-    tar -zxf hudi_tables.db.tar.gz
-    rm -rf hudi_tables.db.tar.gz
-    cd -
-else
-    echo "/mnt/scripts/hudi_tables.db exist, continue !"
-fi
-
 rm -f "$lockfile2"
 
 # put data file
@@ -147,17 +123,6 @@ fi
 hadoop fs -put /mnt/scripts/tvf_data /user/doris/
 if [ -z "$(hadoop fs -ls /user/doris/tvf_data)" ]; then
     echo "tvf_data put failed"
-    exit 1
-fi
-
-## put hudi_tables.db
-if [ -z "$(ls /mnt/scripts/hudi_tables.db)" ]; then
-    echo "hudi_tables.db does not exist"
-    exit 1
-fi
-hadoop fs -put /mnt/scripts/hudi_tables.db /user/doris/
-if [ -z "$(hadoop fs -ls /user/doris/hudi_tables.db)" ]; then
-    echo "hudi_tables.db put failed"
     exit 1
 fi
 
