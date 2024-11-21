@@ -185,16 +185,21 @@ void ColumnNullable::insert_data(const char* pos, size_t length) {
 }
 
 void ColumnNullable::insert_many_strings(const StringRef* strings, size_t num) {
+    auto not_null_count = 0;
     for (size_t i = 0; i != num; ++i) {
         if (strings[i].data == nullptr) {
-            nested_column->insert_default();
+            _push_false_to_nullmap(not_null_count);
+            not_null_count = 0;
             get_null_map_data().push_back(1);
             _has_null = true;
         } else {
-            nested_column->insert_data(strings[i].data, strings[i].size);
-            _push_false_to_nullmap(1);
+            not_null_count++;
         }
     }
+    if (not_null_count) {
+        _push_false_to_nullmap(not_null_count);
+    }
+    nested_column->insert_many_strings(strings, num);
 }
 
 void ColumnNullable::insert_many_from(const IColumn& src, size_t position, size_t length) {
