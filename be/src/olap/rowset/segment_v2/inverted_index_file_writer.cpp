@@ -150,7 +150,7 @@ Status InvertedIndexFileWriter::close() {
         }
     } else {
         try {
-            RETURN_IF_ERROR(write_v2());
+            RETURN_IF_ERROR(write());
             for (const auto& entry : _indices_dirs) {
                 const auto& dir = entry.second;
                 // delete index path, which contains separated inverted index files
@@ -293,7 +293,7 @@ Status InvertedIndexFileWriter::write_v1() {
     return Status::OK();
 }
 
-Status InvertedIndexFileWriter::write_v2() {
+Status InvertedIndexFileWriter::write() {
     std::unique_ptr<lucene::store::Directory, DirectoryDeleter> out_dir = nullptr;
     std::unique_ptr<lucene::store::IndexOutput> compound_file_output = nullptr;
     ErrorContext error_context;
@@ -301,10 +301,10 @@ Status InvertedIndexFileWriter::write_v2() {
         // Calculate header length and initialize offset
         int64_t current_offset = headerLength();
         // Prepare file metadata
-        auto file_metadata = prepare_file_metadata_v2(current_offset);
+        auto file_metadata = prepare_file_metadata(current_offset);
 
         // Create output stream
-        auto result = create_output_stream_v2();
+        auto result = create_output_stream();
         out_dir = std::move(result.first);
         compound_file_output = std::move(result.second);
 
@@ -315,7 +315,7 @@ Status InvertedIndexFileWriter::write_v2() {
         write_index_headers_and_metadata(compound_file_output.get(), file_metadata);
 
         // Copy file data
-        copy_files_data_v2(compound_file_output.get(), file_metadata);
+        copy_files_data(compound_file_output.get(), file_metadata);
 
         _total_file_size = compound_file_output->getFilePointer();
         _file_info.set_index_size(_total_file_size);
@@ -470,7 +470,7 @@ void InvertedIndexFileWriter::write_header_and_data_v1(lucene::store::IndexOutpu
 
 std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
           std::unique_ptr<lucene::store::IndexOutput>>
-InvertedIndexFileWriter::create_output_stream_v2() {
+InvertedIndexFileWriter::create_output_stream() {
     io::Path index_path {InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)};
 
     auto* out_dir = DorisFSDirectoryFactory::getDirectory(_fs, index_path.parent_path().c_str());
@@ -486,15 +486,15 @@ InvertedIndexFileWriter::create_output_stream_v2() {
 
 void InvertedIndexFileWriter::write_version_and_indices_count(lucene::store::IndexOutput* output) {
     // Write the version number
-    output->writeInt(InvertedIndexStorageFormatPB::V2);
+    output->writeInt(_storage_format);
 
     // Write the number of indices
     const auto num_indices = static_cast<uint32_t>(_indices_dirs.size());
     output->writeInt(num_indices);
 }
 
-std::vector<InvertedIndexFileWriter::FileMetadata>
-InvertedIndexFileWriter::prepare_file_metadata_v2(int64_t& current_offset) {
+std::vector<InvertedIndexFileWriter::FileMetadata> InvertedIndexFileWriter::prepare_file_metadata(
+        int64_t& current_offset) {
     std::vector<FileMetadata> file_metadata;
 
     for (const auto& entry : _indices_dirs) {
@@ -546,8 +546,8 @@ void InvertedIndexFileWriter::write_index_headers_and_metadata(
     }
 }
 
-void InvertedIndexFileWriter::copy_files_data_v2(lucene::store::IndexOutput* output,
-                                                 const std::vector<FileMetadata>& file_metadata) {
+void InvertedIndexFileWriter::copy_files_data(lucene::store::IndexOutput* output,
+                                              const std::vector<FileMetadata>& file_metadata) {
     const int64_t buffer_length = 16384;
     uint8_t buffer[buffer_length];
 
