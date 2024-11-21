@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
@@ -202,7 +203,7 @@ public class InsertTask extends AbstractTask {
         } catch (Exception e) {
             log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
                     getTaskId(), sql, e);
-            throw new JobException(e.getMessage());
+            throw new JobException(Util.getRootCauseMessage(e));
         }
     }
 
