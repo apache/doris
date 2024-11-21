@@ -80,6 +80,10 @@ public class DropIndexClause extends AlterTableClause {
 
     @Override
     public String toSql() {
+        return toSql(alter);
+    }
+
+    public String toSql(boolean alter) {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP INDEX ").append("`" + indexName + "`");
         if (!alter) {
