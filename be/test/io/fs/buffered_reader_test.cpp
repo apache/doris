@@ -134,6 +134,8 @@ public:
 
     const io::PrefetchRange& last_read_range() const { return *_last_read_range; }
 
+    std::shared_ptr<io::FileSystem> fs() const override { return _delegate->fs(); }
+
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const io::IOContext* io_ctx) override {
