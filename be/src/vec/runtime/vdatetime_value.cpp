@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 
 #include <cctype>
+#include <cstddef>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -92,11 +93,11 @@ bool VecDateTimeValue::check_date(uint32_t year, uint32_t month, uint32_t day) {
 // The interval format is that with no delimiters
 // YYYY-MM-DD HH-MM-DD.FFFFFF AM in default format
 // 0    1  2  3  4  5  6      7
-bool VecDateTimeValue::from_date_str(const char* date_str, int len) {
+bool VecDateTimeValue::from_date_str(const char* date_str, size_t len) {
     return from_date_str_base(date_str, len, nullptr);
 }
 //parse timezone to get offset
-bool VecDateTimeValue::from_date_str(const char* date_str, int len,
+bool VecDateTimeValue::from_date_str(const char* date_str, size_t len,
                                      const cctz::time_zone& local_time_zone) {
     return from_date_str_base(date_str, len, &local_time_zone);
 }
@@ -3412,7 +3413,7 @@ const char* DateV2Value<T>::day_name() const {
 
 template <typename T>
 void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                                        uint8_t minute, uint8_t second, uint32_t microsecond) {
+                                        uint8_t minute, uint16_t second, uint32_t microsecond) {
     date_v2_value_.year_ = year;
     date_v2_value_.month_ = month;
     date_v2_value_.day_ = day;
@@ -3425,7 +3426,7 @@ void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t da
 }
 
 template <typename T>
-void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint8_t second,
+void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t second,
                                         uint32_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.hour_ = hour;

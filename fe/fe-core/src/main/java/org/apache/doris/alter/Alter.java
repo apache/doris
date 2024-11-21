@@ -603,7 +603,7 @@ public class Alter {
                 replaceTableInternal(db, origTable, olapNewTbl, swapTable, false, isForce);
                 // write edit log
                 ReplaceTableOperationLog log = new ReplaceTableOperationLog(db.getId(),
-                        origTable.getId(), olapNewTbl.getId(), swapTable, isForce);
+                        origTable.getId(), oldTblName, olapNewTbl.getId(), newTblName, swapTable, isForce);
                 Env.getCurrentEnv().getEditLog().logReplaceTable(log);
                 LOG.info("finish replacing table {} with table {}, is swap: {}", oldTblName, newTblName, swapTable);
             } finally {
