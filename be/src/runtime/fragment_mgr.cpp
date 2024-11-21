@@ -1245,7 +1245,9 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
         RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(&params, &filter_wrapper));
 
         std::ranges::for_each(filters, [&](auto& filter) {
-            filter->update_filter(filter_wrapper, request->merge_time(), start_apply);
+            filter->update_filter(
+                    filter_wrapper, request->merge_time(), start_apply,
+                    request->has_local_merge_time() ? request->local_merge_time() : 0);
         });
     }
 
