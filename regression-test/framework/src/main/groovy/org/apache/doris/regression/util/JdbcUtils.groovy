@@ -19,6 +19,8 @@ package org.apache.doris.regression.util
 
 import com.google.common.collect.ImmutableList
 import groovy.lang.Tuple2
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 import java.sql.Connection
 import java.sql.PreparedStatement
@@ -26,6 +28,7 @@ import java.sql.ResultSet
 import java.sql.ResultSetMetaData
 
 class JdbcUtils {
+    final Logger logger = LoggerFactory.getLogger(this.class)
     static Tuple2<List<List<Object>>, ResultSetMetaData> executeToList(Connection conn, String sql) {
         conn.prepareStatement(sql).withCloseable { stmt ->
             boolean hasResultSet = stmt.execute()
@@ -108,6 +111,7 @@ class JdbcUtils {
             while (resultSet.next()) {
                 def row = new ArrayList<>()
                 for (int i = 1; i <= columnCount; ++i) {
+                    logger.info("resultSet.getObject(i): " + resultSet.getObject(i))
                     row.add(resultSet.getObject(i))
                 }
                 rows.add(row)

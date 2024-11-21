@@ -456,6 +456,7 @@ class Suite implements GroovyInterceptable {
             conn = context.getConnection()
         }
         def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
+        logger.info("sql_return_maparray_impl result: ${result}")
 
         // get all column names as list
         List<String> columnNames = new ArrayList<>()

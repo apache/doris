@@ -58,6 +58,7 @@ suite("test_build_index_with_clone_fault_injection", "nonConcurrent"){
         while (attempt < maxRetries) {
             def show_build_index = sql_return_maparray("show build index where TableName = \"${tbl}\" ORDER BY JobId DESC LIMIT 1")
             if (show_build_index && show_build_index.size() > 0) {
+                logger.info("show build index: " + show_build_index[0])
                 def currentState = show_build_index[0].State
                 def currentMsg = show_build_index[0].Msg
                 if ((currentState == expectedState && currentMsg == expectedMsg) || currentState == "FINISHED") {
@@ -82,7 +83,7 @@ suite("test_build_index_with_clone_fault_injection", "nonConcurrent"){
 
     def tbl = 'test_build_index_with_clone'
     try {
-        GetDebugPoint().enableDebugPointForAllBEs("EngineCloneTask.wait_clone")
+        GetDebugPoint().enableDebugPointForAllBEs("EngineCloneTask.wait_clone", [duration:30*1000])
         logger.info("add debug point EngineCloneTask.wait_clone")
         sql """ DROP TABLE IF EXISTS ${tbl} """
         sql """
@@ -110,7 +111,7 @@ suite("test_build_index_with_clone_fault_injection", "nonConcurrent"){
         sql """ create index idx_k2 on ${tbl}(k2) using inverted """
         sql """ build index idx_k2 on ${tbl} """
 
-        assertShowBuildIndexWithRetry(tbl, 'WAITING_TXN', 'table is unstable', 3, 10)
+        assertShowBuildIndexWithRetry(tbl, 'WAITING_TXN', 'table is unstable', 10, 5)
 
         def state = wait_for_last_build_index_on_table_finish(tbl, timeout)
         assertEquals(state, "FINISHED")
