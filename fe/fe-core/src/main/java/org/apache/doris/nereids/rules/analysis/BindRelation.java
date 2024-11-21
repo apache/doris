@@ -244,25 +244,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         } else {
             // it's a duplicate, unique or hash distribution agg table
             // add delete sign filter on olap scan if needed
-            if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
-                    && !ConnectContext.get().getSessionVariable().skipDeleteSign()) {
-                // table qualifier is catalog.db.table, we make db.table.column
-                Slot deleteSlot = null;
-                for (Slot slot : scan.getOutput()) {
-                    if (slot.getName().equals(Column.DELETE_SIGN)) {
-                        deleteSlot = slot;
-                        break;
-                    }
-                }
-                Preconditions.checkArgument(deleteSlot != null);
-                Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
-                if (!((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
-                    scan = scan.withPreAggStatus(
-                            PreAggStatus.off(Column.DELETE_SIGN + " is used as conjuncts."));
-                }
-                return new LogicalFilter<>(Sets.newHashSet(conjunct), scan);
-            }
-            return scan;
+            return checkAndAddDeleteSignFilter(scan, ConnectContext.get(), (OlapTable) table);
         }
     }
 
@@ -368,6 +350,32 @@ public class BindRelation extends OneAnalysisRuleFactory {
             return Optional.of(new LogicalTVFRelation(unboundRelation.getRelationId(), tvf.get()));
         }
         return Optional.empty();
+    }
+
+    /**
+     * Add delete sign filter on olap scan if need.
+     */
+    public static LogicalPlan checkAndAddDeleteSignFilter(LogicalOlapScan scan, ConnectContext connectContext,
+            OlapTable olapTable) {
+        if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
+                && !connectContext.getSessionVariable().skipDeleteSign()) {
+            // table qualifier is catalog.db.table, we make db.table.column
+            Slot deleteSlot = null;
+            for (Slot slot : scan.getOutput()) {
+                if (slot.getName().equals(Column.DELETE_SIGN)) {
+                    deleteSlot = slot;
+                    break;
+                }
+            }
+            Preconditions.checkArgument(deleteSlot != null);
+            Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
+            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
+                scan = scan.withPreAggStatus(PreAggStatus.off(
+                        Column.DELETE_SIGN + " is used as conjuncts."));
+            }
+            return new LogicalFilter<>(Sets.newHashSet(conjunct), scan);
+        }
+        return scan;
     }
 
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation,

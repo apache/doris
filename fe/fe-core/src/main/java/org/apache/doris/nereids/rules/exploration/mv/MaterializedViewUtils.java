@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.constraint.TableIdentifier;
@@ -30,6 +30,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.StructInfoMap;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.BindRelation;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -212,19 +213,24 @@ public class MaterializedViewUtils {
      * when query rewrite, because one plan may hit the materialized view repeatedly and the mv scan output
      * should be different
      */
-    public static Plan generateMvScanPlan(MTMV materializedView, CascadesContext cascadesContext) {
-        return new LogicalOlapScan(
+    public static Plan generateMvScanPlan(OlapTable table, long indexId,
+            List<Long> partitionIds,
+            PreAggStatus preAggStatus,
+            CascadesContext cascadesContext) {
+        LogicalOlapScan olapScan = new LogicalOlapScan(
                 cascadesContext.getStatementContext().getNextRelationId(),
-                materializedView,
-                materializedView.getFullQualifiers(),
+                table,
+                ImmutableList.of(table.getQualifiedDbName()),
                 ImmutableList.of(),
-                materializedView.getPartitionIds(),
-                materializedView.getBaseIndexId(),
-                PreAggStatus.on(),
+                partitionIds,
+                indexId,
+                preAggStatus,
                 ImmutableList.of(),
                 // this must be empty, or it will be used to sample
                 ImmutableList.of(),
                 Optional.empty());
+        return BindRelation.checkAndAddDeleteSignFilter(olapScan, cascadesContext.getConnectContext(),
+                olapScan.getTable());
     }
 
     /**
