@@ -177,15 +177,11 @@ int Checker::start() {
             }
 
             if (config::enable_delete_bitmap_inverted_check) {
-                if (ret == 0) {
-                    ret = checker->do_delete_bitmap_inverted_check();
-                }
+                ret = checker->do_delete_bitmap_inverted_check();
             }
 
             if (config::enable_delete_bitmap_storage_optimize_check) {
-                if (ret == 0) {
-                    ret = checker->do_delete_bitmap_storage_optimize_check();
-                }
+                ret = checker->do_delete_bitmap_storage_optimize_check();
             }
 
             if (ret < 0) {
@@ -916,6 +912,10 @@ int InstanceChecker::collect_tablet_rowsets(
 }
 
 int InstanceChecker::do_delete_bitmap_inverted_check() {
+    LOG(INFO) << fmt::format(
+            "[delete bitmap checker] begin to do_delete_bitmap_inverted_check for instance_id={}",
+            instance_id_);
+
     // number of delete bitmap keys being scanned
     int64_t total_delete_bitmap_keys {0};
     // number of delete bitmaps which belongs to non mow tablet
