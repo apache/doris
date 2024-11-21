@@ -33,6 +33,7 @@
 #include <thread>
 #include <utility>
 
+#include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "common/logging.h"
@@ -78,8 +79,8 @@ static Status _check_param(HttpRequest* req, uint64_t* tablet_id) {
     return Status::OK();
 }
 
-Status CloudDeleteBitmapAction::_handle_show_delete_bitmap_count(HttpRequest* req,
-                                                                 std::string* json_result) {
+Status CloudDeleteBitmapAction::_handle_show_local_delete_bitmap_count(HttpRequest* req,
+                                                                       std::string* json_result) {
     uint64_t tablet_id = 0;
     // check & retrieve tablet_id from req if it contains
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id), "check param failed");
@@ -95,6 +96,50 @@ Status CloudDeleteBitmapAction::_handle_show_delete_bitmap_count(HttpRequest* re
     auto count = tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
     auto cardinality = tablet->tablet_meta()->delete_bitmap().cardinality();
     auto size = tablet->tablet_meta()->delete_bitmap().get_size();
+    LOG(INFO) << "show_local_delete_bitmap_count,tablet_id=" << tablet_id << ",count=" << count
+              << ",cardinality=" << cardinality << ",size=" << size;
+
+    rapidjson::Document root;
+    root.SetObject();
+    root.AddMember("delete_bitmap_count", count, root.GetAllocator());
+    root.AddMember("cardinality", cardinality, root.GetAllocator());
+    root.AddMember("size", size, root.GetAllocator());
+
+    // to json string
+    rapidjson::StringBuffer strbuf;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(strbuf);
+    root.Accept(writer);
+    *json_result = std::string(strbuf.GetString());
+
+    return Status::OK();
+}
+
+Status CloudDeleteBitmapAction::_handle_show_ms_delete_bitmap_count(HttpRequest* req,
+                                                                    std::string* json_result) {
+    uint64_t tablet_id = 0;
+    // check & retrieve tablet_id from req if it contains
+    RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id), "check param failed");
+    if (tablet_id == 0) {
+        return Status::InternalError("check param failed: missing tablet_id");
+    }
+    TabletMetaSharedPtr tablet_meta;
+    auto st = _engine.meta_mgr().get_tablet_meta(tablet_id, &tablet_meta);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to get_tablet_meta tablet=" << tablet_id
+                     << ", st=" << st.to_string();
+        return st;
+    }
+    auto tablet = std::make_shared<CloudTablet>(_engine, std::move(tablet_meta));
+    st = _engine.meta_mgr().sync_tablet_rowsets(tablet.get(), false, true, true);
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to sync tablet=" << tablet_id << ", st=" << st;
+        return st;
+    }
+    auto count = tablet->tablet_meta()->delete_bitmap().get_delete_bitmap_count();
+    auto cardinality = tablet->tablet_meta()->delete_bitmap().cardinality();
+    auto size = tablet->tablet_meta()->delete_bitmap().get_size();
+    LOG(INFO) << "show_ms_delete_bitmap_count,tablet_id=" << tablet_id << ",count=" << count
+              << ",cardinality=" << cardinality << ",size=" << size;
 
     rapidjson::Document root;
     root.SetObject();
@@ -113,9 +158,17 @@ Status CloudDeleteBitmapAction::_handle_show_delete_bitmap_count(HttpRequest* re
 
 void CloudDeleteBitmapAction::handle(HttpRequest* req) {
     req->add_output_header(HttpHeaders::CONTENT_TYPE, HEADER_JSON.data());
-    if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_INFO) {
+    if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_LOCAL) {
         std::string json_result;
-        Status st = _handle_show_delete_bitmap_count(req, &json_result);
+        Status st = _handle_show_local_delete_bitmap_count(req, &json_result);
+        if (!st.ok()) {
+            HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
+        } else {
+            HttpChannel::send_reply(req, HttpStatus::OK, json_result);
+        }
+    } else if (_delete_bitmap_action_type == DeleteBitmapActionType::COUNT_MS) {
+        std::string json_result;
+        Status st = _handle_show_ms_delete_bitmap_count(req, &json_result);
         if (!st.ok()) {
             HttpChannel::send_reply(req, HttpStatus::OK, st.to_json());
         } else {
