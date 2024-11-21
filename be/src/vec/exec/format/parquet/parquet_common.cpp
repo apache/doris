@@ -78,11 +78,11 @@ bool FilterMap::can_filter_all(size_t remaining_num_values, size_t filter_map_in
 Status FilterMap::generate_nested_filter_map(const std::vector<level_t>& rep_levels,
                                              std::vector<uint8_t>& nested_filter_map_data,
                                              std::unique_ptr<FilterMap>* nested_filter_map,
-                                             size_t* current_row_ptr, bool is_cross_page,
-                                             size_t start_index) const {
+                                             size_t* current_row_ptr, size_t start_index) const {
     if (!has_filter() || filter_all()) {
-        *nested_filter_map = std::make_unique<FilterMap>();
-        return Status::OK();
+        return Status::InternalError(fmt::format(
+                "FilterMap::generate_nested_filter_map failed: has_filter={}, filter_all={}",
+                has_filter(), filter_all()));
     }
 
     if (rep_levels.empty()) {
@@ -94,12 +94,12 @@ Status FilterMap::generate_nested_filter_map(const std::vector<level_t>& rep_lev
     size_t current_row = current_row_ptr ? *current_row_ptr : 0;
 
     for (size_t i = start_index; i < rep_levels.size(); i++) {
-        if (!is_cross_page && i > start_index && rep_levels[i] == 0) {
+        if (i != start_index && rep_levels[i] == 0) {
             current_row++;
             if (current_row >= _filter_map_size) {
-                return Status::InvalidArgument(
-                        fmt::format("Filter map size {} is not enough for {} rows",
-                                    _filter_map_size, current_row + 1));
+                return Status::InvalidArgument(fmt::format(
+                        "current_row >= _filter_map_size. current_row: {}, _filter_map_size: {}",
+                        current_row, _filter_map_size));
             }
         }
         nested_filter_map_data[i] = _filter_map_data[current_row];

@@ -201,6 +201,7 @@ private:
     std::vector<level_t> _rep_levels;
     std::vector<level_t> _def_levels;
     std::unique_ptr<parquet::PhysicalToLogicalConverter> _converter = nullptr;
+    std::unique_ptr<std::vector<uint8_t>> _nested_filter_map_data = nullptr;
     size_t _orig_filter_map_index = 0;
 
     Status _skip_values(size_t num_values);

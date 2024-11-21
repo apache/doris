@@ -323,9 +323,6 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
                                                size_t* read_rows, bool* eof, bool is_dict_filter,
                                                bool align_rows) {
     std::unique_ptr<FilterMap> nested_filter_map;
-    std::unique_ptr<std::vector<uint8_t>> nested_filter_map_data;
-
-    size_t current_row;
 
     FilterMap* current_filter_map = &filter_map;
     size_t origin_size = 0;
@@ -337,17 +334,22 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     } else {
         _rep_levels.resize(0);
         _def_levels.resize(0);
+        if (_nested_filter_map_data) {
+            _nested_filter_map_data->resize(0);
+        }
     }
     size_t parsed_rows = 0;
     size_t remaining_values = _chunk_reader->remaining_num_values();
     bool has_rep_level = _chunk_reader->max_rep_level() > 0;
     bool has_def_level = _chunk_reader->max_def_level() > 0;
 
+    // Handle repetition levels (indicates nesting structure)
     if (has_rep_level) {
         LevelDecoder& rep_decoder = _chunk_reader->rep_level_decoder();
+        // Read repetition levels until batch is full or no more values
         while (parsed_rows <= batch_size && remaining_values > 0) {
             level_t rep_level = rep_decoder.get_next();
-            if (rep_level == 0) {
+            if (rep_level == 0) { // rep_level 0 indicates start of new row
                 if (parsed_rows == batch_size) {
                     rep_decoder.rewind_one();
                     break;
@@ -358,13 +360,15 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             remaining_values--;
         }
 
-        if (filter_map.has_filter()) {
-            nested_filter_map_data = std::make_unique<std::vector<uint8_t>>();
-            nested_filter_map_data->resize(_rep_levels.size());
-            current_row = _orig_filter_map_index;
+        // Generate nested filter map
+        if (filter_map.has_filter() && (!filter_map.filter_all())) {
+            if (_nested_filter_map_data == nullptr) {
+                _nested_filter_map_data.reset(new std::vector<uint8_t>());
+            }
             RETURN_IF_ERROR(filter_map.generate_nested_filter_map(
-                    _rep_levels, *nested_filter_map_data, &nested_filter_map, &current_row, false,
-                    0));
+                    _rep_levels, *_nested_filter_map_data, &nested_filter_map,
+                    &_orig_filter_map_index, origin_size));
+            // Update current_filter_map to nested_filter_map
             current_filter_map = nested_filter_map.get();
         }
     } else if (!align_rows) {
@@ -374,8 +378,8 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         _rep_levels.resize(parsed_rows, 0);
     }
 
+    // Process definition levels (indicates null values)
     size_t parsed_values = _chunk_reader->remaining_num_values() - remaining_values;
-
     _def_levels.resize(origin_size + parsed_values);
     if (has_def_level) {
         _chunk_reader->def_level_decoder().get_levels(&_def_levels[origin_size], parsed_values);
@@ -383,6 +387,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         std::fill(_def_levels.begin() + origin_size, _def_levels.end(), 0);
     }
 
+    // Handle nullable columns
     MutableColumnPtr data_column;
     std::vector<uint16_t> null_map;
     NullMap* map_data_column = nullptr;
@@ -399,6 +404,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         data_column = doris_column->assume_mutable();
     }
 
+    // Process definition levels to build null map
     size_t has_read = origin_size;
     size_t ancestor_nulls = 0;
     size_t null_size = 0;
@@ -445,7 +451,9 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
 
     size_t num_values = parsed_values - ancestor_nulls;
 
+    // Handle filtered values
     if (current_filter_map->filter_all()) {
+        // Skip all values if everything is filtered
         if (null_size > 0) {
             RETURN_IF_ERROR(_chunk_reader->skip_values(null_size, false));
         }
@@ -461,7 +469,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             SCOPED_RAW_TIMER(&_decode_null_map_time);
             RETURN_IF_ERROR(
                     select_vector.init(null_map, num_values, map_data_column, current_filter_map,
-                                       nested_filter_map_data ? origin_size : _filter_map_index));
+                                       _nested_filter_map_data ? origin_size : _filter_map_index));
         }
 
         RETURN_IF_ERROR(
@@ -470,11 +478,10 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
             RETURN_IF_ERROR(_chunk_reader->skip_values(ancestor_nulls, false));
         }
     }
-
-    if (!align_rows) {
-        *read_rows = parsed_rows;
-    }
+    *read_rows += parsed_rows;
     _filter_map_index += parsed_values;
+
+    // Handle cross-page reading
     if (_chunk_reader->remaining_num_values() == 0) {
         if (_chunk_reader->has_next_page()) {
             RETURN_IF_ERROR(_chunk_reader->next_page());
@@ -486,6 +493,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         }
     }
 
+    // Apply filtering to repetition and definition levels
     if (current_filter_map->has_filter()) {
         if (current_filter_map->filter_all()) {
             _rep_levels.resize(0);
@@ -510,7 +518,8 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         }
     }
 
-    _orig_filter_map_index = current_row + 1;
+    // Prepare for next row
+    ++_orig_filter_map_index;
 
     if (_rep_levels.size() > 0) {
         // make sure the rows of complex type are aligned correctly,

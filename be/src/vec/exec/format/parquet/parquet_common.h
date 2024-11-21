@@ -77,9 +77,7 @@ public:
     Status generate_nested_filter_map(const std::vector<level_t>& rep_levels,
                                       std::vector<uint8_t>& nested_filter_map_data,
                                       std::unique_ptr<FilterMap>* nested_filter_map,
-                                      size_t* current_row_ptr,       // 当前处理到哪一行
-                                      bool is_cross_page,            // 是否是跨页的情况
-                                      size_t start_index = 0) const; // rep_levels的起始处理位置
+                                      size_t* current_row_ptr, size_t start_index = 0) const;
 
     const uint8_t* filter_map_data() const { return _filter_map_data; }
     size_t filter_map_size() const { return _filter_map_size; }
