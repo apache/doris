@@ -141,6 +141,8 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_QUERY_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_INSERT_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(
+                Pattern.compile("^" + PROP_ALLOW_RESOURCE_TAG_DOWNGRADE + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -149,8 +151,6 @@ public class UserProperty implements Writable {
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_WORKLOAD_GROUP + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_CLOUD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + DEFAULT_COMPUTE_GROUP + "$", Pattern.CASE_INSENSITIVE));
-        COMMON_PROPERTIES.add(
-                Pattern.compile("^" + PROP_ALLOW_RESOURCE_TAG_DOWNGRADE + "$", Pattern.CASE_INSENSITIVE));
     }
 
     public UserProperty() {
@@ -371,9 +371,9 @@ public class UserProperty implements Writable {
                 if (keyArr.length != 1) {
                     throw new DdlException(PROP_ALLOW_RESOURCE_TAG_DOWNGRADE + " format error");
                 }
-                if (!"true".equals(value) && !"false".equals(value)) {
+                if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
                     throw new DdlException(
-                            "allow_resource_tag_downgrade's value must be true or false with lowercase");
+                            "allow_resource_tag_downgrade's value must be true or false");
                 }
                 allowResourceTagDowngrade = Boolean.parseBoolean(value);
             } else {

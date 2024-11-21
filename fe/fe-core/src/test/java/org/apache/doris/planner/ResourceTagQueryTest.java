@@ -280,7 +280,13 @@ public class ResourceTagQueryTest {
         Assert.assertEquals(1000000, execMemLimit);
 
         List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
-        Assert.assertEquals(13, userProps.size());
+        Assert.assertEquals(14, userProps.size());
+
+        // set resource tag downgrade
+        String setResourceTagDownStr = "set property for 'root' 'allow_resource_tag_downgrade' = 'false';";
+        ExceptionChecker.expectThrowsNoException(() -> setProperty(setResourceTagDownStr));
+        boolean tagDowngrade = Env.getCurrentEnv().getAuth().isAllowResourceTagDowngrade(Auth.ROOT_USER);
+        Assert.assertTrue(!tagDowngrade);
 
         // now :
         // be1 be2 be3 ==>tag1;

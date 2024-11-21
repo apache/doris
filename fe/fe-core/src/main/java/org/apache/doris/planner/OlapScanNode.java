@@ -898,6 +898,11 @@ public class OlapScanNode extends ScanNode {
             boolean isAllowRgDowngrade = context.isAllowResourceTagDowngrade();
             if (needCheckTags && isAllowRgDowngrade && !checkTagHasAvailReplica(allowedTags, replicas)) {
                 shouldSkipResourceTag = true;
+                if (ConnectContext.get() != null && LOG.isDebugEnabled()) {
+                    LOG.debug("query {} skip resource tag for table {}.",
+                            DebugUtil.printId(ConnectContext.get().queryId()),
+                            olapTable != null ? olapTable.getId() : -1);
+                }
             }
 
             for (Replica replica : replicas) {
