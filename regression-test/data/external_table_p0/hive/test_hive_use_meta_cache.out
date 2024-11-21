@@ -34,17 +34,13 @@ p1=part1
 p1=part2
 
 -- !sql10 --
-p1=part1
-p1=part2
 
 -- !sql11 --
 
 -- !sql12 --
-
--- !sql13 --
 test_use_meta_cache_db_hive
 
--- !sql14 --
+-- !sql13 --
 
 -- !sql01 --
 
@@ -82,19 +78,15 @@ p1=part1
 p1=part2
 
 -- !sql10 --
-p1=part1
-p1=part2
-
--- !sql11 --
 test_use_meta_cache_partitioned_tbl_hive
 test_use_meta_cache_tbl_hive
 
--- !sql12 --
+-- !sql11 --
 
--- !sql13 --
+-- !sql12 --
 test_use_meta_cache_db_hive
 
--- !sql14 --
+-- !sql13 --
 
 -- !sql01 --
 
@@ -131,17 +123,13 @@ p1=part1
 p1=part2
 
 -- !sql10 --
-p1=part1
-p1=part2
 
 -- !sql11 --
 
 -- !sql12 --
-
--- !sql13 --
 test_use_meta_cache_db_hive
 
--- !sql14 --
+-- !sql13 --
 
 -- !sql01 --
 
@@ -179,17 +167,13 @@ p1=part1
 p1=part2
 
 -- !sql10 --
-p1=part1
-p1=part2
-
--- !sql11 --
 test_use_meta_cache_partitioned_tbl_hive
 test_use_meta_cache_tbl_hive
 
--- !sql12 --
+-- !sql11 --
 
--- !sql13 --
+-- !sql12 --
 test_use_meta_cache_db_hive
 
--- !sql14 --
+-- !sql13 --
 

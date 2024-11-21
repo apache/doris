@@ -107,28 +107,25 @@ suite("test_hive_use_meta_cache", "p0,external,hive,external_docker,external_doc
                 order_qt_sql08 "show partitions from ${partitioned_table_hive}"
                 hive_docker "alter table ${database_hive}.${partitioned_table_hive} add partition (p1='part1')"
                 hive_docker "alter table ${database_hive}.${partitioned_table_hive} add partition (p1='part2')"
-                // cant not see
+                // can see because partition file listing is not cached
                 order_qt_sql09 "show partitions from ${partitioned_table_hive}"
-                sql "refresh database ${database_hive}"
-                // can see
-                order_qt_sql10 "show partitions from ${partitioned_table_hive}"
 
                 // drop tables
                 hive_docker "drop table ${database_hive}.${partitioned_table_hive}"
                 hive_docker "drop table ${database_hive}.${table_hive}"
                 // still can see
-                order_qt_sql11 "show tables"
+                order_qt_sql10 "show tables"
                 sql "refresh database ${database_hive}"
                 // can not see
-                order_qt_sql12 "show tables"
+                order_qt_sql11 "show tables"
 
                 // drop database
                 hive_docker "drop database ${database_hive}"
                 // still can see
-                order_qt_sql13 "show databases like '%${database_hive}%'";
+                order_qt_sql12 "show databases like '%${database_hive}%'";
                 sql "refresh catalog ${catalog}"
                 // can not see
-                order_qt_sql14 "show databases like '%${database_hive}%'";
+                order_qt_sql13 "show databases like '%${database_hive}%'";
             }
             test_use_meta_cache(true)
             test_use_meta_cache(false)
