@@ -423,8 +423,8 @@ public:
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "adapt_decimal_constant_constant Invalid function type!");
+            throw Exception(
+                    Status::FatalError("adapt_decimal_constant_constant Invalid function type!"));
             return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(1, 0);
@@ -458,8 +458,8 @@ public:
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "adapt_decimal_vector_constant Invalid function type!");
+            throw Exception(
+                    Status::FatalError("adapt_decimal_vector_constant Invalid function type!"));
             return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_left->size(), 0);
@@ -493,8 +493,8 @@ public:
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "adapt_decimal_constant_vector Invalid function type!");
+            throw Exception(
+                    Status::FatalError("adapt_decimal_constant_vector Invalid function type!"));
             return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(column_right->size(), 0);
@@ -526,8 +526,8 @@ public:
 
         if constexpr (check_overflow && !is_to_null_type &&
                       ((!OpTraits::is_multiply && !OpTraits::is_plus_minus))) {
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "adapt_decimal_vector_vector Invalid function type!");
+            throw Exception(
+                    Status::FatalError("adapt_decimal_vector_vector Invalid function type!"));
             return column_result;
         } else if constexpr (is_to_null_type) {
             // function divide, modulo and pmod
@@ -1058,13 +1058,12 @@ public:
                     using ResultDataType =
                             typename BinaryOperationTraits<Operation, LeftDataType,
                                                            RightDataType>::ResultDataType;
-                    if constexpr (
-                            !std::is_same_v<ResultDataType, InvalidType> &&
-                            (IsDataTypeDecimal<ExpectedResultDataType> ==
-                             IsDataTypeDecimal<
-                                     ResultDataType>)&&(IsDataTypeDecimal<ExpectedResultDataType> ==
-                                                        (IsDataTypeDecimal<LeftDataType> ||
-                                                         IsDataTypeDecimal<RightDataType>))) {
+                    if constexpr (!std::is_same_v<ResultDataType, InvalidType> &&
+                                  (IsDataTypeDecimal<ExpectedResultDataType> ==
+                                   IsDataTypeDecimal<ResultDataType>) &&
+                                  (IsDataTypeDecimal<ExpectedResultDataType> ==
+                                   (IsDataTypeDecimal<LeftDataType> ||
+                                    IsDataTypeDecimal<RightDataType>))) {
                         if (check_overflow_for_decimal) {
                             // !is_to_null_type: plus, minus, multiply,
                             //                   pow, bitxor, bitor, bitand

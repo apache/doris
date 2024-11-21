@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <string_view>
 
+#include "common/exception.h"
 #include "common/status.h"
 #include "runtime/string_search.hpp"
 #include "util/url_coding.h"
@@ -621,9 +622,8 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         if (!is_string_or_fixed_string(arguments[0])) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "Illegal type {} of argument of function {}",
-                                   arguments[0]->get_name(), get_name());
+            throw Exception(Status::FatalError("Illegal type {} of argument of function {}",
+                                               arguments[0]->get_name(), get_name()));
         }
         return arguments[0];
     }

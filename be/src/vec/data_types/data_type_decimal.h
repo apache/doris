@@ -197,17 +197,15 @@ public:
                                      node.decimal_literal.value.size()) == E_DEC_OK) {
                 return DecimalField<Decimal128V2>(value.value(), value.scale());
             } else {
-                throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                       "Invalid decimal(scale: {}) value: {}", value.scale(),
-                                       node.decimal_literal.value);
+                throw Exception(Status::FatalError("Invalid decimal(scale: {}) value: {}",
+                                                   value.scale(), node.decimal_literal.value));
             }
         }
         // decimal
         T val;
         if (!parse_from_string(node.decimal_literal.value, &val)) {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type {}", node.decimal_literal.value,
-                                   do_get_name());
+            throw Exception(Status::FatalError("Invalid value: {} for type {}",
+                                               node.decimal_literal.value, do_get_name()));
         };
         return DecimalField<T>(val, scale);
     }
@@ -251,8 +249,8 @@ public:
     template <typename U>
     T scale_factor_for(const DataTypeDecimal<U>& x, bool) const {
         if (get_scale() < x.get_scale()) {
-            throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                                   "Decimal result's scale is less then argument's one");
+            throw Exception(
+                    Status::FatalError("Decimal result's scale is less then argument's one"));
             __builtin_unreachable();
         }
 
@@ -276,18 +274,18 @@ public:
 
     static void check_type_precision(const vectorized::UInt32 precision) {
         if (precision > max_decimal_precision<T>() || precision < 1) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "meet invalid precision: real_precision={}, max_decimal_precision={}, "
-                            "min_decimal_precision=1",
-                            precision, max_decimal_precision<T>());
+            throw Exception(Status::FatalError(
+                    "meet invalid precision: real_precision={}, max_decimal_precision={}, "
+                    "min_decimal_precision=1",
+                    precision, max_decimal_precision<T>()));
         }
     }
 
     static void check_type_scale(const vectorized::UInt32 scale) {
         if (scale > max_decimal_precision<T>()) {
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "meet invalid scale: real_scale={}, max_decimal_precision={}", scale,
-                            max_decimal_precision<T>());
+            throw Exception(Status::FatalError(
+                    "meet invalid scale: real_scale={}, max_decimal_precision={}", scale,
+                    max_decimal_precision<T>()));
         }
     }
 

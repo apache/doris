@@ -82,10 +82,9 @@ public:
         if (return_type) {
             return std::make_shared<DataTypeArray>(make_nullable(return_type));
         } else {
-            throw doris::Exception(
-                    ErrorCode::INVALID_ARGUMENT,
+            throw Exception(Status::FatalError(
                     "Function of {}, return type get wrong: and input argument is: {}", name,
-                    arguments[0]->get_name());
+                    arguments[0]->get_name()));
         }
 
         return nullptr;

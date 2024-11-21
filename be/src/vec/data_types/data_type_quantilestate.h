@@ -94,9 +94,7 @@ public:
     Field get_default() const override { return QuantileState(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Unimplemented get_field for quantile state");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Unimplemented get_field for quantile state"));
     }
 
     static void serialize_as_stream(const QuantileState& value, BufferWritable& buf);

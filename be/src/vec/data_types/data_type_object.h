@@ -87,7 +87,7 @@ public:
         }
         std::stringstream error_string;
         node.printTo(error_string);
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Unkown literal {}", error_string.str());
+        throw Exception(Status::FatalError("Unkown literal {}", error_string.str()));
         return {};
     }
 

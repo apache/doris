@@ -79,16 +79,12 @@ public:
     const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
 
     [[noreturn]] Field get_default() const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method get_default() is not implemented for data type {}.",
-                               get_name());
-        __builtin_unreachable();
+        throw Exception(Status::FatalError(
+                "Method get_default() is not implemented for data type {}.", get_name()));
     }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Unimplemented get_field for Nothing");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Unimplemented get_field for Nothing"));
     }
 
     bool have_subtypes() const override { return false; }

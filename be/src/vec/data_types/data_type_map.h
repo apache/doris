@@ -79,8 +79,7 @@ public:
     Field get_default() const override;
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "Unimplemented get_field for map");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Unimplemented get_field for map"));
     }
 
     bool equals(const IDataType& rhs) const override;

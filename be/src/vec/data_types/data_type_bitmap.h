@@ -105,9 +105,7 @@ public:
     Field get_default() const override { return BitmapValue::empty_bitmap(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Unimplemented get_field for BitMap");
-        __builtin_unreachable();
+        throw Exception(Status::FatalError("Unimplemented get_field for BitMap"));
     }
 
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);

@@ -31,14 +31,12 @@ MutableColumnPtr DataTypeNothing::create_column() const {
 }
 
 char* DataTypeNothing::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "serialize not support");
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("serialize not support"));
 }
 
 const char* DataTypeNothing::deserialize(const char* buf, IColumn* column,
                                          int be_exec_version) const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, "deserialize not support");
-    __builtin_unreachable();
+    throw Exception(Status::FatalError("deserialize not support"));
 }
 
 bool DataTypeNothing::equals(const IDataType& rhs) const {

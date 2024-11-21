@@ -185,9 +185,8 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
                 if (current_nested_sizes.size() == ctx.current_size) {
                     current_nested_sizes.push_back(array_size);
                 } else if (array_size != current_nested_sizes.back()) {
-                    throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
-                                           "Array sizes mismatched ({} and {})", array_size,
-                                           current_nested_sizes.back());
+                    throw Exception(Status::FatalError("Array sizes mismatched ({} and {})",
+                                                       array_size, current_nested_sizes.back()));
                 }
             }
             path_array.push_back(std::move(values[i]));
@@ -213,9 +212,8 @@ void JSONDataParser<ParserImpl>::traverseArrayElement(const Element& element,
                 if (current_nested_sizes.size() == ctx.current_size) {
                     current_nested_sizes.push_back(array_size);
                 } else if (array_size != current_nested_sizes.back()) {
-                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                           "Array sizes mismatched ({} and {})", array_size,
-                                           current_nested_sizes.back());
+                    throw Exception(Status::FatalError("Array sizes mismatched ({} and {})",
+                                                       array_size, current_nested_sizes.back()));
                 }
             }
             path_array.push_back(std::move(values[i]));

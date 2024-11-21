@@ -212,8 +212,8 @@ Field DataTypeNullable::get_default() const {
 }
 
 size_t DataTypeNullable::get_size_of_value_in_memory() const {
-    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                           "Value of type {} in memory is not of fixed size.", get_name());
+    throw Exception(
+            Status::FatalError("Value of type {} in memory is not of fixed size.", get_name()));
     return 0;
 }
 

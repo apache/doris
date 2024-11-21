@@ -93,9 +93,8 @@ std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(
                     res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
                                 col.name});
                 } else {
-                    throw doris::Exception(
-                            ErrorCode::INTERNAL_ERROR,
-                            "Illegal column= {},  for DataTypeNullable" + col.column->get_name());
+                    throw Exception(Status::FatalError("Illegal column= {},  for DataTypeNullable" +
+                                                       col.column->get_name()));
                 }
             } else {
                 res.insert(col);
@@ -132,16 +131,15 @@ void validate_argument_type(const IFunction& func, const DataTypes& arguments,
                             size_t argument_index, bool (*validator_func)(const IDataType&),
                             const char* expected_type_description) {
     if (arguments.size() <= argument_index) {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                               "Incorrect number of arguments of function {}" + func.get_name());
+        throw Exception(Status::FatalError("Incorrect number of arguments of function {}" +
+                                           func.get_name()));
     }
 
     const auto& argument = arguments[argument_index];
     if (validator_func(*argument) == false) {
-        throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                               "Illegal type {} of {} argument of function {} expected {}",
-                               argument->get_name(), argument_index, func.get_name(),
-                               expected_type_description);
+        throw Exception(Status::FatalError(
+                "Illegal type {} of {} argument of function {} expected {}", argument->get_name(),
+                argument_index, func.get_name(), expected_type_description));
     }
 }
 

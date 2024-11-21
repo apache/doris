@@ -350,9 +350,9 @@ private:
                 execute_num_right_type<T0, Float64>(block, result, col_left, col_right_untyped)) {
                 return true;
             } else {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Illegal column ({}) of second argument of function {}",
-                                       col_right_untyped->get_name(), get_name());
+                throw Exception(
+                        Status::FatalError("Illegal column ({}) of second argument of function {}",
+                                           col_right_untyped->get_name(), get_name()));
             }
 
         } else if (auto col_left_const =
@@ -383,9 +383,9 @@ private:
                                                           col_right_untyped)) {
                 return true;
             } else {
-                throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                       "Illegal column ({}) f second argument of function {}",
-                                       col_right_untyped->get_name(), get_name());
+                throw Exception(
+                        Status::FatalError("Illegal column ({}) f second argument of function {}",
+                                           col_right_untyped->get_name(), get_name()));
             }
         }
 

@@ -712,32 +712,30 @@ public:
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         if (arguments.size() != 2 && arguments.size() != 3) {
-            throw doris::Exception(ErrorCode::INVALID_ARGUMENT,
-                                   "Number of arguments for function {} doesn't match: passed {} , "
-                                   "should be 2 or 3",
-                                   get_name(), arguments.size());
+            throw Exception(Status::FatalError(
+                    "Number of arguments for function {} doesn't match: passed {} , "
+                    "should be 2 or 3",
+                    get_name(), arguments.size()));
         }
 
         if (arguments.size() == 2) {
             if (!is_date_or_datetime(remove_nullable(arguments[0].type)) &&
                 !is_date_v2_or_datetime_v2(remove_nullable(arguments[0].type))) {
-                throw doris::Exception(
-                        ErrorCode::INVALID_ARGUMENT,
+                throw Exception(Status::FatalError(
                         "Illegal type {} of argument of function {}. Should be a date or a date "
                         "with time",
-                        arguments[0].type->get_name(), get_name());
+                        arguments[0].type->get_name(), get_name()));
             }
         } else {
             if (!WhichDataType(remove_nullable(arguments[0].type)).is_date_time() ||
                 !WhichDataType(remove_nullable(arguments[0].type)).is_date_time_v2() ||
                 !WhichDataType(remove_nullable(arguments[2].type)).is_string()) {
-                throw doris::Exception(
-                        ErrorCode::INVALID_ARGUMENT,
+                throw Exception(Status::FatalError(
                         "Function {} supports 2 or 3 arguments. The 1st argument must be of type "
                         "Date or DateTime. The 2nd argument must be number. The 3rd argument "
                         "(optional) must be a constant string with timezone name. The timezone "
                         "argument is allowed only when the 1st argument has the type DateTime",
-                        get_name());
+                        get_name()));
             }
         }
         RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(typename Transform::ReturnType);

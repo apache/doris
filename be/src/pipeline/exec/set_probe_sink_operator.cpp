@@ -73,9 +73,7 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
     if (probe_rows > 0) {
         RETURN_IF_ERROR(_extract_probe_column(local_state, *in_block, local_state._probe_columns,
                                               _cur_child_id));
-        static_assert(!std::is_same_v<decltype(*local_state._shared_state->hash_table_variants),
-                                      std::monostate>,
-                      "FATAL: uninited hash table");
+
         RETURN_IF_ERROR(std::visit(
                 [&](auto&& arg) -> Status {
                     using HashTableCtxType = std::decay_t<decltype(arg)>;
@@ -84,6 +82,8 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                                 process_hashtable_ctx(&local_state, probe_rows);
                         return process_hashtable_ctx.mark_data_in_hashtable(arg);
                     } else {
+                        static_assert(!std::is_same_v<decltype(arg), std::monostate>,
+                                      "FATAL: uninited hash table");
                         __builtin_unreachable();
                     }
                 },
@@ -203,6 +203,7 @@ void SetProbeSinkOperatorX<is_intersect>::_refresh_hash_table(
     auto& hash_table_variants = local_state._shared_state->hash_table_variants;
     static_assert(!std::is_same_v<decltype(*hash_table_variants), std::monostate>,
                   "FATAL: uninited hash table");
+    ;
     std::visit(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;

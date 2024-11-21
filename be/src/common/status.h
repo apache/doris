@@ -446,6 +446,14 @@ public:
 
     static Status OK() { return {}; }
 
+    template <bool stacktrace = true, typename... Args>
+    static Status FatalError(std::string_view msg, Args&&... args) {
+#ifndef NDEBUG
+        LOG(FATAL) << fmt::format(msg, std::forward<Args>(args)...);
+#endif
+        return Error<ErrorCode::FATAL_ERROR, stacktrace>(msg, std::forward<Args>(args)...);
+    }
+
 // default have stacktrace. could disable manually.
 #define ERROR_CTOR(name, code)                                                       \
     template <bool stacktrace = true, typename... Args>                              \
@@ -488,7 +496,6 @@ public:
     ERROR_CTOR(HttpError, HTTP_ERROR)
     ERROR_CTOR_NOSTACK(NeedSendAgain, NEED_SEND_AGAIN)
     ERROR_CTOR_NOSTACK(CgroupError, CGROUP_ERROR)
-    ERROR_CTOR(FatalError, FATAL_ERROR)
 #undef ERROR_CTOR
 
     template <int code>

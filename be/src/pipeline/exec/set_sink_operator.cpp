@@ -88,9 +88,6 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
     vectorized::ColumnRawPtrs raw_ptrs(_child_exprs.size());
     RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs, rows));
 
-    static_assert(!std::is_same_v<decltype(*local_state._shared_state->hash_table_variants),
-                                  std::monostate>,
-                  "FATAL: uninited hash table");
     std::visit(
             [&](auto&& arg) {
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
@@ -99,6 +96,8 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                             hash_table_build_process(&local_state, rows, raw_ptrs, state);
                     static_cast<void>(hash_table_build_process(arg, local_state._arena));
                 } else {
+                    static_assert(!std::is_same_v<decltype(arg), std::monostate>,
+                                  "FATAL: uninited hash table");
                     __builtin_unreachable();
                 }
             },
