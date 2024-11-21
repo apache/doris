@@ -473,10 +473,10 @@ Status LocalFileSystem::permission_impl(const Path& file, std::filesystem::perms
 
 Status LocalFileSystem::convert_to_abs_path(const Path& input_path_str, Path& abs_path) {
     // valid path include:
-    //   1. abc/def                         while return abc/def
-    //   2. /abc/def                        while return /abc/def
-    //   3. file:/abc/def                   while return /abc/def
-    //   4. file://<authority>/abc/def      while return /abc/def
+    //   1. abc/def                         will return abc/def
+    //   2. /abc/def                        will return /abc/def
+    //   3. file:/abc/def                   will return /abc/def
+    //   4. file://<authority>/abc/def      will return /abc/def
     std::string path_str = input_path_str;
     size_t slash = path_str.find('/');
     if (slash == 0) {
@@ -503,9 +503,17 @@ Status LocalFileSystem::convert_to_abs_path(const Path& input_path_str, Path& ab
     // Parse URI authority, if any
     if (path_str.compare(start, 2, "//") == 0 && path_str.length() - start > 2) {
         // Has authority
+        // such as : path_str = "file://authority/abc/def"
+        // and now : start = 5
         size_t next_slash = path_str.find('/', start + 2);
-        size_t auth_end = (next_slash != std::string::npos) ? next_slash : path_str.length();
-        start = auth_end;
+        // now : next_slash = 16
+        if (next_slash == std::string::npos) {
+            return Status::InternalError(
+                    "This input string only has authority, but has no path information");
+        }
+        // We will skit authority
+        // now : start = 16
+        start = next_slash;
     }
 
     // URI path is the rest of the string

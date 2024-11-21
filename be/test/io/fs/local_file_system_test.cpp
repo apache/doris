@@ -420,6 +420,8 @@ TEST_F(LocalFileSystemTest, TestGlob) {
 TEST_F(LocalFileSystemTest, TestConvertToAbsPath) {
     io::Path abs_path;
     Status st;
+
+    // suppurt path:
     st = doris::io::LocalFileSystem::convert_to_abs_path("/abc/def", abs_path);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ("/abc/def", abs_path);
@@ -436,9 +438,25 @@ TEST_F(LocalFileSystemTest, TestConvertToAbsPath) {
     ASSERT_TRUE(st.ok());
     ASSERT_EQ("/abc/def", abs_path);
 
+    st = doris::io::LocalFileSystem::convert_to_abs_path("file:///def", abs_path);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ("/def", abs_path);
+
+    st = doris::io::LocalFileSystem::convert_to_abs_path("file:///", abs_path);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ("/", abs_path);
+
+    st = doris::io::LocalFileSystem::convert_to_abs_path("file://auth/", abs_path);
+    ASSERT_TRUE(st.ok());
+    ASSERT_EQ("/", abs_path);
+
     st = doris::io::LocalFileSystem::convert_to_abs_path("abc", abs_path);
     ASSERT_TRUE(st.ok());
     ASSERT_EQ("abc", abs_path);
+
+    // not support path:
+    st = doris::io::LocalFileSystem::convert_to_abs_path("file://auth", abs_path);
+    ASSERT_TRUE(!st.ok());
 
     st = doris::io::LocalFileSystem::convert_to_abs_path("fileee:/abc", abs_path);
     ASSERT_TRUE(!st.ok());
