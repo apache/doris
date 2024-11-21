@@ -348,5 +348,22 @@ Status NGramBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_opti
     return Status::OK();
 }
 
+Status PrimaryKeyBloomFilterIndexWriterImpl::create(const BloomFilterOptions& bf_options,
+                                                    const TypeInfo* typeinfo,
+                                                    std::unique_ptr<BloomFilterIndexWriter>* res) {
+    FieldType type = typeinfo->type();
+    switch (type) {
+    case FieldType::OLAP_FIELD_TYPE_CHAR:
+    case FieldType::OLAP_FIELD_TYPE_VARCHAR:
+    case FieldType::OLAP_FIELD_TYPE_STRING:
+        *res = std::make_unique<PrimaryKeyBloomFilterIndexWriterImpl>(bf_options, typeinfo);
+        break;
+    default:
+        return Status::NotSupported("unsupported type for primary key bloom filter index:{}",
+                                    std::to_string(int(type)));
+    }
+    return Status::OK();
+}
+
 } // namespace segment_v2
 } // namespace doris

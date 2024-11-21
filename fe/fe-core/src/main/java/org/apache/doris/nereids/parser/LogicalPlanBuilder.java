@@ -70,6 +70,7 @@ import org.apache.doris.nereids.DorisParser.BuildModeContext;
 import org.apache.doris.nereids.DorisParser.CallProcedureContext;
 import org.apache.doris.nereids.DorisParser.CancelMTMVTaskContext;
 import org.apache.doris.nereids.DorisParser.CastDataTypeContext;
+import org.apache.doris.nereids.DorisParser.CleanAllProfileContext;
 import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
@@ -207,6 +208,7 @@ import org.apache.doris.nereids.DorisParser.ShowCreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateMaterializedViewContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateTableContext;
+import org.apache.doris.nereids.DorisParser.ShowDynamicPartitionContext;
 import org.apache.doris.nereids.DorisParser.ShowFrontendsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsContext;
 import org.apache.doris.nereids.DorisParser.ShowGrantsForUserContext;
@@ -425,6 +427,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelJobTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
+import org.apache.doris.nereids.trees.plans.commands.CleanAllProfileCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateJobCommand;
@@ -470,6 +473,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
@@ -4283,8 +4287,23 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitCleanAllProfile(CleanAllProfileContext ctx) {
+        return new CleanAllProfileCommand();
+    }
+
+    @Override
     public LogicalPlan visitShowWhitelist(ShowWhitelistContext ctx) {
         return new ShowWhiteListCommand();
+    }
+
+    @Override
+    public LogicalPlan visitShowDynamicPartition(ShowDynamicPartitionContext ctx) {
+        String dbName = null;
+        if (ctx.database != null) {
+            List<String> nameParts = visitMultipartIdentifier(ctx.database);
+            dbName = nameParts.get(0); // only one entry possible
+        }
+        return new ShowDynamicPartitionCommand(dbName);
     }
 
     @Override
