@@ -20,7 +20,7 @@ PhysicalResultSink
 --PhysicalProject
 ----hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
 ------PhysicalProject
---------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+--------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 --------PhysicalOlapScan[test_pull_up_predicate_literal]
 
@@ -29,7 +29,7 @@ PhysicalResultSink
 --PhysicalProject
 ----hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
 ------PhysicalProject
---------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+--------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 --------PhysicalOlapScan[test_pull_up_predicate_literal]
 
@@ -43,8 +43,6 @@ PhysicalResultSink
 ------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 --------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
-------PhysicalOlapScan[test_pull_up_predicate_literal]
 
 -- !test_pull_up_literal_to_empty_relation --
 PhysicalResultSink
@@ -67,7 +65,7 @@ PhysicalResultSink
 ------PhysicalProject
 --------hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ----------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 ------------PhysicalOlapScan[test_pull_up_predicate_literal]
 
@@ -78,74 +76,81 @@ PhysicalResultSink
 ------PhysicalProject
 --------hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ----------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
 ------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((tmp2.col1 = 'abc'))
 ----------PhysicalOlapScan[test_pull_up_predicate_literal]
 
--- !test_pull_up_literal_multi_join --
-PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = tmp2.col1)) otherCondition=()
-----hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
-------PhysicalOlapScan[test_pull_up_predicate_literal]
-------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((tmp2.col1 = 'abc'))
-------PhysicalOlapScan[test_pull_up_predicate_literal]
-
 -- !test_pull_up_literal_outer_or --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
-----PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
-------PhysicalOlapScan[test_pull_up_predicate_literal]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((tmp.col1 = ds.col1) and (tmp.col2 = ds.col2)) otherCondition=()
+------PhysicalProject
+--------PhysicalOlapScan[test_pull_up_predicate_literal]
+------filter((ds.col1 = 'abc') and (ds.col2 = 'def'))
+--------PhysicalOlapScan[test_pull_up_predicate_literal]
 
 -- !const_value_and_join_column_type0 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_tinyint = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_tinyint = 127))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_tinyint = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_tinyint = 127))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type1 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_smallint = expr_cast(c1 as SMALLINT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_smallint = 127))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_smallint = expr_cast(c1 as SMALLINT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_smallint = 127))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type2 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_int = expr_cast(c1 as INT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_int = 127))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_int = expr_cast(c1 as INT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_int = 127))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type3 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_bigint = expr_cast(c1 as BIGINT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_bigint = 127))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_bigint = expr_cast(c1 as BIGINT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_bigint = 127))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type4 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = expr_cast(c1 as LARGEINT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_largeint = 127))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = expr_cast(c1 as LARGEINT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_largeint = 127))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type5 --
 PhysicalResultSink
@@ -154,7 +159,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DOUBLE) = 127.0))
 ----------PhysicalOlapScan[test_types]
@@ -166,7 +171,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 127.0))
 ----------PhysicalOlapScan[test_types]
@@ -178,7 +183,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 127.0))
 ----------PhysicalOlapScan[test_types]
@@ -190,7 +195,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 127.0000000000000000000))
 ----------PhysicalOlapScan[test_types]
@@ -202,7 +207,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_date = '2000-01-27'))
 ----------PhysicalOlapScan[test_types]
@@ -214,7 +219,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_datetime = '2000-01-27 00:00:00'))
 ----------PhysicalOlapScan[test_types]
@@ -226,7 +231,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DOUBLE) = 127.0))
 ----------PhysicalOlapScan[test_types]
@@ -238,7 +243,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DOUBLE) = 127.0))
 ----------PhysicalOlapScan[test_types]
@@ -250,55 +255,70 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DOUBLE) = 127.0))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type16 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as SMALLINT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_tinyint as SMALLINT) = 32767))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as SMALLINT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_tinyint as SMALLINT) = 32767))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type17 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_smallint = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_smallint = 32767))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_smallint = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_smallint = 32767))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type18 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_int = expr_cast(c1 as INT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_int = 32767))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_int = expr_cast(c1 as INT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_int = 32767))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type19 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_bigint = expr_cast(c1 as BIGINT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_bigint = 32767))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_bigint = expr_cast(c1 as BIGINT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_bigint = 32767))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type20 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = expr_cast(c1 as LARGEINT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_largeint = 32767))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = expr_cast(c1 as LARGEINT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_largeint = 32767))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type21 --
 PhysicalResultSink
@@ -307,7 +327,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DOUBLE) = 32767.0))
 ----------PhysicalOlapScan[test_types]
@@ -319,7 +339,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 32767.0))
 ----------PhysicalOlapScan[test_types]
@@ -331,7 +351,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 32767.0))
 ----------PhysicalOlapScan[test_types]
@@ -343,7 +363,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 32767.0000000000000000000))
 ----------PhysicalOlapScan[test_types]
@@ -363,7 +383,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DOUBLE) = 32767.0))
 ----------PhysicalOlapScan[test_types]
@@ -375,7 +395,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DOUBLE) = 32767.0))
 ----------PhysicalOlapScan[test_types]
@@ -387,55 +407,70 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DOUBLE) = 32767.0))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type32 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as INT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_tinyint as INT) = 32768))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as INT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_tinyint as INT) = 32768))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type33 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_smallint as INT) = 32768))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as INT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_smallint as INT) = 32768))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type34 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_int = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_int = 32768))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_int = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_int = 32768))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type35 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_bigint = expr_cast(c1 as BIGINT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_bigint = 32768))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_bigint = expr_cast(c1 as BIGINT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_bigint = 32768))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type36 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = expr_cast(c1 as LARGEINT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_largeint = 32768))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = expr_cast(c1 as LARGEINT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_largeint = 32768))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type37 --
 PhysicalResultSink
@@ -444,7 +479,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DOUBLE) = 32768.0))
 ----------PhysicalOlapScan[test_types]
@@ -456,7 +491,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 32768.0))
 ----------PhysicalOlapScan[test_types]
@@ -468,7 +503,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 32768.0))
 ----------PhysicalOlapScan[test_types]
@@ -480,7 +515,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 32768.0000000000000000000))
 ----------PhysicalOlapScan[test_types]
@@ -500,7 +535,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DOUBLE) = 32768.0))
 ----------PhysicalOlapScan[test_types]
@@ -512,7 +547,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DOUBLE) = 32768.0))
 ----------PhysicalOlapScan[test_types]
@@ -524,55 +559,70 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DOUBLE) = 32768.0))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type48 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as BIGINT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_tinyint as BIGINT) = 214748364799))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as BIGINT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_tinyint as BIGINT) = 214748364799))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type49 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as BIGINT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_smallint as BIGINT) = 214748364799))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as BIGINT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_smallint as BIGINT) = 214748364799))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type50 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as BIGINT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_int as BIGINT) = 214748364799))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as BIGINT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_int as BIGINT) = 214748364799))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type51 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_bigint = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_bigint = 214748364799))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_bigint = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_bigint = 214748364799))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type52 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = expr_cast(c1 as LARGEINT))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_largeint = 214748364799))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = expr_cast(c1 as LARGEINT))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_largeint = 214748364799))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type53 --
 PhysicalResultSink
@@ -581,7 +631,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DOUBLE) = 2.14748364799E11))
 ----------PhysicalOlapScan[test_types]
@@ -593,7 +643,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 2.14748364799E11))
 ----------PhysicalOlapScan[test_types]
@@ -605,7 +655,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 2.14748364799E11))
 ----------PhysicalOlapScan[test_types]
@@ -617,7 +667,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_decimal as DOUBLE) = 2.14748364799E11))
 ----------PhysicalOlapScan[test_types]
@@ -637,7 +687,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DOUBLE) = 2.14748364799E11))
 ----------PhysicalOlapScan[test_types]
@@ -649,7 +699,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DOUBLE) = 2.14748364799E11))
 ----------PhysicalOlapScan[test_types]
@@ -661,55 +711,70 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DOUBLE) = 2.14748364799E11))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type64 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as LARGEINT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_tinyint as LARGEINT) = 922337203685477580722))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_tinyint as LARGEINT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_tinyint as LARGEINT) = 922337203685477580722))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type65 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as LARGEINT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_smallint as LARGEINT) = 922337203685477580722))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_smallint as LARGEINT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_smallint as LARGEINT) = 922337203685477580722))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type66 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as LARGEINT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_int as LARGEINT) = 922337203685477580722))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_int as LARGEINT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_int as LARGEINT) = 922337203685477580722))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type67 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as LARGEINT) = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((cast(d_bigint as LARGEINT) = 922337203685477580722))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((expr_cast(d_bigint as LARGEINT) = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((cast(d_bigint as LARGEINT) = 922337203685477580722))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type68 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_largeint = 922337203685477580722))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_largeint = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_largeint = 922337203685477580722))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type69 --
 PhysicalResultSink
@@ -718,7 +783,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DOUBLE) = 9.223372036854776E20))
 ----------PhysicalOlapScan[test_types]
@@ -730,7 +795,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 9.223372036854776E20))
 ----------PhysicalOlapScan[test_types]
@@ -742,7 +807,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 9.223372036854776E20))
 ----------PhysicalOlapScan[test_types]
@@ -754,7 +819,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_decimal as DOUBLE) = 9.223372036854776E20))
 ----------PhysicalOlapScan[test_types]
@@ -766,7 +831,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_date as DOUBLE) = 9.223372036854776E20))
 ----------PhysicalOlapScan[test_types]
@@ -778,7 +843,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_datetime as DOUBLE) = 9.223372036854776E20))
 ----------PhysicalOlapScan[test_types]
@@ -790,7 +855,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DOUBLE) = 9.223372036854776E20))
 ----------PhysicalOlapScan[test_types]
@@ -802,7 +867,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DOUBLE) = 9.223372036854776E20))
 ----------PhysicalOlapScan[test_types]
@@ -814,7 +879,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DOUBLE) = 9.223372036854776E20))
 ----------PhysicalOlapScan[test_types]
@@ -826,7 +891,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_tinyint = 1))
 ----------PhysicalOlapScan[test_types]
@@ -838,7 +903,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_smallint = 1))
 ----------PhysicalOlapScan[test_types]
@@ -850,7 +915,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_int = 1))
 ----------PhysicalOlapScan[test_types]
@@ -862,7 +927,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_bigint = 1))
 ----------PhysicalOlapScan[test_types]
@@ -874,19 +939,22 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_largeint as DOUBLE) = 1.0))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type85 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_bool = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_bool = TRUE))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_bool = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_bool = TRUE))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type86 --
 PhysicalResultSink
@@ -895,7 +963,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 1.0))
 ----------PhysicalOlapScan[test_types]
@@ -907,7 +975,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 1.0))
 ----------PhysicalOlapScan[test_types]
@@ -919,7 +987,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_decimal as DOUBLE) = 1.0))
 ----------PhysicalOlapScan[test_types]
@@ -931,7 +999,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_date as DOUBLE) = 1.0))
 ----------PhysicalOlapScan[test_types]
@@ -943,7 +1011,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_datetime as DOUBLE) = 1.0))
 ----------PhysicalOlapScan[test_types]
@@ -955,7 +1023,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DOUBLE) = 1.0))
 ----------PhysicalOlapScan[test_types]
@@ -967,7 +1035,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DOUBLE) = 1.0))
 ----------PhysicalOlapScan[test_types]
@@ -979,7 +1047,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DOUBLE) = 1.0))
 ----------PhysicalOlapScan[test_types]
@@ -1007,7 +1075,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_largeint as DOUBLE) = 1.0001))
 ----------PhysicalOlapScan[test_types]
@@ -1019,7 +1087,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DOUBLE) = 1.0001))
 ----------PhysicalOlapScan[test_types]
@@ -1031,7 +1099,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 1.0001))
 ----------PhysicalOlapScan[test_types]
@@ -1043,7 +1111,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 1.0001))
 ----------PhysicalOlapScan[test_types]
@@ -1055,7 +1123,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 1.0001000000000000000))
 ----------PhysicalOlapScan[test_types]
@@ -1067,7 +1135,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_date as DOUBLE) = 1.0001))
 ----------PhysicalOlapScan[test_types]
@@ -1079,7 +1147,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_datetime as DOUBLE) = 1.0001))
 ----------PhysicalOlapScan[test_types]
@@ -1091,7 +1159,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DOUBLE) = 1.0001))
 ----------PhysicalOlapScan[test_types]
@@ -1103,7 +1171,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DOUBLE) = 1.0001))
 ----------PhysicalOlapScan[test_types]
@@ -1115,7 +1183,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DOUBLE) = 1.0001))
 ----------PhysicalOlapScan[test_types]
@@ -1143,7 +1211,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_largeint as DOUBLE) = 1.000000000003))
 ----------PhysicalOlapScan[test_types]
@@ -1155,7 +1223,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DOUBLE) = 1.000000000003))
 ----------PhysicalOlapScan[test_types]
@@ -1167,7 +1235,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 1.000000000003))
 ----------PhysicalOlapScan[test_types]
@@ -1179,7 +1247,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 1.000000000003))
 ----------PhysicalOlapScan[test_types]
@@ -1191,7 +1259,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 1.0000000000030000000))
 ----------PhysicalOlapScan[test_types]
@@ -1203,7 +1271,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_date as DOUBLE) = 1.000000000003))
 ----------PhysicalOlapScan[test_types]
@@ -1215,7 +1283,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_datetime as DOUBLE) = 1.000000000003))
 ----------PhysicalOlapScan[test_types]
@@ -1227,7 +1295,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DOUBLE) = 1.000000000003))
 ----------PhysicalOlapScan[test_types]
@@ -1239,7 +1307,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DOUBLE) = 1.000000000003))
 ----------PhysicalOlapScan[test_types]
@@ -1251,7 +1319,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DOUBLE) = 1.000000000003))
 ----------PhysicalOlapScan[test_types]
@@ -1279,7 +1347,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_largeint as DOUBLE) = 12232.239827234234))
 ----------PhysicalOlapScan[test_types]
@@ -1291,7 +1359,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_bool as DOUBLE) = 12232.239827234234))
 ----------PhysicalOlapScan[test_types]
@@ -1303,7 +1371,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_float as DOUBLE) = 12232.239827234234))
 ----------PhysicalOlapScan[test_types]
@@ -1315,7 +1383,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_double = 12232.239827234234))
 ----------PhysicalOlapScan[test_types]
@@ -1327,7 +1395,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_decimal = 12232.2398272342335234000))
 ----------PhysicalOlapScan[test_types]
@@ -1339,7 +1407,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_date as DOUBLE) = 12232.239827234234))
 ----------PhysicalOlapScan[test_types]
@@ -1351,7 +1419,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_datetime as DOUBLE) = 12232.239827234234))
 ----------PhysicalOlapScan[test_types]
@@ -1363,7 +1431,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_char as DOUBLE) = 12232.239827234234))
 ----------PhysicalOlapScan[test_types]
@@ -1375,7 +1443,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_varchar as DOUBLE) = 12232.239827234234))
 ----------PhysicalOlapScan[test_types]
@@ -1387,7 +1455,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_string as DOUBLE) = 12232.239827234234))
 ----------PhysicalOlapScan[test_types]
@@ -1435,7 +1503,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_date = '2024-07-01'))
 ----------PhysicalOlapScan[test_types]
@@ -1447,37 +1515,46 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_datetime = '2024-07-01 00:00:00'))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type155 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_char = '2024-07-01'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_char = '2024-07-01'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type156 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_varchar = '2024-07-01'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_varchar = '2024-07-01'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type157 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_string = '2024-07-01'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_string = '2024-07-01'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type158 --
 PhysicalResultSink
@@ -1485,11 +1562,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type159 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type160 --
 PhysicalResultSink
@@ -1534,7 +1614,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((cast(d_date as DATETIMEV2(0)) = '2024-08-02 10:10:00'))
 ----------PhysicalOlapScan[test_types]
@@ -1550,7 +1630,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_char = '2024-08-02 10:10:00.123332'))
 ----------PhysicalOlapScan[test_types]
@@ -1562,7 +1642,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_varchar = '2024-08-02 10:10:00.123332'))
 ----------PhysicalOlapScan[test_types]
@@ -1574,7 +1654,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_string = '2024-08-02 10:10:00.123332'))
 ----------PhysicalOlapScan[test_types]
@@ -1585,11 +1665,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type175 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type176 --
 PhysicalResultSink
@@ -1629,30 +1712,39 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type187 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_char = 'abcdsadtestchar'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_char = 'abcdsadtestchar'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type188 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_varchar = 'abcdsadtestchar'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_varchar = 'abcdsadtestchar'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type189 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_string = 'abcdsadtestchar'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_string = 'abcdsadtestchar'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type190 --
 PhysicalResultSink
@@ -1660,11 +1752,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type191 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type192 --
 PhysicalResultSink
@@ -1709,7 +1804,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_char = 'dtestvarcharvarchar'))
 ----------PhysicalOlapScan[test_types]
@@ -1721,7 +1816,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_varchar = 'dtestvarcharvarchar'))
 ----------PhysicalOlapScan[test_types]
@@ -1733,7 +1828,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_string = 'dtestvarcharvarchar'))
 ----------PhysicalOlapScan[test_types]
@@ -1749,7 +1844,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------PhysicalOlapScan[test_types]
 
@@ -1791,30 +1886,39 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type219 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_char = 'longlonglongstring'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_char = 'longlonglongstring'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type220 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_varchar = 'longlonglongstring'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_varchar = 'longlonglongstring'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type221 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_string = 'longlonglongstring'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_string = 'longlonglongstring'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type222 --
 PhysicalResultSink
@@ -1822,11 +1926,14 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type223 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type224 --
 PhysicalResultSink
@@ -1866,30 +1973,39 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type235 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_char = '127.0.0.1'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_char = '127.0.0.1'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type236 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_varchar = '127.0.0.1'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_varchar = '127.0.0.1'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type237 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_string = '127.0.0.1'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_string = '127.0.0.1'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type238 --
 PhysicalResultSink
@@ -1898,18 +2014,21 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv4 = 2130706433))
 ----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type239 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_ipv6 = expr_cast(c1 as IPV6))) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type240 --
 PhysicalResultSink
@@ -1949,30 +2068,39 @@ PhysicalResultSink
 
 -- !const_value_and_join_column_type251 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_char = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_char = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_char = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type252 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_varchar = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_varchar = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_varchar = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type253 --
 PhysicalResultSink
---hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
-----PhysicalLimit[GLOBAL]
-------PhysicalLimit[LOCAL]
---------PhysicalOlapScan[test_pull_up_predicate_literal]
-----filter((t2.d_string = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'))
-------PhysicalOlapScan[test_types]
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t2.d_string = t.c1)) otherCondition=()
+------PhysicalLimit[GLOBAL]
+--------PhysicalLimit[LOCAL]
+----------PhysicalProject
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
+------PhysicalProject
+--------filter((t2.d_string = 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff'))
+----------PhysicalOlapScan[test_types]
 
 -- !const_value_and_join_column_type254 --
 PhysicalResultSink
@@ -1985,7 +2113,7 @@ PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
 --------PhysicalLimit[LOCAL]
 ----------PhysicalProject
-------------PhysicalStorageLayerAggregate[test_pull_up_predicate_literal]
+------------PhysicalOlapScan[test_pull_up_predicate_literal]
 ------PhysicalProject
 --------filter((t2.d_ipv6 = ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff))
 ----------PhysicalOlapScan[test_types]
