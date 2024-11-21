@@ -440,17 +440,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         return sortedMap;
     }
 
-
-    public ShowResultSet showCreateCatalog(ShowCreateCatalogStmt showStmt) throws AnalysisException {
+    public List<List<String>> showCreateCatalog(String catalogName) throws AnalysisException {
         List<List<String>> rows = Lists.newArrayList();
         readLock();
         try {
-            CatalogIf catalog = nameToCatalog.get(showStmt.getCatalog());
+            CatalogIf catalog = nameToCatalog.get(catalogName);
             if (catalog == null) {
-                throw new AnalysisException("No catalog found with name " + showStmt.getCatalog());
+                throw new AnalysisException("No catalog found with name " + catalogName);
             }
             StringBuilder sb = new StringBuilder();
-            sb.append("\nCREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()))
+            sb.append("\nCREATE CATALOG `").append(ClusterNamespace.getNameFromFullName(catalogName))
                     .append("`");
             if (!Strings.isNullOrEmpty(catalog.getComment())) {
                 sb.append("\nCOMMENT \"").append(catalog.getComment()).append("\"\n");
@@ -464,10 +463,16 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 sb.append("\n);");
             }
 
-            rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(showStmt.getCatalog()), sb.toString()));
+            rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(catalogName), sb.toString()));
         } finally {
             readUnlock();
         }
+
+        return rows;
+    }
+
+    public ShowResultSet showCreateCatalog(ShowCreateCatalogStmt showStmt) throws AnalysisException {
+        List<List<String>> rows = showCreateCatalog(showStmt.getCatalog());
 
         return new ShowResultSet(showStmt.getMetaData(), rows);
     }

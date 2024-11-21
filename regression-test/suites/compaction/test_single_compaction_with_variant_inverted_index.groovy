@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_single_compaction_with_variant_inverted", "p2") {
+suite("test_single_compaction_with_variant_inverted", "p2, nonConcurrent") {
     if (isCloudMode()) {
         return;
     }
