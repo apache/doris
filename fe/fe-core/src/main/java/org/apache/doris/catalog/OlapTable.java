@@ -110,6 +110,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
@@ -550,8 +551,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             for (Partition partition : getPartitions()) {
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     tabletIds.addAll(index.getTablets().stream()
-                                                        .map(tablet -> tablet.getId())
-                                                        .collect(Collectors.toList()));
+                            .map(tablet -> tablet.getId())
+                            .collect(Collectors.toList()));
                 }
             }
         } catch (Exception e) {
@@ -694,6 +695,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     /**
      * This function is for statistics collection only. To get all the index ids that contains the given columnName.
      * For base index, return -1 as its id, this is for compatibility with older version of column stats.
+     *
      * @param columnName
      * @return index id list that contains the given columnName.
      */
@@ -736,7 +738,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
      * Reset properties to correct values.
      */
     public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
-                                          ReplicaAllocation replicaAlloc, boolean isBeingSynced) {
+            ReplicaAllocation replicaAlloc, boolean isBeingSynced) {
         if (tableProperty != null) {
             tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
         }
@@ -749,7 +751,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     /**
      * Set the related properties when is_being_synced properties is true.
-     *
+     * <p>
      * Some properties, like storage_policy, colocate_with, are not supported by the ccr syncer.
      */
     public void setBeingSyncedProperties() {
@@ -1802,7 +1804,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             // the MaterializedIndexMeta correctly.
             if (indexMeta.getIndexId() != indexId) {
                 LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
-                        + " to the index saved in table {} ({}), reset it to {}",
+                                + " to the index saved in table {} ({}), reset it to {}",
                         indexMeta.getIndexId(), indexName, name, id, indexId);
                 indexMeta.resetIndexIdForRestore(indexId, null, null);
             }
@@ -1912,7 +1914,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             MaterializedIndexMeta indexMeta = entry.getValue();
             if (indexMeta.getIndexId() != indexId) {
                 LOG.warn("HACK: the index id {} in materialized index meta of {} is not equals"
-                        + " to the index saved in table {} ({}), reset it to {}",
+                                + " to the index saved in table {} ({}), reset it to {}",
                         indexMeta.getIndexId(), indexNameToId.get(indexId), name, id, indexId);
                 indexMeta.resetIndexIdForRestore(indexId, null, null);
             }
@@ -1924,7 +1926,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         }
 
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_124
-                    && autoIncrementGenerator != null) {
+                && autoIncrementGenerator != null) {
             autoIncrementGenerator.setEditLog(Env.getCurrentEnv().getEditLog());
         }
         if (isAutoBucket()) {
@@ -2361,7 +2363,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
             tableProperty = new TableProperty(new HashMap<>());
         }
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
-                                            Long.valueOf(ttlSeconds).toString());
+                Long.valueOf(ttlSeconds).toString());
         tableProperty.buildTTLSeconds();
     }
 
@@ -2535,7 +2537,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public void setTimeSeriesCompactionGoalSizeMbytes(long timeSeriesCompactionGoalSizeMbytes) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES,
-                                                        Long.valueOf(timeSeriesCompactionGoalSizeMbytes).toString());
+                Long.valueOf(timeSeriesCompactionGoalSizeMbytes).toString());
         tableProperty.buildTimeSeriesCompactionGoalSizeMbytes();
     }
 
@@ -2549,7 +2551,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public void setTimeSeriesCompactionFileCountThreshold(long timeSeriesCompactionFileCountThreshold) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD,
-                                                    Long.valueOf(timeSeriesCompactionFileCountThreshold).toString());
+                Long.valueOf(timeSeriesCompactionFileCountThreshold).toString());
         tableProperty.buildTimeSeriesCompactionFileCountThreshold();
     }
 
@@ -2563,8 +2565,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public void setTimeSeriesCompactionTimeThresholdSeconds(long timeSeriesCompactionTimeThresholdSeconds) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer
-                                                    .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
-                                                    Long.valueOf(timeSeriesCompactionTimeThresholdSeconds).toString());
+                        .PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS,
+                Long.valueOf(timeSeriesCompactionTimeThresholdSeconds).toString());
         tableProperty.buildTimeSeriesCompactionTimeThresholdSeconds();
     }
 
@@ -2578,7 +2580,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public void setTimeSeriesCompactionEmptyRowsetsThreshold(long timeSeriesCompactionEmptyRowsetsThreshold) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD,
-                                                Long.valueOf(timeSeriesCompactionEmptyRowsetsThreshold).toString());
+                Long.valueOf(timeSeriesCompactionEmptyRowsetsThreshold).toString());
         tableProperty.buildTimeSeriesCompactionEmptyRowsetsThreshold();
     }
 
@@ -2592,7 +2594,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     public void setTimeSeriesCompactionLevelThreshold(long timeSeriesCompactionLevelThreshold) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
-                                                Long.valueOf(timeSeriesCompactionLevelThreshold).toString());
+                Long.valueOf(timeSeriesCompactionLevelThreshold).toString());
         tableProperty.buildTimeSeriesCompactionLevelThreshold();
     }
 
@@ -3260,7 +3262,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems() throws AnalysisException {
+    public Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws AnalysisException {
         if (!tryReadLock(1, TimeUnit.MINUTES)) {
             throw new AnalysisException("get table read lock timeout, database=" + getDBName() + ",table=" + getName());
         }
@@ -3284,7 +3286,8 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
+            OptionalLong snapshotId)
             throws AnalysisException {
         Map<String, Long> partitionVersions = context.getBaseVersions().getPartitionVersions();
         long partitionId = getPartitionOrAnalysisException(partitionName).getId();
@@ -3294,7 +3297,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId) {
         Map<Long, Long> tableVersions = context.getBaseVersions().getTableVersions();
         long visibleVersion = tableVersions.containsKey(id) ? tableVersions.get(id) : getVisibleVersion();
         return new MTMVVersionSnapshot(visibleVersion, id);
@@ -3410,7 +3413,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         Map<String, String> properties = tableProperty.getProperties();
         if (properties == null || !properties.containsKey(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
                 || properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
-                    .equalsIgnoreCase(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
+                .equalsIgnoreCase(PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY)) {
             return super.autoAnalyzeEnabled();
         }
         return properties.get(PropertyAnalyzer.PROPERTIES_AUTO_ANALYZE_POLICY)
