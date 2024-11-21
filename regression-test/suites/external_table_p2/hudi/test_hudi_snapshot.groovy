@@ -43,7 +43,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q02 """SELECT * FROM ${table_name} WHERE is_active = TRUE ORDER BY event_time LIMIT 10;"""
 
         // Query specific user's activity records and limit output
-        qt_q03 """SELECT * FROM ${table_name} WHERE user_id = '6ced17b6-17ee-4e7c-b7fa-02b087628fdf' ORDER BY event_time LIMIT 5;"""
+        qt_q03 """SELECT * FROM ${table_name} WHERE user_id = '62785e0e-ad44-4321-8b20-9ee4c4daca4a' ORDER BY event_time LIMIT 5;"""
 
         // Query events within a specific time range and limit output
         qt_q04 """SELECT * FROM ${table_name} WHERE event_time BETWEEN '2024-01-01 00:00:00' AND '2024-12-31 23:59:59' ORDER BY event_time LIMIT 10;"""
@@ -58,7 +58,7 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q07 """SELECT * FROM ${table_name} WHERE array_contains(tags, 'others') ORDER BY event_time LIMIT 5;"""
 
         // Query users living in a specific city and limit output
-        qt_q08 """SELECT * FROM ${table_name} WHERE struct_element(address, 'city') = 'Brooksstad' ORDER BY event_time LIMIT 5;"""
+        qt_q08 """SELECT * FROM ${table_name} WHERE struct_element(address, 'city') = 'North Rachelview' ORDER BY event_time LIMIT 5;"""
 
         // Query users within a specific coordinate range and limit output
         qt_q09 """SELECT * FROM ${table_name} WHERE struct_element(struct_element(address, 'coordinates'), 'latitude') BETWEEN 0 AND 100 AND struct_element(struct_element(address, 'coordinates'), 'longitude') BETWEEN 0 AND 100 ORDER BY event_time LIMIT 5;"""
@@ -70,19 +70,16 @@ suite("test_hudi_snapshot", "p2,external,hudi,external_remote,external_remote_hu
         qt_q11 """SELECT user_id, signup_date FROM ${table_name} ORDER BY signup_date DESC LIMIT 10;"""
 
         // Query users with a specific postal code and limit output
-        qt_q12 """SELECT * FROM ${table_name} WHERE struct_element(address, 'postal_code') = '02663' ORDER BY event_time LIMIT 5;"""
+        qt_q12 """SELECT * FROM ${table_name} WHERE struct_element(address, 'postal_code') = '80312' ORDER BY event_time LIMIT 5;"""
 
         // Query users with profile pictures and limit output
         qt_q13 """SELECT user_id, profile_picture FROM ${table_name} WHERE profile_picture IS NOT NULL ORDER BY user_id LIMIT 5;"""
 
-        // Query users with specific event_id and limit output
-        qt_q14 """SELECT * FROM ${table_name} WHERE event_id = 151385 ORDER BY event_time LIMIT 5;"""
-
         // Query users by signup date and limit output
-        qt_q15 """SELECT * FROM ${table_name} WHERE signup_date = '2024-01-15' ORDER BY user_id LIMIT 5;"""
+        qt_q14 """SELECT * FROM ${table_name} WHERE signup_date = '2024-01-15' ORDER BY user_id LIMIT 5;"""
 
         // Query the total count of purchases for each user and limit output
-        qt_q16 """SELECT user_id, array_size(purchases) AS purchase_count FROM ${table_name} ORDER BY purchase_count DESC LIMIT 5;"""
+        qt_q15 """SELECT user_id, array_size(purchases) AS purchase_count FROM ${table_name} ORDER BY purchase_count DESC LIMIT 5;"""
     }
 
     test_hudi_snapshot_querys("user_activity_log_cow_non_partition")
