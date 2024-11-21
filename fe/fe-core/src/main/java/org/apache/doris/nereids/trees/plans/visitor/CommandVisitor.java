@@ -363,11 +363,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(alterRoleCommand, context);
     }
 
-
     default R visitShowDatabaseIdCommand(ShowDatabaseIdCommand showDatabaseIdCommand, C context) {
         return visitCommand(showDatabaseIdCommand, context);
     }
-  
+
     default R visitCleanAllProfileCommand(CleanAllProfileCommand cleanAllProfileCommand, C context) {
         return visitCommand(cleanAllProfileCommand, context);
     }
