@@ -28,14 +28,73 @@ test_use_meta_cache_db_hive
 test_use_meta_cache_tbl_hive
 
 -- !sql08 --
-test_use_meta_cache_tbl_hive
 
 -- !sql09 --
+p1=part1
+p1=part2
 
 -- !sql10 --
-test_use_meta_cache_db_hive
+p1=part1
+p1=part2
 
 -- !sql11 --
+
+-- !sql12 --
+
+-- !sql13 --
+test_use_meta_cache_db_hive
+
+-- !sql14 --
+
+-- !sql01 --
+
+-- !sql02 --
+test_use_meta_cache_db
+
+-- !sql03 --
+test_use_meta_cache_tbl
+
+-- !sql04 --
+
+-- !sql05 --
+
+-- !sql01 --
+
+-- !sql02 --
+
+-- !sql03 --
+test_use_meta_cache_db_hive
+
+-- !sql04 --
+
+-- !sql05 --
+
+-- !sql06 --
+test_use_meta_cache_tbl_hive
+
+-- !sql07 --
+test_use_meta_cache_tbl_hive
+
+-- !sql08 --
+
+-- !sql09 --
+p1=part1
+p1=part2
+
+-- !sql10 --
+p1=part1
+p1=part2
+
+-- !sql11 --
+test_use_meta_cache_partitioned_tbl_hive
+test_use_meta_cache_tbl_hive
+
+-- !sql12 --
+
+-- !sql13 --
+test_use_meta_cache_db_hive
+
+-- !sql14 --
 
 -- !sql01 --
 
@@ -66,12 +125,71 @@ test_use_meta_cache_db_hive
 test_use_meta_cache_tbl_hive
 
 -- !sql08 --
-test_use_meta_cache_tbl_hive
 
 -- !sql09 --
+p1=part1
+p1=part2
 
 -- !sql10 --
-test_use_meta_cache_db_hive
+p1=part1
+p1=part2
 
 -- !sql11 --
+
+-- !sql12 --
+
+-- !sql13 --
+test_use_meta_cache_db_hive
+
+-- !sql14 --
+
+-- !sql01 --
+
+-- !sql02 --
+test_use_meta_cache_db
+
+-- !sql03 --
+test_use_meta_cache_tbl
+
+-- !sql04 --
+
+-- !sql05 --
+
+-- !sql01 --
+
+-- !sql02 --
+
+-- !sql03 --
+test_use_meta_cache_db_hive
+
+-- !sql04 --
+
+-- !sql05 --
+
+-- !sql06 --
+test_use_meta_cache_tbl_hive
+
+-- !sql07 --
+test_use_meta_cache_tbl_hive
+
+-- !sql08 --
+
+-- !sql09 --
+p1=part1
+p1=part2
+
+-- !sql10 --
+p1=part1
+p1=part2
+
+-- !sql11 --
+test_use_meta_cache_partitioned_tbl_hive
+test_use_meta_cache_tbl_hive
+
+-- !sql12 --
+
+-- !sql13 --
+test_use_meta_cache_db_hive
+
+-- !sql14 --
 
