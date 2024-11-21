@@ -143,11 +143,13 @@ for i in *_test; do
             patchelf --set-rpath "$(pwd)" "${i}"
         fi
 
+        set -euo pipefail
         if [[ "${filter}" == "" ]]; then
             LLVM_PROFILE_FILE="./report/${i}.profraw" "./${i}" --gtest_print_time=true --gtest_output="xml:${i}.xml"
         else
             LLVM_PROFILE_FILE="./report/${i}.profraw" "./${i}" --gtest_print_time=true --gtest_output="xml:${i}.xml" --gtest_filter="${filter}"
         fi
+        set +euo pipefail
         unittest_files[${#unittest_files[*]}]="${i}"
         echo "--------------------------"
     fi
