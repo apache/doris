@@ -747,7 +747,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
     switch (data_distribution.distribution_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(
-                std::max(cur_pipe->num_tasks(), _num_instances),
+                cur_pipe->num_tasks(), _num_instances,
                 use_global_hash_shuffle ? _total_instances : _num_instances,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? cast_set<int>(
@@ -756,7 +756,7 @@ Status PipelineFragmentContext::_add_local_exchange_impl(
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
-                std::max(cur_pipe->num_tasks(), _num_instances), _num_instances, num_buckets,
+                cur_pipe->num_tasks(), _num_instances, num_buckets,
                 _runtime_state->query_options().__isset.local_exchange_free_blocks_limit
                         ? cast_set<int>(
                                   _runtime_state->query_options().local_exchange_free_blocks_limit)
