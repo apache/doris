@@ -292,8 +292,7 @@ public class SchemaChangeHandler extends AlterHandler {
      * @throws DdlException
      */
     private boolean processDropColumn(DropColumnClause alterClause, OlapTable olapTable,
-                                      Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes,
-                                      Map<String, String> propertyMap)
+                                      Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> indexes)
             throws DdlException {
 
         String dropColName = alterClause.getColName();
@@ -435,15 +434,16 @@ public class SchemaChangeHandler extends AlterHandler {
             // drop bloom filter column
             Set<String> bfCols = olapTable.getCopiedBfColumns();
             if (bfCols != null) {
-                Set<String> newBfCols = new HashSet<>();
+                Set<String> newBfCols = null;
                 for (String bfCol : bfCols) {
                     if (!bfCol.equalsIgnoreCase(dropColName)) {
+                        if (newBfCols == null) {
+                            newBfCols = Sets.newHashSet();
+                        }
                         newBfCols.add(bfCol);
                     }
                 }
-                propertyMap.put(PropertyAnalyzer.PROPERTIES_BF_COLUMNS, Joiner.on(",").join(newBfCols));
-                // drop bloom filter column, should write editlog and can not do light schema change
-                lightSchemaChange = false;
+                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
             }
 
             for (int i = 1; i < indexIds.size(); i++) {
@@ -2080,7 +2080,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 } else if (alterClause instanceof DropColumnClause) {
                     // drop column and drop indexes on this column
                     boolean clauseCanLigthSchemaChange = processDropColumn((DropColumnClause) alterClause, olapTable,
-                            indexSchemaMap, newIndexes, propertyMap);
+                            indexSchemaMap, newIndexes);
                     if (!clauseCanLigthSchemaChange) {
                         lightSchemaChange = false;
                     }
@@ -2955,6 +2955,25 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);
+        }
+        // for bloom filter, rebuild bloom filter info by table schema in replay
+        if (isReplay) {
+            Set<String> bfCols = olapTable.getCopiedBfColumns();
+            if (bfCols != null) {
+                List<Column> columns = olapTable.getBaseSchema();
+                Set<String> newBfCols = null;
+                for (String bfCol : bfCols) {
+                    for (Column column : columns) {
+                        if (column.getName().equalsIgnoreCase(bfCol)) {
+                            if (newBfCols == null) {
+                                newBfCols = Sets.newHashSet();
+                            }
+                            newBfCols.add(column.getName());
+                        }
+                    }
+                }
+                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
+            }
         }
     }
 
