@@ -25,7 +25,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
@@ -272,7 +271,8 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
         try {
             List<Long> backendIds = Env.getCurrentSystemInfo().getAllBackendByCurrentCluster(true);
             if (backendIds.isEmpty()) {
-                throw new UserException("No alive backends");
+                LOG.warn("no available backend ids for folding constant on BE");
+                return Collections.emptyMap();
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
