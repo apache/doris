@@ -478,6 +478,7 @@ DECLARE_mDouble(base_compaction_min_data_ratio);
 DECLARE_mInt64(base_compaction_dup_key_max_file_size_mbytes);
 
 DECLARE_Bool(enable_skip_tablet_compaction);
+DECLARE_mInt32(skip_tablet_compaction_second);
 // output rowset of cumulative compaction total disk size exceed this config size,
 // this rowset will be given to base compaction, unit is m byte.
 DECLARE_mInt64(compaction_promotion_size_mbytes);
