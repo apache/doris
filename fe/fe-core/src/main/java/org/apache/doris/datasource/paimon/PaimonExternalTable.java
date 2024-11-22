@@ -98,12 +98,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     public Table getPaimonTable(long snapshotId) {
-        makeSureInitialized();
-        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        if (!schemaCacheValue.isPresent()) {
-            return null;
-        }
-        return ((PaimonSchemaCacheValue) schemaCacheValue.get()).getPaimonTable().copy(
+        return getSchemaCache(OptionalLong.empty()).getPaimonTable().copy(
                 Collections.singletonMap(CoreOptions.SCAN_VERSION.key(), String.valueOf(snapshotId)));
     }
 
@@ -116,7 +111,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             if (schemaCacheValue.isPresent()) {
                 return (PaimonSchemaCacheValue) schemaCacheValue.get();
             } else {
-                throw new CacheException("failed to getSchemaCache for:" + name);
+                throw new CacheException(
+                        String.format("failed to getSchemaCache for: %s.%s.%s", catalog.getName(), dbName, name));
             }
         }
     }

@@ -57,7 +57,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return
      * @throws DdlException
      */
-    Set<String> getPartitionColumnNames();
+    Set<String> getPartitionColumnNames() throws DdlException;
 
     /**
      * getPartitionColumns
