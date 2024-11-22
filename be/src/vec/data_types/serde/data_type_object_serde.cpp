@@ -173,18 +173,32 @@ Status DataTypeObjectSerDe::write_column_to_orc(const std::string& timezone, con
     const auto* var = check_and_get_column<ColumnObject>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory error when write largeint column data to orc file.");
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = BUFFER_UNIT_SIZE;
+    size_t offset = 0;
+    buffer_list.emplace_back(bufferRef);
+
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
-            auto* serialized_value = new std::string();
-            if (!var->serialize_one_row_to_string(row_id, serialized_value)) {
+            auto serialized_value = std::make_unique<std::string>();
+            if (!var->serialize_one_row_to_string(row_id, serialized_value.get())) {
                 throw doris::Exception(ErrorCode::INTERNAL_ERROR, "Failed to serialize variant {}",
                                        var->dump_structure());
             }
             auto len = serialized_value->length();
-            StringRef bufferRef(*serialized_value);
-            buffer_list.emplace_back(bufferRef);
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data);
+
+            REALLOC_MEMORY_FOR_ORC_WRITER()
+
+            memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value->data(), len);
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
             cur_batch->length[row_id] = len;
+            offset += len;
         }
     }
 

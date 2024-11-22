@@ -23,6 +23,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 
 #include "arrow/array/builder_binary.h"
 #include "common/exception.h"
@@ -145,17 +146,30 @@ Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, cons
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     const auto& string_column = assert_cast<const ColumnString&>(column);
 
+    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
+    if (!ptr) {
+        return Status::InternalError(
+                "malloc memory error when write largeint column data to orc file.");
+    }
+    StringRef bufferRef;
+    bufferRef.data = ptr;
+    bufferRef.size = BUFFER_UNIT_SIZE;
+    size_t offset = 0;
+    buffer_list.emplace_back(bufferRef);
+
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
             std::string_view string_ref = string_column.get_data_at(row_id).to_string_view();
-            auto* serialized_value = new std::string();
-            *serialized_value =
-                    JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size());
-            auto len = serialized_value->length();
-            StringRef bufferRef(*serialized_value);
-            buffer_list.emplace_back(bufferRef);
-            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data);
+            auto serialized_value = std::make_unique<std::string>(
+                    JsonbToJson::jsonb_to_json_string(string_ref.data(), string_ref.size()));
+            auto len = serialized_value->size();
+
+            REALLOC_MEMORY_FOR_ORC_WRITER()
+
+            memcpy(const_cast<char*>(bufferRef.data) + offset, serialized_value->data(), len);
+            cur_batch->data[row_id] = const_cast<char*>(bufferRef.data) + offset;
             cur_batch->length[row_id] = len;
+            offset += len;
         }
     }
 
