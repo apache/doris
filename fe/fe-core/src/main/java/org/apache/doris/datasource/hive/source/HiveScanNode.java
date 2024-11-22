@@ -373,7 +373,8 @@ public class HiveScanNode extends FileQueryScanNode {
             type = TFileFormatType.FORMAT_ORC;
         } else if (hiveFormat.equals(HiveMetaStoreClientHelper.HiveFileFormat.TEXT_FILE.getDesc())) {
             String serDeLib = table.getSd().getSerdeInfo().getSerializationLib();
-            if (serDeLib.equals("org.apache.hive.hcatalog.data.JsonSerDe")) {
+            if (serDeLib.equals(HiveMetaStoreClientHelper.HIVE_JSON_SERDE)
+                    || serDeLib.equals(HiveMetaStoreClientHelper.LEGACY_HIVE_JSON_SERDE)) {
                 type = TFileFormatType.FORMAT_JSON;
             } else {
                 type = TFileFormatType.FORMAT_CSV_PLAIN;
