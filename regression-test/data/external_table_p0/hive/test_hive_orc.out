@@ -110,6 +110,30 @@ tablets	tinyint_col	179	182	182	187	183	181	177	183	177	187	183	202	202	186	528	
 -- !string_col_dict_plain_mixed3 --
 10240
 
+-- !predicate_pushdown1 --
+55
+
+-- !predicate_pushdown2 --
+228
+
+-- !predicate_pushdown3 --
+53
+
+-- !predicate_pushdown4 --
+50000
+
+-- !predicate_pushdown5 --
+90425
+
+-- !predicate_pushdown6 --
+279428
+
+-- !predicate_pushdown7 --
+300343
+
+-- !predicate_pushdown8 --
+1533
+
 -- !select_top50 --
 4	55	999742610	400899305488827731	false	6.5976813E8	7.8723304616937395E17	\N	base tennis pit vertical friday	2022-08-19T07:29:58	\N	tablets	smallint_col	2019-02-07	[7.53124931825377e+17]	["NbSSBtwzpxNSkkwga"]	tablets	smallint_col
 2	49	999613702	105493714032727452	\N	6.3322381E8	9.8642324410240179E17	Unveil bright recruit participate. Suspect impression camera mathematical revelation. Fault live2 elbow debt west hydrogen current.	how literary	2022-09-03T17:20:21	481707.1065	tablets	boolean_col	2020-01-12	[]	["HoMrAnn", "wteEFvIwoZsVpVQdscMb", null, "zcGFmv", "kGEBBckbMtX", "hrEtCGFdPWZK"]	tablets	boolean_col
@@ -272,6 +296,30 @@ tablets	tinyint_col	179	182	182	187	183	181	177	183	177	187	183	202	202	186	528	
 
 -- !string_col_dict_plain_mixed3 --
 10240
+
+-- !predicate_pushdown1 --
+55
+
+-- !predicate_pushdown2 --
+228
+
+-- !predicate_pushdown3 --
+53
+
+-- !predicate_pushdown4 --
+50000
+
+-- !predicate_pushdown5 --
+90425
+
+-- !predicate_pushdown6 --
+279428
+
+-- !predicate_pushdown7 --
+300343
+
+-- !predicate_pushdown8 --
+1533
 
 -- !select_top50 --
 4	55	999742610	400899305488827731	false	6.5976813E8	7.8723304616937395E17	\N	base tennis pit vertical friday	2022-08-19T07:29:58	\N	tablets	smallint_col	2019-02-07	[7.53124931825377e+17]	["NbSSBtwzpxNSkkwga"]	tablets	smallint_col
