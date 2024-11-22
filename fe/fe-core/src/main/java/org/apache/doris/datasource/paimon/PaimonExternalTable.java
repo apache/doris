@@ -67,6 +67,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -312,7 +313,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems() {
+    public Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) {
         return Maps.newHashMap(getPartitionInfoFromCache().getNameToPartitionItem());
     }
 
@@ -333,7 +334,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context)
+    public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
+            OptionalLong snapshotId)
             throws AnalysisException {
         PaimonPartition paimonPartition = getPartitionInfoFromCache().getNameToPartition().get(partitionName);
         if (paimonPartition == null) {
@@ -343,7 +345,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context) throws AnalysisException {
+    public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId)
+            throws AnalysisException {
         return new MTMVVersionSnapshot(getLatestSnapshotIdFromCache());
     }
 

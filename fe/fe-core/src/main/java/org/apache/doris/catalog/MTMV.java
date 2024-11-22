@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.PartitionKeyDesc;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.OlapTableFactory.MTMVParams;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -60,6 +59,7 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -184,8 +184,7 @@ public class MTMV extends OlapTable {
     public MTMVStatus alterStatus(MTMVStatus newStatus) {
         writeMvLock();
         try {
-            // only can update state, refresh state will be change by add task
-            return this.status.updateStateAndDetail(newStatus);
+            return this.status.updateNotNull(newStatus);
         } finally {
             writeMvUnlock();
         }
@@ -203,8 +202,7 @@ public class MTMV extends OlapTable {
                 // to connection issues such as S3, so it is directly set to null
                 if (!isReplay) {
                     // shouldn't do this while holding mvWriteLock
-                    mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                            true, null);
+                    mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
                 }
             } catch (Throwable e) {
                 mtmvCache = null;
@@ -296,18 +294,14 @@ public class MTMV extends OlapTable {
         }
     }
 
-    public Set<TableName> getExcludedTriggerTables() {
-        Set<TableName> res = Sets.newHashSet();
+    public Set<String> getExcludedTriggerTables() {
         readMvLock();
         try {
             if (StringUtils.isEmpty(mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES))) {
-                return res;
+                return Sets.newHashSet();
             }
             String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
-            for (String alias : split) {
-                res.add(new TableName(alias));
-            }
-            return res;
+            return Sets.newHashSet(split);
         } finally {
             readMvUnlock();
         }
@@ -316,8 +310,7 @@ public class MTMV extends OlapTable {
     /**
      * Called when in query, Should use one connection context in query
      */
-    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws
-            org.apache.doris.nereids.exceptions.AnalysisException {
+    public MTMVCache getOrGenerateCache(ConnectContext connectionContext) throws AnalysisException {
         readMvLock();
         try {
             if (cache != null) {
@@ -328,8 +321,13 @@ public class MTMV extends OlapTable {
         }
         // Concurrent situations may result in duplicate cache generation,
         // but we tolerate this in order to prevent nested use of readLock and write MvLock for the table
-        MTMVCache mtmvCache = MTMVCache.from(this.getQuerySql(), MTMVPlanUtil.createMTMVContext(this), true,
-                false, connectionContext);
+        MTMVCache mtmvCache;
+        try {
+            // Should new context with ADMIN user
+            mtmvCache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this), true);
+        } finally {
+            connectionContext.setThreadLocalInfo();
+        }
         writeMvLock();
         try {
             this.cache = mtmvCache;
@@ -337,6 +335,10 @@ public class MTMV extends OlapTable {
         } finally {
             writeMvUnlock();
         }
+    }
+
+    public MTMVCache getCache() {
+        return cache;
     }
 
     public Map<String, String> getMvProperties() {
@@ -361,8 +363,8 @@ public class MTMV extends OlapTable {
      *
      * @return mvPartitionName ==> mvPartitionKeyDesc
      */
-    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() {
-        Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems();
+    public Map<String, PartitionKeyDesc> generateMvPartitionDescs() throws AnalysisException {
+        Map<String, PartitionItem> mtmvItems = getAndCopyPartitionItems(OptionalLong.empty());
         Map<String, PartitionKeyDesc> result = Maps.newHashMap();
         for (Entry<String, PartitionItem> entry : mtmvItems.entrySet()) {
             result.put(entry.getKey(), entry.getValue().toPartitionKeyDesc());
@@ -391,7 +393,7 @@ public class MTMV extends OlapTable {
         Map<String, String> baseToMv = Maps.newHashMap();
         Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
-        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems(OptionalLong.empty());
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             Set<String> basePartitionNames = relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(),
                     Sets.newHashSet());
@@ -424,7 +426,7 @@ public class MTMV extends OlapTable {
         Map<String, Set<String>> res = Maps.newHashMap();
         Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = MTMVPartitionUtil
                 .generateRelatedPartitionDescs(mvPartitionInfo, mvProperties);
-        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems();
+        Map<String, PartitionItem> mvPartitionItems = getAndCopyPartitionItems(OptionalLong.empty());
         for (Entry<String, PartitionItem> entry : mvPartitionItems.entrySet()) {
             res.put(entry.getKey(),
                     relatedPartitionDescs.getOrDefault(entry.getValue().toPartitionKeyDesc(), Sets.newHashSet()));
