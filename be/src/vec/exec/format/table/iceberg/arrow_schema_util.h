@@ -23,6 +23,7 @@
 // #include <unistd.h>
 
 #include <arrow/type.h>
+
 #include <shared_mutex>
 
 #include "vec/exec/format/table/iceberg/schema.h"

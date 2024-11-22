@@ -235,7 +235,6 @@ TEST(SchemaParserTest, parse_valid_map2) {
     EXPECT_TRUE(mt->field(5)->is_optional());
 }
 
-
 TEST(SchemaParserTest, parse_nested_list) {
     rapidjson::Document doc;
     doc.Parse(nested_list_json.c_str());
