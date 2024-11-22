@@ -1018,6 +1018,8 @@ DECLARE_Bool(enable_brpc_builtin_services);
 
 DECLARE_Bool(enable_brpc_connection_check);
 
+DECLARE_mInt64(brpc_connection_check_timeout_ms);
+
 // Max waiting time to wait the "plan fragment start" rpc.
 // If timeout, the fragment will be cancelled.
 // This parameter is usually only used when the FE loses connection,
