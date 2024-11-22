@@ -27,6 +27,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -56,8 +57,7 @@ public class AsyncMaterializationContext extends MaterializationContext {
      */
     public AsyncMaterializationContext(MTMV mtmv, Plan mvPlan, Plan mvOriginalPlan, List<Table> baseTables,
             List<Table> baseViews, CascadesContext cascadesContext, StructInfo structInfo) {
-        super(mvPlan, mvOriginalPlan, MaterializedViewUtils.generateMvScanPlan(mtmv, cascadesContext),
-                cascadesContext, structInfo);
+        super(mvPlan, mvOriginalPlan, cascadesContext, structInfo);
         this.mtmv = mtmv;
     }
 
@@ -67,7 +67,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
 
     @Override
     Plan doGenerateScanPlan(CascadesContext cascadesContext) {
-        return MaterializedViewUtils.generateMvScanPlan(this.mtmv, cascadesContext);
+        return MaterializedViewUtils.generateMvScanPlan(this.mtmv, this.mtmv.getBaseIndexId(),
+                this.mtmv.getPartitionIds(), PreAggStatus.on(), cascadesContext);
     }
 
     @Override
@@ -107,7 +108,8 @@ public class AsyncMaterializationContext extends MaterializationContext {
             return Optional.empty();
         }
         RelationId relationId = null;
-        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan().collectFirst(LogicalOlapScan.class::isInstance);
+        Optional<LogicalOlapScan> logicalOlapScan = this.getScanPlan(null, cascadesContext)
+                .collectFirst(LogicalOlapScan.class::isInstance);
         if (logicalOlapScan.isPresent()) {
             relationId = logicalOlapScan.get().getRelationId();
         }
@@ -127,7 +129,14 @@ public class AsyncMaterializationContext extends MaterializationContext {
         );
     }
 
-    public Plan getScanPlan() {
+    @Override
+    public Plan getScanPlan(StructInfo queryInfo, CascadesContext cascadesContext) {
+        // If try to get scan plan or rewrite successfully, try to get mv read lock to avoid meta data inconsistent,
+        // try to get lock which should added before RBO
+        if (!this.isSuccess()) {
+            cascadesContext.getStatementContext().addTableReadLock(this.getMtmv());
+        }
+        super.getScanPlan(queryInfo, cascadesContext);
         return scanPlan;
     }
 

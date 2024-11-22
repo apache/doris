@@ -1549,7 +1549,7 @@ class Suite implements GroovyInterceptable {
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
     void mv_rewrite_success(query_sql, mv_name, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                            is_partition_statistics_ready = true) {
+                               is_partition_statistics_ready = true) {
         logger.info("query_sql = " + query_sql + ", mv_name = " + mv_name + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
@@ -1575,7 +1575,7 @@ class Suite implements GroovyInterceptable {
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
     void mv_rewrite_all_success( query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                                 is_partition_statistics_ready = true) {
+                                   is_partition_statistics_ready = true) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
@@ -1613,7 +1613,7 @@ class Suite implements GroovyInterceptable {
     // is_partition_statistics_ready is the bool value which identifying if partition row count is valid or not
     // if true, check if chosen by cbo or doesn't check
     void mv_rewrite_any_success(query_sql, mv_names, sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite(),
-                                is_partition_statistics_ready = true) {
+                                   is_partition_statistics_ready = true) {
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names + ", sync_cbo_rewrite = " +sync_cbo_rewrite
                 + ", is_partition_statistics_ready = " + is_partition_statistics_ready)
         if (!is_partition_statistics_ready) {
@@ -1649,7 +1649,7 @@ class Suite implements GroovyInterceptable {
     // multi mv part in rewrite process, all rewrte success without check if chosen by cbo
     // sync_cbo_rewrite is the bool value which control sync mv is use cbo based mv rewrite
     void mv_rewrite_all_success_without_check_chosen(query_sql, mv_names,
-                                                     sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()){
+                                                        sync_cbo_rewrite = enable_sync_mv_cost_based_rewrite()){
         logger.info("query_sql = " + query_sql + ", mv_names = " + mv_names)
         if (!sync_cbo_rewrite) {
             explain {

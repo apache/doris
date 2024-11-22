@@ -234,7 +234,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 continue;
             }
             Plan rewrittenPlan;
-            Plan mvScan = materializationContext.getScanPlan();
+            Plan mvScan = materializationContext.getScanPlan(queryStructInfo, cascadesContext);
             Plan queryPlan = queryStructInfo.getTopPlan();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;
@@ -254,15 +254,14 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
                 rewrittenPlan = new LogicalFilter<>(Sets.newLinkedHashSet(rewriteCompensatePredicates), mvScan);
             }
+            boolean checkResult = rewriteQueryByViewPreCheck(matchMode, queryStructInfo,
+                    viewStructInfo, viewToQuerySlotMapping, rewrittenPlan, materializationContext);
+            if (!checkResult) {
+                continue;
+            }
             // Rewrite query by view
             rewrittenPlan = rewriteQueryByView(matchMode, queryStructInfo, viewStructInfo, viewToQuerySlotMapping,
                     rewrittenPlan, materializationContext, cascadesContext);
-            // If rewrite successfully, try to get mv read lock to avoid data inconsistent,
-            // try to get lock which should added before RBO
-            if (materializationContext instanceof AsyncMaterializationContext && !materializationContext.isSuccess()) {
-                cascadesContext.getStatementContext()
-                        .addTableReadLock(((AsyncMaterializationContext) materializationContext).getMtmv());
-            }
             rewrittenPlan = MaterializedViewUtils.rewriteByRules(cascadesContext,
                     childContext -> {
                         Rewriter.getWholeTreeRewriter(childContext).execute();
@@ -374,9 +373,9 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             }
             trySetStatistics(materializationContext, cascadesContext);
             rewriteResults.add(rewrittenPlan);
-            // if rewrite successfully, try to regenerate mv scan because it maybe used again
-            materializationContext.tryReGenerateScanPlan(cascadesContext);
             recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
+            // If rewrite successfully, try to clear mv scan currently because it maybe used again
+            materializationContext.clearScanPlan(cascadesContext);
         }
         return rewriteResults;
     }
@@ -525,6 +524,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             baseTablePartitionNeedUnionNameMap.put(relatedPartitionTable, baseTableNeedUnionPartitionNameSet);
         }
         return Pair.of(mvPartitionNeedRemoveNameMap, baseTablePartitionNeedUnionNameMap);
+    }
+
+    /**
+    * Query rewrite result may output origin plan , this will cause loop.
+    * if return origin plan, need add check hear.
+    */
+    protected boolean rewriteQueryByViewPreCheck(MatchMode matchMode, StructInfo queryStructInfo,
+            StructInfo viewStructInfo, SlotMapping viewToQuerySlotMapping, Plan tempRewritedPlan,
+            MaterializationContext materializationContext) {
+        return true;
     }
 
     /**
