@@ -82,7 +82,7 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
         break;
 
     case iceberg::TypeID::DECIMAL: {
-        DecimalType* dt = dynamic_cast<DecimalType*>(field.field_type());
+        auto dt = dynamic_cast<DecimalType*>(field.field_type());
         arrow_type = arrow::decimal(dt->get_precision(), dt->get_scale());
         break;
     }

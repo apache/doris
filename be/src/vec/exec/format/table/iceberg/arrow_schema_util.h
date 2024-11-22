@@ -17,11 +17,6 @@
 
 #pragma once
 
-// #include <arrow/io/type_fwd.h>
-// #include <sys/stat.h>
-// #include <sys/types.h>
-// #include <unistd.h>
-
 #include <arrow/type.h>
 
 #include <shared_mutex>

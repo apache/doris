@@ -266,9 +266,9 @@ public:
         return ss.str();
     }
 
-    int get_precision() { return precision; }
+    int get_precision() const { return precision; }
 
-    int get_scale() { return scale; }
+    int get_scale() const { return scale; }
 };
 
 class BinaryType : public PrimitiveType {
