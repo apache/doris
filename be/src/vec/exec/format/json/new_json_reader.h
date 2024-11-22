@@ -202,7 +202,7 @@ private:
     bool _should_process_skip_bitmap_col() const { return skip_bitmap_col_idx != -1; }
     void _append_empty_skip_bitmap_value(Block& block, size_t cur_row_count);
     void _set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr, Block& block,
-                                   size_t cur_row_count, bool* valid);
+                               size_t cur_row_count, bool* valid);
     RuntimeState* _state = nullptr;
     RuntimeProfile* _profile = nullptr;
     ScannerCounter* _counter = nullptr;
