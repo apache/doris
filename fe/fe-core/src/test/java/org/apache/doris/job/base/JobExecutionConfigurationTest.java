@@ -60,14 +60,22 @@ public class JobExecutionConfigurationTest {
         Assertions.assertArrayEquals(new Long[]{100L, 700L}, delayTimes.toArray());
         delayTimes = configuration.getTriggerDelayTimes(
                 200000L, 0L, 1100000L);
-        Assertions.assertEquals(1, delayTimes.size());
-        Assertions.assertArrayEquals(new Long[]{500L}, delayTimes.toArray());
+        Assertions.assertEquals(2, delayTimes.size());
+        Assertions.assertArrayEquals(new Long[]{0L, 500L}, delayTimes.toArray());
         delayTimes = configuration.getTriggerDelayTimes(
                 1001000L, 0L, 1000000L);
         Assertions.assertEquals(1, delayTimes.size());
         timerDefinition.setStartTimeMs(2000L);
         timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
         Assertions.assertArrayEquals(new Long[]{2L, 12L}, configuration.getTriggerDelayTimes(100000L, 100000L, 120000L).toArray());
+
+        timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
+        long second = 1000L;
+        timerDefinition.setStartTimeMs(second);
+        timerDefinition.setInterval(1L);
+        Assertions.assertEquals(3, configuration.getTriggerDelayTimes(second * 5 + 10L, second * 3, second * 7).size());
+        Assertions.assertEquals(3, configuration.getTriggerDelayTimes(second * 5, second * 5, second * 7).size());
+
     }
 
     @Test

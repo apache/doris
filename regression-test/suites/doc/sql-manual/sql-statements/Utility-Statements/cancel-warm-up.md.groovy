@@ -15,14 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.exceptions;
+import org.junit.jupiter.api.Assertions;
 
-/**
- * All exceptions thrown by transform action in {@link org.apache.doris.nereids.rules.Rule}
- * should be a subclass of this class.
- */
-public class TransformException extends RuntimeException {
-    public TransformException(String msg) {
-        super(String.format("Transform error: %s", msg));
+suite("docs/sql-manual/sql-statements/Utility-Statements/cancel-warm-up.md") {
+
+    if (!isCloudMode()) {
+        return
+    }
+
+    def show = {
+        multi_sql """
+            SHOW WARM UP JOB;
+        """
+    }
+
+    try {
+        show()
+        multi_sql """
+            CANCEL WARM UP JOB WHERE id = 1;
+        """
+    } catch (Throwable t) {
+        println("examples in docs/sql-manual/sql-statements/Utility-Statements/cancel-warm-up.md is expected to fail on bad job id")
+    } finally {
+        show()
     }
 }

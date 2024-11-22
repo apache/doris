@@ -15,13 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.exceptions;
+suite("test_show_create_catalog", "p0,external,hive,external_docker,external_docker_hive") {
 
-/**
- * Exception for can not fall back error in Nereids.
- */
-public class DoNotFallbackException extends RuntimeException {
-    public DoNotFallbackException(String msg) {
-        super(msg);
-    }
+    String catalog_name = "es"
+
+    sql """drop catalog if exists ${catalog_name}"""
+    sql """create catalog if not exists ${catalog_name} properties (
+            "type"="es",
+            "hosts"="http://127.0.0.1:9200"
+    );"""
+
+    checkNereidsExecute("""show create catalog ${catalog_name}""")
+    qt_cmd("""show create catalog ${catalog_name}""")
+
+    sql """drop catalog if exists ${catalog_name}"""
 }

@@ -1209,9 +1209,13 @@ void DeleteBitmap::remove_stale_delete_bitmap_from_queue(const std::vector<std::
                 }
                 auto start_bmk = std::get<1>(delete_bitmap_tuple);
                 auto end_bmk = std::get<2>(delete_bitmap_tuple);
+                // the key range of to be removed is [start_bmk,end_bmk),
+                // due to the different definitions of the right boundary,
+                // so use end_bmk as right boundary when removing local delete bitmap,
+                // use (end_bmk - 1) as right boundary when removing ms delete bitmap
                 remove(start_bmk, end_bmk);
                 to_delete.emplace_back(std::make_tuple(std::get<0>(start_bmk).to_string(), 0,
-                                                       std::get<2>(end_bmk)));
+                                                       std::get<2>(end_bmk) - 1));
             }
             _stale_delete_bitmap.erase(version_str);
         }

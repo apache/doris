@@ -15,14 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.exceptions;
-
-/**
- * DialectTransformException when have not supported transforming for dialect converters.
- */
-public class DialectTransformException extends UnsupportedOperationException {
-
-    public DialectTransformException(String msg) {
-        super(String.format("Unsupported dialect transformation is %s", msg));
-    }
+suite("show_trash_nereids") {
+    // can not use qt command since the output change based on cluster and backend ip
+    checkNereidsExecute("""show trash;""")
+    checkNereidsExecute("""show trash on "127.0.0.1:9050";""")
 }

@@ -362,8 +362,11 @@ public:
     }
 
     Status init_bloom_filter(const size_t build_bf_cardinality) {
-        DCHECK(_filter_type == RuntimeFilterType::BLOOM_FILTER ||
-               _filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER);
+        if (_filter_type != RuntimeFilterType::BLOOM_FILTER &&
+            _filter_type != RuntimeFilterType::IN_OR_BLOOM_FILTER) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "init_bloom_filter meet invalid input type {}", int(_filter_type));
+        }
         return _context->bloom_filter_func->init_with_cardinality(build_bf_cardinality);
     }
 
@@ -391,7 +394,9 @@ public:
     BloomFilterFuncBase* get_bloomfilter() const { return _context->bloom_filter_func.get(); }
 
     void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
-        DCHECK(!is_ignored());
+        if (is_ignored()) {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "insert_fixed_len meet ignored rf");
+        }
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             _context->hybrid_set->insert_fixed_len(column, start);
@@ -918,7 +923,10 @@ public:
             return _context->bloom_filter_func->contain_null();
         }
         if (_context->hybrid_set) {
-            DCHECK(get_real_type() == RuntimeFilterType::IN_FILTER);
+            if (get_real_type() != RuntimeFilterType::IN_FILTER) {
+                throw Exception(ErrorCode::INTERNAL_ERROR, "rf has hybrid_set but real type is {}",
+                                int(get_real_type()));
+            }
             return _context->hybrid_set->contain_null();
         }
         if (_context->minmax_func) {
@@ -993,20 +1001,20 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t sta
 Status IRuntimeFilter::publish(RuntimeState* state, bool publish_local) {
     DCHECK(is_producer());
 
-    auto send_to_remote_targets = [&](IRuntimeFilter* filter) {
+    auto send_to_remote_targets = [&](IRuntimeFilter* filter, uint64_t local_merge_time) {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
         RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_merge_addr(&addr));
-        return filter->push_to_remote(state, &addr);
+        return filter->push_to_remote(state, &addr, local_merge_time);
     };
-    auto send_to_local_targets = [&](std::shared_ptr<RuntimePredicateWrapper> wrapper,
-                                     bool global) {
+    auto send_to_local_targets = [&](std::shared_ptr<RuntimePredicateWrapper> wrapper, bool global,
+                                     uint64_t local_merge_time = 0) {
         std::vector<std::shared_ptr<IRuntimeFilter>> filters =
                 global ? _state->global_runtime_filter_mgr()->get_consume_filters(_filter_id)
                        : _state->local_runtime_filter_mgr()->get_consume_filters(_filter_id);
         for (auto filter : filters) {
             filter->_wrapper = wrapper;
-            filter->update_runtime_filter_type_to_profile();
+            filter->update_runtime_filter_type_to_profile(local_merge_time);
             filter->signal();
         }
         return Status::OK();
@@ -1016,15 +1024,20 @@ Status IRuntimeFilter::publish(RuntimeState* state, bool publish_local) {
             LocalMergeFilters* local_merge_filters = nullptr;
             RETURN_IF_ERROR(_state->global_runtime_filter_mgr()->get_local_merge_producer_filters(
                     _filter_id, &local_merge_filters));
+            local_merge_filters->merge_watcher.start();
             std::lock_guard l(*local_merge_filters->lock);
             RETURN_IF_ERROR(local_merge_filters->filters[0]->merge_from(_wrapper.get()));
             local_merge_filters->merge_time--;
+            local_merge_filters->merge_watcher.stop();
             if (local_merge_filters->merge_time == 0) {
                 if (_has_local_target) {
-                    RETURN_IF_ERROR(
-                            send_to_local_targets(local_merge_filters->filters[0]->_wrapper, true));
+                    RETURN_IF_ERROR(send_to_local_targets(
+                            local_merge_filters->filters[0]->_wrapper, true,
+                            local_merge_filters->merge_watcher.elapsed_time()));
                 } else {
-                    RETURN_IF_ERROR(send_to_remote_targets(local_merge_filters->filters[0].get()));
+                    RETURN_IF_ERROR(send_to_remote_targets(
+                            local_merge_filters->filters[0].get(),
+                            local_merge_filters->merge_watcher.elapsed_time()));
                 }
             }
         }
@@ -1038,7 +1051,7 @@ Status IRuntimeFilter::publish(RuntimeState* state, bool publish_local) {
         RETURN_IF_ERROR(send_to_local_targets(_wrapper, false));
     } else if (!publish_local) {
         if (_is_broadcast_join || _state->get_query_ctx()->be_exec_version() < USE_NEW_SERDE) {
-            RETURN_IF_ERROR(send_to_remote_targets(this));
+            RETURN_IF_ERROR(send_to_remote_targets(this, 0));
         } else {
             RETURN_IF_ERROR(do_merge());
         }
@@ -1168,7 +1181,8 @@ Status IRuntimeFilter::send_filter_size(RuntimeState* state, uint64_t local_filt
     return Status::OK();
 }
 
-Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr) {
+Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr,
+                                      uint64_t local_merge_time) {
     DCHECK(is_producer());
     std::shared_ptr<PBackendService_Stub> stub(
             _state->get_query_ctx()->exec_env()->brpc_internal_client_cache()->get_client(*addr));
@@ -1197,6 +1211,7 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     pfragment_instance_id->set_lo((int64_t)this);
 
     merge_filter_request->set_filter_id(_filter_id);
+    merge_filter_request->set_local_merge_time(local_merge_time);
     auto column_type = _wrapper->column_type();
     RETURN_IF_CATCH_EXCEPTION(merge_filter_request->set_column_type(to_proto(column_type)));
 
@@ -1236,9 +1251,9 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
     }
     _profile->add_info_string("Info", formatted_state());
     // The runtime filter is pushed down, adding filtering information.
-    auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "expr_filtered_rows", TUnit::UNIT);
-    auto* expr_input_rows_counter = ADD_COUNTER(_profile, "expr_input_rows", TUnit::UNIT);
-    auto* always_true_counter = ADD_COUNTER(_profile, "always_true_pass_rows", TUnit::UNIT);
+    auto* expr_filtered_rows_counter = ADD_COUNTER(_profile, "ExprFilteredRows", TUnit::UNIT);
+    auto* expr_input_rows_counter = ADD_COUNTER(_profile, "ExprInputRows", TUnit::UNIT);
+    auto* always_true_counter = ADD_COUNTER(_profile, "AlwaysTruePassRows", TUnit::UNIT);
     for (auto i = origin_size; i < push_exprs.size(); i++) {
         push_exprs[i]->attach_profile_counter(expr_filtered_rows_counter, expr_input_rows_counter,
                                               always_true_counter);
@@ -1258,6 +1273,7 @@ void IRuntimeFilter::update_state() {
     // In pipelineX, runtime filters will be ready or timeout before open phase.
     if (expected == RuntimeFilterState::NOT_READY) {
         DCHECK(MonotonicMillis() - registration_time_ >= wait_times_ms);
+        COUNTER_SET(_wait_timer, MonotonicMillis() - registration_time_);
         _rf_state_atomic = RuntimeFilterState::TIME_OUT;
     }
 }
@@ -1276,6 +1292,7 @@ PrimitiveType IRuntimeFilter::column_type() const {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
+    COUNTER_SET(_wait_timer, MonotonicMillis() - registration_time_);
     _rf_state_atomic.store(RuntimeFilterState::READY);
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
@@ -1515,11 +1532,14 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
         _profile_init = true;
         parent_profile->add_child(_profile.get(), true, nullptr);
         _profile->add_info_string("Info", formatted_state());
+        _wait_timer = ADD_TIMER(_profile, "WaitTime");
     }
 }
 
-void IRuntimeFilter::update_runtime_filter_type_to_profile() {
+void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_time) {
     _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
+    _profile->add_info_string("LocalMergeTime",
+                              std::to_string(local_merge_time / 1000000000.0) + " s");
 }
 
 std::string IRuntimeFilter::debug_string() const {
@@ -1856,24 +1876,9 @@ bool IRuntimeFilter::need_sync_filter_size() {
            _wrapper->get_build_bf_cardinality() && !_is_broadcast_join;
 }
 
-Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParams* param) {
-    _profile->add_info_string("MergeTime", std::to_string(param->request->merge_time()) + " ms");
-
-    if (param->request->has_ignored() && param->request->ignored()) {
-        set_ignored();
-    } else {
-        std::unique_ptr<RuntimePredicateWrapper> wrapper;
-        RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(param, &wrapper));
-        RETURN_IF_ERROR(_wrapper->merge(wrapper.get()));
-        update_runtime_filter_type_to_profile();
-    }
-    this->signal();
-
-    return Status::OK();
-}
-
 void IRuntimeFilter::update_filter(std::shared_ptr<RuntimePredicateWrapper> wrapper,
-                                   int64_t merge_time, int64_t start_apply) {
+                                   int64_t merge_time, int64_t start_apply,
+                                   uint64_t local_merge_time) {
     _profile->add_info_string("UpdateTime",
                               std::to_string(MonotonicMillis() - start_apply) + " ms");
     _profile->add_info_string("MergeTime", std::to_string(merge_time) + " ms");
@@ -1883,7 +1888,7 @@ void IRuntimeFilter::update_filter(std::shared_ptr<RuntimePredicateWrapper> wrap
         wrapper->_column_return_type = _wrapper->_column_return_type;
     }
     _wrapper = wrapper;
-    update_runtime_filter_type_to_profile();
+    update_runtime_filter_type_to_profile(local_merge_time);
     signal();
 }
 

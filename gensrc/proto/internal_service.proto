@@ -594,6 +594,7 @@ message PMergeFilterRequest {
     optional PColumnType column_type = 10;
     optional bool contain_null = 11;
     optional bool ignored = 12;
+    optional uint64 local_merge_time = 13;
 };
 
 message PMergeFilterResponse {
@@ -629,6 +630,7 @@ message PPublishFilterRequestV2 {
     optional bool contain_null = 10;
     optional bool ignored = 11;
     repeated int32 fragment_ids = 12;
+    optional uint64 local_merge_time = 13;
 };
 
 message PPublishFilterResponse {
