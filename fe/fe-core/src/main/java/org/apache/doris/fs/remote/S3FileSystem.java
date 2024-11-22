@@ -43,6 +43,7 @@ import java.util.Map;
 public class S3FileSystem extends ObjFileSystem {
 
     private static final Logger LOG = LogManager.getLogger(S3FileSystem.class);
+    private HadoopAuthenticator authenticator = null;
 
     public S3FileSystem(Map<String, String> properties) {
         super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3, new S3ObjStorage(properties));
@@ -77,7 +78,9 @@ public class S3FileSystem extends ObjFileSystem {
                     PropertyConverter.convertToHadoopFSProperties(properties).entrySet().stream()
                             .filter(entry -> entry.getKey() != null && entry.getValue() != null)
                             .forEach(entry -> conf.set(entry.getKey(), entry.getValue()));
-                    AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(conf);
+                    // S3 does not support Kerberos authentication,
+                    // so here we create a simple authentication
+                    AuthenticationConfig authConfig = AuthenticationConfig.getSimpleAuthenticationConfig(conf);
                     HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
@@ -87,6 +90,7 @@ public class S3FileSystem extends ObjFileSystem {
                                 throw new RuntimeException(e);
                             }
                         });
+                        this.authenticator = authenticator;
                         RemoteFSPhantomManager.registerPhantomReference(this);
                     } catch (Exception e) {
                         throw new UserException("Failed to get S3 FileSystem for " + e.getMessage(), e);
@@ -133,5 +137,10 @@ public class S3FileSystem extends ObjFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
         return Status.OK;
+    }
+
+    @VisibleForTesting
+    public HadoopAuthenticator getAuthenticator() {
+        return authenticator;
     }
 }
