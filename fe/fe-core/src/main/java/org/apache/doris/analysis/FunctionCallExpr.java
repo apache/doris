@@ -1735,7 +1735,7 @@ public class FunctionCallExpr extends Expr {
             if (!Lists.newArrayList("year", "quarter", "month", "week", "day", "hour", "minute", "second")
                     .contains(constParam)) {
                 throw new AnalysisException("date_trunc function second param only support argument is "
-                        + "year|quarter|month|week|day|hour|minute|second but got " + constParam);
+                        + "year|quarter|month|week|day|hour|minute|second");
             }
         }
         if (fnName.getFunction().equalsIgnoreCase("array_range")
