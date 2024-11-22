@@ -168,25 +168,17 @@ int Checker::start() {
             auto ctime_ms =
                     duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
             g_bvar_checker_enqueue_cost_s.put(instance_id, ctime_ms / 1000 - enqueue_time_s);
-            ret = checker->do_check();
+            int ret1 = checker->do_check();
 
+            int ret2 = 0;
             if (config::enable_inverted_check) {
-                if (ret == 0) {
-                    ret = checker->do_inverted_check();
-                }
-            }
-
-            if (ret < 0) {
-                // If ret < 0, it means that a temporary error occurred during the check process.
-                // The check job should not be considered finished, and the next round of check job
-                // should be retried as soon as possible.
-                return;
+                ret2 = checker->do_inverted_check();
             }
 
             // If instance checker has been aborted, don't finish this job
             if (!checker->stopped()) {
                 finish_instance_recycle_job(txn_kv_.get(), check_job_key, instance.instance_id(),
-                                            ip_port_, ret == 0, ctime_ms);
+                                            ip_port_, ret1 == 0 && ret2 == 0, ctime_ms);
             }
             {
                 std::lock_guard lock(mtx_);
