@@ -265,22 +265,25 @@ Status VParquetTransformer::_parse_properties() {
 
 Status VParquetTransformer::_parse_schema() {
     std::vector<std::shared_ptr<arrow::Field>> fields;
-
-    if (_parquet_schemas != nullptr) {
+    if (_iceberg_schema != nullptr) {
+        RETURN_IF_ERROR(
+                iceberg::ArrowSchemaUtil::convert(_iceberg_schema, _state->timezone(), fields));
+    } else {
         for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
             std::shared_ptr<arrow::DataType> type;
             RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->type(), &type,
-                                                  _state->timezone()));
-            std::shared_ptr<arrow::Field> field =
-                    arrow::field(_parquet_schemas->operator[](i).schema_column_name, type,
-                                 _output_vexpr_ctxs[i]->root()->is_nullable());
-            fields.emplace_back(field);
+                                                _state->timezone()));
+            if (_parquet_schemas != nullptr) {
+                std::shared_ptr<arrow::Field> field =
+                        arrow::field(_parquet_schemas->operator[](i).schema_column_name, type,
+                                    _output_vexpr_ctxs[i]->root()->is_nullable());
+                fields.emplace_back(field);
+            } else {
+                std::shared_ptr<arrow::Field> field = arrow::field(
+                        _column_names[i], type, _output_vexpr_ctxs[i]->root()->is_nullable());
+                fields.emplace_back(field);
+            }
         }
-    } else if (_iceberg_schema != nullptr) {
-        RETURN_IF_ERROR(
-                iceberg::ArrowSchemaUtil::Convert(_iceberg_schema, _state->timezone(), fields));
-    } else {
-        return Status::InternalError("parquet_schema and iceberg_schema all null!");
     }
 
     if (_iceberg_schema_json != nullptr) {

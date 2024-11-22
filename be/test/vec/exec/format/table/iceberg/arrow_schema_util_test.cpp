@@ -47,7 +47,7 @@ TEST(ArrowSchemaUtilTest, test_simple_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::Convert(&schema, "utc", fields);
+    st = ArrowSchemaUtil::convert(&schema, "utc", fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(2, fields.size());
     EXPECT_EQ("field1", fields[0]->name());
@@ -105,7 +105,7 @@ TEST(ArrowSchemaUtilTest, test_stuct_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::Convert(schema.get(), "utc", fields);
+    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("st_col", fields[0]->name());
@@ -157,7 +157,7 @@ TEST(ArrowSchemaUtilTest, test_map_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::Convert(schema.get(), "utc", fields);
+    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("map_col", fields[0]->name());
@@ -204,7 +204,7 @@ TEST(ArrowSchemaUtilTest, test_list_field) {
 
     std::vector<std::shared_ptr<arrow::Field>> fields;
     Status st;
-    st = ArrowSchemaUtil::Convert(schema.get(), "utc", fields);
+    st = ArrowSchemaUtil::convert(schema.get(), "utc", fields);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(1, fields.size());
     EXPECT_EQ("list_col", fields[0]->name());

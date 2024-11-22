@@ -33,7 +33,7 @@ namespace iceberg {
 
 class ArrowSchemaUtil {
 public:
-    static Status Convert(const Schema* schema, const std::string& timezone,
+    static Status convert(const Schema* schema, const std::string& timezone,
                           std::vector<std::shared_ptr<arrow::Field>>& fields);
 
 private:
@@ -41,9 +41,9 @@ private:
     static const char* ORIGINAL_TYPE;
     static const char* MAP_TYPE_VALUE;
 
-    static Status ConvertTo(const iceberg::NestedField& field,
-                            std::shared_ptr<arrow::Field>* arrow_field,
-                            const std::string& timezone);
+    static Status convert_to(const iceberg::NestedField& field,
+                             std::shared_ptr<arrow::Field>* arrow_field,
+                             const std::string& timezone);
 };
 
 } // namespace iceberg
