@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CacheException;
 import org.apache.doris.mtmv.BaseTableInfo;
 
 import com.google.common.base.Objects;
@@ -35,7 +35,7 @@ public class PaimonSnapshotCache {
     private static Map<SnapshotCacheKey, AtomicInteger> snapshotIdRefs = Maps.newConcurrentMap();
 
     public static PaimonSchemaCacheValue getSchemaCacheBySnapshotId(PaimonExternalTable paimonExternalTable,
-            long snapshotId) throws DdlException {
+            long snapshotId) throws CacheException {
         Preconditions.checkNotNull(paimonExternalTable);
         BaseTableInfo baseTableInfo = new BaseTableInfo(paimonExternalTable);
         SnapshotCacheKey key = new SnapshotCacheKey(baseTableInfo, snapshotId);
@@ -51,7 +51,7 @@ public class PaimonSnapshotCache {
     }
 
     private static PaimonSchemaCacheValue load(PaimonExternalTable paimonExternalTable, long snapshotId,
-            SnapshotCacheKey key) throws DdlException {
+            SnapshotCacheKey key) {
         // may be slow, not in lock
         PaimonSchemaCacheValue latestSchemaCache = paimonExternalTable.getSchemaCache(OptionalLong.empty());
         try {
@@ -66,7 +66,7 @@ public class PaimonSnapshotCache {
         } finally {
             paimonExternalTable.writeSnapshotUnlock();
         }
-        throw new DdlException("schema can not find by: " + key);
+        throw new CacheException("schema can not find by: " + key);
     }
 
     public static void ref(PaimonExternalTable paimonExternalTable, long snapshotId) {

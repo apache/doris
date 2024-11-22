@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.MvccTable;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -106,7 +107,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 Collections.singletonMap(CoreOptions.SCAN_VERSION.key(), String.valueOf(snapshotId)));
     }
 
-    public PaimonSchemaCacheValue getSchemaCache(OptionalLong snapshotId) throws DdlException {
+    public PaimonSchemaCacheValue getSchemaCache(OptionalLong snapshotId) {
         if (snapshotId.isPresent()) {
             return PaimonSnapshotCache.getSchemaCacheBySnapshotId(this, snapshotId.getAsLong());
         } else {
@@ -115,18 +116,14 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
             if (schemaCacheValue.isPresent()) {
                 return (PaimonSchemaCacheValue) schemaCacheValue.get();
             } else {
-                throw new DdlException("cache invalid:" + name);
+                throw new CacheException("failed to getSchemaCache for:" + name);
             }
         }
     }
 
     @Override
     public long getLatestSnapshotId() {
-        try {
-            return getSchemaCache(OptionalLong.empty()).getSnapshootId();
-        } catch (DdlException e) {
-            return -1L;
-        }
+        return getSchemaCache(OptionalLong.empty()).getSnapshootId();
     }
 
     @Override
@@ -328,32 +325,32 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws DdlException {
+    public Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) {
         return Maps.newHashMap(getSchemaCache(snapshotId).getPartitionInfo().getNameToPartitionItem());
     }
 
     @Override
-    public PartitionType getPartitionType() throws DdlException {
+    public PartitionType getPartitionType() {
         List<Column> partitionColumns = getSchemaCache(OptionalLong.empty()).getPartitionColumns();
         return partitionColumns.size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
     }
 
     @Override
-    public Set<String> getPartitionColumnNames() throws DdlException {
+    public Set<String> getPartitionColumnNames() {
         List<Column> partitionColumns = getSchemaCache(OptionalLong.empty()).getPartitionColumns();
         return partitionColumns.stream()
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
     }
 
     @Override
-    public List<Column> getPartitionColumns() throws DdlException {
+    public List<Column> getPartitionColumns() {
         return getSchemaCache(OptionalLong.empty()).getPartitionColumns();
     }
 
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             OptionalLong snapshotId)
-            throws AnalysisException, DdlException {
+            throws AnalysisException {
         PaimonPartition paimonPartition = getSchemaCache(snapshotId).getPartitionInfo().getNameToPartition()
                 .get(partitionName);
         if (paimonPartition == null) {
@@ -364,7 +361,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
 
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId)
-            throws AnalysisException, DdlException {
+            throws AnalysisException {
         return new MTMVVersionSnapshot(snapshotId.orElse(getSchemaCache(OptionalLong.empty()).getSnapshootId()));
     }
 

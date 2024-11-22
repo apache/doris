@@ -42,14 +42,14 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @param snapshotId
      * @return partitionName->PartitionItem
      */
-    Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws AnalysisException, DdlException;
+    Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws AnalysisException;
 
     /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
      *
      * @return
      */
-    PartitionType getPartitionType() throws DdlException;
+    PartitionType getPartitionType();
 
     /**
      * getPartitionColumnNames
@@ -57,14 +57,14 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return
      * @throws DdlException
      */
-    Set<String> getPartitionColumnNames() throws DdlException;
+    Set<String> getPartitionColumnNames();
 
     /**
      * getPartitionColumns
      *
      * @return
      */
-    List<Column> getPartitionColumns() throws DdlException;
+    List<Column> getPartitionColumns();
 
     /**
      * getPartitionSnapshot
@@ -79,7 +79,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @throws AnalysisException
      */
     MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context, OptionalLong snapshotId)
-            throws AnalysisException, DdlException;
+            throws AnalysisException;
 
     /**
      * getTableSnapshot
@@ -93,7 +93,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @throws AnalysisException
      */
     MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId)
-            throws AnalysisException, DdlException;
+            throws AnalysisException;
 
     /**
      * Does the current type of table allow timed triggering
