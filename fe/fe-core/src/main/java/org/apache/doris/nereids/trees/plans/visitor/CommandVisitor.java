@@ -91,6 +91,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowWhiteListCommand;
+import org.apache.doris.nereids.trees.plans.commands.SyncCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetDefaultStorageVaultCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsetVariableCommand;
 import org.apache.doris.nereids.trees.plans.commands.UnsupportedCommand;
@@ -420,6 +421,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTrashCommand(ShowTrashCommand showTrashCommand, C context) {
         return visitCommand(showTrashCommand, context);
+    }
+
+    default R visitSyncCommand(SyncCommand syncCommand, C context) {
+        return visitCommand(syncCommand, context);
     }
 
     default R visitShowDeleteCommand(ShowDeleteCommand showDeleteCommand, C context) {
