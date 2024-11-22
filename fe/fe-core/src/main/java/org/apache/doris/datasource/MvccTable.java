@@ -19,6 +19,12 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.TableIf;
 
+/**
+ * The table that needs to query data based on the version needs to implement this interface.
+ * After implementation, if the user does not specify a snapshotId,
+ * a snapshotId will be obtained through getLatestsnapshotId,
+ * and the entire query process will query the data under this snapshotId.
+ */
 public interface MvccTable extends TableIf {
     /**
      * Get the latest snapshotId (obtained from Doris cache, not directly through API)
