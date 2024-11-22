@@ -27,6 +27,7 @@
 #include <string>
 
 #include "common/logging.h"
+#include "common/status.h"
 #include "pipeline/exec/exchange_sink_operator.h"
 #include "pipeline/exec/exchange_source_operator.h"
 #include "runtime/memory/mem_tracker.h"
@@ -95,7 +96,9 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch_without_lock(Block* block
     }
 
     DCHECK(!_block_queue.empty());
-    auto [next_block, block_byte_size] = std::move(_block_queue.front());
+    BlockUPtr next_block;
+    RETURN_IF_ERROR(_block_queue.front().get_block(next_block));
+    size_t block_byte_size = _block_queue.front().block_byte_size();
     _block_queue.pop_front();
     _recvr->_parent->memory_used_counter()->update(-(int64_t)block_byte_size);
     sub_blocks_memory_usage(block_byte_size);
@@ -163,30 +166,14 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
         }
     }
 
-    BlockUPtr block = nullptr;
-    int64_t deserialize_time = 0;
-    {
-        SCOPED_RAW_TIMER(&deserialize_time);
-        block = Block::create_unique();
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(block->deserialize(pblock));
-    }
-
-    const auto rows = block->rows();
-    if (rows == 0) {
-        return Status::OK();
-    }
-    auto block_byte_size = block->allocated_bytes();
-    VLOG_ROW << "added #rows=" << rows << " batch_size=" << block_byte_size << "\n";
+    PBlock new_pblock = pblock;
 
     std::lock_guard<std::mutex> l(_lock);
     if (_is_cancelled) {
         return Status::OK();
     }
 
-    COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, deserialize_time);
-    COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
-    COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
-    COUNTER_UPDATE(_recvr->_rows_produced_counter, rows);
+    const auto block_byte_size = new_pblock.ByteSizeLong();
     COUNTER_UPDATE(_recvr->_blocks_produced_counter, 1);
     if (_recvr->_max_wait_worker_time->value() < wait_for_worker) {
         _recvr->_max_wait_worker_time->set(wait_for_worker);
@@ -196,19 +183,19 @@ Status VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_num
         _recvr->_max_find_recvr_time->set((int64_t)time_to_find_recvr);
     }
 
-    _block_queue.emplace_back(std::move(block), block_byte_size);
+    _block_queue.emplace_back(std::move(new_pblock), block_byte_size);
     COUNTER_UPDATE(_recvr->_remote_bytes_received_counter, block_byte_size);
     _record_debug_info();
     try_set_dep_ready_without_lock();
 
-    // if done is nullptr, this function can't delay this response
-    if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
-        MonotonicStopWatch monotonicStopWatch;
-        monotonicStopWatch.start();
-        DCHECK(*done != nullptr);
-        _pending_closures.emplace_back(*done, monotonicStopWatch);
-        *done = nullptr;
-    }
+    // // if done is nullptr, this function can't delay this response
+    // if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
+    //     MonotonicStopWatch monotonicStopWatch;
+    //     monotonicStopWatch.start();
+    //     DCHECK(*done != nullptr);
+    //     _pending_closures.emplace_back(*done, monotonicStopWatch);
+    //     *done = nullptr;
+    // }
     _recvr->_parent->memory_used_counter()->update(block_byte_size);
     _recvr->_parent->peak_memory_usage_counter()->set(
             _recvr->_parent->memory_used_counter()->value());

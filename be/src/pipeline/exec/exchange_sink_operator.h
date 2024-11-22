@@ -89,6 +89,7 @@ public:
     void set_reach_limit() { _reach_limit = true; };
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
+    [[nodiscard]] int be_number() const { return _state->be_number(); }
 
     std::string name_suffix() override;
     segment_v2::CompressionTypePB compression_type() const;
@@ -112,7 +113,7 @@ private:
     friend class vectorized::Channel;
     friend class vectorized::BlockSerializer;
 
-    std::unique_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
+    std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeProfile::Counter* _serialize_batch_timer = nullptr;
     RuntimeProfile::Counter* _compress_timer = nullptr;
     RuntimeProfile::Counter* _bytes_sent_counter = nullptr;
@@ -225,6 +226,9 @@ private:
                                      size_t num_channels,
                                      std::vector<std::vector<uint32_t>>& channel2rows,
                                      vectorized::Block* block, bool eos);
+
+    void create_buffer();
+    std::shared_ptr<ExchangeSinkBuffer> _sink_buffer = nullptr;
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr> _texprs;

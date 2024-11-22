@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/callback.h>
 
@@ -260,7 +261,36 @@ protected:
     Status _cancel_status;
     int _num_remaining_senders;
     std::unique_ptr<MemTracker> _queue_mem_tracker;
-    std::list<std::pair<BlockUPtr, size_t>> _block_queue;
+
+    struct BlockItem {
+        Status get_block(BlockUPtr& block) {
+            if (!_block) {
+                SCOPED_RAW_TIMER(&_deserialize_time);
+                _block = Block::create_unique();
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_block->deserialize(_pblock));
+            }
+            block.swap(_block);
+            _block.reset();
+            return Status::OK();
+        }
+
+        size_t block_byte_size() const { return _block_byte_size; }
+        int64_t deserialize_time() const { return _deserialize_time; }
+
+        BlockItem(BlockUPtr&& block, size_t block_byte_size)
+                : _block(std::move(block)), _block_byte_size(block_byte_size) {}
+
+        BlockItem(PBlock&& pblock, size_t block_byte_size)
+                : _block(nullptr), _pblock(std::move(pblock)), _block_byte_size(block_byte_size) {}
+
+    private:
+        BlockUPtr _block;
+        PBlock _pblock;
+        const size_t _block_byte_size;
+        int64_t _deserialize_time = 0;
+    };
+
+    std::list<BlockItem> _block_queue;
 
     // sender_id
     std::unordered_set<int> _sender_eos_set;
