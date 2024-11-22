@@ -33,6 +33,7 @@
 #include "util/uuid_generator.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 bvar::Adder<uint64_t> cumu_output_size("cumu_compaction", "output_size");
@@ -621,4 +622,5 @@ void CloudCumulativeCompaction::do_lease() {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

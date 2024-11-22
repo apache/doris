@@ -52,6 +52,7 @@
 #include "util/parse_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 using namespace std::literals;
 
@@ -857,4 +858,5 @@ std::shared_ptr<CloudCumulativeCompactionPolicy> CloudStorageEngine::cumu_compac
     return _cumulative_compaction_policies.at(compaction_policy);
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

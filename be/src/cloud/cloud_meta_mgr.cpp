@@ -64,6 +64,7 @@
 #include "util/thrift_rpc_helper.h"
 
 namespace doris::cloud {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 Status bthread_fork_join(const std::vector<std::function<Status()>>& tasks, int concurrency) {
@@ -1286,4 +1287,5 @@ int64_t CloudMetaMgr::get_inverted_index_file_szie(const RowsetMeta& rs_meta) {
     return total_inverted_index_size;
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris::cloud

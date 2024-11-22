@@ -38,6 +38,7 @@
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
+#include "common/compile_check_begin.h"
 inline std::string md5(const std::string& str) {
     unsigned char digest[MD5_DIGEST_LENGTH];
     MD5_CTX context;
@@ -249,4 +250,5 @@ bool is_dropped_tablet(Transaction* txn, const std::string& instance_id, int64_t
                        int64_t partition_id);
 
 std::size_t get_segments_key_bounds_bytes(const doris::RowsetMetaCloudPB& rowset_meta);
+#include "common/compile_check_end.h"
 } // namespace doris::cloud

@@ -35,6 +35,7 @@
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
+#include "common/compile_check_begin.h"
 
 class Transaction;
 
@@ -781,4 +782,5 @@ private:
     std::unique_ptr<MetaServiceImpl> impl_;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris::cloud

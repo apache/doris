@@ -50,6 +50,7 @@
 #include "vec/common/schema_util.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 static constexpr int COMPACTION_DELETE_BITMAP_LOCK_ID = -1;
@@ -924,4 +925,5 @@ void CloudTablet::build_tablet_report_info(TTabletInfo* tablet_info) {
     // but it may be used in the future.
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

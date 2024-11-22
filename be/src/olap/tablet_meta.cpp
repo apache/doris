@@ -57,6 +57,7 @@ using std::unordered_map;
 using std::vector;
 
 namespace doris {
+#include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
 TabletMetaSharedPtr TabletMeta::create(
@@ -1312,4 +1313,5 @@ std::string tablet_state_name(TabletState state) {
     }
 }
 
+#include "common/compile_check_end.h"
 } // namespace doris

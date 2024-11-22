@@ -30,6 +30,7 @@
 #include "olap/rowset/rowset_meta.h"
 
 namespace doris {
+#include "common/compile_check_begin.h"
 
 class Tablet;
 struct Version;
@@ -115,4 +116,5 @@ public:
                                bool allow_delete = false) override;
 };
 
+#include "common/compile_check_end.h"
 } // namespace doris
