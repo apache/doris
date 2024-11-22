@@ -2503,10 +2503,10 @@ void Tablet::set_skip_compaction(bool skip, CompactionType compaction_type, int6
 
 bool Tablet::should_skip_compaction(CompactionType compaction_type, int64_t now) {
     if (compaction_type == CompactionType::CUMULATIVE_COMPACTION && _skip_cumu_compaction &&
-        now < _skip_cumu_compaction_ts + 120) {
+        now < _skip_cumu_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
     } else if (compaction_type == CompactionType::BASE_COMPACTION && _skip_base_compaction &&
-               now < _skip_base_compaction_ts + 120) {
+               now < _skip_base_compaction_ts + config::skip_tablet_compaction_second) {
         return true;
     }
     return false;
