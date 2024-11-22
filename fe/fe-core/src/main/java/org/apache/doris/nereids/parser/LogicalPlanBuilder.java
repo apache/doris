@@ -201,6 +201,7 @@ import org.apache.doris.nereids.DorisParser.SetUserVariableContext;
 import org.apache.doris.nereids.DorisParser.SetVariableWithTypeContext;
 import org.apache.doris.nereids.DorisParser.ShowAuthorsContext;
 import org.apache.doris.nereids.DorisParser.ShowBackendsContext;
+import org.apache.doris.nereids.DorisParser.ShowBrokerContext;
 import org.apache.doris.nereids.DorisParser.ShowConfigContext;
 import org.apache.doris.nereids.DorisParser.ShowConstraintContext;
 import org.apache.doris.nereids.DorisParser.ShowCreateCatalogContext;
@@ -467,6 +468,7 @@ import org.apache.doris.nereids.trees.plans.commands.SetTransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.SetUserPropertiesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowAuthorsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowBackendsCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowBrokerCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConfigCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowConstraintsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateCatalogCommand;
@@ -4334,6 +4336,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                                             partitionName, partitionId, newPartitionName);
     }
 
+    @Override
+    public LogicalPlan visitShowBroker(ShowBrokerContext ctx) {
+        return new ShowBrokerCommand();
+    }
+
+    @Override
     public LogicalPlan visitDropRole(DropRoleContext ctx) {
         return new DropRoleCommand(ctx.name.getText(), ctx.EXISTS() != null);
     }
