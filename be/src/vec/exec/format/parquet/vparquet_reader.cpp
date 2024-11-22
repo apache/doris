@@ -253,10 +253,8 @@ Status ParquetReader::_open_file() {
     return Status::OK();
 }
 
-// Get iceberg col id to col name map stored in parquet metadata key values.
-// This is for iceberg schema evolution.
-std::vector<tparquet::KeyValue> ParquetReader::get_metadata_key_values() {
-    return _t_metadata->key_value_metadata;
+const FieldDescriptor ParquetReader::get_file_metadata_schema() {
+    return _file_metadata->schema();
 }
 
 Status ParquetReader::open() {
