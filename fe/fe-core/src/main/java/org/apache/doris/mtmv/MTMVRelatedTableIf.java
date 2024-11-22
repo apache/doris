@@ -92,8 +92,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return table snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId)
-            throws AnalysisException;
+    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId) throws AnalysisException;
 
     /**
      * Does the current type of table allow timed triggering
