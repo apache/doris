@@ -59,7 +59,7 @@ suite("test_dml_delete_table_auth","p0,auth_call") {
             sql """DELETE FROM ${dbName}.${tableName} WHERE id = 3;"""
             exception "denied"
         }
-
+        checkNereidsExecute("show DELETE from ${dbName}")
         def del_res = sql """show DELETE from ${dbName}"""
         assertTrue(del_res.size() == 0)
     }
