@@ -1092,6 +1092,7 @@ public class NativeInsertStmt extends InsertStmt {
             if (!allowAutoPartition) {
                 ((OlapTableSink) dataSink).setAutoPartition(false);
             }
+            // ATTN! here's bug for iot+auto partition. we decide not to fix it for legacy planner.
             if (!isGroupCommitStreamLoadSql) {
                 // add table indexes to transaction state
                 TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
