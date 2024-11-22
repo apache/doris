@@ -211,11 +211,6 @@ public class FrontendsProcNode implements ProcNodeInterface {
             if (fe.getEditLogPort() != addr.getPort()) {
                 continue;
             }
-            if (!Strings.isNullOrEmpty(addr.getHostName())) {
-                if (addr.getHostName().equals(fe.getHost())) {
-                    return true;
-                }
-            }
             // if hostname of InetSocketAddress is ip, addr.getHostName() may be not equal to fe.getIp()
             // so we need to compare fe.getIp() with address.getHostAddress()
             InetAddress address = addr.getAddress();
@@ -225,6 +220,15 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
             if (fe.getHost().equals(address.getHostAddress())) {
                 return true;
+            }
+        }
+
+        for (InetSocketAddress addr : allFeHosts) {
+            String host = addr.getHostName();
+            if (!Strings.isNullOrEmpty(host)) {
+                if (host.equals(fe.getHost())) {
+                    return true;
+                }
             }
         }
         return false;

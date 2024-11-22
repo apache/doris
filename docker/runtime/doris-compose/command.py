@@ -183,7 +183,7 @@ class Command(object):
         return sys.version_info.major == 3 and sys.version_info.minor >= 9
 
     def _print_table(self, header, datas):
-        if utils.is_enable_log():
+        if utils.is_log_stdout():
             table = prettytable.PrettyTable(
                 [utils.render_green(field) for field in header])
             for row in datas:

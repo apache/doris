@@ -23,12 +23,14 @@ import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.NodeType
 
 import com.google.common.collect.Maps
+import org.awaitility.Awaitility
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 import groovy.json.JsonSlurper
 import groovy.transform.CompileStatic
 import groovy.util.logging.Slf4j
+import static java.util.concurrent.TimeUnit.SECONDS
 import java.util.stream.Collectors
 import java.sql.Connection
 
@@ -333,7 +335,7 @@ class SuiteCluster {
 
         sqlModeNodeMgr = options.sqlModeNodeMgr
 
-        runCmd(cmd.join(' '), -1)
+        runCmd(cmd.join(' '), 180)
 
         // wait be report disk
         Thread.sleep(5000)
@@ -461,8 +463,8 @@ class SuiteCluster {
         return new Tuple4(frontends, backends, metaservices, recyclers)
     }
 
-    List<Integer> addFrontend(int num, boolean followerMode=false, boolean useSqlMode=false) throws Exception {
-        def result = add(num, 0, null, followerMode, useSqlMode)
+    List<Integer> addFrontend(int num, boolean followerMode=false) throws Exception {
+        def result = add(num, 0, null, followerMode)
         return result.first
     }
 
@@ -473,7 +475,7 @@ class SuiteCluster {
 
     // ATTN: clusterName just used for cloud mode, 1 cluster has n bes
     // ATTN: followerMode just used for cloud mode
-    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false, boolean useSqlMode=false) throws Exception {
+    Tuple2<List<Integer>, List<Integer>> add(int feNum, int beNum, String clusterName, boolean followerMode=false) throws Exception {
         assert feNum > 0 || beNum > 0
 
         def sb = new StringBuilder()
@@ -483,7 +485,7 @@ class SuiteCluster {
             if (followerMode) {
                 sb.append('--fe-follower' + ' ')
             }
-            if (useSqlMode) {
+            if (sqlModeNodeMgr) {
                 sb.append('--sql-mode-node-mgr' + ' ')
             }
         }
@@ -495,7 +497,7 @@ class SuiteCluster {
         }
         sb.append('--wait-timeout 60')
 
-        def data = (Map<String, Map<String, Object>>) runCmd(sb.toString(), -1)
+        def data = (Map<String, Map<String, Object>>) runCmd(sb.toString(), 180)
         def newFrontends = (List<Integer>) data.get('fe').get('add_list')
         def newBackends = (List<Integer>) data.get('be').get('add_list')
 
@@ -639,17 +641,15 @@ class SuiteCluster {
     }
 
     private Object runCmd(String cmd, int timeoutSecond = 60) throws Exception {
-        def fullCmd = String.format('python -W ignore %s %s --output-json', config.dorisComposePath, cmd)
+        def fullCmd = String.format('python -W ignore %s %s -v --output-json', config.dorisComposePath, cmd)
         logger.info('Run doris compose cmd: {}', fullCmd)
         def proc = fullCmd.execute()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()
-        proc.consumeProcessOutput(outBuf, errBuf)
-        if (timeoutSecond > 0) {
-            proc.waitForOrKill(timeoutSecond * 1000)
-        } else {
-            proc.waitFor()
-        }
+        Awaitility.await().atMost(timeoutSecond, SECONDS).until({
+            proc.waitForProcessOutput(outBuf, errBuf)
+            return true
+        })
         if (proc.exitValue() != 0) {
             throw new Exception(String.format('Exit value: %s != 0, stdout: %s, stderr: %s',
                                               proc.exitValue(), outBuf.toString(), errBuf.toString()))

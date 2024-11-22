@@ -313,7 +313,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
             // ATTN: in addFrontend, sql node mode, will execute `ALTER SYSTEM ADD FOLLOWER "${feHost}:${feEditLogPort}";`
             boolean fuzzyUpFollower = (getRandomBoolean() == "true") ? true : false
             logger.info("Want up a new role [{}] frontend", fuzzyUpFollower ? "FOLLOWER" : "OBSERVER")
-            def addList = cluster.addFrontend(1, fuzzyUpFollower, options.sqlModeNodeMgr ? true : false)
+            def addList = cluster.addFrontend(1, fuzzyUpFollower)
             logger.info("Up a new frontend, addList: {}", addList)
 
             def addFE = cluster.getFeByIndex(addList[0])
@@ -367,7 +367,7 @@ suite('test_sql_mode_node_mgr', 'multi_cluster,docker,p1') {
 
             // Up a new follower fe and add to docker compose
             // ATTN: in addFrontend, sql node mode, will execute `ALTER SYSTEM ADD FOLLOWER "${feHost}:${feEditLogPort}";`
-            addList = cluster.addFrontend(1, true, options.sqlModeNodeMgr ? true : false)
+            addList = cluster.addFrontend(1, true)
             logger.info("Up a new frontend, addList: {}", addList)
 
             dockerAwaitUntil(300, 5) {
