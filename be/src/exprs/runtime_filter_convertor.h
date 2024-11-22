@@ -30,11 +30,9 @@ auto get_convertor() {
     if constexpr (std::is_same_v<T, bool>) {
         return [](PColumnValue* value, const T& data) { value->set_boolval(data); };
     } else if constexpr (std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> ||
-                         std::is_same_v<T, int32_t> || std::is_same_v<T, vectorized::Decimal32> ||
-                         std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
+                         std::is_same_v<T, int32_t> || std::is_same_v<T, vectorized::Decimal32>) {
         return [](PColumnValue* value, const T& data) { value->set_intval(data); };
-    } else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, vectorized::Decimal64> ||
-                         std::is_same_v<T, DateV2Value<DateTimeV2ValueType>>) {
+    } else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, vectorized::Decimal64>) {
         return [](PColumnValue* value, const T& data) { value->set_longval(data); };
     } else if constexpr (std::is_same_v<T, float> || std::is_same_v<T, double>) {
         return [](PColumnValue* value, const T& data) { value->set_doubleval(data); };
@@ -58,6 +56,14 @@ auto get_convertor() {
             char convert_buffer[30];
             data.to_string(convert_buffer);
             value->set_stringval(convert_buffer);
+        };
+    } else if constexpr (std::is_same_v<T, DateV2Value<DateV2ValueType>>) {
+        return [](PColumnValue* value, const T& data) {
+            value->set_intval(data.to_date_int_val());
+        };
+    } else if constexpr (std::is_same_v<T, DateV2Value<DateTimeV2ValueType>>) {
+        return [](PColumnValue* value, const T& data) {
+            value->set_longval(data.to_date_int_val());
         };
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR,
