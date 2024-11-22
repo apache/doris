@@ -2132,7 +2132,7 @@ void NewJsonReader::_append_empty_skip_bitmap_value(Block& block, size_t cur_row
 }
 
 void NewJsonReader::_set_skip_bitmap_mark(SlotDescriptor* slot_desc, IColumn* column_ptr,
-                                              Block& block, size_t cur_row_count, bool* valid) {
+                                          Block& block, size_t cur_row_count, bool* valid) {
     // we record the missing column's column unique id in skip bitmap
     // to indicate which columns need to do the alignment process
     auto* skip_bitmap_nullable_col_ptr = assert_cast<ColumnNullable*>(
