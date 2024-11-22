@@ -49,7 +49,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      *
      * @return
      */
-    PartitionType getPartitionType();
+    PartitionType getPartitionType() throws DdlException;
 
     /**
      * getPartitionColumnNames
@@ -64,7 +64,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      *
      * @return
      */
-    List<Column> getPartitionColumns();
+    List<Column> getPartitionColumns() throws DdlException;
 
     /**
      * getPartitionSnapshot
@@ -92,7 +92,8 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @return table snapshot at current time
      * @throws AnalysisException
      */
-    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId) throws AnalysisException;
+    MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId)
+            throws AnalysisException, DdlException;
 
     /**
      * Does the current type of table allow timed triggering

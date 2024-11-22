@@ -25,7 +25,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
-import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PaimonSnapshotCache {
@@ -53,15 +53,15 @@ public class PaimonSnapshotCache {
     private static PaimonSchemaCacheValue load(PaimonExternalTable paimonExternalTable, long snapshotId,
             SnapshotCacheKey key) throws DdlException {
         // may be slow, not in lock
-        Optional<PaimonSchemaCacheValue> latestSchemaCache = paimonExternalTable.getLatestSchemaCache();
+        PaimonSchemaCacheValue latestSchemaCache = paimonExternalTable.getSchemaCache(OptionalLong.empty());
         try {
             paimonExternalTable.writeSnapshotLock();
             if (snapshotCache.containsKey(key)) {
                 return snapshotCache.get(key);
             }
-            if (latestSchemaCache.isPresent() && latestSchemaCache.get().getSnapshootId() == snapshotId) {
-                snapshotCache.put(key, latestSchemaCache.get());
-                return latestSchemaCache.get();
+            if (latestSchemaCache.getSnapshootId() == snapshotId) {
+                snapshotCache.put(key, latestSchemaCache);
+                return latestSchemaCache;
             }
         } finally {
             paimonExternalTable.writeSnapshotUnlock();
