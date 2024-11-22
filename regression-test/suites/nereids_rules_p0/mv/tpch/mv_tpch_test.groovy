@@ -181,7 +181,6 @@ suite("mv_tpch_test") {
               n_name,
               s_name,
               p_partkey
-            LIMIT 100;
     """
     def query2 = """
              SELECT
@@ -282,7 +281,7 @@ suite("mv_tpch_test") {
             ORDER BY
               revenue DESC,
               o_orderdate
-            LIMIT 10;   
+            LIMIT 10;
     """
     // contains limit, doesn't support now
     order_qt_query3_before "${query3}"
@@ -290,6 +289,60 @@ suite("mv_tpch_test") {
     order_qt_query3_after "${query3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv3"""
 
+
+    def mv3_1 = """
+            SELECT
+              l_orderkey,
+              sum(l_extendedprice * (1 - l_discount)) AS revenue,
+              o_orderdate,
+              o_shippriority
+            FROM
+              customer,
+              orders,
+              lineitem
+            WHERE
+              c_mktsegment = 'BUILDING'
+              AND c_custkey = o_custkey
+              AND l_orderkey = o_orderkey
+              AND o_orderdate < DATE '1995-03-15'
+              AND l_shipdate > DATE '1995-03-15'
+            GROUP BY
+              l_orderkey,
+              o_orderdate,
+              o_shippriority
+            ORDER BY
+              revenue DESC,
+              o_orderdate
+    """
+    def query3_1 = """
+            SELECT
+              l_orderkey,
+              sum(l_extendedprice * (1 - l_discount)) AS revenue,
+              o_orderdate,
+              o_shippriority
+            FROM
+              customer,
+              orders,
+              lineitem
+            WHERE
+              c_mktsegment = 'BUILDING'
+              AND c_custkey = o_custkey
+              AND l_orderkey = o_orderkey
+              AND o_orderdate < DATE '1995-03-15'
+              AND l_shipdate > DATE '1995-03-15'
+            GROUP BY
+              l_orderkey,
+              o_orderdate,
+              o_shippriority
+            ORDER BY
+              revenue DESC,
+              o_orderdate
+            LIMIT 10;
+    """
+    order_qt_query3_1_before "${query3_1}"
+    async_mv_rewrite_success(db, mv3_1, query3_1, "mv3_1")
+    order_qt_query3_1_after "${query3_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv3_1"""
 
     def mv4 = """
             SELECT
@@ -309,7 +362,7 @@ suite("mv_tpch_test") {
             GROUP BY
             o_orderpriority
             ORDER BY
-            o_orderpriority        
+            o_orderpriority
     """
     def query4 = """
             SELECT
@@ -329,7 +382,7 @@ suite("mv_tpch_test") {
             GROUP BY
             o_orderpriority
             ORDER BY
-            o_orderpriority             
+            o_orderpriority
     """
     // contains subquery, doesn't support now
     order_qt_query4_before "${query4}"
@@ -362,7 +415,7 @@ suite("mv_tpch_test") {
             GROUP BY
             n_name
             ORDER BY
-            revenue DESC        
+            revenue DESC
     """
     def query5 = """
             SELECT
@@ -388,7 +441,7 @@ suite("mv_tpch_test") {
             GROUP BY
             n_name
             ORDER BY
-            revenue DESC            
+            revenue DESC
     """
     order_qt_query5_before "${query5}"
     async_mv_rewrite_success(db, mv5, query5, "mv5")
@@ -414,7 +467,7 @@ suite("mv_tpch_test") {
               l_shipdate >= DATE '1994-01-01'
               AND l_shipdate < DATE '1994-01-01' + INTERVAL '1' YEAR
             AND l_discount BETWEEN 0.06 - 0.01 AND .06 + 0.01
-            AND l_quantity < 24            
+            AND l_quantity < 24
     """
     order_qt_query6_before "${query6}"
     async_mv_rewrite_success(db, mv6, query6, "mv6")
@@ -460,7 +513,7 @@ suite("mv_tpch_test") {
             ORDER BY
               supp_nation,
               cust_nation,
-              l_year           
+              l_year
     """
     def query7 = """
             SELECT
@@ -500,11 +553,10 @@ suite("mv_tpch_test") {
             ORDER BY
               supp_nation,
               cust_nation,
-              l_year             
+              l_year
     """
-    // contains subquery, doesn't support now
     order_qt_query7_before "${query7}"
-    async_mv_rewrite_fail(db, mv7, query7, "mv7")
+    async_mv_rewrite_success(db, mv7, query7, "mv7")
     order_qt_query7_after "${query7}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7"""
 
@@ -546,7 +598,7 @@ suite("mv_tpch_test") {
             GROUP BY
               o_year
             ORDER BY
-              o_year      
+              o_year
     """
     def query8 = """
             SELECT
@@ -585,7 +637,7 @@ suite("mv_tpch_test") {
             GROUP BY
               o_year
             ORDER BY
-              o_year              
+              o_year
     """
     order_qt_query8_before "${query8}"
     async_mv_rewrite_success(db, mv8, query8, "mv8")
@@ -624,7 +676,7 @@ suite("mv_tpch_test") {
               o_year
             ORDER BY
               nation,
-              o_year DESC   
+              o_year DESC
     """
     def query9 = """
             SELECT
@@ -657,7 +709,7 @@ suite("mv_tpch_test") {
               o_year
             ORDER BY
               nation,
-              o_year DESC             
+              o_year DESC
     """
     order_qt_query9_before "${query9}"
     async_mv_rewrite_success(db, mv9, query9, "mv9")
@@ -697,7 +749,7 @@ suite("mv_tpch_test") {
               c_comment
             ORDER BY
               revenue DESC
-            LIMIT 20  
+            LIMIT 20
     """
     def query10 = """
             SELECT
@@ -731,7 +783,7 @@ suite("mv_tpch_test") {
               c_comment
             ORDER BY
               revenue DESC
-            LIMIT 20            
+            LIMIT 20
     """
     // contains limit, doesn't support now
     order_qt_query10_before "${query10}"
@@ -739,6 +791,78 @@ suite("mv_tpch_test") {
     order_qt_query10_after "${query10}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv10"""
 
+
+    def mv10_1 = """
+            SELECT
+              c_custkey,
+              c_name,
+              sum(l_extendedprice * (1 - l_discount)) AS revenue,
+              c_acctbal,
+              n_name,
+              c_address,
+              c_phone,
+              c_comment
+            FROM
+              customer,
+              orders,
+              lineitem,
+              nation
+            WHERE
+              c_custkey = o_custkey
+              AND l_orderkey = o_orderkey
+              AND o_orderdate >= DATE '1993-10-01'
+              AND o_orderdate < DATE '1993-10-01' + INTERVAL '3' MONTH
+              AND l_returnflag = 'R'
+              AND c_nationkey = n_nationkey
+            GROUP BY
+              c_custkey,
+              c_name,
+              c_acctbal,
+              c_phone,
+              n_name,
+              c_address,
+              c_comment
+            ORDER BY
+              revenue DESC;
+    """
+    def query10_1 = """
+            SELECT
+              c_custkey,
+              c_name,
+              sum(l_extendedprice * (1 - l_discount)) AS revenue,
+              c_acctbal,
+              n_name,
+              c_address,
+              c_phone,
+              c_comment
+            FROM
+              customer,
+              orders,
+              lineitem,
+              nation
+            WHERE
+              c_custkey = o_custkey
+              AND l_orderkey = o_orderkey
+              AND o_orderdate >= DATE '1993-10-01'
+              AND o_orderdate < DATE '1993-10-01' + INTERVAL '3' MONTH
+              AND l_returnflag = 'R'
+              AND c_nationkey = n_nationkey
+            GROUP BY
+              c_custkey,
+              c_name,
+              c_acctbal,
+              c_phone,
+              n_name,
+              c_address,
+              c_comment
+            ORDER BY
+              revenue DESC
+            LIMIT 20;
+    """
+    order_qt_query10_1_before "${query10_1}"
+    async_mv_rewrite_success(db, mv10_1, query10_1, "mv10_1")
+    order_qt_query10_1_after "${query10_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv10_1"""
 
     def mv11 = """
             SELECT
@@ -767,7 +891,7 @@ suite("mv_tpch_test") {
                   AND n_name = 'GERMANY'
               )
             ORDER BY
-              value DESC  
+              value DESC
     """
     def query11 = """
             SELECT
@@ -796,7 +920,7 @@ suite("mv_tpch_test") {
                   AND n_name = 'GERMANY'
               )
             ORDER BY
-              value DESC             
+              value DESC
     """
     // contains subquery, doesn't support now
     order_qt_query11_before "${query11}"
@@ -863,7 +987,7 @@ suite("mv_tpch_test") {
             GROUP BY
               l_shipmode
             ORDER BY
-              l_shipmode            
+              l_shipmode
     """
     order_qt_query12_before "${query12}"
     async_mv_rewrite_success(db, mv12, query12, "mv12")
@@ -913,7 +1037,7 @@ suite("mv_tpch_test") {
               c_count
             ORDER BY
               custdist DESC,
-              c_count DESC            
+              c_count DESC
     """
     // when aggregate rewrite, should only contains one aggregate
     order_qt_query13_before "${query13}"
@@ -948,7 +1072,7 @@ suite("mv_tpch_test") {
             WHERE
               l_partkey = p_partkey
               AND l_shipdate >= DATE '1995-09-01'
-              AND l_shipdate < DATE '1995-09-01' + INTERVAL '1' MONTH            
+              AND l_shipdate < DATE '1995-09-01' + INTERVAL '1' MONTH
     """
     order_qt_query14_before "${query14}"
     async_mv_rewrite_success(db, mv14, query14, "mv14")
@@ -994,7 +1118,7 @@ suite("mv_tpch_test") {
                   revenue1
               )
             ORDER BY
-              s_suppkey;            
+              s_suppkey;
     """
     // revenue1 in materialized view is view, can not create materialized view support now
 //    order_qt_query15_before "${query15}"
@@ -1063,7 +1187,7 @@ suite("mv_tpch_test") {
               supplier_cnt DESC,
               p_brand,
               p_type,
-              p_size            
+              p_size
     """
     // contains subquery, doesn't support now
     order_qt_query16_before "${query16}"
@@ -1104,7 +1228,7 @@ suite("mv_tpch_test") {
                   lineitem
                 WHERE
                   l_partkey = p_partkey
-              )            
+              )
     """
     // contains subquery, doesn't support now
     order_qt_query17_before "${query17}"
@@ -1146,7 +1270,7 @@ suite("mv_tpch_test") {
             ORDER BY
               o_totalprice DESC,
               o_orderdate
-            LIMIT 100           
+            LIMIT 100
     """
     def query18 = """
             SELECT
@@ -1181,13 +1305,88 @@ suite("mv_tpch_test") {
             ORDER BY
               o_totalprice DESC,
               o_orderdate
-            LIMIT 100               
+            LIMIT 100
     """
     // contains limit, doesn't support now
     order_qt_query18_before "${query18}"
     async_mv_rewrite_fail(db, mv18, query18, "mv18")
     order_qt_query18_after "${query18}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18"""
+
+
+    def mv18_1 = """
+            SELECT
+              c_name,
+              c_custkey,
+              o_orderkey,
+              o_orderdate,
+              o_totalprice,
+              sum(l_quantity)
+            FROM
+              customer,
+              orders,
+              lineitem
+            WHERE
+              o_orderkey IN (
+                SELECT l_orderkey
+                FROM
+                  lineitem
+                GROUP BY
+                  l_orderkey
+                HAVING
+                  sum(l_quantity) > 300
+              )
+              AND c_custkey = o_custkey
+              AND o_orderkey = l_orderkey
+            GROUP BY
+              c_name,
+              c_custkey,
+              o_orderkey,
+              o_orderdate,
+              o_totalprice
+            ORDER BY
+              o_totalprice DESC,
+              o_orderdate
+    """
+    def query18_1 = """
+            SELECT
+              c_name,
+              c_custkey,
+              o_orderkey,
+              o_orderdate,
+              o_totalprice,
+              sum(l_quantity)
+            FROM
+              customer,
+              orders,
+              lineitem
+            WHERE
+              o_orderkey IN (
+                SELECT l_orderkey
+                FROM
+                  lineitem
+                GROUP BY
+                  l_orderkey
+                HAVING
+                  sum(l_quantity) > 300
+              )
+              AND c_custkey = o_custkey
+              AND o_orderkey = l_orderkey
+            GROUP BY
+              c_name,
+              c_custkey,
+              o_orderkey,
+              o_orderdate,
+              o_totalprice
+            ORDER BY
+              o_totalprice DESC,
+              o_orderdate
+            LIMIT 100
+    """
+    order_qt_query18_1_before "${query18_1}"
+    async_mv_rewrite_success(db, mv18_1, query18, "mv18_1")
+    order_qt_query18_1_after "${query18_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv18_1"""
 
 
     def mv19 = """
@@ -1260,11 +1459,10 @@ suite("mv_tpch_test") {
                 AND p_size BETWEEN 1 AND 15
                 AND l_shipmode IN ('AIR', 'AIR REG')
                 AND l_shipinstruct = 'DELIVER IN PERSON'
-              )           
+              )
     """
-    // join condition is not conjunctions, doesn't support now
     order_qt_query19_before "${query19}"
-    async_mv_rewrite_fail(db, mv19, query19, "mv19")
+    async_mv_rewrite_success(db, mv19, query19, "mv19")
     order_qt_query19_after "${query19}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv19"""
 
@@ -1335,11 +1533,10 @@ suite("mv_tpch_test") {
             )
             AND s_nationkey = n_nationkey
             AND n_name = 'CANADA'
-            ORDER BY s_name            
+            ORDER BY s_name
     """
-    // contains subquery, doesn't support now
     order_qt_query20_before "${query20}"
-    async_mv_rewrite_fail(db, mv20, query20, "mv20")
+    async_mv_rewrite_success(db, mv20, query20, "mv20")
     order_qt_query20_after "${query20}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv20"""
 
@@ -1382,7 +1579,7 @@ suite("mv_tpch_test") {
             ORDER BY
               numwait DESC,
               s_name
-            LIMIT 100  
+            LIMIT 100
     """
     def query21 = """
             SELECT
@@ -1422,7 +1619,7 @@ suite("mv_tpch_test") {
             ORDER BY
               numwait DESC,
               s_name
-            LIMIT 100             
+            LIMIT 100
     """
     // contains limit, doesn't support now
     order_qt_query21_before "${query21}"
@@ -1430,6 +1627,91 @@ suite("mv_tpch_test") {
     order_qt_query21_after "${query21}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv21"""
 
+
+    def mv21_1 = """
+            SELECT
+              s_name,
+              count(*) AS numwait
+            FROM
+              supplier,
+              lineitem l1,
+              orders,
+              nation
+            WHERE
+              s_suppkey = l1.l_suppkey
+              AND o_orderkey = l1.l_orderkey
+              AND o_orderstatus = 'F'
+              AND l1.l_receiptdate > l1.l_commitdate
+              AND exists(
+                SELECT *
+                FROM
+                  lineitem l2
+                WHERE
+                  l2.l_orderkey = l1.l_orderkey
+                  AND l2.l_suppkey <> l1.l_suppkey
+              )
+              AND NOT exists(
+                SELECT *
+                FROM
+                  lineitem l3
+                WHERE
+                  l3.l_orderkey = l1.l_orderkey
+                  AND l3.l_suppkey <> l1.l_suppkey
+                  AND l3.l_receiptdate > l3.l_commitdate
+              )
+              AND s_nationkey = n_nationkey
+              AND n_name = 'SAUDI ARABIA'
+            GROUP BY
+              s_name
+            ORDER BY
+              numwait DESC,
+              s_name;
+    """
+    def query21_1 = """
+            SELECT
+              s_name,
+              count(*) AS numwait
+            FROM
+              supplier,
+              lineitem l1,
+              orders,
+              nation
+            WHERE
+              s_suppkey = l1.l_suppkey
+              AND o_orderkey = l1.l_orderkey
+              AND o_orderstatus = 'F'
+              AND l1.l_receiptdate > l1.l_commitdate
+              AND exists(
+                SELECT *
+                FROM
+                  lineitem l2
+                WHERE
+                  l2.l_orderkey = l1.l_orderkey
+                  AND l2.l_suppkey <> l1.l_suppkey
+              )
+              AND NOT exists(
+                SELECT *
+                FROM
+                  lineitem l3
+                WHERE
+                  l3.l_orderkey = l1.l_orderkey
+                  AND l3.l_suppkey <> l1.l_suppkey
+                  AND l3.l_receiptdate > l3.l_commitdate
+              )
+              AND s_nationkey = n_nationkey
+              AND n_name = 'SAUDI ARABIA'
+            GROUP BY
+              s_name
+            ORDER BY
+              numwait DESC,
+              s_name
+            LIMIT 100             
+    """
+    order_qt_query21_1_before "${query21_1}"
+    // complex join has not support yet, support in future
+    async_mv_rewrite_success(db, mv21_1, query21_1, "mv21_1")
+    order_qt_query21_1_after "${query21_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv21_1"""
 
     def mv22 = """
             SELECT
@@ -1501,11 +1783,10 @@ suite("mv_tpch_test") {
             GROUP BY
               cntrycode
             ORDER BY
-              cntrycode            
+              cntrycode
     """
-    // contains subquery, doesn't support now
     order_qt_query22_before "${query22}"
-    async_mv_rewrite_fail(db, mv22, query22, "mv22")
+    async_mv_rewrite_success(db, mv22, query22, "mv22")
     order_qt_query22_after "${query22}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv22"""
 }
