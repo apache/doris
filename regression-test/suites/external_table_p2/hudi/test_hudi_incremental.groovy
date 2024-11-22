@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_hudi") {
+suite("test_hudi_incremental", "p2,external,hudi,external_remote,external_remote_hudi") {
     String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
     }
 
-    String catalog_name = "test_hudi_timetravel"
+    String catalog_name = "test_hudi_incremental"
     String props = context.config.otherConfigs.get("hudiEmrCatalog")
     sql """drop catalog if exists ${catalog_name};"""
     sql """
@@ -34,10 +34,16 @@ suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_
     sql """ use regression_hudi;""" 
     sql """ set enable_fallback_to_original_planner=false """
 
-    def test_hudi_timetravel_querys = { table_name, timestamps ->
+    def test_hudi_incremental_querys = { table_name, timestamps ->
         timestamps.eachWithIndex { timestamp, index ->
-            def query_name = "qt_timetravel${index + 1}"
-            "${query_name}" """ select count(user_id) from ${table_name} for time as of "${timestamp}"; """
+            def query_name = "qt_incremental_${index + 1}_end"
+            "${query_name}" """ select count(user_id) from ${table_name}@incr('beginTime' = '${timestamp}'); """
+            query_name = "qt_incremental_earliest_${index + 1}"
+            "${query_name}" """ select count(user_id) from ${table_name}@incr('beginTime' = 'earliest', 'endTime' = '${timestamp}'); """
+            if (index > 0) {
+                query_name = "qt_incremental_${index}_${index + 1}"
+                "${query_name}" """ select count(user_id) from ${table_name}@incr('beginTime' = '${timestamps[index - 1]}', 'endTime' = '${timestamp}'); """
+            }
         }
     }
 
@@ -54,7 +60,7 @@ suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_
         "20241114152009764",
         "20241114152011901",
     ]
-    test_hudi_timetravel_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
+    test_hudi_incremental_querys("user_activity_log_cow_non_partition", timestamps_cow_non_partition)
 
     // spark-sql "select distinct _hoodie_commit_time from user_activity_log_cow_partition order by _hoodie_commit_time;"
     def timestamps_cow_partition = [
@@ -69,7 +75,7 @@ suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_
         "20241114152147114",
         "20241114152156417",
     ]
-    test_hudi_timetravel_querys("user_activity_log_cow_partition", timestamps_cow_partition)
+    test_hudi_incremental_querys("user_activity_log_cow_partition", timestamps_cow_partition)
 
     // spark-sql "select distinct _hoodie_commit_time from user_activity_log_mor_non_partition order by _hoodie_commit_time;"
     def timestamps_mor_non_partition = [
@@ -84,7 +90,7 @@ suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_
         "20241114152028770",
         "20241114152030746",
     ]
-    test_hudi_timetravel_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
+    test_hudi_incremental_querys("user_activity_log_mor_non_partition", timestamps_mor_non_partition)
 
     // spark-sql "select distinct _hoodie_commit_time from user_activity_log_mor_partition order by _hoodie_commit_time;"
     def timestamps_mor_partition = [
@@ -99,7 +105,7 @@ suite("test_hudi_timetravel", "p2,external,hudi,external_remote,external_remote_
         "20241114152323587",
         "20241114152334111",
     ]
-    test_hudi_timetravel_querys("user_activity_log_mor_partition", timestamps_mor_partition)
+    test_hudi_incremental_querys("user_activity_log_mor_partition", timestamps_mor_partition)
 
     sql """drop catalog if exists ${catalog_name};"""
 }
