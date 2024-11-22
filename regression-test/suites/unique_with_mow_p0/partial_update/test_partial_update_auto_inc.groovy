@@ -103,6 +103,25 @@ suite("test_partial_update_auto_inc") {
             time 10000
         }
         order_qt_select_6 "select * from test_primary_key_partial_update_auto_inc2"
-        sql """ DROP TABLE IF EXISTS test_primary_key_partial_update_auto_inc2 """
+
+
+        sql """ DROP TABLE IF EXISTS test_primary_key_partial_update_auto_inc3 force; """
+        sql """ create table test_primary_key_partial_update_auto_inc3
+            (
+                `id`                      bigint         not null AUTO_INCREMENT,
+                `project_code`            varchar(20)    not null,
+                `period_num`              int   
+            ) unique KEY(`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS auto
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true"
+            );   """
+        sql "set enable_unique_key_partial_update=true;"
+        sql "sync;"
+        test {
+            sql "insert into test_primary_key_partial_update_auto_inc3(project_code) values ('test1');"
+            exception "distributed column not found"
+        }
     }
 }
