@@ -265,6 +265,10 @@ public:
         ss << "decimal(" << precision << ", " << scale << ")";
         return ss.str();
     }
+
+    int get_precision() { return precision; }
+
+    int get_scale() { return scale; }
 };
 
 class BinaryType : public PrimitiveType {
