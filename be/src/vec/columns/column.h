@@ -249,12 +249,6 @@ public:
                                "Method insert_many_dict_data is not supported for " + get_name());
     }
 
-    virtual void insert_many_binary_data(char* data_array, uint32_t* len_array,
-                                         uint32_t* start_offset_array, size_t num) {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Method insert_many_binary_data is not supported for " + get_name());
-    }
-
     /// Insert binary data into column from a continuous buffer, the implementation maybe copy all binary data
     /// in one single time.
     virtual void insert_many_continuous_binary_data(const char* data, const uint32_t* offsets,
@@ -570,8 +564,10 @@ public:
 
     /// Various properties on behaviour of column type.
 
-    /// True if column contains something nullable inside. It's true for ColumnNullable, can be true or false for ColumnConst, etc.
+    /// It's true for ColumnNullable only.
     virtual bool is_nullable() const { return false; }
+    /// It's true for ColumnNullable, can be true or false for ColumnConst, etc.
+    virtual bool is_concrete_nullable() const { return false; }
 
     virtual bool is_bitmap() const { return false; }
 

@@ -92,8 +92,27 @@ suite("test_sql_block_rule", "nonConcurrent") {
                 SHOW SQL_BLOCK_RULE FOR test_rule_sql
               """
 
+    checkNereidsExecute("DROP SQL_BLOCK_RULE if exists test_rule_sql")
+
+    qt_select3_notexist """
+                SHOW SQL_BLOCK_RULE
+              """
+
     sql """
-                DROP SQL_BLOCK_RULE if exists test_rule_sql
+                CREATE SQL_BLOCK_RULE if not exists test_rule_sql
+                PROPERTIES("sql"="SELECT \\\\* FROM table_2", "global"= "true", "enable"= "true")
+              """
+    sql """
+                CREATE SQL_BLOCK_RULE if not exists test_rule_sql1
+                PROPERTIES("sql"="SELECT \\\\* FROM table_2", "global"= "true", "enable"= "true")
+              """              
+
+    qt_select4_exist """
+                SHOW SQL_BLOCK_RULE
+              """
+
+    sql """
+                DROP SQL_BLOCK_RULE if exists test_rule_sql,test_rule_sql1
               """
 
     sql """
@@ -110,7 +129,7 @@ suite("test_sql_block_rule", "nonConcurrent") {
         exception "sql hits sql block rule: test_rule_num, reach tablet_num : 1"
     }
 */
-    qt_select3 """
+    qt_select5_not_exist """
                 SHOW SQL_BLOCK_RULE
               """
 

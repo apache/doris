@@ -33,6 +33,7 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplacePartitionOperationLog;
+import org.apache.doris.persist.ReplaceTableOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
@@ -45,6 +46,7 @@ import org.apache.doris.thrift.TStatusCode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -365,6 +367,22 @@ public class BinlogManager {
         String data = alterViewInfo.toJson();
 
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, alterViewInfo);
+    }
+
+    public void addReplaceTable(ReplaceTableOperationLog info, long commitSeq) {
+        if (StringUtils.isEmpty(info.getOrigTblName()) || StringUtils.isEmpty(info.getNewTblName())) {
+            LOG.warn("skip replace table binlog, because origTblName or newTblName is empty. info: {}", info);
+            return;
+        }
+
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getOrigTblId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.REPLACE_TABLE;
+        String data = info.toJson();
+
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
     // get binlog by dbId, return first binlog.version > version

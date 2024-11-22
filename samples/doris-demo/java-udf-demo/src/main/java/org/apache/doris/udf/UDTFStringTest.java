@@ -15,21 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.exceptions;
+package org.apache.doris.udf;
 
-import org.apache.doris.nereids.parser.Dialect;
+import java.util.ArrayList;
+import java.util.Arrays;
 
-/**
- * UnsupportedDialectException when not match any in
- * {@link Dialect}.
- */
-public class UnsupportedDialectException extends UnsupportedOperationException {
-
-    public UnsupportedDialectException(Dialect dialect) {
-        super(String.format("Unsupported dialect name is %s", dialect.getDialectName()));
-    }
-
-    public UnsupportedDialectException(String type, String msg) {
-        super(String.format("Unsupported dialect type is %s, msg is %s", type, msg));
+public class UDTFStringTest {
+    public ArrayList<String> evaluate(String value, String separator) {
+        if (value == null || separator == null) {
+            return null;
+        } else {
+            return new ArrayList<>(Arrays.asList(value.split(separator)));
+        }
     }
 }
