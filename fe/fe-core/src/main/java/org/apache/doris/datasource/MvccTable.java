@@ -21,6 +21,8 @@ import org.apache.doris.catalog.TableIf;
 
 public interface MvccTable extends TableIf {
     long getLatestSnapshotId();
+
     void ref(long snapshotId);
+
     void unref(long snapshotId);
 }
