@@ -22,7 +22,7 @@
 #define COMPILE_CHECK
 #ifdef __clang__
 #pragma clang diagnostic push
-#pragma clang diagnostic warning "-Wconversion"
+#pragma clang diagnostic error "-Wconversion"
 #pragma clang diagnostic ignored "-Wsign-conversion"
 #pragma clang diagnostic ignored "-Wfloat-conversion"
 #endif
