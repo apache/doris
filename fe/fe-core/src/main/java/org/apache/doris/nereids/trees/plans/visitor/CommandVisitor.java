@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropWorkloadGroupCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
@@ -412,6 +413,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropUserCommand(DropUserCommand dropUserCommand, C context) {
         return visitCommand(dropUserCommand, context);
+    }
+
+    default R visitDropWorkloadGroupCommand(DropWorkloadGroupCommand dropWorkloadGroupCommand, C context) {
+        return visitCommand(dropWorkloadGroupCommand, context);
     }
 
     default R visitShowTableIdCommand(ShowTableIdCommand showTableIdCommand, C context) {
