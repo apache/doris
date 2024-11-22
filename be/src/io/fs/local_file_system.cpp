@@ -471,4 +471,54 @@ Status LocalFileSystem::permission_impl(const Path& file, std::filesystem::perms
     return Status::OK();
 }
 
+Status LocalFileSystem::convert_to_abs_path(const Path& input_path_str, Path& abs_path) {
+    // valid path include:
+    //   1. abc/def                         will return abc/def
+    //   2. /abc/def                        will return /abc/def
+    //   3. file:/abc/def                   will return /abc/def
+    //   4. file://<authority>/abc/def      will return /abc/def
+    std::string path_str = input_path_str;
+    size_t slash = path_str.find('/');
+    if (slash == 0) {
+        abs_path = input_path_str;
+        return Status::OK();
+    }
+
+    // Initialize scheme and authority
+    std::string scheme;
+    size_t start = 0;
+
+    // Parse URI scheme
+    size_t colon = path_str.find(':');
+    if (colon != std::string::npos && (slash == std::string::npos || colon < slash)) {
+        // Has a scheme
+        scheme = path_str.substr(0, colon);
+        if (scheme != "file") {
+            return Status::InternalError(
+                    "Only supports `file` type scheme, like 'file:///path', 'file:/path'.");
+        }
+        start = colon + 1;
+    }
+
+    // Parse URI authority, if any
+    if (path_str.compare(start, 2, "//") == 0 && path_str.length() - start > 2) {
+        // Has authority
+        // such as : path_str = "file://authority/abc/def"
+        // and now : start = 5
+        size_t next_slash = path_str.find('/', start + 2);
+        // now : next_slash = 16
+        if (next_slash == std::string::npos) {
+            return Status::InternalError(
+                    "This input string only has authority, but has no path information");
+        }
+        // We will skit authority
+        // now : start = 16
+        start = next_slash;
+    }
+
+    // URI path is the rest of the string
+    abs_path = path_str.substr(start);
+    return Status::OK();
+}
+
 } // namespace doris::io

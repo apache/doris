@@ -15,14 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.exceptions;
+package org.apache.doris.udf;
 
-/**
- * DialectTransformException when have not supported transforming for dialect converters.
- */
-public class DialectTransformException extends UnsupportedOperationException {
+import java.util.ArrayList;
+import java.util.Arrays;
 
-    public DialectTransformException(String msg) {
-        super(String.format("Unsupported dialect transformation is %s", msg));
+public class UDTFStringTest {
+    public ArrayList<String> evaluate(String value, String separator) {
+        if (value == null || separator == null) {
+            return null;
+        } else {
+            return new ArrayList<>(Arrays.asList(value.split(separator)));
+        }
     }
 }
