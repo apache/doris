@@ -126,7 +126,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
             selfNode = ConnectContext.get().getCurrentConnectedFEIp();
         }
 
-        for (Frontend fe : env.getFrontends(null /* all */)) {
+        List<Frontend> envFes = env.getFrontends(null /* all */);
+        LOG.info("bdbje fes {}, env fes {}", allFe, envFes);
+        for (Frontend fe : envFes) {
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
             info.add(fe.getHost());
@@ -207,7 +209,6 @@ public class FrontendsProcNode implements ProcNodeInterface {
     }
 
     private static boolean isJoin(List<InetSocketAddress> allFeHosts, Frontend fe) {
-        LOG.info("all fe hosts: {}, fe: {}", allFeHosts, fe);
         for (InetSocketAddress addr : allFeHosts) {
             if (fe.getEditLogPort() != addr.getPort()) {
                 continue;
