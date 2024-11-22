@@ -203,6 +203,9 @@ extEsPort = 9200
 extEsUser = "*******"
 extEsPassword = "***********"
 
+enableExternalHudiTest = false
+hudiEmrCatalog = "***********"
+
 enableObjStorageTest=false
 enableMaxComputeTest=false
 aliYunAk="***********"
