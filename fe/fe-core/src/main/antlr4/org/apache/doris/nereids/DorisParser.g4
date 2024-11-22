@@ -198,6 +198,7 @@ supportedDropStatement
     : DROP CATALOG RECYCLE BIN WHERE idType=STRING_LITERAL EQ id=INTEGER_VALUE  #dropCatalogRecycleBin
     | DROP ROLE (IF EXISTS)? name=identifier                                    #dropRole
     | DROP SQL_BLOCK_RULE (IF EXISTS)? identifierSeq                            #dropSqlBlockRule
+    | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     ;
 
 supportedShowStatement
@@ -660,7 +661,6 @@ unsupportedDropStatement
     | DROP (GLOBAL | SESSION | LOCAL)? FUNCTION (IF EXISTS)?
         functionIdentifier LEFT_PAREN functionArguments? RIGHT_PAREN            #dropFunction
     | DROP TABLE (IF EXISTS)? name=multipartIdentifier FORCE?                   #dropTable
-    | DROP USER (IF EXISTS)? userIdentify                                       #dropUser
     | DROP VIEW (IF EXISTS)? name=multipartIdentifier                           #dropView
     | DROP REPOSITORY name=identifier                                           #dropRepository
     | DROP FILE name=STRING_LITERAL
