@@ -112,8 +112,7 @@ public class BaseTableInfo {
 
     // if compatible failed due catalog dropped, ctlName will be null
     public boolean isInternalTable() {
-        //
-        if (StringUtils.isEmpty(ctlName)) {
+        if (!StringUtils.isEmpty(ctlName)) {
             return InternalCatalog.INTERNAL_CATALOG_NAME.equals(ctlName);
         } else {
             return InternalCatalog.INTERNAL_CATALOG_ID == ctlId;
