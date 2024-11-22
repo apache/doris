@@ -59,6 +59,7 @@ statementBase
     | supportedRefreshStatement         #supportedRefreshStatementAlias
     | supportedShowStatement            #supportedShowStatementAlias
     | supportedRecoverStatement         #supportedRecoverStatementAlias
+    | supportedLoadStatement            #supportedLoadfStatementAlias
     | unsupportedStatement              #unsupported
     ;
 
@@ -234,6 +235,10 @@ supportedShowStatement
         tabletIds+=INTEGER_VALUE (COMMA tabletIds+=INTEGER_VALUE)*                  #showTabletsBelong    
     ;
 
+supportedLoadStatement
+    : SYNC                                                                          #sync
+    ;
+
 unsupportedOtherStatement
     : HELP mark=identifierOrText                                                    #help
     | INSTALL PLUGIN FROM source=identifierOrText properties=propertyClause?        #installPlugin
@@ -371,7 +376,6 @@ unsupportedLoadStatement
     | SHOW ROUTINE LOAD TASK ((FROM | IN) database=identifier)? wildWhere?          #showRoutineLoadTask
     | SHOW ALL? CREATE ROUTINE LOAD FOR label=multipartIdentifier                   #showCreateRoutineLoad
     | SHOW CREATE LOAD FOR label=multipartIdentifier                                #showCreateLoad
-    | SYNC                                                                          #sync
     | importSequenceStatement                                                       #importSequenceStatementAlias
     | importPrecedingFilterStatement                                                #importPrecedingFilterStatementAlias
     | importWhereStatement                                                          #importWhereStatementAlias
