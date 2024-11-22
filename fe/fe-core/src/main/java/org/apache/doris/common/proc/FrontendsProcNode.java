@@ -207,6 +207,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
     }
 
     private static boolean isJoin(List<InetSocketAddress> allFeHosts, Frontend fe) {
+        LOG.info("all fe hosts: {}, fe: {}", allFeHosts, fe);
         for (InetSocketAddress addr : allFeHosts) {
             if (fe.getEditLogPort() != addr.getPort()) {
                 continue;
@@ -224,6 +225,9 @@ public class FrontendsProcNode implements ProcNodeInterface {
         }
 
         for (InetSocketAddress addr : allFeHosts) {
+            if (fe.getEditLogPort() != addr.getPort()) {
+                continue;
+            }
             String host = addr.getHostName();
             if (!Strings.isNullOrEmpty(host)) {
                 if (host.equals(fe.getHost())) {
