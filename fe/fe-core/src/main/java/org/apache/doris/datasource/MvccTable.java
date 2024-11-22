@@ -20,9 +20,29 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.TableIf;
 
 public interface MvccTable extends TableIf {
+    /**
+     * Get the latest snapshotId (obtained from Doris cache, not directly through API)
+     *
+     * @return snapshotId
+     */
     long getLatestSnapshotId();
 
+    /**
+     * When obtaining partition and other information based on snapshotId,
+     * this method needs to be called first to add a reference to the snapshotId and prevent the cache corresponding
+     * to the snapshotId from being deleted
+     *
+     * @param snapshotId
+     */
     void ref(long snapshotId);
 
+    /**
+     * Release the reference of the snapshotId.
+     * It is paired with 'ref'.
+     * You need to call this method in 'finally' to prevent the reference from not being released,
+     * causing the cache of the snapshotId to remain
+     *
+     * @param snapshotId
+     */
     void unref(long snapshotId);
 }

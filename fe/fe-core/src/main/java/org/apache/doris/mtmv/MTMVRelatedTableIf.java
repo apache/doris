@@ -42,7 +42,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @param snapshotId
      * @return partitionName->PartitionItem
      */
-    Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws AnalysisException;
+    Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws AnalysisException, DdlException;
 
     /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
@@ -79,7 +79,7 @@ public interface MTMVRelatedTableIf extends TableIf {
      * @throws AnalysisException
      */
     MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context, OptionalLong snapshotId)
-            throws AnalysisException;
+            throws AnalysisException, DdlException;
 
     /**
      * getTableSnapshot

@@ -72,11 +72,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTableIf, MTMVBaseTableIf, MvccTable {
 
     private static final Logger LOG = LogManager.getLogger(PaimonExternalTable.class);
+
+    private final ReentrantReadWriteLock snapshotRwLock = new ReentrantReadWriteLock(true);
 
     public PaimonExternalTable(long id, String name, String dbName, PaimonExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.PAIMON_EXTERNAL_TABLE);
@@ -356,9 +359,16 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 .refreshTable(getCatalog().getName(), getDbName(), getName(), true);
     }
 
+    public PaimonPartitionInfo getPartitionInfo(OptionalLong snapshotId) throws DdlException {
+        if (snapshotId.isPresent()) {
+            return getSchemaCacheBySnapshotId(snapshotId.getAsLong()).getPartitionInfo();
+        }
+        return getPartitionInfoFromCache();
+    }
+
     @Override
-    public Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) {
-        return Maps.newHashMap(getPartitionInfoFromCache().getNameToPartitionItem());
+    public Map<String, PartitionItem> getAndCopyPartitionItems(OptionalLong snapshotId) throws DdlException {
+        return Maps.newHashMap(getPartitionInfo(snapshotId).getNameToPartitionItem());
     }
 
     @Override
@@ -380,8 +390,8 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             OptionalLong snapshotId)
-            throws AnalysisException {
-        PaimonPartition paimonPartition = getPartitionInfoFromCache().getNameToPartition().get(partitionName);
+            throws AnalysisException, DdlException {
+        PaimonPartition paimonPartition = getPartitionInfo(snapshotId).getNameToPartition().get(partitionName);
         if (paimonPartition == null) {
             throw new AnalysisException("can not find partition: " + partitionName);
         }
@@ -391,7 +401,7 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     @Override
     public MTMVSnapshotIf getTableSnapshot(MTMVRefreshContext context, OptionalLong snapshotId)
             throws AnalysisException {
-        return new MTMVVersionSnapshot(getLatestSnapshotIdFromCache());
+        return new MTMVVersionSnapshot(snapshotId.orElse(getLatestSnapshotIdFromCache()));
     }
 
     @Override
@@ -402,5 +412,21 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
         // In order to successfully create the materialized view, false is returned here.
         // The cost is that Paimon partition writes a null value, and the materialized view cannot detect this data.
         return true;
+    }
+
+    public void readSnapshotLock() {
+        this.snapshotRwLock.readLock().lock();
+    }
+
+    public void readSnapshotUnlock() {
+        this.snapshotRwLock.readLock().unlock();
+    }
+
+    public void writeSnapshotLock() {
+        this.snapshotRwLock.writeLock().lock();
+    }
+
+    public void writeSnapshotUnlock() {
+        this.snapshotRwLock.writeLock().unlock();
     }
 }
