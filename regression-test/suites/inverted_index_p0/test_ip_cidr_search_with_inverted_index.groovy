@@ -74,21 +74,24 @@ suite("test_ip_cidr_search_with_inverted_index", "nonConcurrent"){
     sql """ set enable_inverted_index_query=true; """
     sql """ set inverted_index_skip_threshold = 0; """ // set skip threshold to 0
 
-    // select ipv6 in ipv4 cidr
-    qt_sql_with_ii_0 """  select id, ipv4, ipv6, is_ip_address_in_range(ipv6, '255.255.255.255/12') from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv6, '255.255.255.255/12') order by id; """
-    // select ipv6 in ipv6 cidr
-
-    // select ipv4 in ipv6 cidr
-    qt_sql_with_ii_4 """  select id, ipv4, ipv6, is_ip_address_in_range(ipv4, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/12') from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv4, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/12') order by id; """
-
-
 
     def create_sql = {
         List<String> list = new ArrayList<>()
         // select ipv6 in ipv4 cidr
         list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv6, '255.255.255.255/12') order by id;")
+        // select ipv6 in ipv6 cidr
+        list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv6, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/12') order by id;")
+        list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv6, '::ffff:192.168.0.4/128') order by id;")
+        list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv6, '2001:16a0:2:200a::2/64') order by id;")
+        // select ipv4 in ipv6 cidr
+        list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv4, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/12') order by id;")
         // select ipv4 in ipv4 cidr
-	list.add("select id, ipv4, ipv6, is_ip_address_in_range(ipv4, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/12') from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv4, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff/12') order by id;")
+        list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv4, '255.255.255.255/12') order by id;")
+        list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv4, '127.0.0.0/8') order by id;")
+        list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv4, '192.168.100.0/24') order by id;")
+        // select in null cidr
+        list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv4, null) order by id;")
+        list.add("select id, ipv4, ipv6 from tc_ip_cidr_search_with_inverted_index where is_ip_address_in_range(ipv6, null) order by id;")
         return list;
     }
 
@@ -98,7 +101,7 @@ suite("test_ip_cidr_search_with_inverted_index", "nonConcurrent"){
         for (sqlStr in sqlList) {
             try {
                 log.info("execute sql: ${i} : ${sqlStr}")
-		GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [req_id: i])
+                GetDebugPoint().enableDebugPointForAllBEs(checkpoints_name, [req_id: i])
                 order_qt_sql """ ${sqlStr} """
             } finally {
                 GetDebugPoint().disableDebugPointForAllBEs(checkpoints_name)
