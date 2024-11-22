@@ -420,6 +420,7 @@ public abstract class ExternalCatalog
             if (useMetaCache.get() && metaCache != null) {
                 metaCache.invalidateAll();
             } else if (!useMetaCache.get()) {
+                this.initialized = false;
                 for (ExternalDatabase<? extends ExternalTable> db : idToDb.values()) {
                     db.setUnInitialized(invalidCache);
                 }
