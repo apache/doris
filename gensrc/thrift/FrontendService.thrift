@@ -1192,6 +1192,8 @@ enum TBinlogType {
   MODIFY_COMMENT = 16,
   MODIFY_VIEW_DEF = 17,
   REPLACE_TABLE = 18,
+  MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 19,
+  INDEX_CHANGE_JOB = 20,
 
   // Keep some IDs for allocation so that when new binlog types are added in the
   // future, the changes can be picked back to the old versions without breaking
@@ -1208,9 +1210,7 @@ enum TBinlogType {
   //    MODIFY_XXX = 17,
   //    MIN_UNKNOWN = 18,
   //    UNKNOWN_3 = 19,
-  MIN_UNKNOWN = 19,
-  UNKNOWN_4 = 20,
-  UNKNOWN_5 = 21,
+  MIN_UNKNOWN = 21,
   UNKNOWN_6 = 22,
   UNKNOWN_7 = 23,
   UNKNOWN_8 = 24,

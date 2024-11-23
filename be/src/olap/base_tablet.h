@@ -289,7 +289,7 @@ public:
     }
 
     Status calc_file_crc(uint32_t* crc_value, int64_t start_version, int64_t end_version,
-                         int32_t* rowset_count, int64_t* file_count);
+                         uint32_t* rowset_count, int64_t* file_count);
 
     Status show_nested_index_file(std::string* json_meta);
 

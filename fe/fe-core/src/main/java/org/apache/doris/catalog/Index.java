@@ -54,7 +54,7 @@ public class Index implements Writable {
     public static final int INDEX_ID_INIT_VALUE = -1;
 
     @SerializedName(value = "i", alternate = {"indexId"})
-    private long indexId = -1; // -1 for compatibale
+    private long indexId = -1; // -1 for compatiable
     @SerializedName(value = "in", alternate = {"indexName"})
     private String indexName;
     @SerializedName(value = "c", alternate = {"columns"})
