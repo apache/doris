@@ -464,8 +464,10 @@ public class WorkloadGroupMgr extends MasterDaemon implements Writable, GsonPost
     }
 
     public void alterWorkloadGroup(AlterWorkloadGroupStmt stmt) throws DdlException {
-        String workloadGroupName = stmt.getWorkloadGroupName();
-        Map<String, String> properties = stmt.getProperties();
+        alterWorkloadGroup(stmt.getWorkloadGroupName(), stmt.getProperties());
+    }
+
+    public void alterWorkloadGroup(String workloadGroupName, Map<String, String> properties) throws DdlException {
         if (properties.size() == 0) {
             throw new DdlException("alter workload group should contain at least one property");
         }
