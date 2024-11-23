@@ -72,6 +72,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDeleteCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowDynamicPartitionCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowEventsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowFrontendsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowGrantsCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowLastInsertCommand;
@@ -425,6 +426,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitSyncCommand(SyncCommand syncCommand, C context) {
         return visitCommand(syncCommand, context);
+    }
+
+    default R visitShowEventsCommand(ShowEventsCommand showEventsCommand, C context) {
+        return visitCommand(showEventsCommand, context);
     }
 
     default R visitShowDeleteCommand(ShowDeleteCommand showDeleteCommand, C context) {
