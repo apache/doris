@@ -272,9 +272,15 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         Optional<Scope> outerScope = getScope().getOuterScope();
         Optional<List<? extends Expression>> boundedOpt = Optional.of(bindSlotByThisScope(unboundSlot));
         boolean foundInThisScope = !boundedOpt.get().isEmpty();
-        // Currently only looking for symbols on the previous level.
-        if (bindSlotInOuterScope && !foundInThisScope && outerScope.isPresent()) {
-            boundedOpt = Optional.of(bindSlotByScope(unboundSlot, outerScope.get()));
+        // looking for symbols until it is found or outerScope is null
+        while (true) {
+            if (bindSlotInOuterScope && !foundInThisScope && outerScope.isPresent()) {
+                boundedOpt = Optional.of(bindSlotByScope(unboundSlot, outerScope.get()));
+                foundInThisScope = !boundedOpt.get().isEmpty();
+                outerScope = outerScope.get().getOuterScope();
+            } else {
+                break;
+            }
         }
         List<? extends Expression> bounded = boundedOpt.get();
         switch (bounded.size()) {
