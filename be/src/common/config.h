@@ -1004,8 +1004,6 @@ DECLARE_mInt64(nodechannel_pending_queue_max_bytes);
 // The batch size for sending data by brpc streaming client
 DECLARE_mInt64(brpc_streaming_client_batch_bytes);
 DECLARE_mInt64(block_cache_wait_timeout_ms);
-DECLARE_mInt64(cache_lock_long_tail_threshold);
-DECLARE_Int64(file_cache_recycle_keys_size);
 
 DECLARE_Bool(enable_brpc_builtin_services);
 
@@ -1084,6 +1082,15 @@ DECLARE_Bool(enable_ttl_cache_evict_using_lru);
 DECLARE_mBool(enbale_dump_error_file);
 // limit the max size of error log on disk
 DECLARE_mInt64(file_cache_error_log_limit_bytes);
+DECLARE_mInt64(cache_lock_long_tail_threshold);
+DECLARE_Int64(file_cache_recycle_keys_size);
+// Base compaction may retrieve and produce some less frequently accessed data,
+// potentially affecting the file cache hit rate.
+// This configuration determines whether to retain the output within the file cache.
+// Make your choice based on the following considerations:
+// If your file cache is ample enough to accommodate all the data in your database,
+// enable this option; otherwise, it is recommended to leave it disabled.
+DECLARE_mBool(enable_file_cache_keep_base_compaction_output);
 
 // inverted index searcher cache
 // cache entry stay time after lookup

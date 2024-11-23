@@ -1181,8 +1181,12 @@ Status CloudCompactionMixin::construct_output_rowset_writer(RowsetWriterContext&
         ctx.compaction_level = _engine.cumu_compaction_policy(compaction_policy)
                                        ->new_compaction_level(_input_rowsets);
     }
-
-    ctx.write_file_cache = compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION;
+    // We presume that the data involved in cumulative compaction is sufficiently 'hot'
+    // and should always be retained in the cache.
+    // TODO(gavin): Ensure that the retention of hot data is implemented with precision.
+    ctx.write_file_cache = (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) ||
+                           (config::enable_file_cache_keep_base_compaction_output &&
+                            compaction_type() == ReaderType::READER_BASE_COMPACTION);
     ctx.file_cache_ttl_sec = _tablet->ttl_seconds();
     _output_rs_writer = DORIS_TRY(_tablet->create_rowset_writer(ctx, _is_vertical));
     RETURN_IF_ERROR(_engine.meta_mgr().prepare_rowset(*_output_rs_writer->rowset_meta().get()));
