@@ -28,6 +28,7 @@ public abstract class AbstractExpressionRewriteRule extends DefaultExpressionRew
 
     @Override
     public Expression rewrite(Expression expr, ExpressionRewriteContext ctx) {
-        return expr.accept(this, ctx);
+        Expression result = expr.accept(this, ctx);
+        return result == null ? expr : result;
     }
 }

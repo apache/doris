@@ -377,7 +377,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     public Expression visitAnd(And and, ExpressionRewriteContext context) {
         List<Expression> nonTrueLiteral = Lists.newArrayList();
         int nullCount = 0;
-        for (Expression e : and.children()) {
+        for (Expression e : and.extract()) {
             e = deepRewrite ? e.accept(this, context) : e;
             if (BooleanLiteral.FALSE.equals(e)) {
                 return BooleanLiteral.FALSE;
@@ -418,7 +418,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule
     public Expression visitOr(Or or, ExpressionRewriteContext context) {
         List<Expression> nonFalseLiteral = Lists.newArrayList();
         int nullCount = 0;
-        for (Expression e : or.children()) {
+        for (Expression e : or.extract()) {
             e = deepRewrite ? e.accept(this, context) : e;
             if (BooleanLiteral.TRUE.equals(e)) {
                 return BooleanLiteral.TRUE;

@@ -29,7 +29,9 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 
@@ -100,49 +102,51 @@ public class PartitionPruneExpressionExtractor extends DefaultExpressionRewriter
     }
 
     @Override
-    public Expression visitAnd(And node, Context parentContext) {
-        // handle left node
-        Context leftContext = new Context();
-        Expression newLeft = node.left().accept(this, leftContext);
-        // handle right node
-        Context rightContext = new Context();
-        Expression newRight = node.right().accept(this, rightContext);
-
-        // if anyone of them is FALSE, the whole expression should be FALSE.
-        if (newLeft == BooleanLiteral.FALSE || newRight == BooleanLiteral.FALSE) {
-            return BooleanLiteral.FALSE;
+    public Expression visitAnd(And and, Context parentContext) {
+        List<Expression> children = and.extract();
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(children.size());
+        Expression lastNewChild = null;
+        boolean hasNewChild = false;
+        for (Expression child : children) {
+            Context childContext = new Context();
+            Expression newChild = child.accept(this, childContext);
+            lastNewChild = newChild;
+            hasNewChild = newChild.equals(child);
+            // if anyone of them is FALSE, the whole expression should be FALSE.
+            if (newChild == BooleanLiteral.FALSE) {
+                return BooleanLiteral.FALSE;
+            }
+            if (newChild != BooleanLiteral.TRUE && !childContext.containsUnEvaluableExpression) {
+                newChildren.add(newChild);
+            }
         }
-
-        // If left node contains non-partition slot or is TURE, just discard it.
-        if (newLeft == BooleanLiteral.TRUE || leftContext.containsUnEvaluableExpression) {
-            return rightContext.containsUnEvaluableExpression ? BooleanLiteral.TRUE : newRight;
+        if (newChildren.isEmpty()) {
+            return lastNewChild;
         }
-
-        // If right node contains non-partition slot or is TURE, just discard it.
-        if (newRight == BooleanLiteral.TRUE || rightContext.containsUnEvaluableExpression) {
-            return newLeft;
+        if (newChildren.size() == 1) {
+            return newChildren.get(0);
         }
-
-        // both does not contains non-partition slot.
-        return new And(newLeft, newRight);
+        if (hasNewChild) {
+            return and.withChildren(newChildren);
+        } else {
+            return and;
+        }
     }
 
     @Override
-    public Expression visitOr(Or node, Context parentContext) {
-        // handle left node
-        Context leftContext = new Context();
-        Expression newLeft = node.left().accept(this, leftContext);
-        // handle right node
-        Context rightContext = new Context();
-        Expression newRight = node.right().accept(this, rightContext);
-
-        // if anyone of them is TRUE or contains non-partition slot, just return TRUE.
-        if (newLeft == BooleanLiteral.TRUE || newRight == BooleanLiteral.TRUE
-                || leftContext.containsUnEvaluableExpression || rightContext.containsUnEvaluableExpression) {
-            return BooleanLiteral.TRUE;
+    public Expression visitOr(Or or, Context parentContext) {
+        List<Expression> children = or.extract();
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(children.size());
+        for (Expression child : children) {
+            Context childContext = new Context();
+            Expression newChild = child.accept(this, childContext);
+            // if anyone of them is TRUE or contains non-partition slot, just return TRUE.
+            if (newChild == BooleanLiteral.TRUE || childContext.containsUnEvaluableExpression) {
+                return BooleanLiteral.TRUE;
+            }
+            newChildren.add(newChild);
         }
-
-        return new Or(newLeft, newRight);
+        return or.withChildren(newChildren);
     }
 
     /**

@@ -20,11 +20,14 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
@@ -37,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.DateType;
@@ -58,6 +62,27 @@ import java.util.List;
 import java.util.Map;
 
 class ExpressionEstimationTest {
+    @Test
+    public void test0() {
+        SlotReference a = new SlotReference("a", IntegerType.INSTANCE);
+        Map<Expression, ColumnStatistic> slotToColumnStat = new HashMap<>();
+
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder()
+                .setNdv(500)
+                .setAvgSizeByte(4)
+                .setNumNulls(0)
+                .setMinValue(0)
+                .setMaxValue(500);
+        slotToColumnStat.put(a, builder.build());
+        Statistics stat = new Statistics(1000, slotToColumnStat);
+        IntegerLiteral i1 = new IntegerLiteral(1);
+        IntegerLiteral i2 = new IntegerLiteral(2);
+        IntegerLiteral i3 = new IntegerLiteral(3);
+
+        Expression expr = new And(new Or(new EqualTo(a, i1), new EqualTo(a, i2)), new EqualTo(a, i3));
+        ColumnStatistic colstats = ExpressionEstimation.estimate(expr, stat);
+        System.out.println(colstats);
+    }
 
     // MAX(a)
     // a belongs to [0, 500]

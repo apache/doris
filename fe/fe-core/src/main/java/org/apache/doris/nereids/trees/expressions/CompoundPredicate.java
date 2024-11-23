@@ -26,7 +26,7 @@ import java.util.List;
 
 /**
  * Compound predicate expression.
- * Such as &&,||,AND,OR.
+ * Such as AND,OR.
  */
 public abstract class CompoundPredicate extends BinaryOperator {
 
@@ -65,5 +65,32 @@ public abstract class CompoundPredicate extends BinaryOperator {
     public abstract CompoundPredicate flip(Expression left, Expression right);
 
     public abstract Class<? extends CompoundPredicate> flipType();
+
+    public abstract List<Expression> extract();
+
+    @Override
+    public boolean equals(Object o) {
+        if (compareWidthAndDepth) {
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
+            List<Expression> thisChildren = this.extract();
+            List<Expression> thatChildren = ((CompoundPredicate) o).extract();
+            if (thisChildren.size() != thatChildren.size()) {
+                return false;
+            }
+            for (int i = 0; i < thisChildren.size(); i++) {
+                if (!thisChildren.get(i).equals(thatChildren.get(i))) {
+                    return false;
+                }
+            }
+            return true;
+        } else {
+            return super.equals(o);
+        }
+    }
 
 }

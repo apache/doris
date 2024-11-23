@@ -17,11 +17,16 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import org.apache.hadoop.util.Lists;
+
+import java.util.List;
 
 /**
  * Default implementation for expression rewriting, delegating to child expressions and rewrite current root
@@ -32,6 +37,50 @@ public abstract class DefaultExpressionRewriter<C> extends ExpressionVisitor<Exp
     @Override
     public Expression visit(Expression expr, C context) {
         return rewriteChildren(this, expr, context);
+    }
+
+    @Override
+    public Expression visitAnd(And and, C context) {
+        List<Expression> children = and.extract();
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(children.size());
+        boolean hasNewChild = false;
+        for (Expression child : children) {
+            Expression newChild = child.accept(this, context);
+            if (newChild == null) {
+                newChild = child;
+            }
+            if (! child.equals(newChild)) {
+                hasNewChild = true;
+            }
+            newChildren.add(newChild);
+        }
+        if (hasNewChild) {
+            return and.withChildren(newChildren);
+        } else {
+            return and;
+        }
+    }
+
+    @Override
+    public Expression visitOr(Or or, C context) {
+        List<Expression> children = or.extract();
+        List<Expression> newChildren = Lists.newArrayListWithCapacity(children.size());
+        boolean hasNewChild = false;
+        for (Expression child : children) {
+            Expression newChild = child.accept(this, context);
+            if (newChild == null) {
+                newChild = child;
+            }
+            if (!child.equals(newChild)) {
+                hasNewChild = true;
+            }
+            newChildren.add(newChild);
+        }
+        if (hasNewChild) {
+            return or.withChildren(newChildren);
+        } else {
+            return or;
+        }
     }
 
     @Override

@@ -595,10 +595,8 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                     isMarkJoin || ((binaryOperator.left().anyMatch(SubqueryExpr.class::isInstance)
                             || binaryOperator.right().anyMatch(SubqueryExpr.class::isInstance))
                             && (binaryOperator instanceof Or));
-
             Expression left = replace(binaryOperator.left(), context);
             Expression right = replace(binaryOperator.right(), context);
-
             return binaryOperator.withChildren(left, right);
         }
     }

@@ -78,10 +78,12 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.BitSet;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -131,18 +133,24 @@ public class ExpressionUtils {
 
     private static List<Expression> extract(Class<? extends Expression> type, Expression expr) {
         List<Expression> result = Lists.newArrayList();
-        extract(type, expr, result);
+        Deque<Expression> stack = new ArrayDeque<>();
+        stack.push(expr);
+        while (!stack.isEmpty()) {
+            Expression current = stack.pop();
+            if (type.isInstance(current)) {
+                for (Expression child : current.children()) {
+                    stack.push(child);
+                }
+            } else {
+                result.add(current);
+            }
+        }
+        result = Lists.reverse(result);
         return result;
     }
 
     private static void extract(Class<? extends Expression> type, Expression expr, Collection<Expression> result) {
-        if (type.isInstance(expr)) {
-            CompoundPredicate predicate = (CompoundPredicate) expr;
-            extract(type, predicate.left(), result);
-            extract(type, predicate.right(), result);
-        } else {
-            result.add(expr);
-        }
+        result.addAll(extract(type, expr));
     }
 
     public static Optional<Pair<Slot, Slot>> extractEqualSlot(Expression expr) {

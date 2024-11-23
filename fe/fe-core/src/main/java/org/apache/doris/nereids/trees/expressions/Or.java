@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -45,8 +46,13 @@ public class Or extends CompoundPredicate {
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new Or(children);
+        Preconditions.checkArgument(children.size() >= 2);
+        for (Expression child : children) {
+            if (child == null) {
+                System.out.println("aaa");
+            }
+        }
+        return ExpressionUtils.or(children);
     }
 
     @Override
@@ -67,5 +73,10 @@ public class Or extends CompoundPredicate {
     @Override
     public Class<? extends CompoundPredicate> flipType() {
         return And.class;
+    }
+
+    @Override
+    public List<Expression> extract() {
+        return ExpressionUtils.extractDisjunction(this);
     }
 }

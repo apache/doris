@@ -449,7 +449,14 @@ public class OneRangePartitionEvaluator
 
     private EvaluateRangeResult evaluateChildrenThenThis(Expression expr, EvaluateRangeInput context) {
         // evaluate children
-        List<Expression> children = expr.children();
+        List<Expression> children;
+        if (expr instanceof And) {
+            children = ((And) expr).extract();
+        } else if (expr instanceof Or) {
+            children = ((Or) expr).extract();
+        } else {
+            children = expr.children();
+        }
         ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(children.size());
         List<EvaluateRangeResult> childrenResults = new ArrayList<>(children.size());
         boolean hasNewChildren = false;

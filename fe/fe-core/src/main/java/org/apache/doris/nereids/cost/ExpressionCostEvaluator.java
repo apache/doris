@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.cost;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -33,6 +35,7 @@ import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.collect.Maps;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -82,5 +85,27 @@ public class ExpressionCostEvaluator extends ExpressionVisitor<Double, Void> {
             return 0.0;
         }
         return alias.child().accept(this, context);
+    }
+
+    @Override
+    public Double visitAnd(And and, Void context) {
+        List<Expression> children = and.extract();
+        double sum = 0.0;
+        for (Expression child : children) {
+            sum += child.accept(this, context);
+            sum += dataTypeCost.getOrDefault(child.getDataType().getClass(), 0.1);
+        }
+        return sum;
+    }
+
+    @Override
+    public Double visitOr(Or or, Void context) {
+        List<Expression> children = or.extract();
+        double sum = 0.0;
+        for (Expression child : children) {
+            sum += child.accept(this, context);
+            sum += dataTypeCost.getOrDefault(child.getDataType().getClass(), 0.1);
+        }
+        return sum;
     }
 }

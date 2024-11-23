@@ -22,6 +22,7 @@ import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -338,11 +339,11 @@ public abstract class ExpressionVisitor<R, C>
     }
 
     public R visitAnd(And and, C context) {
-        return visitCompoundPredicate(and, context);
+        throw new AnalysisException("implement visitAnd() for " + this.getClass().getName());
     }
 
     public R visitOr(Or or, C context) {
-        return visitCompoundPredicate(or, context);
+        throw new AnalysisException("implement visitOr() for " + this.getClass().getName());
     }
 
     public R visitCast(Cast cast, C context) {

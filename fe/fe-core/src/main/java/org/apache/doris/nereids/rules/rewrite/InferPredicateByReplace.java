@@ -22,6 +22,7 @@ import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.analysis.ExpressionAnalyzer;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -83,6 +84,11 @@ public class InferPredicateByReplace {
 
         @Override
         public Void visitOr(Or expr, Map<Expression, Set<Expression>> context) {
+            return null;
+        }
+
+        @Override
+        public Void visitAnd(And expr, Map<Expression, Set<Expression>> context) {
             return null;
         }
 

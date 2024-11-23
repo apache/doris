@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions.visitor;
 
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 
 /**
  * Use the visitor to iterate over all expressions for expression.
@@ -28,6 +30,18 @@ public class DefaultExpressionVisitor<R, C> extends ExpressionVisitor<R, C> {
         for (Expression child : expr.children()) {
             child.accept(this, context);
         }
+        return null;
+    }
+
+    @Override
+    public R visitAnd(And and, C context) {
+        and.extract().forEach(e -> e.accept(this, context));
+        return null;
+    }
+
+    @Override
+    public R visitOr(Or or, C context) {
+        or.extract().forEach(e -> e.accept(this, context));
         return null;
     }
 }

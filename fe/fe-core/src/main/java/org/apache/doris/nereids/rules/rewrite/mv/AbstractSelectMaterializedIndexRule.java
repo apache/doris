@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
@@ -375,6 +377,16 @@ public abstract class AbstractSelectMaterializedIndexRule {
 
         @Override
         public PrefixIndexCheckResult visit(Expression expr, Map<ExprId, String> context) {
+            return PrefixIndexCheckResult.FAILURE;
+        }
+
+        @Override
+        public PrefixIndexCheckResult visitAnd(And expr, Map<ExprId, String> context) {
+            return PrefixIndexCheckResult.FAILURE;
+        }
+
+        @Override
+        public PrefixIndexCheckResult visitOr(Or expr, Map<ExprId, String> context) {
             return PrefixIndexCheckResult.FAILURE;
         }
 

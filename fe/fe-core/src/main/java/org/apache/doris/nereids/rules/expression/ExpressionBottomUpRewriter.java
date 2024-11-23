@@ -20,12 +20,15 @@ package org.apache.doris.nereids.rules.expression;
 import org.apache.doris.nereids.pattern.ExpressionPatternRules;
 import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners;
 import org.apache.doris.nereids.pattern.ExpressionPatternTraverseListeners.CombinedListener;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Or;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.annotation.Nullable;
@@ -104,9 +107,19 @@ public class ExpressionBottomUpRewriter implements ExpressionRewriteRule<Express
 
     private static Expression rewriteChildren(Expression parent, ExpressionRewriteContext context, int currentBatch,
             ExpressionPatternRules rules, ExpressionPatternTraverseListeners listeners) {
+        List<Expression> children;
+        if (parent instanceof And) {
+            children = ((And) parent).extract();
+        } else if (parent instanceof Or) {
+            children = ((Or) parent).extract();
+        } else {
+            children = parent.children();
+        }
+
         boolean changed = false;
-        ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(parent.arity());
-        for (Expression child : parent.children()) {
+        ImmutableList.Builder<Expression> newChildren = ImmutableList.builderWithExpectedSize(
+                Math.max(parent.arity(), children.size()));
+        for (Expression child : children) {
             Expression newChild = rewriteBottomUp(child, context, currentBatch, parent, rules, listeners);
             changed |= !child.equals(newChild);
             newChildren.add(newChild);
