@@ -1158,4 +1158,21 @@ public class CloudSystemInfoService extends SystemInfoService {
             throw new IOException("Failed to get instance info");
         }
     }
+
+    public static void getBesStatus(List<Backend> clusterBes,
+                                     List<Backend> decommissionAvailBes, List<Backend> availableBes) {
+        for (Backend be : clusterBes) {
+            long lastUpdateMs = be.getLastUpdateMs();
+            long missTimeMs = Math.abs(lastUpdateMs - System.currentTimeMillis());
+            // be core or restart must in heartbeat_interval_second
+            if ((be.isAlive() || missTimeMs <= Config.heartbeat_interval_second * 1000L)
+                    && !be.isSmoothUpgradeSrc()) {
+                if (be.isDecommissioned()) {
+                    decommissionAvailBes.add(be);
+                } else {
+                    availableBes.add(be);
+                }
+            }
+        }
+    }
 }

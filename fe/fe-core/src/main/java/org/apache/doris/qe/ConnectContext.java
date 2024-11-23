@@ -54,6 +54,7 @@ import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.mysql.ProxyMysqlChannel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.UserProperty;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
@@ -1192,6 +1193,30 @@ public class ConnectContext {
         }
     }
 
+    // if Config.enable_multi_default_compute_group = false, return just "cluster1"
+    public String[] getDefaultCloudComputeGroups() {
+        String defaultComputeGroupValue = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
+        return UserProperty.getDefaultComputeGroups(defaultComputeGroupValue);
+    }
+
+    public String chooseDefaultCloudComputeGroup() {
+        if (!Config.enable_multi_default_compute_group) {
+            return getDefaultCloudComputeGroups()[0];
+        }
+        // find a compute group which has alive bes
+        List<Backend> decommissionedBackends = Lists.newArrayList();
+        List<Backend> availableBes = new ArrayList<>();
+        String computeGroup = "";
+        try {
+            computeGroup = chooseCloudComputeGroupHasAliveBes(decommissionedBackends,
+                    availableBes, "[first_set_session]", false);
+        } catch (ComputeGroupException e) {
+            LOG.warn("cant find compute group which has alive bes", e);
+            computeGroup = "";
+        }
+        return computeGroup;
+    }
+
     // can't get cluster from context, use the following strategy to obtain the cluster name
     // 当用户有多个集群的权限时，会按照如下策略进行拉取：
     // 如果当前mysql用户没有指定cluster(没有default 或者 use), 选择有权限的cluster。
@@ -1200,7 +1225,7 @@ public class ConnectContext {
     public CloudClusterResult getCloudClusterByPolicy() {
         List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
         // try set default cluster
-        String defaultCloudCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
+        String defaultCloudCluster = chooseDefaultCloudComputeGroup();
         if (!Strings.isNullOrEmpty(defaultCloudCluster)) {
             // check cluster validity
             CloudClusterResult r;
@@ -1304,7 +1329,7 @@ public class ConnectContext {
     // TODO implement this function
     public String getDefaultCloudCluster() {
         List<String> cloudClusterNames = ((CloudSystemInfoService) Env.getCurrentSystemInfo()).getCloudClusterNames();
-        String defaultCluster = Env.getCurrentEnv().getAuth().getDefaultCloudCluster(getQualifiedUser());
+        String defaultCluster = chooseDefaultCloudComputeGroup();
         if (!Strings.isNullOrEmpty(defaultCluster) && cloudClusterNames.contains(defaultCluster)) {
             return defaultCluster;
         }
@@ -1386,5 +1411,57 @@ public class ConnectContext {
 
     public byte[] getAuthPluginData() {
         return mysqlHandshakePacket == null ? null : mysqlHandshakePacket.getAuthPluginData();
+    }
+
+
+    public static String chooseCloudComputeGroupHasAliveBes(List<Backend> decommissionAvailBes,
+                                                           List<Backend> availableBes,
+                                                           String clusterName, boolean needSetSession)
+            throws ComputeGroupException {
+        String chooseComputeGroup = "";
+        // try to switch other default compute group, if it has alive bes
+        try {
+            ConnectContext ctx = ConnectContext.get();
+            if (ctx != null) {
+                String[] defaultCloudComputeGroups = ctx.getDefaultCloudComputeGroups();
+                for (String defaultCloudComputeGroup : defaultCloudComputeGroups) {
+                    LOG.info("find bes from backup default compute group: {}", defaultCloudComputeGroup);
+                    List<Backend> bes = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
+                            .getBackendsByClusterName(defaultCloudComputeGroup);
+                    CloudSystemInfoService.getBesStatus(bes, decommissionAvailBes, availableBes);
+                    if (availableBes.isEmpty()) {
+                        availableBes = decommissionAvailBes;
+                    }
+                    if (!availableBes.isEmpty()) {
+                        LOG.info("choose a cloud compute group = {} from default compute groups {}, "
+                                + "it has alive bes {}, and set it back to connect context",
+                                defaultCloudComputeGroup, String.join(",", defaultCloudComputeGroups), availableBes);
+                        // set default compute group to ctx
+                        if (needSetSession) {
+                            ctx.setCloudCluster(defaultCloudComputeGroup);
+                        }
+                        chooseComputeGroup = defaultCloudComputeGroup;
+                        break;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("failed to get available be from default compute groups, and has exception", e);
+            throw new ComputeGroupException(
+                String.format("All the Backend nodes in the current compute group %s are in an abnormal state,"
+                        + " and can't find backup default compute groups have alive bes",
+                    clusterName),
+                ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE);
+        }
+        if (availableBes.isEmpty()) {
+            // at last still can't find alive be from default compute groups
+            LOG.warn("failed to get available be from default compute groups");
+            throw new ComputeGroupException(
+                String.format("All the Backend nodes in the current compute group %s are in an abnormal state,"
+                        + " and can't find backup default compute groups have alive bes",
+                    clusterName),
+                ComputeGroupException.FailedTypeEnum.COMPUTE_GROUPS_NO_ALIVE_BE);
+        }
+        return chooseComputeGroup;
     }
 }

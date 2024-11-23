@@ -3212,6 +3212,15 @@ public class Config extends ConfigBase {
             + "model is set to 300 times, which is approximately 5 minutes by default."})
     public static int auto_start_wait_to_resume_times = 300;
 
+    @ConfField(mutable = true, description = {"存算分离模式是否启用多default compute group，用户设置多default compute group后，"
+            + "若当前正在使用的default compute group中所有be都异常，读写会自动切换到下一个default compute group",
+            "In cloud mode enabled for multiple default compute groups, "
+            + "if user sets multiple default compute groups, "
+            + "when all backends are abnormal which default compute group in use, "
+            + "doris will switch to the next default compute group automatically"
+            })
+    public static boolean enable_multi_default_compute_group = false;
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here

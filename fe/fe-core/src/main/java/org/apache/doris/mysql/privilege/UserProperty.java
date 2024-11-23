@@ -49,6 +49,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
@@ -390,19 +391,50 @@ public class UserProperty implements Writable {
         defaultCloudCluster = newDefaultCloudCluster;
     }
 
+    public static String[] getDefaultComputeGroups(String value) {
+        if (!Config.enable_multi_default_compute_group || Strings.isNullOrEmpty(value)) {
+            return new String[]{value == null ? "" : value};
+        }
+        // single compute group in multi default compute group
+        if (!value.contains(",")) {
+            return new String[]{value};
+        }
+
+        return Arrays.stream(value.split(",")).filter(StringUtils::isNotBlank)
+            .map(StringUtils::trim).toArray(String[]::new);
+    }
+
+
     private String checkCloudDefaultCluster(String[] keyArr, String value, String defaultComputeGroup, boolean isReplay)
             throws ComputeGroupException, DdlException {
         // isReplay not check auth, not throw exception
         if (isReplay) {
             return value;
         }
-        // check cluster auth
-        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAuth().checkCloudPriv(
-            new UserIdentity(qualifiedUser, "%"), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
-            throw new ComputeGroupException(String.format("set default compute group failed, "
-                + "user %s has no permission to use compute group '%s', please grant use privilege first ",
-                qualifiedUser, value),
-                ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP);
+        String[] defaultComputeGroups = getDefaultComputeGroups(value);
+        if (Config.enable_multi_default_compute_group) {
+            if (LOG.isDebugEnabled()) {
+                StringBuilder sb = new StringBuilder();
+                Arrays.stream(defaultComputeGroups).forEach(s -> {
+                    sb.append(s).append(" ");
+                });
+                LOG.debug("get default compute groups: {}", sb.toString());
+            }
+            for (String computeGroup : defaultComputeGroups) {
+                // check auth
+                checkUserHasComputeGroupAuth(computeGroup);
+            }
+            // value = "cluster1", "cluster2"
+            if (defaultComputeGroups.length > 1) {
+                value = String.join(",", defaultComputeGroups);
+            }
+        } else {
+            // check value not contain ','
+            value = defaultComputeGroups[0];
+            if (value.contains(",")) {
+                throw new DdlException("not multi default compute groups should not  contain ','");
+            }
+            checkUserHasComputeGroupAuth(value);
         }
         // set property "DEFAULT_CLOUD_CLUSTER" = "cluster1"
         if (keyArr.length != 1) {
@@ -411,7 +443,20 @@ public class UserProperty implements Writable {
         if (value == null) {
             value = "";
         }
+        // in Config.enable_multi_default_compute_group = true, value maybe "cluster1" or "cluster1, cluster2"
+        // in Config.enable_multi_default_compute_group = false, value just "cluster1"
         return value;
+    }
+
+    private void checkUserHasComputeGroupAuth(String value) throws ComputeGroupException {
+        // check cluster auth
+        if (!Strings.isNullOrEmpty(value) && !Env.getCurrentEnv().getAuth().checkCloudPriv(
+            new UserIdentity(qualifiedUser, "%"), value, PrivPredicate.USAGE, ResourceTypeEnum.CLUSTER)) {
+            throw new ComputeGroupException(String.format("set default compute group failed, "
+                + "user %s has no permission to use compute group '%s', please grant use privilege first ",
+                qualifiedUser, value),
+                ComputeGroupException.FailedTypeEnum.CURRENT_USER_NO_AUTH_TO_USE_COMPUTE_GROUP);
+        }
     }
 
     private long getLongProperty(String key, String value, String[] keyArr, String propName) throws DdlException {
