@@ -1072,14 +1072,15 @@ Status OrcReader::set_fill_columns(
         }
     }
 
-    if (!_has_complex_type && _enable_lazy_mat &&
-        _lazy_read_ctx.predicate_columns.first.size() > 0 &&
+    if (_enable_lazy_mat && _lazy_read_ctx.predicate_columns.first.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }
 
-    if (_lazy_read_ctx.conjuncts.empty() || !_init_search_argument(_lazy_read_ctx.conjuncts)) {
+    if (_lazy_read_ctx.conjuncts.empty()) {
         _lazy_read_ctx.can_lazy_read = false;
+    } else {
+        _init_search_argument(_lazy_read_ctx.conjuncts);
     }
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
