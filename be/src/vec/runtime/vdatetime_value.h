@@ -398,11 +398,11 @@ public:
     // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
     // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
-    bool to_format_string_conservative(const char* format, int len, char* to,
-                                       int max_valid_length) const;
+    bool to_format_string_conservative(const char* format, size_t len, char* to,
+                                       size_t max_valid_length) const;
 
     // compute the length of data format pattern
-    static int compute_format_len(const char* format, int len);
+    static int compute_format_len(const char* format, size_t len);
 
     // Return true if range or date is invalid
     static bool check_range(uint32_t year, uint32_t month, uint32_t day, uint32_t hour,
