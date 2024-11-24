@@ -380,7 +380,9 @@ struct Transformer {
         for (size_t i = 0; i < size; ++i) {
             // The transform result maybe an int, int32, but the result maybe short
             // for example, year function. It is only a short.
-            vec_to[i] = cast_set<ToType, FromType, false>(Transform::execute(vec_from[i]));
+            auto res = Transform::execute(vec_from[i]);
+            using RESULT_TYPE = std::decay_t<decltype(res)>;
+            vec_to[i] = cast_set<ToType, RESULT_TYPE, false>(res);
             null_map[i] = !((typename DateTraits<typename Transform::OpArgType>::T&)(vec_from[i]))
                                    .is_valid_date();
         }
