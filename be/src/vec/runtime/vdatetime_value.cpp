@@ -591,7 +591,7 @@ static char* append_with_prefix(const char* str, int str_len, char prefix, int t
     return to + str_len;
 }
 
-int VecDateTimeValue::compute_format_len(const char* format, int len) {
+int VecDateTimeValue::compute_format_len(const char* format, size_t len) {
     int size = 0;
     const char* ptr = format;
     const char* end = format + len;
