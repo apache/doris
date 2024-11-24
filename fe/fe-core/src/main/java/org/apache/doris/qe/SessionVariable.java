@@ -466,6 +466,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORDERED_SCAN_RANGE_LOCATIONS = "enable_ordered_scan_range_locations";
 
+    public static final String ENABLE_COLOCATE_QUERY_BALANCE_V2 = "enable_colocate_query_balance_v2";
+
     public static final String ENABLE_PARQUET_LAZY_MAT = "enable_parquet_lazy_materialization";
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
@@ -1711,6 +1713,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_ORDERED_SCAN_RANGE_LOCATIONS)
     public boolean enableOrderedScanRangeLocations = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_COLOCATE_QUERY_BALANCE_V2)
+    public boolean enableColocateQueryBalanceV2 = false;
 
     @VariableMgr.VarAttr(name = ENABLE_ANALYZE_COMPLEX_TYPE_COLUMN)
     public boolean enableAnalyzeComplexTypeColumn = false;
@@ -4021,6 +4026,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableMinidump(boolean enableMinidump) {
         this.enableMinidump = enableMinidump;
+    }
+
+    public boolean isEnableColocateQueryBalanceV2() {
+        return enableColocateQueryBalanceV2;
+    }
+
+    public void setEnableColocateQueryBalanceV2(boolean enableColocateQueryBalanceV2) {
+        this.enableColocateQueryBalanceV2 = enableColocateQueryBalanceV2;
     }
 
     public String getMinidumpPath() {
