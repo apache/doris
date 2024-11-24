@@ -830,11 +830,11 @@ public:
     // for performance of checking, may return false when just APPROACH BUT NOT REACH max_valid_length.
     // so need a little big buffer and its length as max_valid_length to make sure store valid data.
     // to make sure of this. make the buffer size = <data_need_length> + SAFE_FORMAT_STRING_MARGIN. and pass this size as max_valid_length
-    bool to_format_string_conservative(const char* format, int len, char* to,
-                                       int max_valid_length) const;
+    bool to_format_string_conservative(const char* format, size_t len, char* to,
+                                       size_t max_valid_length) const;
 
-    bool from_date_format_str(const char* format, int format_len, const char* value,
-                              int64_t value_len) {
+    bool from_date_format_str(const char* format, size_t format_len, const char* value,
+                              size_t value_len) {
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
 
