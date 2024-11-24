@@ -43,9 +43,9 @@ public class ScanRangeAssignmentColocateV2Test {
 
     @Test
     public void testTwoReplica() {
-        // example of community bad case:
+        // example of bad case:
         // bucket to be map: {0: {1001,1002}, 1: {1004,1003}, 2: {1002,1003}, 3:{1004, 1001}}
-        // community strategy may get not balanced result: { 0:{1001}, 1: {1004}, 2: {1002}, 3:{1004}}
+        // strategy v1 may get not balanced result: { 0:{1001}, 1: {1004}, 2: {1002}, 3:{1004}}
         List<LocationAssignment> assignments = createBackend(4);
         assignments.get(0).getUnselectBuckets().addAll(Arrays.asList(0, 3));
         assignments.get(1).getUnselectBuckets().addAll(Arrays.asList(0, 2));
@@ -88,12 +88,10 @@ public class ScanRangeAssignmentColocateV2Test {
     private boolean runShuffle(int backendNum, int bucketNum, int replicaNum, boolean v2) {
         List<LocationAssignment> assignments = createBackend(backendNum);
         assigmentTabletBalanced(assignments, bucketNum, replicaNum, true);
-        return runShuffle(assignments, backendNum, bucketNum, replicaNum, v2);
+        return runShuffle(assignments, backendNum, bucketNum, v2);
     }
 
-    private boolean runShuffle(List<LocationAssignment> assignments, int backendNum, int bucketNum, int replicaNum,
-            boolean v2) {
-        assigmentTabletBalanced(assignments, bucketNum, replicaNum, true);
+    private boolean runShuffle(List<LocationAssignment> assignments, int backendNum, int bucketNum, boolean v2) {
         Map<Location, LocationAssignment> assignmentMap = assignments.stream()
                 .collect(Collectors.toMap(LocationAssignment::getLocation, Function.identity()));
         ScanRangeAssignmentColocate colocateStrategy = getAssignmentStrategy(v2);
@@ -108,11 +106,11 @@ public class ScanRangeAssignmentColocateV2Test {
         } else if (bucketNum % backendNum == 0) {
             return backendNum == locationBucketCountMap.size()
                     && Objects.equals(ImmutableSet.of(bucketNum / backendNum),
-                    new HashSet<>(locationBucketCountMap.values()));
+                        new HashSet<>(locationBucketCountMap.values()));
         } else {
             return backendNum == locationBucketCountMap.size()
                     && Objects.equals(ImmutableSet.of(bucketNum / backendNum, bucketNum / backendNum + 1),
-                    new HashSet<>(locationBucketCountMap.values()));
+                        new HashSet<>(locationBucketCountMap.values()));
         }
     }
 
@@ -129,7 +127,6 @@ public class ScanRangeAssignmentColocateV2Test {
 
     @Test
     public void runBattle() {
-        // test online business case
         runBattle(10, 20, 3);
         runBattle(10, 60, 3);
         runBattle(20, 20, 2);
@@ -141,15 +138,13 @@ public class ScanRangeAssignmentColocateV2Test {
     }
 
     @Test
-    public void testRandomLocation() {
-        // test online business case
+    public void testNoShuffle() {
         runNoShuffle(20, 20, 2);
         runNoShuffle(20, 40, 2);
         runNoShuffle(40, 80, 2);
         runNoShuffle(20, 80, 2);
         runNoShuffle(10, 20, 3);
 
-        // other case
         runNoShuffle(20, 4, 3);
         runNoShuffle(4, 4, 1);
         runNoShuffle(4, 4, 3);
@@ -160,11 +155,12 @@ public class ScanRangeAssignmentColocateV2Test {
     @Test
     public void bench() {
         Stopwatch stopwatch = Stopwatch.createStarted();
-        List<LocationAssignment> assignments = createBackend(20);
-        assigmentTabletBalanced(assignments, 80, 3, true);
-        for (int i = 0; i < 100000; i++) {
-            // test online business case
-            runShuffle(assignments, 40, 80, 3, true);
+        for (int i = 0; i < 20000; i++) {
+            runShuffle(20, 20, 2, true);
+            runShuffle(20, 40, 2, true);
+            runShuffle(40, 80, 2, true);
+            runShuffle(20, 80, 2, true);
+            runShuffle(10, 20, 3, true);
         }
         long cost = stopwatch.elapsed(TimeUnit.MILLISECONDS);
         System.out.println("avg cost " + (cost / 100000.0) + " ms");
@@ -178,6 +174,7 @@ public class ScanRangeAssignmentColocateV2Test {
         Assert.assertEquals(location1, location2);
         Assert.assertNotEquals(location1, location3);
         Assert.assertEquals(location1.hashCode(), location2.hashCode());
+        runShuffle(20, 20, 2, true);
     }
 
     private List<LocationAssignment> createBackend(int num) {
@@ -224,6 +221,6 @@ public class ScanRangeAssignmentColocateV2Test {
         if (v2) {
             return new ScanRangeAssignmentColocateV2();
         }
-        return new ScanRangeAssignmentColocateV1();
+        return new ScanRangeAssignmentColocateV1(true);
     }
 }

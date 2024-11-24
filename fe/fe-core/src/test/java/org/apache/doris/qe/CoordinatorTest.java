@@ -654,11 +654,11 @@ public class CoordinatorTest extends Coordinator {
         replicaNumPerHost.put(tScanRangeLocation2.server, 1L);
 
         Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq", tScanRangeLocations,
-                planFragmentId, 1, assignedBytesPerHost, replicaNumPerHost, false);
+                new ArrayList<>(), planFragmentId, 1, assignedBytesPerHost, replicaNumPerHost, false);
         Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq", tScanRangeLocations,
-                planFragmentId, 2, assignedBytesPerHost, replicaNumPerHost, false);
+                new ArrayList<>(), planFragmentId, 2, assignedBytesPerHost, replicaNumPerHost, false);
         Deencapsulation.invoke(coordinator, "getExecHostPortForFragmentIDAndBucketSeq", tScanRangeLocations,
-                planFragmentId, 3, assignedBytesPerHost, replicaNumPerHost, false);
+                new ArrayList<>(), planFragmentId, 3, assignedBytesPerHost, replicaNumPerHost, false);
         List<String> hosts = new ArrayList<>();
         for (Map.Entry item : assignedBytesPerHost.entrySet()) {
             Assert.assertTrue((Long) item.getValue() == 1);

@@ -2197,17 +2197,19 @@ public class Coordinator implements CoordInterface {
             int bucketNum = scanNode.getBucketNum();
             scanNode.getFragment().setBucketNum(bucketNum);
         }
+        Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
+        BucketSeqToScanRange bucketSeqToScanRange = fragmentIdTobucketSeqToScanRangeMap.get(scanNode.getFragmentId());
         Map<Integer, List<TScanRangeLocation>> preferBucketLocationMap = new HashMap<>();
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isEnableColocateQueryBalanceV2()) {
+        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable()
+                .isEnableColocateQueryBalanceV2()) {
             ScanRangeAssignmentColocate assignment = new ScanRangeAssignmentColocateV2();
             for (Integer bucketSeq : scanNode.bucketSeq2locations.keySet()) {
                 TScanRangeLocations locations = scanNode.bucketSeq2locations.get(bucketSeq).get(0);
                 preferBucketLocationMap.put(bucketSeq, locations.getLocations());
             }
-            preferBucketLocationMap = assignment.computeScanRangeAssignmentByColocate(preferBucketLocationMap);
+            preferBucketLocationMap = assignment.computeScanRangeAssignmentByColocate(preferBucketLocationMap,
+                    bucketSeqToAddress);
         }
-        Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
-        BucketSeqToScanRange bucketSeqToScanRange = fragmentIdTobucketSeqToScanRangeMap.get(scanNode.getFragmentId());
         for (Integer bucketSeq : scanNode.bucketSeq2locations.keySet()) {
             //fill scanRangeParamsList
             List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
@@ -2312,6 +2314,9 @@ public class Coordinator implements CoordInterface {
             List<TScanRangeLocation> preferLocations,
             Map<TNetworkAddress, Long> assignedBytesPerHost, Map<TNetworkAddress, Long> replicaNumPerHost,
             Reference<Long> backendIdRef) throws UserException {
+        if (preferLocations.isEmpty()) {
+            preferLocations = sortedLocations;
+        }
         Long minAssignedBytes = Long.MAX_VALUE;
         Long minReplicaNum = Long.MAX_VALUE;
         TScanRangeLocation minLocation = null;

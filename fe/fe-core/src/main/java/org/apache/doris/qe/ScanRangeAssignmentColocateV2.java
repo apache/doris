@@ -17,25 +17,16 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TScanRangeLocation;
-
-import com.google.common.annotations.VisibleForTesting;
-
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 
 /**
- * The motivation of this patch is to improvement community strategy which is not balance.
- * It is not the best but should be better, especially in our business case.
  * The new strategy is as follow
  * 1. stat unselect and select bucket on each be
  * 2. find the be having highest select priority, which means having least selected or least left buckets

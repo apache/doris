@@ -4028,14 +4028,6 @@ public class SessionVariable implements Serializable, Writable {
         this.enableMinidump = enableMinidump;
     }
 
-    public boolean isEnableColocateQueryBalanceV2() {
-        return enableColocateQueryBalanceV2;
-    }
-
-    public void setEnableColocateQueryBalanceV2(boolean enableColocateQueryBalanceV2) {
-        this.enableColocateQueryBalanceV2 = enableColocateQueryBalanceV2;
-    }
-
     public String getMinidumpPath() {
         return minidumpPath;
     }
@@ -4133,6 +4125,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setParallelResultSink(Boolean enableParallelResultSink) {
         this.enableParallelResultSink   = enableParallelResultSink;
+    }
+
+    public boolean isEnableColocateQueryBalanceV2() {
+        return enableColocateQueryBalanceV2;
+    }
+
+    public void setEnableColocateQueryBalanceV2(boolean enableColocateQueryBalanceV2) {
+        this.enableColocateQueryBalanceV2 = enableColocateQueryBalanceV2;
     }
 
     public String hiveTextCompression() {

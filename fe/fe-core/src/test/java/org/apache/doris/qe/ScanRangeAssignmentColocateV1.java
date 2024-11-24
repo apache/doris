@@ -18,24 +18,39 @@
 package org.apache.doris.qe;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 public class ScanRangeAssignmentColocateV1 extends ScanRangeAssignmentColocate {
 
+    private final boolean enableOrderedLocations;
+
+    public ScanRangeAssignmentColocateV1(boolean enableOrderedLocations) {
+        this.enableOrderedLocations = enableOrderedLocations;
+    }
+
     @Override
     public Map<Integer, Location> getSelectedBucketLocation(Map<Location, LocationAssignment> locationAssignmentMap) {
-        Map<Integer, List<LocationAssignment>> bucketToLocationMap = new HashMap<>();
+        Map<Integer, List<LocationAssignment>> bucketToLocationMap = new LinkedHashMap<>();
         for (LocationAssignment assignment : locationAssignmentMap.values()) {
             for (Integer bucketSeq : assignment.getUnselectBuckets()) {
                 bucketToLocationMap.computeIfAbsent(bucketSeq, k -> new ArrayList<>()).add(assignment);
             }
         }
+
         Map<Integer, Location> selectedBucketLocation = new HashMap<>();
         for (int bucketSeq = 0; bucketSeq < bucketToLocationMap.size(); bucketSeq++) {
             List<LocationAssignment> bucketLocations = bucketToLocationMap.get(bucketSeq);
+            if (enableOrderedLocations){
+                bucketLocations.sort(Comparator.comparing(LocationAssignment::getLocation));
+            } else {
+                Collections.shuffle(bucketLocations);
+            }
             Iterator<LocationAssignment> iter = bucketLocations.iterator();
             LocationAssignment priorLocation = iter.next();
             while (iter.hasNext()) {
@@ -45,9 +60,7 @@ public class ScanRangeAssignmentColocateV1 extends ScanRangeAssignmentColocate {
                 }
             }
             priorLocation.getSelectedBuckets().add(bucketSeq);
-            iter = bucketLocations.iterator();
-            while (iter.hasNext()) {
-                LocationAssignment locationAssignment = iter.next();
+            for (LocationAssignment locationAssignment : bucketLocations) {
                 locationAssignment.getUnselectBuckets().remove(bucketSeq);
             }
             selectedBucketLocation.put(bucketSeq, priorLocation.getLocation());
