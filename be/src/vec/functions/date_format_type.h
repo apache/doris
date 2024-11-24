@@ -22,6 +22,7 @@
 #include "vec/common/string_ref.h"
 
 namespace doris::vectorized::time_format_type {
+#include "common/compile_check_begin.h"
 // Used to optimize commonly used date formats.
 
 inline StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
@@ -41,18 +42,18 @@ inline StringRef rewrite_specific_format(const char* raw_str, size_t str_size) {
 template <typename T>
 void put_year(T y, char* buf, int& i) {
     int t = y / 100;
-    buf[i++] = t / 10 + '0';
-    buf[i++] = t % 10 + '0';
+    buf[i++] = cast_set<char, int, false>(t / 10 + '0');
+    buf[i++] = cast_set<char, int, false>(t % 10 + '0');
 
     t = y % 100;
-    buf[i++] = t / 10 + '0';
-    buf[i++] = t % 10 + '0';
+    buf[i++] = cast_set<char, int, false>(t / 10 + '0');
+    buf[i++] = cast_set<char, int, false>(t % 10 + '0');
 }
 
 template <typename T>
 void put_other(T m, char* buf, int& i) {
-    buf[i++] = m / 10 + '0';
-    buf[i++] = m % 10 + '0';
+    buf[i++] = cast_set<char, int, false>(m / 10 + '0');
+    buf[i++] = cast_set<char, int, false>(m % 10 + '0');
 }
 
 // NoneImpl indicates that no specific optimization has been applied, and the general logic is used for processing.
@@ -152,5 +153,5 @@ inline FormatImplVariant string_to_impl(const std::string& format) {
         return NoneImpl {};
     }
 }
-
+#include "common/compile_check_end.h"
 } // namespace doris::vectorized::time_format_type
