@@ -1481,7 +1481,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableCommonExprPushdown = true;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true, varType = VariableAnnotation.DEPRECATED)
-    public boolean enableLocalExchange = true;
+    public boolean enableLocalExchange = false;
 
     /**
      * For debug purpose, don't merge unique key and agg key when reading data.
@@ -2352,7 +2352,8 @@ public class SessionVariable implements Serializable, Writable {
         this.parallelPipelineTaskNum = random.nextInt(8);
         this.parallelPrepareThreshold = random.nextInt(32) + 1;
         this.enableCommonExprPushdown = random.nextBoolean();
-        this.enableLocalExchange = random.nextBoolean();
+        this.enableLocalExchange = false;
+        this.enableLocalMergeSort = random.nextBoolean();
         // This will cause be dead loop, disable it first
         // this.disableJoinReorder = random.nextBoolean();
         this.enableCommonExpPushDownForInvertedIndex = random.nextBoolean();

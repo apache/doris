@@ -172,10 +172,13 @@ private:
 // Each ExchangeSinkOperator have one ExchangeSinkBuffer
 class ExchangeSinkBuffer final : public HasTaskExecutionCtx {
 public:
-    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, int send_id, int be_number,
-                       RuntimeState* state, ExchangeSinkLocalState* parent);
+    ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id, RuntimeState* state);
     ~ExchangeSinkBuffer() override = default;
-    void register_sink(TUniqueId);
+    void register_sink(InstanceLoId id) {
+        std::lock_guard lc(_lock);
+        _turn_off_count[id]++;
+    }
+    void construct_request(TUniqueId);
 
     Status add_block(TransmitInfo&& request);
     Status add_block(BroadcastTransmitInfo&& request);
@@ -184,17 +187,15 @@ public:
     void update_profile(RuntimeProfile* profile);
 
     void set_dependency(std::shared_ptr<Dependency> queue_dependency,
-                        std::shared_ptr<Dependency> finish_dependency) {
-        _queue_dependency = queue_dependency;
-        _finish_dependency = finish_dependency;
-    }
-
-    void set_broadcast_dependency(std::shared_ptr<Dependency> broadcast_dependency) {
-        _broadcast_dependency = broadcast_dependency;
+                        ExchangeSinkLocalState* local_state) {
+        std::lock_guard lc(_lock);
+        _queue_deps.push_back(queue_dependency);
+        _parents.push_back(local_state);
     }
 
 private:
     friend class ExchangeSinkLocalState;
+    phmap::flat_hash_map<InstanceLoId, int64_t> _turn_off_count;
 
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
@@ -229,29 +230,22 @@ private:
     std::atomic<bool> _is_finishing;
     PUniqueId _query_id;
     PlanNodeId _dest_node_id;
-    // Sender instance id, unique within a fragment. StreamSender save the variable
-    int _sender_id;
-    int _be_number;
     std::atomic<int64_t> _rpc_count = 0;
     RuntimeState* _state = nullptr;
     QueryContext* _context = nullptr;
 
     Status _send_rpc(InstanceLoId);
-    // must hold the _instance_to_package_queue_mutex[id] mutex to opera
-    void _construct_request(InstanceLoId id, PUniqueId);
     inline void _ended(InstanceLoId id);
     inline void _failed(InstanceLoId id, const std::string& err);
     inline void _set_receiver_eof(InstanceLoId id);
-    inline bool _is_receiver_eof(InstanceLoId id);
     inline void _turn_off_channel(InstanceLoId id, std::unique_lock<std::mutex>& with_lock);
     void get_max_min_rpc_time(int64_t* max_time, int64_t* min_time);
     int64_t get_sum_rpc_time();
 
     std::atomic<int> _total_queue_size = 0;
-    std::shared_ptr<Dependency> _queue_dependency = nullptr;
-    std::shared_ptr<Dependency> _finish_dependency = nullptr;
-    std::shared_ptr<Dependency> _broadcast_dependency = nullptr;
-    ExchangeSinkLocalState* _parent = nullptr;
+    std::vector<std::shared_ptr<Dependency>> _queue_deps;
+    std::vector<ExchangeSinkLocalState*> _parents;
+    std::mutex _lock;
 };
 
 } // namespace pipeline
