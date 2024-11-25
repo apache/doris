@@ -354,7 +354,6 @@ public class BinlogManager {
     public void addModifyViewDef(AlterViewInfo alterViewInfo, long commitSeq) {
         long dbId = alterViewInfo.getDbId();
         long tableId = alterViewInfo.getTableId();
-        tableIds.add(alterViewInfo.getTableId());
         TBinlogType type = TBinlogType.MODIFY_VIEW_DEF;
         String data = alterViewInfo.toJson();
         BarrierLog log = new BarrierLog(dbId, tableId, type, data);
