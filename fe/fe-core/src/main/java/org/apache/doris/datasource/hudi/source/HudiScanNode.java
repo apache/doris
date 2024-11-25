@@ -116,9 +116,11 @@ public class HudiScanNode extends HiveScanNode {
 
     /**
      * External file scan node for Query Hudi table
-     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
+     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column
+     * priv
      * eg: s3 tvf
-     * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
+     * These scan nodes do not have corresponding catalog/database/table info, so no
+     * need to do priv check
      */
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
             Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
@@ -304,7 +306,8 @@ public class HudiScanNode extends HiveScanNode {
                 }
             }
         }
-        // unpartitioned table, create a dummy partition to save location and inputformat,
+        // unpartitioned table, create a dummy partition to save location and
+        // inputformat,
         // so that we can unify the interface.
         HivePartition dummyPartition = new HivePartition(hmsTable.getDbName(), hmsTable.getName(), true,
                 hmsTable.getRemoteTable().getSd().getInputFormat(),

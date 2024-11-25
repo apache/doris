@@ -758,7 +758,8 @@ Status VFileScanner::_get_next_reader() {
         // JNI reader can only push down column value range
         bool push_down_predicates =
                 !_is_load && _params->format_type != TFileFormatType::FORMAT_JNI;
-        if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
+        if (!_params->force_jni_reader && format_type == TFileFormatType::FORMAT_JNI &&
+            range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "hudi" &&
                 range.table_format_params.hudi_params.delta_logs.empty()) {
                 // fall back to native reader if there is no log file

@@ -353,7 +353,6 @@ struct TMaxComputeFileDesc {
     1: optional string partition_spec // deprecated 
     2: optional string session_id 
     3: optional string table_batch_read_session
-
 }
 
 struct THudiFileDesc {
@@ -453,6 +452,8 @@ struct TFileScanRangeParams {
     //    1. Reduce the access to HMS and HDFS on the JNI side.
     //    2. There will be no inconsistency between the fe and be tables.
     24: optional string serialized_table
+    // if set true, be will be forced to use jni reader
+    25: bool force_jni_reader; 
 }
 
 struct TFileRangeDesc {

@@ -1482,6 +1482,9 @@ DECLARE_mBool(enable_delete_bitmap_merge_on_compaction);
 // Enable validation to check the correctness of table size.
 DECLARE_Bool(enable_table_size_correctness_check);
 
+// Use old hudi jni reader
+DECLARE_mBool(use_old_hudi_jni_reader);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);
