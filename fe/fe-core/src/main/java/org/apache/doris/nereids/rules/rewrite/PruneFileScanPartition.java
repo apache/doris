@@ -19,6 +19,8 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -58,8 +60,10 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                     ExternalTable tbl = scan.getTable();
 
                     SelectedPartitions selectedPartitions;
-                    if (tbl.supportInternalPartitionPruned()) {
-                        selectedPartitions = pruneExternalPartitions(tbl, filter, scan, ctx.cascadesContext);
+                    // TODO(cmy): support other external table
+                    if (tbl instanceof HMSExternalTable && ((HMSExternalTable) tbl).getDlaType() == DLAType.HIVE) {
+                        HMSExternalTable hiveTbl = (HMSExternalTable) tbl;
+                        selectedPartitions = pruneHivePartitions(hiveTbl, filter, scan, ctx.cascadesContext);
                     } else {
                         // set isPruned so that it won't go pass the partition prune again
                         selectedPartitions = new SelectedPartitions(0, ImmutableMap.of(), true);
@@ -70,11 +74,10 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 }).toRule(RuleType.FILE_SCAN_PARTITION_PRUNE);
     }
 
-    private SelectedPartitions pruneExternalPartitions(ExternalTable externalTable,
+    private SelectedPartitions pruneHivePartitions(HMSExternalTable hiveTbl,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
         Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
-        if (CollectionUtils.isEmpty(externalTable.getPartitionColumns(
-                ctx.getStatementContext().getSnapshot(externalTable)))) {
+        if (CollectionUtils.isEmpty(hiveTbl.getPartitionColumns())) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
             return SelectedPartitions.NOT_PRUNED;
@@ -82,15 +85,15 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
         Map<String, Slot> scanOutput = scan.getOutput()
                 .stream()
                 .collect(Collectors.toMap(slot -> slot.getName().toLowerCase(), Function.identity()));
-        List<Slot> partitionSlots = externalTable.getPartitionColumns(
-                        ctx.getStatementContext().getSnapshot(externalTable))
+
+        List<Slot> partitionSlots = hiveTbl.getPartitionColumns()
                 .stream()
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
 
         Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
         List<String> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
-                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx, PartitionTableType.EXTERNAL));
+                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx, PartitionTableType.HIVE));
 
         for (String name : prunedPartitions) {
             selectedPartitionItems.put(name, nameToPartitionItem.get(name));
