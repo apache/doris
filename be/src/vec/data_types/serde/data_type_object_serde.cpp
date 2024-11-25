@@ -173,16 +173,7 @@ Status DataTypeObjectSerDe::write_column_to_orc(const std::string& timezone, con
     const auto* var = check_and_get_column<ColumnObject>(column);
     orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
-    char* ptr = (char*)malloc(BUFFER_UNIT_SIZE);
-    if (!ptr) {
-        return Status::InternalError(
-                "malloc memory error when write largeint column data to orc file.");
-    }
-    StringRef bufferRef;
-    bufferRef.data = ptr;
-    bufferRef.size = BUFFER_UNIT_SIZE;
-    size_t offset = 0;
-    buffer_list.emplace_back(bufferRef);
+    INIT_MEMORY_FOR_ORC_WRITER()
 
     for (size_t row_id = start; row_id < end; row_id++) {
         if (cur_batch->notNull[row_id] == 1) {
