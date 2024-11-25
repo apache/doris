@@ -18,11 +18,9 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -76,7 +74,6 @@ import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -735,21 +732,21 @@ public class StructInfo {
      * Collect partitions on base table
      */
     public static class QueryScanPartitionsCollector extends DefaultPlanVisitor<Plan,
-            Map<BaseTableInfo, Set<Partition>>> {
+            Map<BaseTableInfo, Set<String>>> {
         @Override
         public Plan visitLogicalCatalogRelation(LogicalCatalogRelation catalogRelation,
-                Map<BaseTableInfo, Set<Partition>> targetTablePartitionMap) {
+                Map<BaseTableInfo, Set<String>> targetTablePartitionMap) {
             TableIf table = catalogRelation.getTable();
             BaseTableInfo relatedPartitionTable = new BaseTableInfo(table);
             if (!targetTablePartitionMap.containsKey(relatedPartitionTable)) {
                 return catalogRelation;
             }
+            Set<String> tablePartitions = targetTablePartitionMap.get(relatedPartitionTable);
             if (catalogRelation instanceof LogicalOlapScan) {
                 // Handle olap table
                 LogicalOlapScan logicalOlapScan = (LogicalOlapScan) catalogRelation;
-                Set<Partition> tablePartitions = targetTablePartitionMap.get(relatedPartitionTable);
                 for (Long partitionId : logicalOlapScan.getSelectedPartitionIds()) {
-                    tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId));
+                    tablePartitions.add(logicalOlapScan.getTable().getPartition(partitionId).getName());
                 }
             } else if (catalogRelation instanceof LogicalFileScan
                     && catalogRelation.getTable() instanceof HMSExternalTable) {
@@ -762,9 +759,8 @@ public class StructInfo {
                 HiveMetaStoreCache.HivePartitionValues hivePartitionValues = cache.getPartitionValues(
                         externalTable.getDbName(), externalTable.getName(), externalTable.getPartitionColumnTypes());
                 BiMap<Long, String> idToName = hivePartitionValues.getPartitionNameToIdMap().inverse();
-                Set<String> hiveTablePartitions = new HashSet<>();
                 for (Entry<Long, PartitionItem> partitionEntry : selectedPartitions.selectedPartitions.entrySet()) {
-                    hiveTablePartitions.add(idToName.get(partitionEntry.getKey()));
+                    tablePartitions.add(idToName.get(partitionEntry.getKey()));
                 }
             } else {
                 // Not support to partition check now, doesn't try to compensate when part partition become invalid
