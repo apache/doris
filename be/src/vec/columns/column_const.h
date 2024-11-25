@@ -208,14 +208,6 @@ public:
         data->update_hash_with_value(0, hash);
     }
 
-    // (TODO.Amory) here may not use column_const update hash, and PrimitiveType is not used.
-    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
-                                uint32_t offset = 0,
-                                const uint8_t* __restrict null_data = nullptr) const override;
-
-    void update_hashes_with_value(uint64_t* __restrict hashes,
-                                  const uint8_t* __restrict null_data) const override;
-
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
 
@@ -263,8 +255,6 @@ public:
     bool is_concrete_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
     bool is_numeric() const override { return data->is_numeric(); }
-    bool is_fixed_and_contiguous() const override { return data->is_fixed_and_contiguous(); }
-    size_t size_of_value_if_fixed() const override { return data->size_of_value_if_fixed(); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
     /// Not part of the common interface.

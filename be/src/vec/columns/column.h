@@ -601,21 +601,10 @@ public:
       * To avoid confusion between these cases, we don't have isContiguous method.
       */
 
-    /// Values in column are represented as continuous memory segment of fixed size. Implies values_have_fixed_size.
-    virtual bool is_fixed_and_contiguous() const { return false; }
-
-    /// If is_fixed_and_contiguous, returns the underlying data array, otherwise throws an exception.
     virtual StringRef get_raw_data() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Column {} is not a contiguous block of memory", get_name());
         return StringRef {};
-    }
-
-    /// If values_have_fixed_size, returns size of value, otherwise throw an exception.
-    virtual size_t size_of_value_if_fixed() const {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "Values of column {} are not fixed size.", get_name());
-        return 0;
     }
 
     /// Returns ratio of values in column, that are equal to default value of column.
