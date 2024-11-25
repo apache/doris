@@ -308,6 +308,10 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     @Override
     public Map<String, PartitionItem> getNameToPartitionItems(OptionalLong snapshotId) {
+        return getNameToPartitionItems();
+    }
+
+    public Map<String, PartitionItem> getNameToPartitionItems() {
         if (CollectionUtils.isEmpty(this.getPartitionColumns())) {
             return Collections.emptyMap();
         }

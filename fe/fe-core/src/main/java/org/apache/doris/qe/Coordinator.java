@@ -83,6 +83,7 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.service.arrowflight.results.FlightSqlEndpointsLocation;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadEtlTask;
@@ -733,29 +734,27 @@ public class Coordinator implements CoordInterface {
                 enableParallelResultSink = queryOptions.isEnableParallelOutfile();
             }
 
-            TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             Set<TNetworkAddress> addrs = new HashSet<>();
             for (FInstanceExecParam param : topParams.instanceExecParams) {
                 if (addrs.contains(param.host)) {
                     continue;
                 }
                 addrs.add(param.host);
-                receivers.add(new ResultReceiver(queryId, param.instanceId, addressToBackendID.get(param.host),
-                        toBrpcHost(param.host), this.timeoutDeadline,
-                        context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
-            }
-
-            if (!context.isReturnResultFromLocal()) {
-                Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
-                if (enableParallelResultSink) {
-                    context.setFinstId(queryId);
+                if (context.isReturnResultFromLocal()) {
+                    receivers.add(new ResultReceiver(queryId, param.instanceId, addressToBackendID.get(param.host),
+                            toBrpcHost(param.host), this.timeoutDeadline,
+                            context.getSessionVariable().getMaxMsgSizeOfResultReceiver(), enableParallelResultSink));
                 } else {
-                    context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
+                    Preconditions.checkState(context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL));
+                    TUniqueId finstId;
+                    if (enableParallelResultSink) {
+                        finstId = queryId;
+                    } else {
+                        finstId = topParams.instanceExecParams.get(0).instanceId;
+                    }
+                    context.addFlightSqlEndpointsLocation(new FlightSqlEndpointsLocation(finstId,
+                            toArrowFlightHost(param.host), toBrpcHost(param.host), fragments.get(0).getOutputExprs()));
                 }
-                context.setFinstId(topParams.instanceExecParams.get(0).instanceId);
-                context.setResultFlightServerAddr(toArrowFlightHost(execBeAddr));
-                context.setResultInternalServiceAddr(toBrpcHost(execBeAddr));
-                context.setResultOutputExprs(fragments.get(0).getOutputExprs());
             }
 
             LOG.info("dispatch result sink of query {} to {}", DebugUtil.printId(queryId),
@@ -766,7 +765,8 @@ public class Coordinator implements CoordInterface {
                 // set the broker address for OUTFILE sink
                 ResultFileSink topResultFileSink = (ResultFileSink) topDataSink;
                 FsBroker broker = Env.getCurrentEnv().getBrokerMgr()
-                        .getBroker(topResultFileSink.getBrokerName(), execBeAddr.getHostname());
+                        .getBroker(topResultFileSink.getBrokerName(),
+                                topParams.instanceExecParams.get(0).host.getHostname());
                 topResultFileSink.setBrokerAddr(broker.host, broker.port);
             }
         } else {
@@ -1935,7 +1935,6 @@ public class Coordinator implements CoordInterface {
 
                             FInstanceExecParam instanceParam = new FInstanceExecParam(null, key, 0, params);
                             instanceParam.perNodeScanRanges.put(planNodeId, scanRangeParams);
-                            instanceParam.perNodeSharedScans.put(planNodeId, sharedScan);
                             params.instanceExecParams.add(instanceParam);
                         }
                         params.ignoreDataDistribution = sharedScan;
@@ -2757,13 +2756,11 @@ public class Coordinator implements CoordInterface {
                         null, addressScanRange.getKey(), 0, params);
 
                 for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : scanRange) {
-                    instanceParam.addBucketSeq(nodeScanRangeMap.first);
                     for (Map.Entry<Integer, List<TScanRangeParams>> nodeScanRange
                             : nodeScanRangeMap.second.entrySet()) {
                         if (!instanceParam.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
                             range.put(nodeScanRange.getKey(), Lists.newArrayList());
                             instanceParam.perNodeScanRanges.put(nodeScanRange.getKey(), Lists.newArrayList());
-                            instanceParam.perNodeSharedScans.put(nodeScanRange.getKey(), true);
                         }
                         range.get(nodeScanRange.getKey()).addAll(nodeScanRange.getValue());
                         instanceParam.perNodeScanRanges.get(nodeScanRange.getKey())
@@ -2774,6 +2771,12 @@ public class Coordinator implements CoordInterface {
                 for (int i = 1; i < parallelExecInstanceNum; i++) {
                     params.instanceExecParams.add(new FInstanceExecParam(
                             null, addressScanRange.getKey(), 0, params));
+                }
+                int index = 0;
+                for (Pair<Integer, Map<Integer, List<TScanRangeParams>>> nodeScanRangeMap : scanRange) {
+                    params.instanceExecParams.get(index % params.instanceExecParams.size())
+                            .addBucketSeq(nodeScanRangeMap.first);
+                    index++;
                 }
             } else {
                 int expectedInstanceNum = 1;
@@ -3131,10 +3134,8 @@ public class Coordinator implements CoordInterface {
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
-                Map<Integer, Boolean> perNodeSharedScans = instanceExecParam.perNodeSharedScans;
                 if (scanRanges == null) {
                     scanRanges = Maps.newHashMap();
-                    perNodeSharedScans = Maps.newHashMap();
                 }
                 if (!res.containsKey(instanceExecParam.host)) {
                     TPipelineFragmentParams params = new TPipelineFragmentParams();
@@ -3162,7 +3163,6 @@ public class Coordinator implements CoordInterface {
 
                     params.setFileScanParams(fileScanRangeParamsMap);
                     params.setNumBuckets(fragment.getBucketNum());
-                    params.setPerNodeSharedScans(perNodeSharedScans);
                     params.setTotalInstances(instanceExecParams.size());
                     if (ignoreDataDistribution) {
                         params.setParallelInstances(parallelTasksNum);
@@ -3187,7 +3187,6 @@ public class Coordinator implements CoordInterface {
 
                 localParams.setFragmentInstanceId(instanceExecParam.instanceId);
                 localParams.setPerNodeScanRanges(scanRanges);
-                localParams.setPerNodeSharedScans(perNodeSharedScans);
                 localParams.setSenderId(i);
                 localParams.setBackendNum(backendNum++);
                 localParams.setRuntimeFilterParams(new TRuntimeFilterParams());
@@ -3335,7 +3334,6 @@ public class Coordinator implements CoordInterface {
         TUniqueId instanceId;
         TNetworkAddress host;
         Map<Integer, List<TScanRangeParams>> perNodeScanRanges = Maps.newHashMap();
-        Map<Integer, Boolean> perNodeSharedScans = Maps.newHashMap();
 
         int perFragmentInstanceIdx;
 

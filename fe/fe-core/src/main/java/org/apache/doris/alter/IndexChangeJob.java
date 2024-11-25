@@ -469,6 +469,10 @@ public class IndexChangeJob implements Writable {
         LOG.info("cancel index job {}, err: {}", jobId, errMsg);
     }
 
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
     public static IndexChangeJob read(DataInput in) throws IOException {
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_122) {
             IndexChangeJob job = new IndexChangeJob();
