@@ -25,7 +25,6 @@ import org.apache.doris.datasource.CatalogMgr;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
-import java.util.OptionalLong;
 
 /**
  * MTMVPartitionInfo
@@ -116,7 +115,7 @@ public class MTMVPartitionInfo {
         if (partitionType == MTMVPartitionType.SELF_MANAGE) {
             throw new AnalysisException("partitionType is: " + partitionType);
         }
-        List<Column> partitionColumns = getRelatedTable().getPartitionColumns(OptionalLong.empty());
+        List<Column> partitionColumns = getRelatedTable().getPartitionColumns();
         for (int i = 0; i < partitionColumns.size(); i++) {
             if (partitionColumns.get(i).getName().equalsIgnoreCase(relatedCol)) {
                 return i;

@@ -289,16 +289,12 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 .orElse(Collections.emptyList());
     }
 
+    @Override
     public List<Column> getPartitionColumns() {
         makeSureInitialized();
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         return schemaCacheValue.map(value -> ((HMSSchemaCacheValue) value).getPartitionColumns())
                 .orElse(Collections.emptyList());
-    }
-
-    @Override
-    public List<Column> getPartitionColumns(OptionalLong snapshotId) {
-        return getPartitionColumns();
     }
 
     public SelectedPartitions getAllPartitions() {
@@ -742,22 +738,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     }
 
     @Override
-    public PartitionType getPartitionType(OptionalLong snapshotId) {
-        return getPartitionType();
-    }
-
     public PartitionType getPartitionType() {
         return getPartitionColumns().size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
     }
 
+    @Override
     public Set<String> getPartitionColumnNames() {
         return getPartitionColumns().stream()
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
-    }
-
-    @Override
-    public Set<String> getPartitionColumnNames(OptionalLong snapshotId) {
-        return getPartitionColumnNames();
     }
 
     @Override

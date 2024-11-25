@@ -504,7 +504,7 @@ public class MTMVPartitionUtil {
     }
 
     public static Type getPartitionColumnType(MTMVRelatedTableIf relatedTable, String col) throws AnalysisException {
-        List<Column> partitionColumns = relatedTable.getPartitionColumns(OptionalLong.empty());
+        List<Column> partitionColumns = relatedTable.getPartitionColumns();
         for (Column column : partitionColumns) {
             if (column.getName().equals(col)) {
                 return column.getType();

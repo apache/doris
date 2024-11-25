@@ -1048,6 +1048,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return partitionInfo;
     }
 
+    @Override
     public Set<String> getPartitionColumnNames() throws DdlException {
         Set<String> partitionColumnNames = Sets.newHashSet();
         if (partitionInfo instanceof SinglePartitionInfo) {
@@ -1063,11 +1064,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         } else {
             throw new DdlException("Unknown partition info type: " + partitionInfo.getType().name());
         }
-    }
-
-    @Override
-    public Set<String> getPartitionColumnNames(OptionalLong snapshotId) throws DdlException {
-        return getPartitionColumnNames();
     }
 
     public DistributionInfo getDefaultDistributionInfo() {
@@ -3260,10 +3256,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public PartitionType getPartitionType(OptionalLong snapshotId) {
-        return getPartitionType();
-    }
-
     public PartitionType getPartitionType() {
         return partitionInfo.getType();
     }
@@ -3288,10 +3280,6 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     @Override
-    public List<Column> getPartitionColumns(OptionalLong snapshotId) {
-        return getPartitionColumns();
-    }
-
     public List<Column> getPartitionColumns() {
         return getPartitionInfo().getPartitionColumns();
     }

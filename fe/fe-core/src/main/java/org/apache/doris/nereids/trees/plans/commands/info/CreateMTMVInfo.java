@@ -94,7 +94,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.stream.Collectors;
@@ -352,7 +351,7 @@ public class CreateMTMVInfo {
                     allPartitionDescs.size(), ctx.getSessionVariable().getCreateTablePartitionMaxNum()));
         }
         try {
-            PartitionType type = relatedTable.getPartitionType(OptionalLong.empty());
+            PartitionType type = relatedTable.getPartitionType();
             if (type == PartitionType.RANGE) {
                 return new RangePartitionDesc(Lists.newArrayList(mvPartitionInfo.getPartitionCol()),
                         allPartitionDescs);

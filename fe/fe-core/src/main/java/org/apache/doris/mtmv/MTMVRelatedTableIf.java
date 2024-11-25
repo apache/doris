@@ -47,27 +47,24 @@ public interface MTMVRelatedTableIf extends TableIf {
     /**
      * getPartitionType LIST/RANGE/UNPARTITIONED
      *
-     * @param snapshotId
      * @return
      */
-    PartitionType getPartitionType(OptionalLong snapshotId);
+    PartitionType getPartitionType();
 
     /**
      * getPartitionColumnNames
      *
-     * @param snapshotId
      * @return
      * @throws DdlException
      */
-    Set<String> getPartitionColumnNames(OptionalLong snapshotId) throws DdlException;
+    Set<String> getPartitionColumnNames() throws DdlException;
 
     /**
      * getPartitionColumns
      *
-     * @param snapshotId
      * @return
      */
-    List<Column> getPartitionColumns(OptionalLong snapshotId);
+    List<Column> getPartitionColumns();
 
     /**
      * getPartitionSnapshot

@@ -318,18 +318,18 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
     }
 
     @Override
-    public PartitionType getPartitionType(OptionalLong snapshotId) {
+    public PartitionType getPartitionType() {
         return getPartitionColumnsFromCache().size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
     }
 
     @Override
-    public Set<String> getPartitionColumnNames(OptionalLong snapshotId) {
+    public Set<String> getPartitionColumnNames() {
         return getPartitionColumnsFromCache().stream()
                 .map(c -> c.getName().toLowerCase()).collect(Collectors.toSet());
     }
 
     @Override
-    public List<Column> getPartitionColumns(OptionalLong snapshotId) {
+    public List<Column> getPartitionColumns() {
         return getPartitionColumnsFromCache();
     }
 
