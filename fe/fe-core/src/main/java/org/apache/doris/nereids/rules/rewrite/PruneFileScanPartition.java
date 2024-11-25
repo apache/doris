@@ -76,7 +76,7 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
 
     private SelectedPartitions pruneHivePartitions(HMSExternalTable hiveTbl,
             LogicalFilter<LogicalFileScan> filter, LogicalFileScan scan, CascadesContext ctx) {
-        Map<Long, PartitionItem> selectedPartitionItems = Maps.newHashMap();
+        Map<String, PartitionItem> selectedPartitionItems = Maps.newHashMap();
         if (CollectionUtils.isEmpty(hiveTbl.getPartitionColumns())) {
             // non partitioned table, return NOT_PRUNED.
             // non partition table will be handled in HiveScanNode.
@@ -91,13 +91,13 @@ public class PruneFileScanPartition extends OneRewriteRuleFactory {
                 .map(column -> scanOutput.get(column.getName().toLowerCase()))
                 .collect(Collectors.toList());
 
-        Map<Long, PartitionItem> idToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
-        List<Long> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
-                partitionSlots, filter.getPredicate(), idToPartitionItem, ctx, PartitionTableType.HIVE));
+        Map<String, PartitionItem> nameToPartitionItem = scan.getSelectedPartitions().selectedPartitions;
+        List<String> prunedPartitions = new ArrayList<>(PartitionPruner.prune(
+                partitionSlots, filter.getPredicate(), nameToPartitionItem, ctx, PartitionTableType.HIVE));
 
-        for (Long id : prunedPartitions) {
-            selectedPartitionItems.put(id, idToPartitionItem.get(id));
+        for (String name : prunedPartitions) {
+            selectedPartitionItems.put(name, nameToPartitionItem.get(name));
         }
-        return new SelectedPartitions(idToPartitionItem.size(), selectedPartitionItems, true);
+        return new SelectedPartitions(nameToPartitionItem.size(), selectedPartitionItems, true);
     }
 }
