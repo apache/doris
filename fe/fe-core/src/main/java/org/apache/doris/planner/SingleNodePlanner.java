@@ -1969,7 +1969,7 @@ public class SingleNodePlanner {
                                     + "please set enable_nereids_planner = true to enable new optimizer");
                         }
                         scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true,
-                                Optional.empty(), Optional.empty());
+                                Optional.empty(), Optional.empty(), ConnectContext.get().getSessionVariable());
                         break;
                     case ICEBERG:
                         scanNode = new IcebergScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);

@@ -37,6 +37,7 @@ import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -113,6 +114,7 @@ public class HudiScanNode extends HiveScanNode {
     private boolean incrementalRead = false;
     private TableScanParams scanParams;
     private IncrementalRelation incrementalRelation;
+    private SessionVariable sessionVariable;
 
     /**
      * External file scan node for Query Hudi table
@@ -123,7 +125,8 @@ public class HudiScanNode extends HiveScanNode {
      * need to do priv check
      */
     public HudiScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
-            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation) {
+            Optional<TableScanParams> scanParams, Optional<IncrementalRelation> incrementalRelation,
+            SessionVariable sessionVariable) {
         super(id, desc, "HUDI_SCAN_NODE", StatisticalType.HUDI_SCAN_NODE, needCheckColumnPriv);
         isCowOrRoTable = hmsTable.isHoodieCowTable();
         if (LOG.isDebugEnabled()) {
@@ -138,11 +141,12 @@ public class HudiScanNode extends HiveScanNode {
         this.scanParams = scanParams.orElse(null);
         this.incrementalRelation = incrementalRelation.orElse(null);
         this.incrementalRead = (this.scanParams != null && this.scanParams.incrementalRead());
+        this.sessionVariable = sessionVariable;
     }
 
     @Override
     public TFileFormatType getFileFormatType() throws UserException {
-        if (isCowOrRoTable) {
+        if (!sessionVariable.isForceJniScanner() && isCowOrRoTable) {
             return super.getFileFormatType();
         } else {
             // Use jni to read hudi table in BE
