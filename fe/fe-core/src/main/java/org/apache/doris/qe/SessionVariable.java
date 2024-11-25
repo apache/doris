@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TGroupCommitMode;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -537,6 +538,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String LOAD_STREAM_PER_NODE = "load_stream_per_node";
 
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
+
+    public static final String PARTIAL_UPDATE_NEW_KEY_POLICY = "partial_update_new_key_policy";
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
@@ -2072,6 +2075,12 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
+
+    @VariableMgr.VarAttr(name = PARTIAL_UPDATE_NEW_KEY_POLICY, needForward = true, description = {
+            "用于设置部分列更新中对于新插入的行的处理策略",
+            "Used to set the handling policy for newly inserted rows in partial update."
+            }, checker = "checkPartialUpdateNewRowPolicy", options = {"APPEND", "ERROR"})
+    public String partialUpdateNewKeyPolicy = "APPEND";
 
     @VariableMgr.VarAttr(name = TEST_QUERY_CACHE_HIT, description = {
             "用于测试查询缓存是否命中，如果未命中指定类型的缓存，则会报错",
@@ -4056,6 +4065,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableUniqueKeyPartialUpdate = enableUniqueKeyPartialUpdate;
     }
 
+    public TPartialUpdateNewRowPolicy getPartialUpdateNewRowPolicy() {
+        return parsePartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
+    }
+
     public int getLoadStreamPerNode() {
         return loadStreamPerNode;
     }
@@ -4588,6 +4601,29 @@ public class SessionVariable implements Serializable, Writable {
             UnsupportedOperationException exception =
                     new UnsupportedOperationException("Generate stats factor " + value + " should greater than 0");
             LOG.warn("Check generate stats factor failed", exception);
+            throw exception;
+        }
+    }
+
+    public TPartialUpdateNewRowPolicy parsePartialUpdateNewRowPolicy(String policy) {
+        if (policy == null) {
+            return null;
+        } else if (policy.equalsIgnoreCase("APPEND")) {
+            return TPartialUpdateNewRowPolicy.APPEND;
+        } else if (policy.equalsIgnoreCase("ERROR")) {
+            return TPartialUpdateNewRowPolicy.ERROR;
+        }
+        return null;
+    }
+
+    public void checkPartialUpdateNewRowPolicy(String partialUpdateNewKeyPolicy) {
+        TPartialUpdateNewRowPolicy policy = parsePartialUpdateNewRowPolicy(partialUpdateNewKeyPolicy);
+        if (policy == null) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(PARTIAL_UPDATE_NEW_KEY_POLICY
+                            + " should be one of {'APPEND', 'ERROR'}, but found "
+                                    + partialUpdateNewKeyPolicy);
+            LOG.warn("Check " + PARTIAL_UPDATE_NEW_KEY_POLICY + " failed", exception);
             throw exception;
         }
     }
