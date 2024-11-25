@@ -40,6 +40,10 @@ public abstract class ScanRangeAssignmentColocate {
             this.backend = backend;
         }
 
+        public long getBackend() {
+            return backend;
+        }
+
         @Override
         public boolean equals(Object object) {
             if (this == object) {

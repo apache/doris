@@ -147,6 +147,12 @@ public class ScanRangeAssignmentColocateV2 extends ScanRangeAssignmentColocate {
 
     @Override
     public Map<Integer, Location> getSelectedBucketLocation(Map<Location, LocationAssignment> locationAssignmentMap) {
+        List<LocationAssignment> assignments = new ArrayList<>(locationAssignmentMap.values());
+        for (LocationAssignment locationAssignment : assignments) {
+            if (locationAssignment.getUnselectBuckets().isEmpty()) {
+                locationAssignmentMap.remove(locationAssignment.getLocation());
+            }
+        }
         Map<Integer, List<LocationAssignment>> bucketToLocationMap = new HashMap<>();
         for (LocationAssignment assignment : locationAssignmentMap.values()) {
             for (Integer bucketSeq : assignment.getUnselectBuckets()) {

@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.qe.ScanRangeAssignmentColocate.Location;
 import org.apache.doris.qe.ScanRangeAssignmentColocate.LocationAssignment;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TScanRangeLocation;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Stopwatch;
@@ -29,7 +30,9 @@ import org.junit.Test;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
@@ -61,16 +64,29 @@ public class ScanRangeAssignmentColocateV2Test {
     }
 
     private void runNoShuffle(int backendNum, int bucketNum, int replicaNum) {
-        List<LocationAssignment> assignments = createBackend(backendNum);
-        assigmentTabletBalanced(assignments, bucketNum, replicaNum, false);
-        Map<Location, LocationAssignment> assignmentMap = assignments.stream()
-                .collect(Collectors.toMap(LocationAssignment::getLocation, Function.identity()));
-        ScanRangeAssignmentColocateV2 colocateV2 = new ScanRangeAssignmentColocateV2();
-        Map<Integer, Location> bucketToLocationMap = colocateV2.getSelectedBucketLocation(assignmentMap);
-        Assert.assertEquals(bucketNum, bucketToLocationMap.size());
+        runNoShuffle(backendNum, bucketNum, replicaNum, Collections.emptyMap());
+    }
 
-        Map<Location, Integer> locationBucketCountMap = bucketToLocationMap.values().stream()
+    private void runNoShuffle(int backendNum, int bucketNum, int replicaNum,
+            Map<Integer, TNetworkAddress> assignedBucketLocationMap) {
+        Map<Integer, List<TScanRangeLocation>> assignmentMap = assigmentTabletBalanced(backendNum, bucketNum,
+                replicaNum, false);
+        ScanRangeAssignmentColocateV2 colocateV2 = new ScanRangeAssignmentColocateV2();
+        Map<Integer, List<TScanRangeLocation>> bucketToLocationMap = colocateV2.computeScanRangeAssignmentByColocate(
+                assignmentMap, assignedBucketLocationMap);
+        int assignedNum = assignedBucketLocationMap.size();
+        Assert.assertEquals(bucketNum - assignedNum, bucketToLocationMap.size());
+
+        List<TNetworkAddress> bucketAddressFlattenResult = bucketToLocationMap.values().stream()
+                .flatMap(Collection::stream)
+                .map(TScanRangeLocation::getServer)
+                .collect(Collectors.toList());
+        bucketAddressFlattenResult = new ArrayList<>(bucketAddressFlattenResult);
+        bucketAddressFlattenResult.addAll(assignedBucketLocationMap.values());
+
+        Map<TNetworkAddress, Integer> locationBucketCountMap = bucketAddressFlattenResult.stream()
                 .collect(Collectors.toMap(Function.identity(), location -> 1, Integer::sum));
+
         if (backendNum >= bucketNum) {
             Assert.assertEquals(bucketNum, locationBucketCountMap.size());
             Assert.assertEquals(ImmutableSet.of(1), new HashSet<>(locationBucketCountMap.values()));
@@ -86,19 +102,16 @@ public class ScanRangeAssignmentColocateV2Test {
     }
 
     private boolean runShuffle(int backendNum, int bucketNum, int replicaNum, boolean v2) {
-        List<LocationAssignment> assignments = createBackend(backendNum);
-        assigmentTabletBalanced(assignments, bucketNum, replicaNum, true);
-        return runShuffle(assignments, backendNum, bucketNum, v2);
-    }
-
-    private boolean runShuffle(List<LocationAssignment> assignments, int backendNum, int bucketNum, boolean v2) {
-        Map<Location, LocationAssignment> assignmentMap = assignments.stream()
-                .collect(Collectors.toMap(LocationAssignment::getLocation, Function.identity()));
+        Map<Integer, List<TScanRangeLocation>> assignmentMap = assigmentTabletBalanced(backendNum, bucketNum,
+                replicaNum, true);
         ScanRangeAssignmentColocate colocateStrategy = getAssignmentStrategy(v2);
-        Map<Integer, Location> bucketToLocationMap = colocateStrategy.getSelectedBucketLocation(assignmentMap);
+        Map<Integer, List<TScanRangeLocation>> bucketToLocationMap
+                = colocateStrategy.computeScanRangeAssignmentByColocate(assignmentMap, new HashMap<>());
         Assert.assertEquals(bucketNum, bucketToLocationMap.size());
 
-        Map<Location, Integer> locationBucketCountMap = bucketToLocationMap.values().stream()
+        Map<TNetworkAddress, Integer> locationBucketCountMap = bucketToLocationMap.values().stream()
+                .flatMap(Collection::stream)
+                .map(TScanRangeLocation::getServer)
                 .collect(Collectors.toMap(Function.identity(), location -> 1, Integer::sum));
         if (backendNum >= bucketNum) {
             return bucketNum == locationBucketCountMap.size()
@@ -106,11 +119,11 @@ public class ScanRangeAssignmentColocateV2Test {
         } else if (bucketNum % backendNum == 0) {
             return backendNum == locationBucketCountMap.size()
                     && Objects.equals(ImmutableSet.of(bucketNum / backendNum),
-                        new HashSet<>(locationBucketCountMap.values()));
+                    new HashSet<>(locationBucketCountMap.values()));
         } else {
             return backendNum == locationBucketCountMap.size()
                     && Objects.equals(ImmutableSet.of(bucketNum / backendNum, bucketNum / backendNum + 1),
-                        new HashSet<>(locationBucketCountMap.values()));
+                    new HashSet<>(locationBucketCountMap.values()));
         }
     }
 
@@ -150,6 +163,13 @@ public class ScanRangeAssignmentColocateV2Test {
         runNoShuffle(4, 4, 3);
         runNoShuffle(11, 20, 3);
         runNoShuffle(11, 20, 2);
+
+        Map<Integer, TNetworkAddress> assignedBucketAddressMap = new HashMap<>();
+        TNetworkAddress address = new TNetworkAddress();
+        address.setHostname("be-n1001");
+        address.setPort(9050);
+        assignedBucketAddressMap.put(0, address);
+        runNoShuffle(20, 20, 2, assignedBucketAddressMap);
     }
 
     @Test
@@ -180,19 +200,23 @@ public class ScanRangeAssignmentColocateV2Test {
     private List<LocationAssignment> createBackend(int num) {
         List<LocationAssignment> result = new ArrayList<>();
         for (int i = 0; i < num; i++) {
+            long backendId = 1000 + i;
             TNetworkAddress address = new TNetworkAddress();
-            address.setHostname("be-n" + i);
+            address.setHostname("be-n" + backendId);
             address.setPort(9050);
-            Location location = new Location(1000 + i);
+            Location location = new Location(backendId);
             result.add(new LocationAssignment(location));
         }
         return result;
     }
 
-    private void assigmentTabletBalanced(List<LocationAssignment> assignments, int bucketNum, int replicaNum,
-            boolean shuffle) {
+    private Map<Integer, List<TScanRangeLocation>> assigmentTabletBalanced(int backendNum, int bucketNum,
+            int replicaNum, boolean shuffle) {
+        Map<Integer, List<TScanRangeLocation>> bucketToLocationMap = new HashMap<>();
+        List<LocationAssignment> assignments = createBackend(backendNum);
         Preconditions.checkState(replicaNum <= assignments.size());
         for (int bucketSeq = 0; bucketSeq < bucketNum; bucketSeq++) {
+            List<TScanRangeLocation> bucketLocations = new ArrayList<>();
             for (int i = 0; i < replicaNum; i++) {
                 if (shuffle) {
                     Collections.shuffle(assignments);
@@ -211,9 +235,18 @@ public class ScanRangeAssignmentColocateV2Test {
                 }
                 Preconditions.checkState(!assignment.getUnselectBuckets().contains(bucketSeq));
                 assignment.getUnselectBuckets().add(bucketSeq);
+
+                TScanRangeLocation location = new TScanRangeLocation();
+                location.setBackendId(assignment.getLocation().getBackend());
+                TNetworkAddress address = new TNetworkAddress();
+                address.setPort(9050);
+                address.setHostname("be-n" + assignment.getLocation().getBackend());
+                location.setServer(address);
+                bucketLocations.add(location);
             }
+            bucketToLocationMap.put(bucketSeq, bucketLocations);
         }
-        assignments.removeIf(assignment -> assignment.getUnselectBuckets().isEmpty());
+        return bucketToLocationMap;
     }
 
     private static ScanRangeAssignmentColocate getAssignmentStrategy(
