@@ -775,71 +775,245 @@ TEST(BlockTest, Constructor) {
 }
 
 TEST(BlockTest, BasicOperations) {
-    vectorized::Block block;
-    auto col1 = vectorized::ColumnVector<Int32>::create();
-    auto col2 = vectorized::ColumnVector<Int32>::create();
-    auto col3 = vectorized::ColumnVector<Int32>::create();
-    vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
+    // Test with empty block
+    {
+        vectorized::Block empty_block;
+        EXPECT_NO_THROW(empty_block.clear());
+        EXPECT_NO_THROW(empty_block.clear_names());
+        EXPECT_NO_THROW(empty_block.reserve(0));
+    }
 
-    // test reserve
-    block.reserve(3);
+    // Test with regular columns
+    {
+        vectorized::Block block;
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        auto col2 = vectorized::ColumnVector<Int32>::create();
+        auto col3 = vectorized::ColumnVector<Int32>::create();
+        vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
 
-    // test insert at end
-    block.insert({col1->get_ptr(), type, "col1"});
-    EXPECT_EQ(1, block.columns());
-    EXPECT_EQ("col1", block.get_by_position(0).name);
+        // Test reserve with different sizes
+        EXPECT_NO_THROW(block.reserve(0));
+        EXPECT_NO_THROW(block.reserve(100));
+        block.reserve(3);
+        block.insert({col1->get_ptr(), type, "col1"});
+        block.insert({col2->get_ptr(), type, "col2"});
+        block.insert({col3->get_ptr(), type, "col3"});
+        EXPECT_EQ(3, block.columns());
 
-    block.insert({col3->get_ptr(), type, "col3"});
-    EXPECT_EQ(2, block.columns());
-    EXPECT_EQ("col3", block.get_by_position(1).name);
+        // Test clear_names
+        block.clear_names();
+        EXPECT_EQ("", block.get_by_position(0).name);
+        EXPECT_EQ("", block.get_by_position(1).name);
+        EXPECT_EQ("", block.get_by_position(2).name);
 
-    // test insert at position
-    block.insert(1, {col2->get_ptr(), type, "col2"});
-    EXPECT_EQ(3, block.columns());
-    EXPECT_EQ("col2", block.get_by_position(1).name);
+        // Test clear
+        block.clear();
+        EXPECT_EQ(0, block.columns());
+        EXPECT_TRUE(block.empty());
 
-    // test erase by position
-    block.erase(1); // Remove col2
-    EXPECT_EQ(2, block.columns());
-    EXPECT_EQ("col1", block.get_by_position(0).name);
-    EXPECT_EQ("col3", block.get_by_position(1).name);
+        // Test insert operations
+        // Insert at end
+        block.insert({col1->get_ptr(), type, "col1"});
+        EXPECT_EQ(1, block.columns());
+        EXPECT_EQ("col1", block.get_by_position(0).name);
 
-    // test erase_tail
-    block.insert(1, {col2->get_ptr(), type, "col2"});
-    block.erase_tail(1); // Remove col2 and col3
-    EXPECT_EQ(1, block.columns());
-    EXPECT_EQ("col1", block.get_by_position(0).name);
+        // Insert duplicate name (should update existing)
+        block.insert({col2->get_ptr(), type, "col1"});
+        EXPECT_EQ(2, block.columns());
 
-    // test erase by set of positions
-    block.insert({col2->get_ptr(), type, "col2"});
-    block.insert({col3->get_ptr(), type, "col3"});
-    std::set<size_t> positions_to_remove = {0, 2}; // Remove col1 and col3
-    block.erase(positions_to_remove);
-    EXPECT_EQ(1, block.columns());
-    EXPECT_EQ("col2", block.get_by_position(0).name);
+        // Insert at specific position
+        block.insert(0, {col3->get_ptr(), type, "col0"});
+        EXPECT_EQ(3, block.columns());
 
-    // test erase by name
-    block.erase("col2");
-    EXPECT_EQ(0, block.columns());
+        // Insert at invalid position
+        EXPECT_THROW(block.insert(10, {col3->get_ptr(), type, "col3"}), Exception);
 
-    // test erase_not_in
-    block.insert({col1->get_ptr(), type, "col1"});
-    block.insert({col2->get_ptr(), type, "col2"});
-    block.insert({col3->get_ptr(), type, "col3"});
-    std::vector<int> columns_to_keep = {0, 2}; // Keep col1 and col3
-    block.erase_not_in(columns_to_keep);
-    EXPECT_EQ(2, block.columns());
-    EXPECT_EQ("col1", block.get_by_position(0).name);
-    EXPECT_EQ("col3", block.get_by_position(1).name);
+        // Insert nullptr column
+        EXPECT_NO_THROW(block.insert({nullptr, type, "null_col"}));
 
-    // test clear_names
-    block.clear_names();
-    EXPECT_EQ("", block.get_by_position(0).name);
-    EXPECT_EQ("", block.get_by_position(1).name);
+        // Test erase operations
+        // Erase by position
+        block.erase(0);
+        EXPECT_EQ(3, block.columns());
 
-    // test clear
-    block.clear();
-    EXPECT_EQ(0, block.columns());
+        // Erase by name
+        block.erase("col1");
+        EXPECT_EQ(2, block.columns());
+
+        // Erase set of positions
+        std::set<size_t> positions = {0};
+        block.erase(positions);
+        EXPECT_EQ(1, block.columns());
+
+        // Erase by invalid name
+        EXPECT_THROW(block.erase("non_existent"), Exception);
+
+        // Erase with erase_not_in
+        std::vector<int> empty_vec;
+        EXPECT_NO_THROW(block.erase_not_in(empty_vec));
+        EXPECT_EQ(0, block.columns());
+    }
+
+    // Test with const columns
+    {
+        vectorized::Block block;
+        vectorized::DataTypePtr type(std::make_shared<vectorized::DataTypeInt32>());
+
+        // Create multiple const columns
+        auto base_col1 = vectorized::ColumnVector<Int32>::create();
+        base_col1->insert_value(42);
+        auto const_col1 = vectorized::ColumnConst::create(base_col1->get_ptr(), 10);
+        block.insert({const_col1->get_ptr(), type, "const_col1"});
+
+        auto base_col2 = vectorized::ColumnVector<Int32>::create();
+        base_col2->insert_value(24);
+        auto const_col2 = vectorized::ColumnConst::create(base_col2->get_ptr(), 5);
+        block.insert({const_col2->get_ptr(), type, "const_col2"});
+
+        auto base_col3 = vectorized::ColumnVector<Int32>::create();
+        base_col3->insert_value(33);
+        auto const_col3 = vectorized::ColumnConst::create(base_col3->get_ptr(), 8);
+        block.insert({const_col3->get_ptr(), type, "const_col3"});
+
+        EXPECT_EQ(3, block.columns());
+        EXPECT_EQ(10, block.rows());
+
+        // Test clear_names with const columns
+        block.clear_names();
+        EXPECT_EQ("", block.get_by_position(0).name);
+        EXPECT_EQ("", block.get_by_position(1).name);
+        EXPECT_EQ("", block.get_by_position(2).name);
+        EXPECT_EQ(3, block.columns());
+        EXPECT_EQ(10, block.rows());
+
+        // Test clear with const columns
+        block.clear();
+        EXPECT_EQ(0, block.columns());
+        EXPECT_EQ(0, block.rows());
+        EXPECT_TRUE(block.empty());
+
+        // Test insert operations
+        // Insert at end
+        block.insert({const_col1->get_ptr(), type, "const_col1"});
+        EXPECT_EQ(1, block.columns());
+        EXPECT_EQ(10, block.rows());
+        EXPECT_EQ("const_col1", block.get_by_position(0).name);
+
+        // Insert duplicate name
+        block.insert({const_col2->get_ptr(), type, "const_col1"});
+        EXPECT_EQ(2, block.columns());
+        EXPECT_EQ(10, block.rows());
+
+        // Insert at specific position
+        block.insert(1, {const_col3->get_ptr(), type, "const_col3"});
+        EXPECT_EQ(3, block.columns());
+        EXPECT_EQ("const_col3", block.get_by_position(1).name);
+
+        // Insert at invalid position
+        EXPECT_THROW(block.insert(10, {const_col1->get_ptr(), type, "invalid"}), Exception);
+
+        // Insert nullptr column
+        EXPECT_NO_THROW(block.insert({nullptr, type, "null_col"}));
+
+        // Test erase operations
+        // Erase by position
+        block.erase(0);
+        EXPECT_EQ(3, block.columns());
+
+        // Erase by name
+        block.erase("const_col3");
+        EXPECT_EQ(2, block.columns());
+
+        // Erase set of positions
+        std::set<size_t> positions = {0};
+        block.erase(positions);
+        EXPECT_EQ(1, block.columns());
+
+        // Erase by invalid name
+        EXPECT_THROW(block.erase("non_existent"), Exception);
+
+        // Erase with erase_not_in
+        std::vector<int> empty_vec;
+        EXPECT_NO_THROW(block.erase_not_in(empty_vec));
+        EXPECT_EQ(0, block.columns());
+    }
+
+    // Test with nullable columns
+    {
+        vectorized::Block block;
+        vectorized::DataTypePtr base_type(std::make_shared<vectorized::DataTypeInt32>());
+        auto nullable_type = vectorized::make_nullable(base_type);
+
+        // Create multiple nullable columns
+        auto col1 = vectorized::ColumnVector<Int32>::create();
+        auto nullable_col1 = vectorized::make_nullable(col1->get_ptr());
+        block.insert({nullable_col1, nullable_type, "nullable_col1"});
+
+        auto col2 = vectorized::ColumnVector<Int32>::create();
+        auto nullable_col2 = vectorized::make_nullable(col2->get_ptr());
+        block.insert({nullable_col2, nullable_type, "nullable_col2"});
+
+        auto col3 = vectorized::ColumnVector<Int32>::create();
+        auto nullable_col3 = vectorized::make_nullable(col3->get_ptr());
+        block.insert({nullable_col3, nullable_type, "nullable_col3"});
+
+        EXPECT_EQ(3, block.columns());
+
+        // Test clear_names with nullable columns
+        block.clear_names();
+        EXPECT_EQ("", block.get_by_position(0).name);
+        EXPECT_EQ("", block.get_by_position(1).name);
+        EXPECT_EQ("", block.get_by_position(2).name);
+        EXPECT_EQ(3, block.columns());
+
+        // Test clear with nullable columns
+        block.clear();
+        EXPECT_EQ(0, block.columns());
+        EXPECT_TRUE(block.empty());
+
+        // Test insert operations
+        // Insert at end
+        block.insert({nullable_col1, nullable_type, "nullable_col1"});
+        EXPECT_EQ(1, block.columns());
+        EXPECT_EQ("nullable_col1", block.get_by_position(0).name);
+
+        // Insert duplicate name
+        block.insert({nullable_col2, nullable_type, "nullable_col1"});
+        EXPECT_EQ(2, block.columns());
+
+        // Insert at specific position
+        block.insert(1, {nullable_col3, nullable_type, "nullable_col3"});
+        EXPECT_EQ(3, block.columns());
+        EXPECT_EQ("nullable_col3", block.get_by_position(1).name);
+
+        // Insert at invalid position
+        EXPECT_THROW(block.insert(10, {nullable_col1, nullable_type, "invalid"}), Exception);
+
+        // Insert nullptr column
+        EXPECT_NO_THROW(block.insert({nullptr, nullable_type, "null_col"}));
+
+        // Test erase operations
+        // Erase by position
+        block.erase(0);
+        EXPECT_EQ(3, block.columns());
+
+        // Erase by name
+        block.erase("nullable_col3");
+        EXPECT_EQ(2, block.columns());
+
+        // Erase set of positions
+        std::set<size_t> positions = {0};
+        block.erase(positions);
+        EXPECT_EQ(1, block.columns());
+
+        // Erase by invalid name
+        EXPECT_THROW(block.erase("non_existent"), Exception);
+
+        // Erase with erase_not_in
+        std::vector<int> empty_vec;
+        EXPECT_NO_THROW(block.erase_not_in(empty_vec));
+        EXPECT_EQ(0, block.columns());
+    }
 }
 
 TEST(BlockTest, ColumnOperations) {
