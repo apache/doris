@@ -401,7 +401,7 @@ public class UserProperty implements Writable {
         }
 
         return Arrays.stream(value.split(",")).filter(StringUtils::isNotBlank)
-            .map(StringUtils::trim).toArray(String[]::new);
+            .map(StringUtils::trim).distinct().toArray(String[]::new);
     }
 
 

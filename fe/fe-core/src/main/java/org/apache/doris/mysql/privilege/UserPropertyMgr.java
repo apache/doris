@@ -144,8 +144,15 @@ public class UserPropertyMgr implements Writable {
                     if (userProperty == null) {
                         return;
                     }
-                    if (clusterName.equals(userProperty.getDefaultCloudCluster())) {
-                        ret.add(ClusterNamespace.getNameFromFullName(u));
+                    if (Config.enable_multi_default_compute_group) {
+                        if (userProperty.getDefaultCloudCluster() != null
+                                && userProperty.getDefaultCloudCluster().contains(clusterName)) {
+                            ret.add(ClusterNamespace.getNameFromFullName(u));
+                        }
+                    } else {
+                        if (clusterName.equals(userProperty.getDefaultCloudCluster())) {
+                            ret.add(ClusterNamespace.getNameFromFullName(u));
+                        }
                     }
                 }
         );

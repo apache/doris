@@ -18,21 +18,24 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.UserProperty;
+import org.apache.doris.nereids.trees.plans.commands.info.SetUserPropertyVarOp;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class SetUserPropertyVar extends SetVar {
+    private static final Logger LOG = LogManager.getLogger(SetUserPropertyVar.class);
     public static final String DOT_SEPARATOR = ".";
 
     private final String key;
@@ -85,19 +88,17 @@ public class SetUserPropertyVar extends SetVar {
                             "GRANT");
                 }
                 if (Config.isCloudMode()) {
-                    // check value, clusterName is valid.
-                    if (key.equals(UserProperty.DEFAULT_CLOUD_CLUSTER)
-                            && !Strings.isNullOrEmpty(value)
-                            && !((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                    .getCloudClusterNames().contains(value)) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, value);
-                    }
-
-                    if (key.equals(UserProperty.DEFAULT_COMPUTE_GROUP)
-                            && !Strings.isNullOrEmpty(value)
-                            && !((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                                    .getCloudClusterNames().contains(value)) {
-                        ErrorReport.reportAnalysisException(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, value);
+                    if (Config.enable_multi_default_compute_group) {
+                        for (String defaultComputeGroup : UserProperty.getDefaultComputeGroups(value)) {
+                            SetUserPropertyVarOp.checkComputeGroupExist(key, defaultComputeGroup);
+                        }
+                    } else {
+                        if (value.contains(",")) {
+                            LOG.warn("set cloud default compute group error,"
+                                    + " not enable multi default compute group, but use ',' split {}", value);
+                            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLOUD_CLUSTER_ERROR, value);
+                        }
+                        SetUserPropertyVarOp.checkComputeGroupExist(key, value);
                     }
                 }
                 return;
