@@ -354,8 +354,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datev2) {
 
     std::string file_name = "bloom_filter_datev2";
     uint32_t not_exist_value = 20211231;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATEV2>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATEV2>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -368,8 +369,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_datetimev2) {
 
     std::string file_name = "bloom_filter_datetimev2";
     uint64_t not_exist_value = 20211231235959;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -382,8 +384,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal32) {
 
     std::string file_name = "bloom_filter_decimal32";
     int32_t not_exist_value = 99999;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL32>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL32>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -397,8 +400,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal64) {
 
     std::string file_name = "bloom_filter_decimal64";
     int64_t not_exist_value = 9999999;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL64>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -411,8 +415,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ipv4) {
 
     std::string file_name = "bloom_filter_ipv4";
     uint32_t not_exist_value = (10 << 24) | (0 << 16) | (0 << 8) | 1;
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_IPV4>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_IPV4>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -429,8 +434,10 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal128i) {
     std::string file_name = "bloom_filter_decimal128i";
     int128_t not_exist_value = int128_t(9999999999999999999ULL);
 
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(
-            file_name, val, num, 1, &not_exist_value);
+    auto st =
+            test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>(
+                    file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -454,9 +461,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_decimal256) {
 
     Decimal256Type not_exist_value = base_value + Decimal256Type(9999999ULL);
 
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL256>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_DECIMAL256>(
             file_name, val, num, 1, &not_exist_value);
-
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
@@ -470,8 +477,9 @@ TEST_F(BloomFilterIndexReaderWriterTest, test_ipv6) {
     std::string file_name = "bloom_filter_ipv6";
     uint128_t not_exist_value = (uint128_t(0x20010DB800000000) << 64) | uint128_t(999999);
 
-    test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_IPV6>(
+    auto st = test_bloom_filter_index_reader_writer_template<FieldType::OLAP_FIELD_TYPE_IPV6>(
             file_name, val, num, 1, &not_exist_value);
+    EXPECT_TRUE(st.ok());
     delete[] val;
 }
 
