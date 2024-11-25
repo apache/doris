@@ -751,13 +751,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         for (Long beId : beToSnapshots.keySet()) {
             List<SnapshotInfo> infos = beToSnapshots.get(beId);
             int totalNum = infos.size();
-            int batchNum = totalNum;
-            if (Config.backup_upload_task_num_per_be > 0) {
-                batchNum = Math.min(totalNum, Config.backup_upload_task_num_per_be);
-            }
             // each task contains several upload sub tasks
-            int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
-            LOG.info("backend {} has {} batch, total {} tasks, {}", beId, batchNum, totalNum, this);
+            int taskNumPerBatch = Config.backup_upload_snapshot_batch_size;
+            LOG.info("backend {} has total {} snapshots, per task batch size {}, {}",
+                    beId, totalNum, taskNumPerBatch, this);
 
             List<FsBroker> brokers = Lists.newArrayList();
             Status st = repo.getBrokerAddress(beId, env, brokers);
@@ -768,12 +765,10 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
             Preconditions.checkState(brokers.size() == 1);
 
             // allot tasks
-            int index = 0;
-            for (int batch = 0; batch < batchNum; batch++) {
+            for (int index = 0; index < totalNum; index += taskNumPerBatch) {
                 Map<String, String> srcToDest = Maps.newHashMap();
-                int currentBatchTaskNum = (batch == batchNum - 1) ? totalNum - index : taskNumPerBatch;
-                for (int j = 0; j < currentBatchTaskNum; j++) {
-                    SnapshotInfo info = infos.get(index++);
+                for (int j = 0; j < taskNumPerBatch && index + j < totalNum; j++) {
+                    SnapshotInfo info = infos.get(index + j);
                     String src = info.getTabletPath();
                     String dest = repo.getRepoTabletPathBySnapshotInfo(label, info);
                     if (dest == null) {
