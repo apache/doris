@@ -147,9 +147,9 @@ public class LogicalFileScan extends LogicalCatalogRelation {
          */
         public final long totalPartitionNum;
         /**
-         * partition id -> partition item
+         * partition name -> partition item
          */
-        public final Map<Long, PartitionItem> selectedPartitions;
+        public final Map<String, PartitionItem> selectedPartitions;
         /**
          * true means the result is after partition pruning
          * false means the partition pruning is not processed.
@@ -159,7 +159,7 @@ public class LogicalFileScan extends LogicalCatalogRelation {
         /**
          * Constructor for SelectedPartitions.
          */
-        public SelectedPartitions(long totalPartitionNum, Map<Long, PartitionItem> selectedPartitions,
+        public SelectedPartitions(long totalPartitionNum, Map<String, PartitionItem> selectedPartitions,
                 boolean isPruned) {
             this.totalPartitionNum = totalPartitionNum;
             this.selectedPartitions = ImmutableMap.copyOf(Objects.requireNonNull(selectedPartitions,
