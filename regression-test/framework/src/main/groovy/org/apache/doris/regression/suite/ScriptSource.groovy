@@ -34,7 +34,18 @@ class GroovyFileSource implements ScriptSource {
 
     @Override
     SuiteScript toScript(ScriptContext scriptContext, GroovyShell shell) {
-        SuiteScript suiteScript = shell.parse(file) as SuiteScript
+        def setPropertyFunction = '''
+\nvoid setProperty(String key, String value) {
+    if (this.binding.hasVariable(key)) {
+        return
+    } else {
+        throw new IllegalArgumentException("you defined a global variable in script, which is not allowed")
+    }
+}
+'''
+        def scriptContent = file.text
+        scriptContent = scriptContent + setPropertyFunction
+        SuiteScript suiteScript = shell.parse(scriptContent) as SuiteScript
         suiteScript.init(scriptContext)
         return suiteScript
     }
