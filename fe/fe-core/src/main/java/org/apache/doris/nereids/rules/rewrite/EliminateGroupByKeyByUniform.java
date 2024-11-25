@@ -42,10 +42,15 @@ import java.util.Optional;
 import java.util.Set;
 
 /**
- * +--aggregate(group by a,b output a,b,max(c))
+ * +--aggregate(group by a, b output a#0 ,b#1, max(c) as max(c)#2)
  * (a is uniform and not null: e.g. a is projection 2 as a in logicalProject)
  * ->
- * +--aggregate(group by b output b,any_value(a) as a,max(c))
+ * +--aggregate(group by b output b#1, any_value(a#0) as a#3, max(c)#2)
+ * if output any_value(a#0) as a#0, the uniqueness of ExprId #0 is violated, because #0 is both any_value(a#0) and a#0
+ * error will occurs in other module(e.g. mv rewrite).
+ * As a result, new aggregate outputs #3 instead of #0, but upper plan refer slot #0,
+ * therefore, all references to #0 in the upper plan need to be changed to #3.
+ * use ExprIdRewriter to do this ExprId rewrite, and use CustomRewriter to rewrite upward。
  * */
 public class EliminateGroupByKeyByUniform extends DefaultPlanRewriter<Map<ExprId, ExprId>> implements CustomRewriter {
     private ExprIdRewriter exprIdReplacer;

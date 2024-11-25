@@ -47,7 +47,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-/**ExprIdReplacer*/
+/** replace SlotReference ExprId in logical plans */
 public class ExprIdRewriter extends ExpressionRewrite {
     private final List<Rule> rules;
     private final JobContext jobContext;
@@ -96,7 +96,15 @@ public class ExprIdRewriter extends ExpressionRewrite {
         return plan;
     }
 
-    /**ReplaceRule*/
+    /**
+     * Iteratively rewrites IDs using the replaceMap:
+     * 1. For a given SlotReference with initial ID, retrieve the corresponding value ID from the replaceMap.
+     * 2. If the value ID exists within the replaceMap, continue the lookup process using the value ID
+     * until it no longer appears in the replaceMap.
+     * 3. return SlotReference final value ID as the result of the rewrite.
+     * e.g. replaceMap:{0:3, 1:6, 6:7}
+     * SlotReference:a#0 -> a#3, a#1 -> a#7
+     * */
     public static class ReplaceRule implements ExpressionPatternRuleFactory {
         private final Map<ExprId, ExprId> replaceMap;
 

@@ -490,6 +490,9 @@ public class DataTrait {
     static class UniformDescription {
         // slot and its uniform expression(literal or const expression)
         // some slot can get uniform values, others can not.
+        // e.g.select a from t where a=10 group by a, b;
+        // in LogicalAggregate, a UniformDescription with map {a : 10} can be obtained.
+        // which means a is uniform and the uniform value is 10.
         Map<Slot, Optional<Expression>> slotUniformValue;
 
         public UniformDescription() {
