@@ -243,12 +243,12 @@ private:
         long deadline = now;
         // connection age only works without list endpoint.
         if (!is_meta_service_endpoint_list &&
-            config::meta_service_connection_age_base_minutes > 0) {
+            config::meta_service_connection_age_base_seconds > 0) {
             std::default_random_engine rng(static_cast<uint32_t>(now));
             std::uniform_int_distribution<> uni(
-                    config::meta_service_connection_age_base_minutes,
-                    config::meta_service_connection_age_base_minutes * 2);
-            deadline = now + duration_cast<milliseconds>(minutes(uni(rng))).count();
+                    config::meta_service_connection_age_base_seconds,
+                    config::meta_service_connection_age_base_seconds * 2);
+            deadline = now + duration_cast<milliseconds>(seconds(uni(rng))).count();
         } else {
             deadline = LONG_MAX;
         }
