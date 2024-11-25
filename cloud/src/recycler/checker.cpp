@@ -925,6 +925,30 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
     // number of delete bitmaps which doesn't have corresponding rowset in MS
     int64_t leaked_delete_bitmaps {0};
 
+    auto start_time = std::chrono::steady_clock::now();
+    std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
+        g_bvar_inverted_checker_leaked_delete_bitmaps.put(instance_id_, leaked_delete_bitmaps);
+        g_bvar_inverted_checker_abnormal_delete_bitmaps.put(instance_id_, abnormal_delete_bitmaps);
+        g_bvar_inverted_checker_delete_bitmaps_scanned.put(instance_id_, total_delete_bitmap_keys);
+
+        auto cost = std::chrono::duration_cast<std::chrono::milliseconds>(
+                            std::chrono::steady_clock::now() - start_time)
+                            .count();
+        if (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) {
+            LOG(WARNING) << fmt::format(
+                    "[delete bitmap check fails] delete bitmap inverted check for instance_id={}, "
+                    "cost={} ms, total_delete_bitmap_keys={}, leaked_delete_bitmaps={}, "
+                    "abnormal_delete_bitmaps={}",
+                    instance_id_, cost, total_delete_bitmap_keys, leaked_delete_bitmaps,
+                    abnormal_delete_bitmaps);
+        } else {
+            LOG(INFO) << fmt::format(
+                    "[delete bitmap checker] delete bitmap inverted check for instance_id={}, "
+                    "passed. cost={} ms, total_delete_bitmap_keys={}",
+                    instance_id_, cost, total_delete_bitmap_keys);
+        }
+    });
+
     struct TabletsRowsetsCache {
         int64_t tablet_id {-1};
         bool enable_merge_on_write {false};
@@ -1031,18 +1055,6 @@ int InstanceChecker::do_delete_bitmap_inverted_check() {
         }
     } while (it->more() && !stopped());
 
-    if (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) {
-        LOG(WARNING) << fmt::format(
-                "[delete bitmap check fails] delete bitmap inverted check for instance_id={}, "
-                "total_delete_bitmap_keys={}, leaked_delete_bitmaps={}, abnormal_delete_bitmaps={}",
-                instance_id_, total_delete_bitmap_keys, leaked_delete_bitmaps,
-                abnormal_delete_bitmaps);
-    } else {
-        LOG(INFO) << fmt::format(
-                "[delete bitmap checker] delete bitmap inverted check for instance_id={} "
-                "passed. total_delete_bitmap_keys={}",
-                instance_id_, total_delete_bitmap_keys);
-    }
     return (leaked_delete_bitmaps > 0 || abnormal_delete_bitmaps > 0) ? 1 : 0;
 }
 
