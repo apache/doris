@@ -337,6 +337,26 @@ public class BinlogManager {
         addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
     }
 
+    public void addRollupRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_ROLLUP;
+        String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
+    public void addPartitionRename(TableInfo info, long commitSeq) {
+        long dbId = info.getDbId();
+        List<Long> tableIds = Lists.newArrayList();
+        tableIds.add(info.getTableId());
+        long timestamp = -1;
+        TBinlogType type = TBinlogType.RENAME_PARTITION;
+        String data = info.toJson();
+        addBinlog(dbId, tableIds, commitSeq, timestamp, type, data, false, info);
+    }
+
     public void addModifyComment(ModifyCommentOperationLog info, long commitSeq) {
         long dbId = info.getDbId();
         List<Long> tableIds = Lists.newArrayList();
