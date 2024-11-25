@@ -228,7 +228,6 @@ public class NereidsPlanner extends Planner {
             }
         } finally {
             statementContext.releasePlannerResources();
-            getConnectContext().setTables(null);
             statementContext.unrefTables();
         }
     }
