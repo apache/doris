@@ -2434,7 +2434,7 @@ public class SessionVariable implements Serializable, Writable {
             this.runtimeFilterType = 1 << randomInt;
             this.enableParallelScan = Config.pull_request_id % 2 == 0 ? randomInt % 2 == 0 : randomInt % 1 == 0;
             this.enableRuntimeFilterPrune = (randomInt % 2) == 0;
-            
+
             switch (randomInt) {
                 case 0:
                     this.parallelScanMaxScannersCount = 32;
