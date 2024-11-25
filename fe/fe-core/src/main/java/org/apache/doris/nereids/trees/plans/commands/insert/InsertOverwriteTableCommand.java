@@ -57,6 +57,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -314,6 +315,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     true,
                     tempPartitionNames,
                     sink.isPartialUpdate(),
+                    sink.getPartialUpdateNewRowPolicy(),
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
             // 1. when overwrite table, allow auto partition or not is controlled by session variable.
@@ -329,6 +331,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     false,
                     sink.getPartitions(),
                     false,
+                    TPartialUpdateNewRowPolicy.APPEND,
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
             insertCtx = new HiveInsertCommandContext();
@@ -342,6 +345,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     false,
                     sink.getPartitions(),
                     false,
+                    TPartialUpdateNewRowPolicy.APPEND,
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
             insertCtx = new IcebergInsertCommandContext();
