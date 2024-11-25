@@ -694,6 +694,10 @@ public:
                             reinterpret_cast<char*>(&cidr_range_ipv6_data[1]), cidr._prefix);
             min_ip = cidr_range_ipv6_data[0];
             max_ip = cidr_range_ipv6_data[1];
+        } else {
+            return Status::Error<ErrorCode::INVERTED_INDEX_EVALUATE_SKIPPED>(
+                    "Inverted index evaluate skipped, data type " + arg_type->get_name() +
+                    " can not support this cidr " + arg_column->get_data_at(0).to_string());
         }
         // apply for inverted index
         std::shared_ptr<roaring::Roaring> res_roaring = std::make_shared<roaring::Roaring>();
@@ -725,10 +729,10 @@ public:
         DBUG_EXECUTE_IF("ip.inverted_index_filtered", {
             auto req_id = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
                     "ip.inverted_index_filtered", "req_id", 0);
-	                LOG(WARNING) << "execute inverted index req_id: " << req_id
-                      << " max: " << max_roaring->toString()
-                      << " result: " << res_roaring->toString()
-                        << " null_bitmap: " << null_bitmap->toString();
+            LOG(WARNING) << "execute inverted index req_id: " << req_id
+                         << " max: " << max_roaring->toString()
+                         << " result: " << res_roaring->toString()
+                         << " null_bitmap: " << null_bitmap->toString();
         });
         segment_v2::InvertedIndexResultBitmap result(res_roaring, null_bitmap);
         bitmap_result = result;
