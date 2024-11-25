@@ -15,14 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.exceptions;
-
-/**
- * DialectTransformException when have not supported transforming for dialect converters.
- */
-public class DialectTransformException extends UnsupportedOperationException {
-
-    public DialectTransformException(String msg) {
-        super(String.format("Unsupported dialect transformation is %s", msg));
-    }
+suite("test_nereids_other_commands") {
+    checkNereidsExecute("sync;")
 }

@@ -28,6 +28,7 @@
 #include <boost/core/noncopyable.hpp>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 #include "common/exception.h"
@@ -44,7 +45,7 @@ class PColumnMeta;
 enum PGenericType_TypeId : int;
 
 namespace vectorized {
-
+#include "common/compile_check_begin.h"
 class IDataType;
 class IColumn;
 class BufferWritable;
@@ -58,8 +59,11 @@ class Field;
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
 constexpr auto SERIALIZED_MEM_SIZE_LIMIT = 256;
-inline size_t upper_int32(size_t size) {
-    return size_t((3 + size) / 4.0);
+
+template <typename T>
+T upper_int32(T size) {
+    static_assert(std::is_unsigned_v<T>);
+    return T(static_cast<double>(3 + size) / 4.0);
 }
 
 /** Properties of data type.
@@ -421,4 +425,6 @@ char* serialize_const_flag_and_row_num(const IColumn** column, char* buf,
 const char* deserialize_const_flag_and_row_num(const char* buf, MutableColumnPtr* column,
                                                size_t* real_have_saved_num);
 } // namespace vectorized
+
+#include "common/compile_check_end.h"
 } // namespace doris

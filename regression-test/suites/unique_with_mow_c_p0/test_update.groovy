@@ -15,14 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.exceptions;
-
-/**
- * All exceptions thrown by transform action in {@link org.apache.doris.nereids.rules.Rule}
- * should be a subclass of this class.
- */
-public class TransformException extends RuntimeException {
-    public TransformException(String msg) {
-        super(String.format("Transform error: %s", msg));
+suite("test_update") {
+    def tableName = "test_update"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    onFinish {
+        try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
+
+    sql """
+        CREATE TABLE `$tableName` (
+            `a` int NOT NULL,
+            `b` int NOT NULL,
+            `c` int NOT NULL
+        ) ENGINE=OLAP
+        UNIQUE KEY(`a`)
+        CLUSTER BY (`b`)
+        DISTRIBUTED BY HASH(`a`) BUCKETS 1
+        PROPERTIES (
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "true"
+         );
+    """
+
+    sql """ insert into $tableName values(10, 20, 3), (11, 21, 3), (12, 22, 32); """
+    sql """ update $tableName set b = 200 where c = 3; """
+    order_qt_sql "select * from $tableName"
 }
