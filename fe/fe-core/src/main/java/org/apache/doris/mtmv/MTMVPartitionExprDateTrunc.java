@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
@@ -69,7 +70,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
                     String.format("timeUnit not support: %s, only support: %s", this.timeUnit, timeUnits));
         }
         MTMVRelatedTableIf relatedTable = mvPartitionInfo.getRelatedTable();
-        PartitionType partitionType = relatedTable.getPartitionType();
+        PartitionType partitionType = relatedTable.getPartitionType(OptionalLong.empty());
         if (partitionType == PartitionType.RANGE) {
             Type partitionColumnType = MTMVPartitionUtil
                     .getPartitionColumnType(mvPartitionInfo.getRelatedTable(), mvPartitionInfo.getRelatedCol());
