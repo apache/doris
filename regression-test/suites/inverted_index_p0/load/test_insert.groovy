@@ -16,7 +16,7 @@
 // under the License.
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite("test_insert_with_index", "p0") {
+suite("test_insert_with_index", "p0, nonConcurrent") {
 
      def set_be_config = { key, value ->
         def backendId_to_backendIP = [:]

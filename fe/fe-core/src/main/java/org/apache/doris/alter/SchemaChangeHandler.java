@@ -434,9 +434,12 @@ public class SchemaChangeHandler extends AlterHandler {
             // drop bloom filter column
             Set<String> bfCols = olapTable.getCopiedBfColumns();
             if (bfCols != null) {
-                Set<String> newBfCols = new HashSet<>();
+                Set<String> newBfCols = null;
                 for (String bfCol : bfCols) {
                     if (!bfCol.equalsIgnoreCase(dropColName)) {
+                        if (newBfCols == null) {
+                            newBfCols = Sets.newHashSet();
+                        }
                         newBfCols.add(bfCol);
                     }
                 }
@@ -2911,6 +2914,25 @@ public class SchemaChangeHandler extends AlterHandler {
             }
             LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);
+        }
+        // for bloom filter, rebuild bloom filter info by table schema in replay
+        if (isReplay) {
+            Set<String> bfCols = olapTable.getCopiedBfColumns();
+            if (bfCols != null) {
+                List<Column> columns = olapTable.getBaseSchema();
+                Set<String> newBfCols = null;
+                for (String bfCol : bfCols) {
+                    for (Column column : columns) {
+                        if (column.getName().equalsIgnoreCase(bfCol)) {
+                            if (newBfCols == null) {
+                                newBfCols = Sets.newHashSet();
+                            }
+                            newBfCols.add(column.getName());
+                        }
+                    }
+                }
+                olapTable.setBloomFilterInfo(newBfCols, olapTable.getBfFpp());
+            }
         }
     }
 
