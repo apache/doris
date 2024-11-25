@@ -237,26 +237,6 @@ public:
     bool _contains_null = false;
 };
 
-template <typename Type>
-const Type* check_and_get_hybrid_set(const HybridSetBase& column) {
-    return typeid_cast<const Type*>(&column);
-}
-
-template <typename Type>
-const Type* check_and_get_hybrid_set(const HybridSetBase* column) {
-    return typeid_cast<const Type*>(column);
-}
-
-template <typename Type>
-bool check_hybrid_set(const HybridSetBase& column) {
-    return check_and_get_hybrid_set<Type>(&column);
-}
-
-template <typename Type>
-bool check_hybrid_set(const HybridSetBase* column) {
-    return check_and_get_hybrid_set<Type>(column);
-}
-
 template <PrimitiveType T,
           typename _ContainerType = DynamicContainer<typename PrimitiveTypeTraits<T>::CppType>,
           typename _ColumnType = typename PrimitiveTypeTraits<T>::ColumnType>

@@ -30,7 +30,8 @@ auto get_convertor() {
     if constexpr (std::is_same_v<T, bool>) {
         return [](PColumnValue* value, const T& data) { value->set_boolval(data); };
     } else if constexpr (std::is_same_v<T, int8_t> || std::is_same_v<T, int16_t> ||
-                         std::is_same_v<T, int32_t> || std::is_same_v<T, vectorized::Decimal32>) {
+                         std::is_same_v<T, int32_t> || std::is_same_v<T, uint32_t> ||
+                         std::is_same_v<T, vectorized::Decimal32>) {
         return [](PColumnValue* value, const T& data) { value->set_intval(data); };
     } else if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, vectorized::Decimal64>) {
         return [](PColumnValue* value, const T& data) { value->set_longval(data); };
