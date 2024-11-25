@@ -1250,7 +1250,8 @@ void IRuntimeFilter::update_state() {
     // In pipelineX, runtime filters will be ready or timeout before open phase.
     if (expected == RuntimeFilterState::NOT_READY) {
         DCHECK(MonotonicMillis() - registration_time_ >= wait_times_ms);
-        COUNTER_SET(_wait_timer, MonotonicMillis() - registration_time_);
+        COUNTER_SET(_wait_timer,
+                    int64_t((MonotonicMillis() - registration_time_) * NANOS_PER_MILLIS));
         _rf_state_atomic = RuntimeFilterState::TIME_OUT;
     }
 }
@@ -1269,7 +1270,7 @@ PrimitiveType IRuntimeFilter::column_type() const {
 
 void IRuntimeFilter::signal() {
     DCHECK(is_consumer());
-    COUNTER_SET(_wait_timer, MonotonicMillis() - registration_time_);
+    COUNTER_SET(_wait_timer, int64_t((MonotonicMillis() - registration_time_) * NANOS_PER_MILLIS));
     _rf_state_atomic.store(RuntimeFilterState::READY);
     if (!_filter_timer.empty()) {
         for (auto& timer : _filter_timer) {
@@ -1515,7 +1516,7 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
 void IRuntimeFilter::update_runtime_filter_type_to_profile(uint64_t local_merge_time) {
     _profile->add_info_string("RealRuntimeFilterType", to_string(_wrapper->get_real_type()));
     _profile->add_info_string("LocalMergeTime",
-                              std::to_string(local_merge_time / 1000000000.0) + " s");
+                              std::to_string((double)local_merge_time / NANOS_PER_SEC) + " s");
 }
 
 std::string IRuntimeFilter::debug_string() const {
