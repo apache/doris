@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.AdminCheckTabletsCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminCompactTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.AdminShowReplicaStatusCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterJobStatusCommand;
@@ -584,5 +585,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowProcessListCommand(ShowProcessListCommand showProcessListCommand, C context) {
         return visitCommand(showProcessListCommand, context);
+    }
+
+    default R visitAdminCheckTabletsCommand(AdminCheckTabletsCommand adminCheckTabletsCommand, C context) {
+        return visitCommand(adminCheckTabletsCommand, context);
     }
 }
