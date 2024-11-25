@@ -85,9 +85,9 @@ public:
 
     std::vector<SenderQueue*> sender_queues() const { return _sender_queues; }
 
-    Status add_block(const PBlock& pblock, int sender_id, int be_number, int64_t packet_seq,
-                     ::google::protobuf::Closure** done, const int64_t wait_for_worker,
-                     const uint64_t time_to_find_recvr);
+    Status add_block(std::unique_ptr<PBlock> pblock, int sender_id, int be_number,
+                     int64_t packet_seq, ::google::protobuf::Closure** done,
+                     const int64_t wait_for_worker, const uint64_t time_to_find_recvr);
 
     void add_block(Block* block, int sender_id, bool use_move);
 
@@ -180,7 +180,7 @@ public:
 
     Status get_batch(Block* next_block, bool* eos);
 
-    Status add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
+    Status add_block(std::unique_ptr<PBlock> pblock, int be_number, int64_t packet_seq,
                      ::google::protobuf::Closure** done, const int64_t wait_for_worker,
                      const uint64_t time_to_find_recvr);
 
@@ -204,8 +204,6 @@ public:
 
 protected:
     friend class pipeline::ExchangeLocalState;
-    Status _inner_get_batch_without_lock(Block* block, bool* eos);
-
     void try_set_dep_ready_without_lock();
 
     // To record information about several variables in the event of a DCHECK failure.
@@ -267,9 +265,10 @@ protected:
     struct BlockItem {
         Status get_block(BlockUPtr& block) {
             if (!_block) {
+                DCHECK(_pblock);
                 SCOPED_RAW_TIMER(&_deserialize_time);
                 _block = Block::create_unique();
-                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_block->deserialize(_pblock));
+                RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_block->deserialize(*_pblock));
             }
             block.swap(_block);
             _block.reset();
@@ -282,12 +281,12 @@ protected:
         BlockItem(BlockUPtr&& block, size_t block_byte_size)
                 : _block(std::move(block)), _block_byte_size(block_byte_size) {}
 
-        BlockItem(PBlock&& pblock, size_t block_byte_size)
+        BlockItem(std::unique_ptr<PBlock>&& pblock, size_t block_byte_size)
                 : _block(nullptr), _pblock(std::move(pblock)), _block_byte_size(block_byte_size) {}
 
     private:
         BlockUPtr _block;
-        PBlock _pblock;
+        std::unique_ptr<PBlock> _pblock;
         size_t _block_byte_size = 0;
         int64_t _deserialize_time = 0;
     };
