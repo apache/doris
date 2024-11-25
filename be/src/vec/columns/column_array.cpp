@@ -151,58 +151,18 @@ void ColumnArray::get(size_t n, Field& res) const {
 }
 
 StringRef ColumnArray::get_data_at(size_t n) const {
-    /** Returns the range of memory that covers all elements of the array.
-      * Works for arrays of fixed length values.
-      * For arrays of strings and arrays of arrays, the resulting chunk of memory may not be one-to-one correspondence with the elements,
-      *  since it contains only the data laid in succession, but not the offsets.
-      */
-    size_t offset_of_first_elem = offset_at(n);
-    StringRef first;
-    if (offset_of_first_elem < get_data().size()) {
-        first = get_data().get_data_at(offset_of_first_elem);
-    }
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Method get_data_at is not supported for " + get_name());
+}
 
-    size_t array_size = size_at(n);
-    if (array_size == 0) {
-        return StringRef(first.data, 0);
-    }
-
-    size_t offset_of_last_elem = offset_at(n + 1) - 1;
-    StringRef last = get_data().get_data_at(offset_of_last_elem);
-
-    return StringRef(first.data, last.data + last.size - first.data);
+void ColumnArray::insert_data(const char* pos, size_t length) {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Method insert_data is not supported for " + get_name());
 }
 
 bool ColumnArray::is_default_at(size_t n) const {
     const auto& offsets_data = get_offsets();
     return offsets_data[n] == offsets_data[static_cast<ssize_t>(n) - 1];
-}
-
-void ColumnArray::insert_data(const char* pos, size_t length) {
-    /** Similarly - only for arrays of fixed length values.
-      */
-    if (!data->is_fixed_and_contiguous()) {
-        throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                               "Method insert_data should have_fixed_size, {} is not suitable",
-                               get_name());
-    }
-
-    size_t field_size = data->size_of_value_if_fixed();
-
-    size_t elems = 0;
-
-    if (length) {
-        const char* end = pos + length;
-        for (; pos + field_size <= end; pos += field_size, ++elems)
-            data->insert_data(pos, field_size);
-
-        if (pos != end)
-            throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                   "Incorrect length argument for method ColumnArray::insert_data");
-        __builtin_unreachable();
-    }
-
-    get_offsets().push_back(get_offsets().back() + elems);
 }
 
 StringRef ColumnArray::serialize_value_into_arena(size_t n, Arena& arena,
