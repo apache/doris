@@ -86,7 +86,6 @@ import org.apache.doris.nereids.trees.plans.commands.ShowSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowStorageEnginesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTableIdCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTabletsBelongCommand;
-import org.apache.doris.nereids.trees.plans.commands.ShowTrashCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowTriggersCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowVariablesCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowViewCommand;
@@ -417,10 +416,6 @@ public interface CommandVisitor<R, C> {
 
     default R visitShowTableIdCommand(ShowTableIdCommand showTableIdCommand, C context) {
         return visitCommand(showTableIdCommand, context);
-    }
-
-    default R visitShowTrashCommand(ShowTrashCommand showTrashCommand, C context) {
-        return visitCommand(showTrashCommand, context);
     }
 
     default R visitSyncCommand(SyncCommand syncCommand, C context) {
