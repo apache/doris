@@ -255,7 +255,7 @@ private:
     std::atomic<int64_t> _scan_bytes_per_second {-1};
     std::atomic<int64_t> _remote_scan_bytes_per_second {-1};
     std::atomic<int> _total_query_slot_count = 0;
-    std::atomic<TWgSlotMemoryPolicy::type> _slot_mem_policy {TWgSlotMemoryPolicy::DISABLED};
+    std::atomic<TWgSlotMemoryPolicy::type> _slot_mem_policy {TWgSlotMemoryPolicy::NONE};
 
     // means workload group is mark dropped
     // new query can not submit
@@ -306,7 +306,7 @@ struct WorkloadGroupInfo {
     const int read_bytes_per_second = -1;
     const int remote_read_bytes_per_second = -1;
     const int total_query_slot_count = 0;
-    const TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::DISABLED;
+    const TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::NONE;
     const int write_buffer_ratio = 0;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;

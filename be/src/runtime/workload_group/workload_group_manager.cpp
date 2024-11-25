@@ -409,7 +409,7 @@ void WorkloadGroupMgr::handle_paused_queries() {
                                  "so that other query will reduce their memory. wg: "
                               << wg->debug_string();
                 }
-                if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::DISABLED) {
+                if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::NONE) {
                     // If not enable slot memory policy, then should spill directly
                     // Maybe there are another query that use too much memory, but we
                     // not encourage not enable slot memory.
@@ -790,7 +790,7 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
     }
     // Both enable overcommit and not enable overcommit, if user set slot memory policy
     // then we will replace the memtracker's memlimit with
-    if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::DISABLED) {
+    if (wg->slot_memory_policy() == TWgSlotMemoryPolicy::NONE) {
         return;
     }
     int32_t total_used_slot_count = 0;

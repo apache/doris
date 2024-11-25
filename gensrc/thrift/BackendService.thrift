@@ -259,7 +259,7 @@ enum TTopicInfoType {
 }
 
 enum TWgSlotMemoryPolicy {
-    DISABLED = 0,
+    NONE = 0,
     FIXED = 1,
     DYNAMIC = 2
 }

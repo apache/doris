@@ -142,9 +142,9 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     }
 
     public static final int WRITE_BUFFER_RATIO_DEFAULT_VALUE = 20;
-    public static final String SLOT_MEMORY_POLICY_DEFAULT_VALUE = "disabled";
+    public static final String SLOT_MEMORY_POLICY_DEFAULT_VALUE = "none";
     public static final HashSet<String> AVAILABLE_SLOT_MEMORY_POLICY_VALUES = new HashSet<String>() {{
-            add("disabled");
+            add("none");
             add("fixed");
             add("dynamic");
         }};
@@ -372,7 +372,7 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
             String value = properties.get(SLOT_MEMORY_POLICY).toLowerCase();
             if (!AVAILABLE_SLOT_MEMORY_POLICY_VALUES.contains(value)) {
                 throw new DdlException("The value of '" + SLOT_MEMORY_POLICY
-                        + "' must be one of disabled, fixed, dynamic.");
+                        + "' must be one of none, fixed, dynamic.");
             }
         }
 
@@ -667,8 +667,8 @@ public class WorkloadGroup implements Writable, GsonPostProcessable {
     }
 
     public static TWgSlotMemoryPolicy findSlotPolicyValueByString(String slotPolicy) {
-        if (slotPolicy.equalsIgnoreCase("disabled")) {
-            return TWgSlotMemoryPolicy.DISABLED;
+        if (slotPolicy.equalsIgnoreCase("none")) {
+            return TWgSlotMemoryPolicy.NONE;
         } else if (slotPolicy.equalsIgnoreCase("fixed")) {
             return TWgSlotMemoryPolicy.FIXED;
         } else if (slotPolicy.equalsIgnoreCase("dynamic")) {

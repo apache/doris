@@ -95,10 +95,10 @@ public class WorkloadGroupTest {
         Assert.assertEquals(p1, TWgSlotMemoryPolicy.FIXED);
         TWgSlotMemoryPolicy p2 = WorkloadGroup.findSlotPolicyValueByString("dynamic");
         Assert.assertEquals(p2, TWgSlotMemoryPolicy.DYNAMIC);
-        TWgSlotMemoryPolicy p3 = WorkloadGroup.findSlotPolicyValueByString("disabled");
-        Assert.assertEquals(p3, TWgSlotMemoryPolicy.DISABLED);
-        TWgSlotMemoryPolicy p4 = WorkloadGroup.findSlotPolicyValueByString("disableD");
-        Assert.assertEquals(p4, TWgSlotMemoryPolicy.DISABLED);
+        TWgSlotMemoryPolicy p3 = WorkloadGroup.findSlotPolicyValueByString("none");
+        Assert.assertEquals(p3, TWgSlotMemoryPolicy.NONE);
+        TWgSlotMemoryPolicy p4 = WorkloadGroup.findSlotPolicyValueByString("none");
+        Assert.assertEquals(p4, TWgSlotMemoryPolicy.NONE);
         boolean hasException = false;
         try {
             WorkloadGroup.findSlotPolicyValueByString("disableDa");

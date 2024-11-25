@@ -556,7 +556,7 @@ WorkloadGroupInfo WorkloadGroupInfo::parse_topic_info(
     }
 
     // 18 slot memory policy
-    TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::DISABLED;
+    TWgSlotMemoryPolicy::type slot_mem_policy = TWgSlotMemoryPolicy::NONE;
     if (tworkload_group_info.__isset.slot_memory_policy) {
         slot_mem_policy = tworkload_group_info.slot_memory_policy;
     }
