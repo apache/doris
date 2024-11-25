@@ -29,6 +29,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/inverted_index_common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "runtime/exec_env.h"
 
@@ -105,21 +106,22 @@ private:
     void sort_files(std::vector<FileInfo>& file_infos);
     void copyFile(const char* fileName, lucene::store::Directory* dir,
                   lucene::store::IndexOutput* output, uint8_t* buffer, int64_t bufferLength);
-    void finalize_output_dir(lucene::store::Directory* out_dir);
     void add_index_info(int64_t index_id, const std::string& index_suffix,
                         int64_t compound_file_size);
     int64_t headerLength();
     // Helper functions specific to write_v1
     std::pair<int64_t, int32_t> calculate_header_length(const std::vector<FileInfo>& sorted_files,
                                                         lucene::store::Directory* directory);
-    virtual std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
+    virtual std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
+                      std::unique_ptr<lucene::store::IndexOutput>>
     create_output_stream_v1(int64_t index_id, const std::string& index_suffix);
     virtual void write_header_and_data_v1(lucene::store::IndexOutput* output,
                                           const std::vector<FileInfo>& sorted_files,
                                           lucene::store::Directory* directory,
                                           int64_t header_length, int32_t header_file_count);
     // Helper functions specific to write_v2
-    virtual std::pair<lucene::store::Directory*, std::unique_ptr<lucene::store::IndexOutput>>
+    virtual std::pair<std::unique_ptr<lucene::store::Directory, DirectoryDeleter>,
+                      std::unique_ptr<lucene::store::IndexOutput>>
     create_output_stream_v2();
     void write_version_and_indices_count(lucene::store::IndexOutput* output);
     struct FileMetadata {
